@@ -1,0 +1,21 @@
+[package]
+name = "nicecooling"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+nicecooling-api.workspace = true
+nicecooling-core.workspace = true
+gpui-component.workspace = true
+gpui-pre.workspace = true
+gpui-pre-platform.workspace = true
+ksni.workspace = true
+notify-rust.workspace = true
+rusqlite.workspace = true
+rust-i18n.workspace = true
+serde.workspace = true
+tokio.workspace = true

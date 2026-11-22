@@ -1,0 +1,14 @@
+[package]
+name = "nicecooling-verify"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+nicecoolingd.workspace = true
+nicecooling-protocol.workspace = true
+tokio.workspace = true
+zbus.workspace = true

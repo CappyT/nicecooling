@@ -1,0 +1,44 @@
+[workspace]
+resolver = "3"
+members = [
+    "crates/nicecooling-core",
+    "crates/nicecooling-protocol",
+    "crates/nicecooling-hwmon",
+    "crates/nicecooling-api",
+    "crates/nicecoolingd",
+    "crates/nicecooling",
+    "tools/nicecooling-verify",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[workspace.dependencies]
+nicecooling-core = { path = "crates/nicecooling-core" }
+nicecooling-protocol = { path = "crates/nicecooling-protocol" }
+nicecooling-hwmon = { path = "crates/nicecooling-hwmon" }
+nicecooling-api = { path = "crates/nicecooling-api" }
+nicecoolingd = { path = "crates/nicecoolingd" }
+tokio = "1.54"
+zbus = "6.5"
+zbus_polkit = "6.0"
+sd-notify = "0.5"
+nusb = "0.2.9"
+rustix = "1.1"
+crc = "3.4"
+sha2 = "0.11"
+serde = "1.0"
+serde_json = "1.0"
+toml = "1.2"
+rusqlite = { version = "0.43", features = ["bundled"] }
+ksni = { version = "0.3.7", features = ["blocking"] }
+notify-rust = "4.19"
+rust-i18n = "4.2"
+gpui-component = "0.10.0"
+gpui-pre = "=0.3.12"
+gpui-pre-platform = { version = "=0.3.12", features = ["wayland", "x11"] }
+
+[workspace.lints.cargo]
+unused_dependencies = "allow"
