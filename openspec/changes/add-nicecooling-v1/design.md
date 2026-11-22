@@ -104,11 +104,12 @@ The daemon state is in `/var/lib/nicecooling/`. The app history is in `$XDG_DATA
 | `serde`, `serde_json` | 1.0 | Daemon state. |
 | `toml` | 1.2 | Board files, presets and the registry. |
 | `rusqlite` | 0.43, bundled SQLite | History. |
-| `ksni` | 0.3.7 | StatusNotifierItem and DBusMenu. |
+| `ksni` | 0.3.7, feature `blocking` | StatusNotifierItem and DBusMenu. GPUI has no Tokio runtime, so the app uses the blocking API. |
 | `notify-rust` | 4.19 | Notifications. |
 | `rust-i18n` | 4.2 | English and Italian. |
 | `gpui-component` | 0.10.0 | App widgets. |
 | `gpui-pre` | `=0.3.12` | GPUI. |
+| `gpui-pre-platform` | `=0.3.12`, features `wayland` and `x11` | The GPUI application entry point (`gpui_platform::application()`). |
 
 CI runs on GitHub Actions on `ubuntu-24.04`: the identifier check of D9, `cargo fmt --check`, `cargo clippy` with warnings as errors, and `cargo test --workspace`. The local hook enforces the commit format. CI has no commit check.
 
