@@ -1,0 +1,467 @@
+<!DOCTYPE node PUBLIC "-//freedesktop//DTD D-BUS Object Introspection 1.0//EN"
+ "http://www.freedesktop.org/standards/dbus/1.0/introspect.dtd">
+<!--
+  D-Bus contract of nicecoolingd. api.md gives the semantics, the identifiers and the errors.
+  Each method carries the annotation io.github.cappyt.NiceCooling1.Authorization:
+    read             no polkit check
+    write            action io.github.cappyt.NiceCooling1.write
+    critical         action io.github.cappyt.NiceCooling1.critical
+    cancel-poweroff  action io.github.cappyt.NiceCooling1.cancel-poweroff
+    write-or-critical: critical when the argument is RELEASE, else write
+  Properties with EmitsChangedSignal=false change on every tick; SensorsUpdated carries their values.
+-->
+<node>
+
+  <!-- Object path: /io/github/cappyt/NiceCooling1. Also implements org.freedesktop.DBus.ObjectManager. -->
+  <interface name="io.github.cappyt.NiceCooling1.Manager">
+    <property name="Version" type="s" access="read">
+      <annotation name="org.freedesktop.DBus.Property.EmitsChangedSignal" value="const"/>
+    </property>
+    <!-- ok | last-known-good | empty -->
+    <property name="StateHealth" type="s" access="read"/>
+
+    <method name="CreateDerivedSensor">
+      <annotation name="io.github.cappyt.NiceCooling1.Authorization" value="write"/>
+      <arg name="name" type="s" direction="in"/>
+      <!-- maximum | mean | difference -->
+      <arg name="type" type="s" direction="in"/>
+      <arg name="sources" type="ao" direction="in"/>
+      <arg name="sensor" type="o" direction="out"/>
+    </method>
+    <method name="CreateLoop">
+      <annotation name="io.github.cappyt.NiceCooling1.Authorization" value="write"/>
+      <arg name="name" type="s" direction="in"/>
+      <arg name="loop" type="o" direction="out"/>
+    </method>
+    <!-- (id, name, preset, points as (raw rpm, flow L/h)) -->
+    <method name="GetCalibrationTables">
+      <annotation name="io.github.cappyt.NiceCooling1.Authorization" value="read"/>
+      <arg name="tables" type="a(ssba(dd))" direction="out"/>
+    </method>
+    <!-- An empty id creates a table. A preset id fails with ReadOnly. -->
+    <method name="SetCalibrationTable">
+      <annotation name="io.github.cappyt.NiceCooling1.Authorization" value="write"/>
+      <arg name="id" type="s" direction="in"/>
+      <arg name="name" type="s" direction="in"/>
+      <arg name="points" type="a(dd)" direction="in"/>
+      <arg name="table_id" type="s" direction="out"/>
+    </method>
+    <method name="DeleteCalibrationTable">
+      <annotation name="io.github.cappyt.NiceCooling1.Authorization" value="write"/>
+      <arg name="id" type="s" direction="in"/>
+    </method>
+
+    <!-- One signal per tick. Each entry: (id, value, flags). api.md defines the flags. -->
+    <signal name="SensorsUpdated">
+      <arg name="time_us" type="t"/>
+      <arg name="sensors" type="a(sdy)"/>
+      <arg name="channels" type="a(sdy)"/>
+    </signal>
+  </interface>
+
+  <!-- Object path: /io/github/cappyt/NiceCooling1/board -->
+  <interface name="io.github.cappyt.NiceCooling1.Board">
+    <!-- DMI board_vendor and board_name -->
+    <property name="Vendor" type="s" access="read">
+      <annotation name="org.freedesktop.DBus.Property.EmitsChangedSignal" value="const"/>
+    </property>
+    <property name="Model" type="s" access="read">
+      <annotation name="org.freedesktop.DBus.Property.EmitsChangedSignal" value="const"/>
+    </property>
+    <!-- Board file id, empty for an unknown Board -->
+    <property name="BoardFile" type="s" access="read">
+      <annotation name="org.freedesktop.DBus.Property.EmitsChangedSignal" value="const"/>
+    </property>
+  </interface>
+
+  <!-- Object path: /io/github/cappyt/NiceCooling1/sensor/<sensor id> -->
+  <interface name="io.github.cappyt.NiceCooling1.Sensor">
+    <property name="Id" type="s" access="read">
+      <annotation name="org.freedesktop.DBus.Property.EmitsChangedSignal" value="const"/>
+    </property>
+    <property name="Name" type="s" access="read"/>
+    <property name="DefaultName" type="s" access="read">
+      <annotation name="org.freedesktop.DBus.Property.EmitsChangedSignal" value="const"/>
+    </property>
+    <!-- temperature | fan | flow | voltage | current | power | pressure | level | other -->
+    <property name="Kind" type="s" access="read">
+      <annotation name="org.freedesktop.DBus.Property.EmitsChangedSignal" value="const"/>
+    </property>
+    <!-- degC | rpm | l/h | V | A | W | mbar | ml | % | empty -->
+    <property name="Unit" type="s" access="read">
+      <annotation name="org.freedesktop.DBus.Property.EmitsChangedSignal" value="const"/>
+    </property>
+    <!-- hwmon | leakshield | derived | calibrated -->
+    <property name="Origin" type="s" access="read">
+      <annotation name="org.freedesktop.DBus.Property.EmitsChangedSignal" value="const"/>
+    </property>
+    <!-- hwmon name attribute, empty when Origin is not hwmon -->
+    <property name="Driver" type="s" access="read">
+      <annotation name="org.freedesktop.DBus.Property.EmitsChangedSignal" value="const"/>
+    </property>
+    <property name="Value" type="d" access="read">
+      <annotation name="org.freedesktop.DBus.Property.EmitsChangedSignal" value="false"/>
+    </property>
+    <property name="HasValue" type="b" access="read">
+      <annotation name="org.freedesktop.DBus.Property.EmitsChangedSignal" value="false"/>
+    </property>
+    <!-- An empty name restores DefaultName. -->
+    <method name="SetName">
+      <annotation name="io.github.cappyt.NiceCooling1.Authorization" value="write"/>
+      <arg name="name" type="s" direction="in"/>
+    </method>
+  </interface>
+
+  <!-- Also on /io/github/cappyt/NiceCooling1/sensor/<sensor id> when Origin is derived -->
+  <interface name="io.github.cappyt.NiceCooling1.DerivedSensor">
+    <property name="Type" type="s" access="read"/>
+    <property name="Sources" type="ao" access="read"/>
+    <method name="SetDefinition">
+      <annotation name="io.github.cappyt.NiceCooling1.Authorization" value="write"/>
+      <arg name="type" type="s" direction="in"/>
+      <arg name="sources" type="ao" direction="in"/>
+    </method>
+    <!-- Fails with InUse while a Curve, a Loop or a Profile rule reads the sensor. -->
+    <method name="Delete">
+      <annotation name="io.github.cappyt.NiceCooling1.Authorization" value="write"/>
+    </method>
+  </interface>
+
+  <!-- Object path: /io/github/cappyt/NiceCooling1/channel/<channel id> -->
+  <interface name="io.github.cappyt.NiceCooling1.Channel">
+    <property name="Id" type="s" access="read">
+      <annotation name="org.freedesktop.DBus.Property.EmitsChangedSignal" value="const"/>
+    </property>
+    <property name="Name" type="s" access="read"/>
+    <property name="DefaultName" type="s" access="read">
+      <annotation name="org.freedesktop.DBus.Property.EmitsChangedSignal" value="const"/>
+    </property>
+    <!-- Output in percent, from the last reconcile read-back -->
+    <property name="Duty" type="d" access="read">
+      <annotation name="org.freedesktop.DBus.Property.EmitsChangedSignal" value="false"/>
+    </property>
+    <property name="Raw" type="y" access="read">
+      <annotation name="org.freedesktop.DBus.Property.EmitsChangedSignal" value="false"/>
+    </property>
+    <!-- hardware | curve | fixed -->
+    <property name="Control" type="s" access="read"/>
+    <!-- none | lost-input | pump-stop -->
+    <property name="Override" type="s" access="read"/>
+    <property name="IsPump" type="b" access="read"/>
+    <property name="ManualAtSnapshot" type="b" access="read"/>
+    <!-- (input sensor, points as (input, duty), smoothing s, step limit %/s); input is / when Control is not curve -->
+    <property name="Curve" type="(oa(dd)dd)" access="read"/>
+    <property name="FixedDuty" type="d" access="read"/>
+
+    <method name="SetName">
+      <annotation name="io.github.cappyt.NiceCooling1.Authorization" value="write"/>
+      <arg name="name" type="s" direction="in"/>
+    </method>
+    <method name="SetCurve">
+      <annotation name="io.github.cappyt.NiceCooling1.Authorization" value="write"/>
+      <arg name="input" type="o" direction="in"/>
+      <arg name="points" type="a(dd)" direction="in"/>
+      <arg name="smoothing_s" type="d" direction="in"/>
+      <arg name="step_limit_pct_per_s" type="d" direction="in"/>
+    </method>
+    <method name="SetFixedDuty">
+      <annotation name="io.github.cappyt.NiceCooling1.Authorization" value="write"/>
+      <arg name="duty" type="d" direction="in"/>
+    </method>
+    <!-- Gives the Channel back to its Hardware curve: restores its BIOS snapshot attributes. -->
+    <method name="ReleaseToHardware">
+      <annotation name="io.github.cappyt.NiceCooling1.Authorization" value="write"/>
+    </method>
+  </interface>
+
+  <!-- Object path: /io/github/cappyt/NiceCooling1/loop/<loop id> -->
+  <interface name="io.github.cappyt.NiceCooling1.Loop">
+    <property name="Id" type="s" access="read">
+      <annotation name="org.freedesktop.DBus.Property.EmitsChangedSignal" value="const"/>
+    </property>
+    <property name="Name" type="s" access="read"/>
+    <property name="PumpChannels" type="ao" access="read"/>
+    <!-- Raw flow sensor and Calibration table id; / and empty when not set -->
+    <property name="FlowSensor" type="o" access="read"/>
+    <property name="CalibrationTable" type="s" access="read"/>
+    <!-- The calibrated flow sensor that the daemon creates for this Loop, / when not set -->
+    <property name="Flow" type="o" access="read"/>
+    <property name="WaterTemperature" type="o" access="read"/>
+    <property name="Leakshield" type="o" access="read"/>
+    <property name="PumpFloor" type="d" access="read"/>
+
+    <method name="SetName">
+      <annotation name="io.github.cappyt.NiceCooling1.Authorization" value="write"/>
+      <arg name="name" type="s" direction="in"/>
+    </method>
+    <method name="SetPumpChannels">
+      <annotation name="io.github.cappyt.NiceCooling1.Authorization" value="write"/>
+      <arg name="channels" type="ao" direction="in"/>
+    </method>
+    <method name="SetFlowSensor">
+      <annotation name="io.github.cappyt.NiceCooling1.Authorization" value="write"/>
+      <arg name="sensor" type="o" direction="in"/>
+      <arg name="calibration_table" type="s" direction="in"/>
+    </method>
+    <method name="SetWaterTemperature">
+      <annotation name="io.github.cappyt.NiceCooling1.Authorization" value="write"/>
+      <arg name="sensor" type="o" direction="in"/>
+    </method>
+    <method name="SetLeakshield">
+      <annotation name="io.github.cappyt.NiceCooling1.Authorization" value="write"/>
+      <arg name="leakshield" type="o" direction="in"/>
+    </method>
+    <method name="SetPumpFloor">
+      <annotation name="io.github.cappyt.NiceCooling1.Authorization" value="write"/>
+      <arg name="duty" type="d" direction="in"/>
+    </method>
+    <method name="Delete">
+      <annotation name="io.github.cappyt.NiceCooling1.Authorization" value="write"/>
+    </method>
+  </interface>
+
+  <!-- Object path: /io/github/cappyt/NiceCooling1/leakshield/<leakshield id> -->
+  <interface name="io.github.cappyt.NiceCooling1.Leakshield">
+    <property name="Id" type="s" access="read">
+      <annotation name="org.freedesktop.DBus.Property.EmitsChangedSignal" value="const"/>
+    </property>
+    <property name="Serial" type="s" access="read">
+      <annotation name="org.freedesktop.DBus.Property.EmitsChangedSignal" value="const"/>
+    </property>
+    <property name="Firmware" type="q" access="read"/>
+    <property name="Structure" type="q" access="read"/>
+    <property name="Connected" type="b" access="read"/>
+    <property name="Writable" type="b" access="read"/>
+    <!-- Empty when Writable, else a reason identifier from api.md -->
+    <property name="ReadOnlyReason" type="s" access="read"/>
+    <!-- shield | monitor | release, empty while unknown -->
+    <property name="Mode" type="s" access="read"/>
+    <!-- test | measure-fill-level | deaerate | refill, empty when no Action runs -->
+    <property name="RunningAction" type="s" access="read"/>
+    <!-- Device time minus PC time, in seconds -->
+    <property name="ClockOffset" type="x" access="read">
+      <annotation name="org.freedesktop.DBus.Property.EmitsChangedSignal" value="false"/>
+    </property>
+    <property name="SoftwareSensorSlots" type="q" access="read"/>
+
+    <!-- (field id, risk class safety|low, value, writable, reason) -->
+    <method name="GetFields">
+      <annotation name="io.github.cappyt.NiceCooling1.Authorization" value="read"/>
+      <arg name="fields" type="a(ssvbs)" direction="out"/>
+    </method>
+    <!-- One write path run for all fields. Returns after the read-back. Mode is not a field here. -->
+    <method name="SetFields">
+      <annotation name="io.github.cappyt.NiceCooling1.Authorization" value="write"/>
+      <arg name="fields" type="a{sv}" direction="in"/>
+    </method>
+    <method name="SetMode">
+      <annotation name="io.github.cappyt.NiceCooling1.Authorization" value="write-or-critical"/>
+      <arg name="mode" type="s" direction="in"/>
+    </method>
+    <!-- refill fails with PumpRunning while a Pump channel of the Loop reads above 0 rpm. -->
+    <method name="StartAction">
+      <annotation name="io.github.cappyt.NiceCooling1.Authorization" value="write"/>
+      <arg name="action" type="s" direction="in"/>
+    </method>
+    <!-- Fails with NotSupported when the registry has no cancel command for this firmware. -->
+    <method name="CancelAction">
+      <annotation name="io.github.cappyt.NiceCooling1.Authorization" value="write"/>
+    </method>
+    <!-- Sets the device clock from the PC clock now, whatever the offset. -->
+    <method name="SyncClock">
+      <annotation name="io.github.cappyt.NiceCooling1.Authorization" value="write"/>
+    </method>
+    <!-- Fails with NotSupported when the registry has no clear command for this firmware. -->
+    <method name="ClearPumpRuntime">
+      <annotation name="io.github.cappyt.NiceCooling1.Authorization" value="write"/>
+    </method>
+    <!-- (device time us, event identifier, details) -->
+    <method name="GetEvents">
+      <annotation name="io.github.cappyt.NiceCooling1.Authorization" value="read"/>
+      <arg name="events" type="a(tsa{sv})" direction="out"/>
+    </method>
+    <method name="GetSoftwareSensors">
+      <annotation name="io.github.cappyt.NiceCooling1.Authorization" value="read"/>
+      <arg name="slots" type="a(qo)" direction="out"/>
+    </method>
+    <!-- sensor / clears the slot -->
+    <method name="SetSoftwareSensor">
+      <annotation name="io.github.cappyt.NiceCooling1.Authorization" value="write"/>
+      <arg name="slot" type="q" direction="in"/>
+      <arg name="sensor" type="o" direction="in"/>
+    </method>
+    <!-- (backup id, time us, sha256 hex, firmware, reason first|before-write|manual|import) -->
+    <method name="ListBackups">
+      <annotation name="io.github.cappyt.NiceCooling1.Authorization" value="read"/>
+      <arg name="backups" type="a(stsqs)" direction="out"/>
+    </method>
+    <method name="CreateBackup">
+      <annotation name="io.github.cappyt.NiceCooling1.Authorization" value="write"/>
+      <arg name="backup" type="s" direction="out"/>
+    </method>
+    <!-- Reports 3, 5 and 8, each with its report ID byte, for an export by the app -->
+    <method name="GetBackup">
+      <annotation name="io.github.cappyt.NiceCooling1.Authorization" value="read"/>
+      <arg name="backup" type="s" direction="in"/>
+      <arg name="report3" type="ay" direction="out"/>
+      <arg name="report5" type="ay" direction="out"/>
+      <arg name="report8" type="ay" direction="out"/>
+    </method>
+    <!-- Fails with InvalidArgument for a wrong size, a bad CRC or another structure id than the device has. -->
+    <method name="ImportBackup">
+      <annotation name="io.github.cappyt.NiceCooling1.Authorization" value="write"/>
+      <arg name="report3" type="ay" direction="in"/>
+      <arg name="report5" type="ay" direction="in"/>
+      <arg name="report8" type="ay" direction="in"/>
+      <arg name="backup" type="s" direction="out"/>
+    </method>
+    <method name="RestoreBackup">
+      <annotation name="io.github.cappyt.NiceCooling1.Authorization" value="critical"/>
+      <arg name="backup" type="s" direction="in"/>
+    </method>
+    <method name="FactoryReset">
+      <annotation name="io.github.cappyt.NiceCooling1.Authorization" value="critical"/>
+    </method>
+    <!-- (device alarm id, current Device response, proposed Device response, overlap warning id or empty) -->
+    <method name="GetDeviceResponseProposals">
+      <annotation name="io.github.cappyt.NiceCooling1.Authorization" value="read"/>
+      <arg name="proposals" type="a(ssss)" direction="out"/>
+    </method>
+
+    <!-- Field ids that changed outside the volatile mask and not by the daemon -->
+    <signal name="ExternalChange">
+      <arg name="fields" type="as"/>
+    </signal>
+    <!-- A write or the save-settings command after it failed. backup is the backup the restore offer uses. -->
+    <signal name="WriteFailed">
+      <arg name="error" type="s"/>
+      <arg name="backup" type="s"/>
+    </signal>
+  </interface>
+
+  <!-- Object path: /io/github/cappyt/NiceCooling1 -->
+  <interface name="io.github.cappyt.NiceCooling1.Profiles">
+    <property name="Active" type="o" access="read"/>
+    <!-- default | rule | manual -->
+    <property name="ActivationCause" type="s" access="read"/>
+    <!-- applied | leakshield-failed | leakshield-paused -->
+    <property name="ActiveState" type="s" access="read"/>
+    <property name="Default" type="o" access="read">
+      <annotation name="org.freedesktop.DBus.Property.EmitsChangedSignal" value="const"/>
+    </property>
+    <property name="ImmediateSwitching" type="b" access="read"/>
+    <property name="RuleDelaySeconds" type="u" access="read"/>
+    <property name="DwellSeconds" type="u" access="read"/>
+
+    <!-- copy_from / creates the Profile from the current state -->
+    <method name="CreateProfile">
+      <annotation name="io.github.cappyt.NiceCooling1.Authorization" value="write"/>
+      <arg name="name" type="s" direction="in"/>
+      <arg name="copy_from" type="o" direction="in"/>
+      <arg name="profile" type="o" direction="out"/>
+    </method>
+    <!-- Manual activation -->
+    <method name="ActivateProfile">
+      <annotation name="io.github.cappyt.NiceCooling1.Authorization" value="write"/>
+      <arg name="profile" type="o" direction="in"/>
+    </method>
+    <!-- Ends a manual activation; the Profile rules decide again. -->
+    <method name="ReturnToAutomatic">
+      <annotation name="io.github.cappyt.NiceCooling1.Authorization" value="write"/>
+    </method>
+    <method name="SetImmediateSwitching">
+      <annotation name="io.github.cappyt.NiceCooling1.Authorization" value="write"/>
+      <arg name="enabled" type="b" direction="in"/>
+    </method>
+    <!-- Applies to every rule. Defaults 30 and 300. -->
+    <method name="SetRuleTiming">
+      <annotation name="io.github.cappyt.NiceCooling1.Authorization" value="write"/>
+      <arg name="rule_delay_s" type="u" direction="in"/>
+      <arg name="dwell_s" type="u" direction="in"/>
+    </method>
+    <!-- Ordered list: (rule id, profile, type process|time|threshold, enabled, parameters) -->
+    <method name="GetRules">
+      <annotation name="io.github.cappyt.NiceCooling1.Authorization" value="read"/>
+      <arg name="rules" type="a(sosba{sv})" direction="out"/>
+    </method>
+    <!-- Replaces the list. An empty rule id creates a rule. Returns the ids in list order. -->
+    <method name="SetRules">
+      <annotation name="io.github.cappyt.NiceCooling1.Authorization" value="write"/>
+      <arg name="rules" type="a(sosba{sv})" direction="in"/>
+      <arg name="ids" type="as" direction="out"/>
+    </method>
+
+    <signal name="ProfileActivated">
+      <arg name="profile" type="o"/>
+      <arg name="cause" type="s"/>
+      <arg name="state" type="s"/>
+    </signal>
+  </interface>
+
+  <!-- Object path: /io/github/cappyt/NiceCooling1/profile/<profile id> -->
+  <interface name="io.github.cappyt.NiceCooling1.Profile">
+    <property name="Id" type="s" access="read">
+      <annotation name="org.freedesktop.DBus.Property.EmitsChangedSignal" value="const"/>
+    </property>
+    <property name="Name" type="s" access="read"/>
+    <property name="IsDefault" type="b" access="read">
+      <annotation name="org.freedesktop.DBus.Property.EmitsChangedSignal" value="const"/>
+    </property>
+    <property name="ContainsRelease" type="b" access="read"/>
+    <method name="SetName">
+      <annotation name="io.github.cappyt.NiceCooling1.Authorization" value="write"/>
+      <arg name="name" type="s" direction="in"/>
+    </method>
+    <!-- Fails with DefaultProfile on the Default Profile, with InUse while a rule points to it. -->
+    <method name="Delete">
+      <annotation name="io.github.cappyt.NiceCooling1.Authorization" value="write"/>
+    </method>
+    <!-- storage.md, Profile file, gives the keys. -->
+    <method name="GetContent">
+      <annotation name="io.github.cappyt.NiceCooling1.Authorization" value="read"/>
+      <arg name="content" type="a{sv}" direction="out"/>
+    </method>
+  </interface>
+
+  <!-- Object path: /io/github/cappyt/NiceCooling1 -->
+  <interface name="io.github.cappyt.NiceCooling1.Alarms">
+    <!-- (instance id, event id, severity warning|alarm, source id, response none|notify|poweroff, raised us, poweroff at us or 0) -->
+    <property name="Active" type="a(sssssst)" access="read"/>
+
+    <!-- (event id, response, delay s) -->
+    <method name="GetResponses">
+      <annotation name="io.github.cappyt.NiceCooling1.Authorization" value="read"/>
+      <arg name="responses" type="a(ssu)" direction="out"/>
+    </method>
+    <method name="SetResponse">
+      <annotation name="io.github.cappyt.NiceCooling1.Authorization" value="write"/>
+      <arg name="event" type="s" direction="in"/>
+      <arg name="response" type="s" direction="in"/>
+      <arg name="delay_s" type="u" direction="in"/>
+    </method>
+    <method name="CancelPoweroff">
+      <annotation name="io.github.cappyt.NiceCooling1.Authorization" value="cancel-poweroff"/>
+      <arg name="instance" type="s" direction="in"/>
+    </method>
+
+    <signal name="AlarmRaised">
+      <arg name="instance" type="s"/>
+      <arg name="event" type="s"/>
+      <arg name="severity" type="s"/>
+      <arg name="source" type="s"/>
+      <arg name="response" type="s"/>
+      <arg name="poweroff_at_us" type="t"/>
+    </signal>
+    <signal name="AlarmCleared">
+      <arg name="instance" type="s"/>
+    </signal>
+    <signal name="PoweroffCancelled">
+      <arg name="instance" type="s"/>
+    </signal>
+    <signal name="PoweroffFailed">
+      <arg name="instance" type="s"/>
+      <arg name="error" type="s"/>
+    </signal>
+  </interface>
+
+</node>
