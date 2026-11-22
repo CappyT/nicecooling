@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Leakshield: Settings wizard, Pressure step</title>
+<meta name="viewport" content="width=1280"><link rel="stylesheet" href="nc.css"><script src="nc.js"></script>
+<style>
+.page{grid-template-columns:1fr}.stepper{flex-wrap:wrap}
+.foot{display:flex;gap:6px;padding:12px 18px;border-top:1px solid var(--border)}.foot .grow{flex:1}
+.field b{font-weight:700}.field .input{width:104px}.field .input.t{width:78px}.vb{display:inline-flex;gap:4px;align-items:center;font-size:12px;font-weight:600;margin-left:6px}
+.diff{display:grid;gap:2px;padding:9px 18px;border-top:1px solid var(--border)}.diff s{color:var(--fg-dim)}
+ol{padding:0 18px 12px 36px;display:grid;gap:3px}
+</style></head>
+<!-- Leakshield, Settings wizard, step 4 Pressure, 1280x800. The Pending changes card is under the step card. One field is read-only because it is not a Verified field. Values are synthetic. -->
+<body data-page="leakshield" data-title="Leakshield" data-subtitle="S/N 03521-11874">
+<nav class="tabs"><span>Overview</span><span class="on">Settings</span><span>Sensors</span><span>Display</span><span>Lighting</span><span>Alarms</span><span>Status</span><span>System</span><span>Fields</span></nav>
+<main class="page">
+  <section class="card stepcard"><div class="stepper">
+    <span class="done"><b><i data-i="check"></i></b>Reservoir</span><i></i><span class="done"><b><i data-i="check"></i></b>Pump</span><i></i><span class="done"><b><i data-i="check"></i></b>Flow</span><i></i>
+    <span class="on"><b>4</b>Pressure</span><i></i><span><b>5</b>Standby</span><i></i><span><b>6</b>Mode</span><i></i><span><b>7</b>Summary</span></div></section>
+
+  <section class="card"><header>Pressure <span class="cap">Step 4 of 7</span></header>
+    <div class="field"><div><b>Adaptive pressure</b><span class="vb t-ok"><i data-i="shieldok"></i>Verified field</span></div>
+      <div class="cap">The Leakshield computes the pressure from the pump speed and the flow of the Feed. Recommended.</div><div class="ctl"><i class="switch on"></i></div></div>
+    <div class="field"><div><b>Expert values</b><span class="vb t-ok"><i data-i="shieldok"></i>Verified field</span></div>
+      <div class="cap">Not used while adaptive pressure is on.</div>
+      <div class="ctl"><span class="input ro">250<span class="u">min</span></span><span class="input ro">300<span class="u">target</span></span><span class="input ro">350<span class="u">max</span></span><span class="dim">mbar</span></div></div>
+    <div class="field"><div><b>Time-controlled vacuum generation</b><span class="vb t-ok"><i data-i="shieldok"></i>Verified field</span></div>
+      <div class="cap">The Leakshield builds the negative pressure at two times of the day, so that you choose when its pump makes noise.</div>
+      <div class="ctl"><span class="input t">08:00</span><span class="input t">20:00</span><i class="switch on"></i></div></div>
+    <div class="field"><div><b>Pressure hysteresis</b><span class="vb dim"><i data-i="lock"></i>Read-only</span></div>
+      <div class="cap">Not a Verified field: this Safety field has no Verification write yet. <a class="link">Open Fields</a></div>
+      <div class="ctl"><span class="input ro">12<span class="u">mbar</span></span></div></div>
+    <div class="foot"><button class="btn flat">Cancel</button><span class="grow"></span><button class="btn"><i data-i="left"></i>Flow</button><button class="btn suggested">Standby<i data-i="right"></i></button></div>
+  </section>
+
+  <section class="card"><header>Pending changes <span class="tag accent">2</span></header>
+    <div class="diff"><b>Time-controlled vacuum generation</b><span><s>Off</s> -&gt; On</span></div>
+    <div class="diff"><b>Second time</b><span><s>22:00</s> -&gt; 20:00</span></div>
+    <div class="diff"><span class="cap">The wizard writes nothing before you select Apply on the Summary step. Then each write has four steps:</span></div>
+    <ol class="cap"><li>Backup saved</li><li>Written</li><li>Read back</li><li>Verified: only the expected bytes changed</li></ol>
+  </section>
+</main>
+</body></html>

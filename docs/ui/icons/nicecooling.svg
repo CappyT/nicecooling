@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+  <title>nicecooling</title>
+  <!-- App icon. A water loop with an instrument bubble that holds a drop: the Loop diagram of the app. Adwaita palette. -->
+  <rect x="18" y="55" width="92" height="54" rx="27" fill="none" stroke="#1a5fb4" stroke-width="16"/>
+  <rect x="18" y="50" width="92" height="54" rx="27" fill="none" stroke="#3584e4" stroke-width="16"/>
+  <path d="M42 104h44" fill="none" stroke="#62a0ea" stroke-width="4" stroke-linecap="round"/>
+  <circle cx="64" cy="46" r="27" fill="#1a3f7a"/>
+  <circle cx="64" cy="42" r="27" fill="#1a5fb4"/>
+  <circle cx="64" cy="42" r="21" fill="#ffffff"/>
+  <path d="M64 25.500c0 0-11.500 12.800-11.500 21a11.500 11.500 0 0 0 23 0c0-8.200-11.500-21-11.500-21z" fill="#3584e4"/>
+  <path d="M58 47a6 6 0 0 0 4.200 5.700" fill="none" stroke="#ffffff" stroke-width="2.500" stroke-linecap="round" opacity=".7"/>
+</svg>

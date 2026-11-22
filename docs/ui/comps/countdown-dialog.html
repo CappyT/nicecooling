@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Poweroff countdown dialog</title>
+<meta name="viewport" content="width=1280"><link rel="stylesheet" href="nc.css"><script src="nc.js"></script>
+<style>
+.dialog .top{background:var(--alarm-bg);color:var(--alarm-fg);padding:18px 24px;display:flex;gap:12px;align-items:center}
+.dialog .top svg.i{width:32px;height:32px}.dialog .top b{font-size:18px;line-height:24px}
+.dialog .mid{padding:18px 24px 6px;text-align:center}
+.dialog .sec{font-size:72px;line-height:76px;font-weight:800}
+.dialog .progress{margin:12px 0 6px}.dialog .progress i{background:var(--alarm-bg)}
+.dialog dl{display:grid;grid-template-columns:auto 1fr;gap:3px 18px;padding:12px 24px;text-align:left}.dialog dt{color:var(--fg-dim)}
+.dialog .act{display:grid;gap:6px;padding:6px 24px 24px}.dialog .act .btn{height:46px;font-size:16px}.dialog .act .btn+.btn{height:34px;font-size:14px}
+.focus{outline:2px solid var(--accent);outline-offset:2px}
+</style></head>
+<!-- Poweroff countdown dialog over the Overview, 1280x800. It opens with the window when an Alarm with the poweroff action is raised. -->
+<body data-page="overview" data-title="Overview" data-ls="alarm" data-alarms="1" data-alarmtext="1 Alarm, poweroff in 0:21">
+<div class="banner alarm"><i data-i="alarm"></i>
+  <div class="grow"><b>Large leak Alarm on Leakshield</b><div>Main loop. The PC powers off when the countdown ends.</div></div>
+  <span class="count">0:21</span><button class="btn onalarm">Cancel poweroff</button></div>
+<main class="page">
+  <section class="card"><header>Main loop <span class="tag mode">SHIELD</span><span class="cap">Leakshield, 1 Pump channel</span></header>
+    <svg class="pid" data-loop='{"ls":true,"level":68,"pt":["142 mbar","below minimum 250","alarm"],"st":["2 840 rpm","Duty 62 %"],"ft":["115 L/h","calibrated"],"tt":["31.4 &deg;C","water"],"names":["Waterpump","Water Flow","T Sensor"]}'></svg></section>
+</main>
+<div class="scrim"><div class="dialog" role="alertdialog" aria-labelledby="t">
+  <div class="top"><i data-i="alarm"></i><div><b id="t">Large leak Alarm</b><div>The PC powers off when the countdown ends.</div></div></div>
+  <div class="mid"><div class="sec">21</div><div class="dim">seconds left of 30</div><div class="progress"><i style="width:70%"></i></div></div>
+  <dl><dt>Source</dt><dd>Leakshield, Main loop</dd><dt>Raised</dt><dd>21:46:51</dd><dt>Pressure</dt><dd>142 mbar, minimum 250 mbar</dd><dt>Alarm response</dt><dd>Poweroff after 30 s (default)</dd></dl>
+  <div class="act"><button class="btn suggested focus">Cancel poweroff</button><button class="btn">Hide</button><div class="cap" style="text-align:center">The countdown continues in the banner.</div></div>
+</div></div>
+</body></html>

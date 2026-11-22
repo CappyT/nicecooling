@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Profiles with the rule editor</title>
+<meta name="viewport" content="width=1280"><link rel="stylesheet" href="nc.css"><script src="it.js"></script><script src="nc.js"></script>
+<style>
+.page{grid-template-columns:292px 1fr}.col{display:grid;gap:12px;align-content:start}
+.rows .sel{background:var(--accent-tint)}.rule{min-height:46px}.rule .n{width:18px;text-align:right;color:var(--fg-dim)}
+.rule b{white-space:nowrap}
+.ed{display:grid;grid-template-columns:repeat(6,1fr);gap:9px;padding:9px 18px 12px 18px;background:var(--hover);border-top:1px solid var(--border)}
+.ed label{display:grid;gap:3px}.ed .input,.ed .select{background:var(--card)}.ed .w2{grid-column:span 3}.ed .act{grid-column:1/-1;display:flex;gap:6px;justify-content:flex-end;align-items:flex-end}
+.warnrow{background:var(--warning-tint)}
+</style></head>
+<!-- Profiles, 1280x800. The active Profile is open. Rule 3 is open in the rule editor. The Default Profile is always in the list. Values are synthetic. -->
+<body data-page="profiles" data-title="Profiles">
+<main class="page">
+  <div class="col master">
+    <section class="card"><header>Profiles <span class="end"><button class="btn sm"><i data-i="plus"></i>New</button></span></header>
+      <div class="rows"><div class="sel"><div class="grow"><b>Quiet</b><div class="cap">Active by rule 2</div></div><span class="tag accent">Active</span></div>
+      <div><div class="grow"><b>Gaming</b><div class="cap">Rule 1</div></div></div>
+      <div><div class="grow"><b>Performance</b><div class="cap">Rule 3</div></div></div>
+      <div><div class="grow"><b>Maintenance</b><div class="cap">No rule. Mode RELEASE</div></div><i data-i="warn" class="t-warn"></i></div>
+      <div><div class="grow"><b>Default</b><div class="cap">Active when no rule is true</div></div></div></div></section>
+    <section class="card"><header>Options</header>
+      <div class="rows tight"><div><span class="grow">Rule delay</span><span class="input" style="width:86px;height:28px">30<span class="u">s</span></span></div>
+      <div><span class="grow">Profile dwell</span><span class="input" style="width:86px;height:28px">5<span class="u">min</span></span></div>
+      <div style="min-height:52px"><div class="grow">Immediate switching<div class="cap">No Rule delay, no Profile dwell</div></div><i class="switch"></i></div></div></section>
+  </div>
+
+  <div class="col">
+    <section class="card"><header>Quiet <span class="tag accent">Active by rule</span>
+        <span class="end"><button class="btn sm suggested">Activate manually</button><button class="btn sm flat icon" aria-label="Duplicate, Rename, Delete"><i data-i="menu"></i></button></span></header>
+      <div class="cols c2" style="gap:0">
+        <div class="rows tight" style="border-right:1px solid var(--border)"><div><b>Curves</b><span class="grow"></span><a class="link" aria-label="Open Channels">Open</a></div>
+          <div><span class="grow">Waterpump</span><span class="dim">Curve, 4 points</span></div>
+          <div><span class="grow">Chassis Fan 1, 2</span><span class="dim">Curve, 5 points</span></div>
+          <div><span class="grow">High Amp Fan</span><span class="dim">Fixed Duty 30 %</span></div></div>
+        <div class="rows tight"><div><b>Leakshield snapshot</b><span class="grow"></span><a class="link" aria-label="Open Leakshield">Open</a></div>
+          <div><span class="grow">Mode</span><span class="tag mode">SHIELD</span></div>
+          <div><span class="grow">Display</span><span class="dim">Brightness 20 %, 3 pages</span></div>
+          <div><span class="grow">Lighting</span><span class="dim">2 controllers</span></div></div>
+      </div>
+      <div class="rows"><div class="warnrow"><i data-i="warn" class="t-warn"></i><div class="grow"><b>Alarm thresholds differ from 2 other Profiles</b><div class="cap">Fill level Warning: 40 % here, 30 % in Gaming and Performance.</div></div><button class="btn sm">Apply to all Profiles</button></div></div>
+    </section>
+
+    <section class="card"><header>Profile rules <span class="cap">The first rule that is true wins. Drag to change the order.</span><span class="end"><button class="btn sm"><i data-i="plus"></i>Add rule</button></span></header>
+      <div class="rows">
+        <div class="rule"><i data-i="grip" class="dim"></i><span class="n">1</span><i data-i="app"></i><div class="grow">Process <b>steam</b> runs</div><i data-i="right" class="dim"></i><b>Gaming</b></div>
+        <div class="rule"><i data-i="grip" class="dim"></i><span class="n">2</span><i data-i="clock"></i><div class="grow">Time window <b>22:00 to 07:00</b></div><i data-i="right" class="dim"></i><b>Quiet</b><span class="tag accent">True since 22:00</span></div>
+        <div class="rule sel"><i data-i="grip" class="dim"></i><span class="n">3</span><i data-i="gauge"></i><div class="grow">Sensor <b>Water temperature above 38 &deg;C for 60 s</b></div><i data-i="right" class="dim"></i><b>Performance</b></div>
+      </div>
+      <div class="ed">
+        <label class="w2"><span class="cap">Condition</span><span class="select">Sensor threshold<i data-i="down"></i></span></label>
+        <label class="w2"><span class="cap">Activate Profile</span><span class="select">Performance<i data-i="down"></i></span></label>
+        <label class="w2"><span class="cap">Sensor</span><span class="select"><span class="nm">Water temperature</span><b style="margin-left:auto">31.4 &deg;C</b><i data-i="down" style="margin-left:6px"></i></span></label>
+        <label><span class="cap">Is</span><span class="select">above<i data-i="down"></i></span></label>
+        <label><span class="cap">Value</span><span class="input">38<span class="u">&deg;C</span></span></label>
+        <label><span class="cap">For</span><span class="input">60<span class="u">s</span></span></label>
+        <div class="act"><button class="btn sm flat"><i data-i="trash"></i>Delete rule</button><span style="flex:1"></span><button class="btn sm">Cancel</button><button class="btn sm suggested">Save rule</button></div>
+      </div>
+    </section>
+  </div>
+</main>
+</body></html>

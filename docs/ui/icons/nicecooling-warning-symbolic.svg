@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16">
+  <title>nicecooling: Warning</title>
+  <!-- Tray icon, Warning state: the app symbol with a triangle. The class lets GTK and GNOME Shell use the warning color. -->
+  <defs><clipPath id="c"><path clip-rule="evenodd" d="M0 0h16v16H0zM12.500 6.300L17.900 17H7.100z"/></clipPath></defs>
+  <g fill="#2e3436" clip-path="url(#c)"><path fill-rule="evenodd" d="M5.5 2h5A4.5 4.5 0 0 1 15 6.500v3A4.5 4.5 0 0 1 10.500 14h-5A4.5 4.5 0 0 1 1 9.500v-3A4.5 4.5 0 0 1 5.500 2zm0 2A2.5 2.5 0 0 0 3 6.500v3A2.5 2.5 0 0 0 5.500 12h5A2.5 2.5 0 0 0 13 9.500v-3A2.500 2.500 0 0 0 10.500 4z"/><path d="M6.500 4.800c0 0-1.700 2-1.700 3.300a1.700 1.700 0 0 0 3.400 0c0-1.300-1.700-3.300-1.700-3.300z"/></g>
+  <path class="warning" fill="#2e3436" fill-rule="evenodd" d="M12.500 8.500L16 16H9zM12 11.200v2.300h1v-2.300zM12 14.100v0.900h1v-0.900z"/>
+</svg>

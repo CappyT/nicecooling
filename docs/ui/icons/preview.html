@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>nicecooling icons</title>
+<meta name="viewport" content="width=1100">
+<style>
+:root{--window:#FAFAFB;--card:#FFFFFF;--fg:#2A2A2E;--dim:#5E5E66;--border:#DCDCE0;--panel:#F6F5F4;--panel-fg:#2A2A2E}
+:root[data-theme="dark"]{--window:#222226;--card:#36363A;--fg:#FFFFFF;--dim:#B4B4BC;--border:#47474D;--panel:#131314;--panel-fg:#FFFFFF}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font:14px/20px "Adwaita Sans",Inter,system-ui,sans-serif;color:var(--fg);background:var(--window);padding:24px;width:1100px}
+h1{font-size:18px;line-height:24px;margin-bottom:4px}h2{font-size:14px;margin:24px 0 9px}p,figcaption{color:var(--dim);font-size:12px;line-height:16px}
+.row{display:flex;gap:24px;align-items:flex-end;flex-wrap:wrap}.card{background:var(--card);border-radius:12px;padding:18px 24px}
+figure{display:grid;justify-items:center;gap:6px}
+.panel{display:flex;align-items:center;gap:14px;height:32px;padding:0 14px;background:var(--panel);color:var(--panel-fg);border-radius:9px;font-weight:700;font-size:13px}
+.panel span{margin-right:auto}.panel img{width:16px;height:16px}
+.d{display:none}:root[data-theme="dark"] .d{display:inline}:root[data-theme="dark"] .l{display:none}
+.big img{width:64px;height:64px;image-rendering:pixelated}.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:18px}
+</style>
+<script>var q=new URLSearchParams(location.search).get('theme');if(q)document.documentElement.dataset.theme=q;</script></head>
+<body>
+<h1>nicecooling icons</h1>
+<p>App icon: a water loop with an instrument bubble that holds a drop. Tray icons: the same loop and drop as a 16 px symbolic icon, with a badge for each state.</p>
+
+<h2>App icon, nicecooling.svg</h2>
+<div class="card row">
+  <figure><img src="png/nicecooling-256.png" width="256" height="256" alt=""><figcaption>256</figcaption></figure>
+  <figure><img src="png/nicecooling-128.png" width="128" height="128" alt=""><figcaption>128</figcaption></figure>
+  <figure><img src="png/nicecooling-64.png" width="64" height="64" alt=""><figcaption>64</figcaption></figure>
+  <figure><img src="png/nicecooling-48.png" width="48" height="48" alt=""><figcaption>48</figcaption></figure>
+  <figure><img src="png/nicecooling-32.png" width="32" height="32" alt=""><figcaption>32</figcaption></figure>
+  <figure><img src="png/nicecooling-24.png" width="24" height="24" alt=""><figcaption>24</figcaption></figure>
+  <figure><img src="png/nicecooling-16.png" width="16" height="16" alt=""><figcaption>16</figcaption></figure>
+</div>
+
+<h2>Tray icons at 16 px in a top bar: normal, Warning, Alarm, offline</h2>
+<div class="row">
+  <div class="panel" style="width:330px"><span>Top bar, this theme</span>
+    <img class="l" src="png/symbolic/nicecooling-symbolic-16.png" alt=""><img class="d" src="png/symbolic/nicecooling-symbolic-light-16.png" alt="">
+    <img class="l" src="png/symbolic/nicecooling-warning-symbolic-16.png" alt=""><img class="d" src="png/symbolic/nicecooling-warning-symbolic-light-16.png" alt="">
+    <img class="l" src="png/symbolic/nicecooling-alarm-symbolic-16.png" alt=""><img class="d" src="png/symbolic/nicecooling-alarm-symbolic-light-16.png" alt="">
+    <img class="l" src="png/symbolic/nicecooling-offline-symbolic-16.png" alt=""><img class="d" src="png/symbolic/nicecooling-offline-symbolic-light-16.png" alt=""></div>
+  <div class="panel" style="width:330px;background:#131314;color:#fff"><span>GNOME Shell top bar</span>
+    <img src="png/symbolic/nicecooling-symbolic-light-16.png" alt=""><img src="png/symbolic/nicecooling-warning-symbolic-light-16.png" alt="">
+    <img src="png/symbolic/nicecooling-alarm-symbolic-light-16.png" alt=""><img src="png/symbolic/nicecooling-offline-symbolic-light-16.png" alt=""></div>
+</div>
+
+<h2>Tray icons, enlarged 4x from the 16 px export</h2>
+<div class="card grid big">
+  <figure><img class="l" src="png/symbolic/nicecooling-symbolic-16.png" alt=""><img class="d" src="png/symbolic/nicecooling-symbolic-light-16.png" alt=""><figcaption>Normal<br>nicecooling-symbolic.svg</figcaption></figure>
+  <figure><img class="l" src="png/symbolic/nicecooling-warning-symbolic-16.png" alt=""><img class="d" src="png/symbolic/nicecooling-warning-symbolic-light-16.png" alt=""><figcaption>Warning<br>nicecooling-warning-symbolic.svg</figcaption></figure>
+  <figure><img class="l" src="png/symbolic/nicecooling-alarm-symbolic-16.png" alt=""><img class="d" src="png/symbolic/nicecooling-alarm-symbolic-light-16.png" alt=""><figcaption>Alarm, and daemon down<br>nicecooling-alarm-symbolic.svg</figcaption></figure>
+  <figure><img class="l" src="png/symbolic/nicecooling-offline-symbolic-16.png" alt=""><img class="d" src="png/symbolic/nicecooling-offline-symbolic-light-16.png" alt=""><figcaption>Offline<br>nicecooling-offline-symbolic.svg</figcaption></figure>
+</div>
+
+<h2>Tray icons at 48 px</h2>
+<div class="card grid">
+  <figure><img class="l" src="png/symbolic/nicecooling-symbolic-48.png" alt=""><img class="d" src="png/symbolic/nicecooling-symbolic-light-48.png" alt=""></figure>
+  <figure><img class="l" src="png/symbolic/nicecooling-warning-symbolic-48.png" alt=""><img class="d" src="png/symbolic/nicecooling-warning-symbolic-light-48.png" alt=""></figure>
+  <figure><img class="l" src="png/symbolic/nicecooling-alarm-symbolic-48.png" alt=""><img class="d" src="png/symbolic/nicecooling-alarm-symbolic-light-48.png" alt=""></figure>
+  <figure><img class="l" src="png/symbolic/nicecooling-offline-symbolic-48.png" alt=""><img class="d" src="png/symbolic/nicecooling-offline-symbolic-light-48.png" alt=""></figure>
+</div>
+</body></html>

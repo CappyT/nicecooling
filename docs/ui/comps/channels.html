@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Channels with the Curve editor</title>
+<meta name="viewport" content="width=1280"><link rel="stylesheet" href="nc.css"><script src="it.js"></script><script src="nc.js"></script>
+<style>
+.page{grid-template-columns:360px 1fr}
+td small{display:block;font-size:12px;line-height:16px;color:var(--fg-dim);overflow:hidden;text-overflow:ellipsis}td{height:48px;overflow:hidden;text-overflow:ellipsis}
+.master table{table-layout:fixed}.master th.num{width:58px}.master th.num:last-child{width:68px}.master td:first-child{white-space:normal}.master td.num{text-overflow:clip}.master td small{white-space:normal}.master td{padding-top:6px;padding-bottom:6px}
+.f3{display:grid;grid-template-columns:2fr 1fr 1fr;gap:12px;padding:0 18px 12px}.f3 label{display:grid;gap:3px}
+.ctlrow{display:flex;align-items:center;gap:12px;padding:0 18px 12px;flex-wrap:wrap}.plot.curve{max-height:292px}
+.read{display:flex;gap:18px;padding:6px 18px 12px;flex-wrap:wrap}.read b{font-weight:700}
+.pts{display:flex;align-items:center;gap:6px;padding:0 18px 12px}.pts .input{width:74px;height:28px;border-radius:7px}
+.pts .pt{display:grid;gap:3px}.pts .pt.on .input{outline:2px solid var(--accent)}
+</style></head>
+<!-- Channels, 1280x800. The Pump channel is selected and its Curve is open in the Curve editor. Values are synthetic. -->
+<body data-page="channels" data-title="Channels" data-warnings="1">
+<main class="page">
+  <section class="card master" style="align-self:start"><header>Channels <span class="cap">ASUS ROG CROSSHAIR VIII DARK HERO</span></header>
+    <table><tr><th>Channel</th><th class="num">rpm</th><th class="num">Duty</th></tr>
+      <tr><td>Chassis Fan 1<small>Curve on Water temperature</small></td><td class="num">820</td><td class="num">38 %</td></tr>
+      <tr><td>CPU Fan<small>Hardware curve, not controlled</small></td><td class="num">640</td><td class="num">35 %</td></tr>
+      <tr><td>Chassis Fan 2<small>Curve on Water temperature</small></td><td class="num">810</td><td class="num">38 %</td></tr>
+      <tr><td><span class="t-warn"><i data-i="warn"></i></span> Chassis Fan 3<small class="t-warn">Curve, Input lost: GPU temperature</small></td><td class="num">1 940</td><td class="num">100 %</td></tr>
+      <tr><td>High Amp Fan<small>Fixed Duty</small></td><td class="num">1 150</td><td class="num">45 %</td></tr>
+      <tr class="sel"><td>Waterpump <span class="tag accent">Pump channel</span><small>Curve on Water temperature</small></td><td class="num">2 840</td><td class="num">62 %</td></tr>
+      <tr><td><span class="t-off"><i data-i="off"></i></span> AIO Pump<small>Hardware curve, no speed signal</small></td><td class="num dim">0</td><td class="num">60 %</td></tr>
+    </table></section>
+
+  <section class="card"><header>Waterpump <button class="btn sm flat icon" aria-label="Rename"><i data-i="pencil"></i></button><span class="tag accent">Pump channel</span></header>
+    <div class="ctlrow"><span class="cap">Control</span><span class="seg"><span class="on">Curve</span><span>Fixed Duty</span><span>Hardware curve</span></span></div>
+    <div class="f3">
+      <label><span class="cap">Input</span><span class="select"><span class="nm">Water temperature</span><b style="margin-left:auto">31.9 &deg;C</b><i data-i="down" style="margin-left:6px"></i></span></label>
+      <label><span class="cap">Input smoothing</span><span class="input">5<span class="u">s average</span></span></label>
+      <label><span class="cap">Duty step limit</span><span class="input">5<span class="u">% per s</span></span></label>
+    </div>
+    <div class="body"><svg class="plot curve" viewBox="0 0 600 292" role="img" aria-label="Curve of the Waterpump Channel">
+      <defs><pattern id="hatch" width="7" height="7" patternTransform="rotate(45)" patternUnits="userSpaceOnUse"><path d="M0 0V7" stroke="var(--fg-dim)" stroke-width="1"/></pattern></defs>
+      <path class="grid" d="M44 12H584M44 61.6H584M44 111.2H584M44 160.8H584M44 210.4H584M111.5 12V260M179 12V260M246.5 12V260M314 12V260M381.5 12V260M449 12V260M516.5 12V260M584 12V260"/>
+      <rect x="44" y="160.8" width="540" height="99.2" fill="url(#hatch)" opacity=".45"/><path d="M44 160.8H584" stroke="var(--fg-dim)" stroke-dasharray="5 4"/>
+      <rect x="340" y="166" width="240" height="20" rx="4" fill="var(--card)"/><text x="574" y="180" text-anchor="end">Pump floor 40 %: no Curve goes below it</text>
+      <path class="axis" d="M44 12V260H584"/>
+      <text x="38" y="16" text-anchor="end">100</text><text x="38" y="65.6" text-anchor="end">80</text><text x="38" y="115" text-anchor="end">60</text><text x="38" y="164.8" text-anchor="end">40</text><text x="38" y="214" text-anchor="end">20</text><text x="38" y="264" text-anchor="end">0</text>
+      <text x="44" y="276" text-anchor="middle">20</text><text x="179" y="276" text-anchor="middle">30</text><text x="314" y="276" text-anchor="middle">40</text><text x="449" y="276" text-anchor="middle">50</text><text x="584" y="276" text-anchor="middle">60</text>
+      <text x="584" y="290" text-anchor="end">Input, &deg;C</text><text x="50" y="24">Duty, %</text>
+      <path d="M44 160.8H111.5L179 123.6 246.5 61.6 314 12H584" fill="none" stroke="var(--s1)" stroke-width="2.5"/>
+      <path d="M197.9 106.2V260M44 106.2H197.9" stroke="var(--fg)" stroke-dasharray="3 3" fill="none"/>
+      <circle cx="197.9" cy="106.2" r="6" fill="var(--fg)" stroke="var(--card)" stroke-width="2"/>
+      <rect x="208" y="84" width="118" height="22" rx="6" fill="var(--fg)"/><text x="216" y="99" style="fill:var(--card);font-weight:700">Now 31.4 &deg;C, 62 %</text>
+      <g fill="var(--card)" stroke="var(--s1)" stroke-width="2.5"><circle cx="111.5" cy="160.8" r="6"/><circle cx="179" cy="123.6" r="6"/><circle cx="314" cy="12" r="6"/></g>
+      <circle cx="246.5" cy="61.6" r="11" fill="var(--accent-tint)"/><circle cx="246.5" cy="61.6" r="6" fill="var(--s1)" stroke="var(--card)" stroke-width="2"/>
+    </svg></div>
+    <div class="read"><span>Input <b>31.4 &deg;C</b> <span class="dim">5 s average</span></span><span>Curve <b>62 %</b></span><span>Duty <b>62 %</b></span><span class="cap" style="margin-left:auto;display:flex;gap:6px;align-items:center"><i data-i="check" class="t-ok"></i>Applied 21:44:02</span></div>
+    <div class="pts"><span class="cap" style="width:52px">Input<br>Duty</span>
+      <span class="pt"><span class="input">25<span class="u">&deg;C</span></span><span class="input">40<span class="u">%</span></span></span>
+      <span class="pt"><span class="input">30<span class="u">&deg;C</span></span><span class="input">55<span class="u">%</span></span></span>
+      <span class="pt on"><span class="input">35<span class="u">&deg;C</span></span><span class="input">80<span class="u">%</span></span></span>
+      <span class="pt"><span class="input">40<span class="u">&deg;C</span></span><span class="input">100<span class="u">%</span></span></span>
+</div>
+    <div class="pts"><button class="btn sm"><i data-i="plus"></i>Add point</button><button class="btn sm flat"><i data-i="trash"></i>Remove point</button></div>
+    <div class="rows"><div><i data-i="right" class="dim"></i><div class="grow"><b>BIOS snapshot</b><div class="cap">When the daemon stops, the Board runs its Hardware curve for this Channel.</div></div><span class="cap">Saved 2026-11-20 08:14</span></div></div>
+  </section>
+</main>
+</body></html>

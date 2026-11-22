@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Overview: daemon down</title>
+<meta name="viewport" content="width=1280"><link rel="stylesheet" href="nc.css"><script src="nc.js"></script></head>
+<!-- Overview with the daemon down, 1280x800. systemd stopped the restarts of the daemon, so the nicecooling protection is off. The banner has the solid Alarm treatment. Values are the last ones that the app received. -->
+<body data-page="overview" data-title="Overview" data-daemon="down" data-profile="none" data-alarms="1" data-alarmtext="Protection off">
+
+<div class="banner alarm"><i data-i="alarm"></i>
+  <div class="grow"><b>The daemon is down. nicecooling protection is off.</b><div>No Curve, no Feed, no alarm response. The Board runs its Hardware curves from the BIOS snapshot.</div></div>
+  <button class="btn onalarm">Show how to start it</button></div>
+
+<main class="page">
+  <section class="card">
+    <header>Main loop <span class="tag off"><i data-i="off"></i>Not live</span><span class="cap">Last values 21:52:07</span></header>
+    <svg class="pid" role="img" aria-label="Diagram of the Main loop. The values are not live." data-loop='{"ls":true,
+      "pt":["--","last 298 mbar","off"],"st":["--","last 2 840 rpm","off"],"ft":["--","last 115 L/h","off"],"tt":["--","last 31.4 &deg;C","off"],
+      "names":["Waterpump","Water Flow","T Sensor"]}'></svg>
+  </section>
+  <div class="cols c3">
+    <section class="card"><header>Active Alarms</header>
+      <div class="rows"><div><i data-i="alarm" class="t-alarm"></i><div class="grow"><b>Daemon down</b><div class="cap">Since 21:52:07. The daemon runs the alarm responses: none runs now.</div></div></div></div></section>
+    <section class="card"><header>Key temperatures</header>
+      <div class="rows tight"><div><span class="grow dim">CPU</span><b class="dim">--</b></div><div><span class="grow dim">GPU</span><b class="dim">--</b></div>
+      <div><span class="grow dim">Chipset</span><b class="dim">--</b></div><div><span class="grow dim">VRM</span><b class="dim">--</b></div></div></section>
+    <section class="card"><header>Active Profile</header>
+      <div class="rows"><div><div class="grow"><b class="dim">None</b><div class="cap">Profiles and Profile rules need the daemon.</div></div></div></div></section>
+  </div>
+</main>
+</body></html>

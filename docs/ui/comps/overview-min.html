@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Overview: two Loops at 1100x700</title>
+<meta name="viewport" content="width=1100"><link rel="stylesheet" href="nc.css"><script src="nc.js"></script></head>
+<!-- Overview at the minimum window, 1100x700. Two Loops, one without a Leakshield. State: normal. The flow of the GPU loop is above its Calibration table: the value has an out-of-range flag, which is not a Warning. Values are synthetic. -->
+<body data-page="overview" data-title="Overview" data-profile="Gaming (manual)">
+<main class="page">
+  <section class="card">
+    <header>Main loop <span class="tag mode">SHIELD</span><span class="cap">Leakshield, 1 Pump channel</span><span class="end"><a class="link">Open Loop</a></span></header>
+    <svg class="pid" role="img" aria-label="Diagram of the Main loop" data-loop='{"ls":true,"level":71,
+      "pt":["298 mbar","target 300"],"st":["3 310 rpm","Duty 74 %"],"ft":["131 L/h","calibrated"],"tt":["33.8 &deg;C","water"],
+      "names":["Waterpump","Water Flow","T Sensor"]}'></svg>
+  </section>
+  <section class="card">
+    <header>GPU loop <span class="cap">No Leakshield, 1 Pump channel</span><span class="end"><a class="link">Open Loop</a></span></header>
+    <svg class="pid" role="img" aria-label="Diagram of the GPU loop" data-loop='{"ls":false,"none":"Pressure is not measured.",
+      "st":["4 120 rpm","Duty 80 %"],"ft":["212 L/h","above table range","flag"],"tt":["36.2 &deg;C","water"],
+      "names":["AIO Pump","Flow 2","Water 2"]}'></svg>
+  </section>
+  <div class="cols c3">
+    <section class="card"><header>Active Alarms</header>
+      <div class="rows"><div><i data-i="check" class="t-ok"></i><span class="grow dim">No active Alarms</span></div></div></section>
+    <section class="card"><header>Key temperatures</header>
+      <div class="rows tight"><div><span class="grow">CPU</span><b>71 &deg;C</b></div><div><span class="grow">GPU</span><b>64 &deg;C</b></div>
+      <div><span class="grow">Chipset</span><b>55 &deg;C</b></div></div></section>
+    <section class="card"><header>Active Profile</header>
+      <div class="rows"><div><div class="grow"><b>Gaming</b> <span class="tag">Manual</span><div class="cap">Profile rules wait until you revoke it.</div></div></div></div></section>
+  </div>
+</main>
+</body></html>

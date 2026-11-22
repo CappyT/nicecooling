@@ -1,0 +1,26 @@
+// Italian strings for the layout check (?lang=it). Not the product translation file.
+window.NC_IT = {
+  'Overview': 'Panoramica', 'Loops': 'Loop', 'Channels': 'Canali', 'Sensors': 'Sensori', 'Devices': 'Dispositivi', 
+  'Control': 'Controllo', 'Profiles': 'Profili', 'Alarms': 'Allarmi', 'History': 'Cronologia', 'Settings': 'Impostazioni',
+  'Display': 'Display', 'Status': 'Stato', 'System': 'Sistema', 'Fields': 'Campi', 'Test': 'Test', 'Measure fill level': 'Misura il livello', 'Deaerate': 'Disaera',
+  'Pressure': 'Pressione', 'negative pressure in the Loop': 'depressione nel Loop', 'In range': 'Nei limiti', 'Protecting': 'Protezione attiva', 'Fill level': 'Livello', 'Volume change': 'Variazione di volume', 'Pressure change': 'Variazione di pressione', 'Mode and Actions': 'Modo e Azioni', 'Show the steps': 'Mostra i passi', 'Pump runtime per day': 'Funzionamento pompa al giorno', 'vacuum pump': 'pompa del vuoto', 'Average 8 s': 'Media 8 s', 'measured 09:12': 'misurato alle 09:12',
+  'Daemon connected': 'Demone connesso', 'Profile: Quiet (rule)': 'Profilo: Quiet (regola)', 'No active Alarms': 'Nessun Allarme attivo', '1 Warning': '1 Avviso',
+  'Channel': 'Canale', 'Curve on Water temperature': 'Curva su Temperatura acqua', 'Hardware curve, not controlled': 'Curva hardware, non controllato',
+  'Curve, Input lost: GPU temperature': 'Curva, Input perso: Temperatura GPU', 'Fixed Duty': 'Duty fisso', 'Hardware curve, no speed signal': 'Curva hardware, nessun segnale di velocita',
+  'Pump channel': 'Canale pompa', 'Curve': 'Curva', 'Hardware curve': 'Curva hardware', 'Input smoothing': 'Smorzamento Input', 'Duty step limit': 'Limite di variazione Duty',
+  'Water temperature': 'Temperatura acqua', 's average': 's di media', '% per s': '% al s', 'Pump floor 40 %: no Curve goes below it': 'Minimo pompa 40 %: nessuna Curva scende sotto',
+  'Now 31.4 °C, 62 %': 'Ora 31.4 °C, 62 %', 'Input, °C': 'Input, °C', 'Input': 'Input', '5 s average': 'media su 5 s', 'Applied 21:44:02': 'Applicato 21:44:02',
+  'Add point': 'Aggiungi punto', 'Remove point': 'Rimuovi punto', 'BIOS snapshot': 'Snapshot BIOS',
+  'When the daemon stops, the Board runs its Hardware curve for this Channel.': 'Quando il demone si ferma, la Board applica la sua Curva hardware a questo Canale.', 'Saved 2026-11-20 08:14': 'Salvato 2026-11-20 08:14',
+  'New': 'Nuovo', 'Active by rule 2': 'Attivo per la regola 2', 'Active': 'Attivo', 'Rule 1': 'Regola 1', 'Rule 3': 'Regola 3', 'No rule. Mode RELEASE': 'Nessuna regola. Modo RELEASE',
+  'Options': 'Opzioni', 'Rule delay': 'Ritardo regola', 'Profile dwell': 'Permanenza profilo', 'Immediate switching': 'Cambio immediato', 'No Rule delay, no Profile dwell': 'Senza ritardo regola e senza permanenza',
+  'Active by rule': 'Attivo per regola', 'Activate manually': 'Attiva manualmente', 'Duplicate': 'Duplica', 'Rename': 'Rinomina', 'Curves': 'Curve', 'Open Channels': 'Apri Canali', 'Open': 'Apri', 'Curve, 4 points': 'Curva, 4 punti', 'Curve, 5 points': 'Curva, 5 punti',
+  'Water temperature, 4 points': 'Temperatura acqua, 4 punti', 'Water temperature, 5 points': 'Temperatura acqua, 5 punti', 'Fixed Duty 30 %': 'Duty fisso 30 %',
+  'Leakshield snapshot': 'Snapshot Leakshield', 'Open Leakshield': 'Apri Leakshield', 'Mode': 'Modo', 'Brightness 20 %, 3 pages': 'Luminosita 20 %, 3 pagine', 'Lighting': 'Illuminazione', '2 controllers': '2 controller',
+  'Alarm thresholds differ from 2 other Profiles': 'Le soglie di Allarme sono diverse da altri 2 Profili', 'Fill level Warning: 40 % here, 30 % in Gaming and Performance.': 'Avviso livello: 40 % qui, 30 % in Gaming e Performance.',
+  'Apply to all Profiles': 'Applica a tutti i Profili', 'Profile rules': 'Regole dei Profili', 'The first rule that is true wins. Drag to change the order.': 'Vince la prima regola vera. Trascina per cambiare l\'ordine.',
+  'Add rule': 'Aggiungi regola', 'Process': 'Il processo', 'runs': 'e in esecuzione', 'Time window': 'Fascia oraria', '22:00 to 07:00': 'dalle 22:00 alle 07:00', 'Sensor': 'Sensore',
+  'Water temperature above 38 °C for 60 s': 'Temperatura acqua sopra 38 °C per 60 s', 'False': 'Falsa', 'True since 22:00': 'Vera dalle 22:00', 'Condition': 'Condizione', 'Sensor threshold': 'Soglia di un sensore',
+  'Is': 'E', 'above': 'sopra', 'Value': 'Valore', 'For': 'Per', 'Activate Profile': 'Attiva il Profilo', 'Delete rule': 'Elimina regola', 'Cancel': 'Annulla', 'Save rule': 'Salva regola',
+  'Default': 'Default', 'Active when no rule is true': 'Attivo quando nessuna regola e vera'
+};

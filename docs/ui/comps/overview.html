@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Overview: Alarm</title>
+<meta name="viewport" content="width=1280"><link rel="stylesheet" href="nc.css"><script src="nc.js"></script></head>
+<!-- Overview, 1280x800. State: large leak Alarm with the default alarm response (poweroff after 30 s). Values are synthetic. -->
+<body data-page="overview" data-title="Overview" data-ls="alarm" data-alarms="1" data-alarmtext="1 Alarm, poweroff in 0:21">
+
+<div class="banner alarm"><i data-i="alarm"></i>
+  <div class="grow"><b>Large leak Alarm on Leakshield</b><div>Main loop. The PC powers off when the countdown ends.</div></div>
+  <span class="count">0:21</span><button class="btn onalarm">Cancel poweroff</button></div>
+
+<main class="page">
+  <section class="card">
+    <header>Main loop <span class="tag mode">SHIELD</span><span class="cap">Leakshield, 1 Pump channel</span>
+      <span class="end"><a class="link">Open Loop</a></span></header>
+    <svg class="pid" role="img" aria-label="Diagram of the Main loop" data-loop='{"ls":true,"level":68,
+      "pt":["142 mbar","below minimum 250","alarm"],"st":["2 840 rpm","Duty 62 %"],"ft":["115 L/h","calibrated"],"tt":["31.4 &deg;C","water"],
+      "names":["Waterpump","Water Flow","T Sensor"]}'></svg>
+  </section>
+
+  <section class="card">
+    <header>Pressure <span class="cap">Leakshield, last 10 minutes</span><span class="end cap">Pressure change -38 mbar/min</span></header>
+    <div class="body"><svg class="plot" viewBox="0 0 980 116" height="116" preserveAspectRatio="none">
+      <path class="grid" d="M0 20H980M0 44H980M0 68H980"/><path class="axis" d="M0 92H980"/>
+      <path d="M0 44H980" stroke="var(--alarm)" stroke-dasharray="5 4" fill="none"/>
+      <path d="M860 4V92" stroke="var(--alarm)" fill="none"/>
+      <path d="M0 92V32.5L120 32 240 32.6 360 32.2 480 32.5 600 32.1 720 32.4 860 32.5 880 38 905 48 930 58 955 66 976 70V92z" fill="var(--s1)" opacity=".12"/>
+      <path d="M0 32.5L120 32 240 32.6 360 32.2 480 32.5 600 32.1 720 32.4 860 32.5 880 38 905 48 930 58 955 66 976 70" stroke="var(--s1)" stroke-width="2" fill="none"/>
+      <circle cx="976" cy="70" r="4" fill="var(--alarm)"/>
+      <text x="4" y="27">Target 300 mbar</text><text x="4" y="58">Minimum 250 mbar</text>
+      <text x="854" y="14" text-anchor="end">Alarm raised 21:46:51</text><text x="0" y="110">21:37</text><text x="980" y="110" text-anchor="end">21:47</text>
+    </svg></div>
+  </section>
+
+  <div class="cols c3">
+    <section class="card"><header>Active Alarms <span class="tag alarm">1</span></header>
+      <div class="rows"><div><i data-i="alarm" class="t-alarm"></i><div class="grow"><b>Large leak</b><div class="cap">Leakshield, since 21:46:51. Alarm response: poweroff after 30 s.</div></div></div>
+      <a><span class="link grow">Open Leakshield</span><i data-i="right" class="dim"></i></a></div></section>
+    <section class="card"><header>Key temperatures</header>
+      <div class="rows tight"><div><span class="grow">CPU</span><b>58 &deg;C</b></div><div><span class="grow">GPU</span><b>49 &deg;C</b></div>
+      <div><span class="grow">Chipset</span><b>52 &deg;C</b></div><div><span class="grow">VRM</span><b>47 &deg;C</b></div></div></section>
+    <section class="card"><header>Active Profile</header>
+      <div class="rows"><div><div class="grow"><b>Quiet</b> <span class="tag accent">By rule</span><div class="cap">Rule 2: time window 22:00 to 07:00.</div></div></div>
+      <a><span class="link grow">Open Profiles</span><i data-i="right" class="dim"></i></a></div></section>
+  </div>
+</main>
+</body></html>
