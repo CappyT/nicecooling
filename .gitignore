@@ -2,3 +2,8 @@
 /target/
 /re/
 *.db
+/dumps/
+/tools/re/**/bin/
+/tools/re/**/obj/
+/tools/re/**/out/
+/tools/spikes/*/target/
