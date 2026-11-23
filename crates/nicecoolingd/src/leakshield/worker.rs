@@ -365,7 +365,16 @@ async fn run(parts: WorkerParts, mut queue: mpsc::UnboundedReceiver<Queued>) {
             return;
         };
         match message {
-            Queued::Job(message) => run_message(&parts, *message, &mut save),
+            Queued::Job(message) => {
+                // A Profile write that waits goes first, at its time. The job then works on
+                // the slot that the Profile write put on the device, and its read-back goes
+                // into that slot.
+                if let Some((at, old)) = waiting.take() {
+                    tokio::time::sleep_until(at).await;
+                    finish_profile(&parts, old, &mut save, &mut spacing);
+                }
+                run_message(&parts, *message, &mut save);
+            }
             Queued::Profile(message) => {
                 start_profile(&parts, message, &mut waiting, &mut save, &mut spacing);
             }

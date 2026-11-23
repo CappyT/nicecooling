@@ -8,7 +8,7 @@ use nicecooling_core::profile::Slot;
 use nicecooling_protocol::report3::Report3;
 use nicecooling_protocol::sim::Request;
 use nicecoolingd::leakshield::save_settings::SAVE_SETTINGS_DELAY;
-use nicecoolingd::leakshield::worker::{ProfileRequest, WorkerParts, WriteWorker};
+use nicecoolingd::leakshield::worker::{Job, ProfileRequest, WorkerParts, WriteWorker};
 use nicecoolingd::profiles::activate::{Decision, Failure};
 use nicecoolingd::state::slots::SlotMeta;
 use nicecoolingd::state::{SlotStore, StateStore};
@@ -214,6 +214,35 @@ async fn a_waiting_request_writes_the_slot_as_it_is_when_the_write_goes_out() {
 
     assert_eq!(&rig.sim.report3()[DISPLAY_PAGE_TIME..][..2], [0x01, 0x2C]);
     assert_eq!(rig.sim.report3()[747], 3);
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_factory_reset_runs_after_the_waiting_profile_write() {
+    let rig = Rig::new("spacing-reset");
+    let (worker, slots) = (start(&rig), slots(&rig));
+    let start = Instant::now();
+    submit(&rig, &worker, &slots, 2).await.unwrap();
+    let waiting = worker.request_profile(request(&slots, 3));
+    sleep(Duration::from_millis(200)).await;
+
+    let report1 = rig.io.read_report1().unwrap();
+    worker.submit(Job::FactoryReset { report1 }).await.unwrap();
+    let done = Instant::now();
+
+    // The Profile write keeps its time, 1.5 s after the first write. The reset comes after it.
+    assert!(waiting.await.unwrap().is_ok());
+    assert_eq!(done - start, Duration::from_millis(1500));
+    let order: Vec<&str> = rig
+        .sim
+        .requests()
+        .iter()
+        .filter_map(|r| match r {
+            Request::SetFeature { .. } => Some("write"),
+            Request::WriteOutput(_) => Some("command"),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(order, ["write", "write", "command"]);
 }
 
 #[tokio::test(start_paused = true)]

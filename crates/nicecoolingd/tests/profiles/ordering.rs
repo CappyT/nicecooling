@@ -113,3 +113,46 @@ async fn a_user_write_while_a_profile_write_waits_stays_on_the_device_and_in_the
         "device and slot 3 file must agree and keep the edit"
     );
 }
+
+/// `display_brightness_active`, a u8 with the values 0 to 3.
+const BRIGHTNESS: usize = 65;
+
+/// A user write while a Profile write waits must keep the other settings of the new slot. The
+/// edit lands on the report 3 of the old slot, and the read-back goes into the new slot.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_user_write_while_a_profile_write_waits_keeps_the_other_settings_of_the_slot() {
+    let rig = Rig::start_with(automatic).await;
+    let hub = rig.daemon.as_ref().unwrap().hub.clone();
+    // Slot 3 has its own brightness. Slot 2 has the brightness of the device.
+    let old = rig.sim.report3()[BRIGHTNESS];
+    let own = (old + 1) % 4;
+    let mut slot3 = Report3::decode(&std::fs::read(slot_file(&rig, 3)).unwrap()).unwrap();
+    slot3.set_bytes(BRIGHTNESS, &[own]);
+    std::fs::write(slot_file(&rig, 3), slot3.encode()).unwrap();
+    let proxy = LeakshieldProxy::builder(&rig.client)
+        .path(path(Kind::Leakshield, LEAKSHIELD))
+        .cache_properties(zbus::proxy::CacheProperties::No)
+        .build()
+        .await
+        .unwrap();
+
+    hub.activate_profile("profile_2", Cause::Manual).unwrap();
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    rig.sim.edit_report1(|r| r.active_profile = 2);
+    // Waits until 1.5 s after the first write.
+    hub.activate_profile("profile_3", Cause::Manual).unwrap();
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    // The user edits another field than the brightness.
+    let fields: HashMap<&str, Variant<'static>> =
+        [("display_page_time", Variant::F64(30.0))].into();
+    proxy.set_fields(fields).await.unwrap();
+    tokio::time::sleep(Duration::from_millis(2500)).await;
+
+    let device = rig.sim.report3();
+    let stored = std::fs::read(slot_file(&rig, 3)).unwrap();
+    assert_eq!(
+        (device[747], device[BRIGHTNESS], stored[BRIGHTNESS]),
+        (3, own, own),
+        "Profile 3 is active, but its brightness {own} is replaced by {old} of slot 2"
+    );
+}
