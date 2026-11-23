@@ -52,6 +52,23 @@ fn details_variant(value: f64) -> OwnedVariant {
     OwnedVariant::try_from(Variant::F64(value)).expect("a number has no file descriptor")
 }
 
+/// The values of a `SetFields` or `SetStoredFields` argument, sorted by field id.
+fn field_values(
+    fields: HashMap<String, OwnedVariant>,
+) -> Result<Vec<(String, crate::leakshield::fields::FieldValue)>> {
+    let mut values = Vec::with_capacity(fields.len());
+    for (id, value) in fields {
+        let value = field_value(&value).ok_or_else(|| {
+            nicecooling_api::Error::invalid(format!(
+                "the value of {id} is not a number, a name or a list of them"
+            ))
+        })?;
+        values.push((id, value));
+    }
+    values.sort_by(|a, b| a.0.cmp(&b.0));
+    Ok(values)
+}
+
 #[interface(name = "io.github.cappyt.NiceCooling1.Leakshield")]
 impl Leakshield {
     #[zbus(property(emits_changed_signal = "const"))]
@@ -155,20 +172,38 @@ impl Leakshield {
     ) -> Result<()> {
         self.authorize(connection, &header, "SetFields", None)
             .await?;
-        let mut values = Vec::with_capacity(fields.len());
-        for (id, value) in fields {
-            let value = field_value(&value).ok_or_else(|| {
-                nicecooling_api::Error::invalid(format!(
-                    "the value of {id} is not a number, a name or a list of them"
-                ))
-            })?;
-            values.push((id, value));
-        }
-        values.sort_by(|a, b| a.0.cmp(&b.0));
+        let values = field_values(fields)?;
         if let Some(report3) = self.device.set_fields(values).await? {
             self.hub.store_user_write(&self.device, &report3);
         }
         Ok(())
+    }
+
+    #[zbus(out_args("fields"))]
+    async fn get_stored_fields(&self, slot: u8) -> Result<HashMap<String, OwnedVariant>> {
+        let stored = self
+            .device
+            .get_stored_fields(slot, &self.hub.slot_store())
+            .await?;
+        Ok(stored
+            .into_iter()
+            .map(|(id, value)| (id, variant_of(&value)))
+            .collect())
+    }
+
+    async fn set_stored_fields(
+        &self,
+        #[zbus(connection)] connection: &Connection,
+        #[zbus(header)] header: Header<'_>,
+        slot: u8,
+        fields: HashMap<String, OwnedVariant>,
+    ) -> Result<()> {
+        self.authorize(connection, &header, "SetStoredFields", None)
+            .await?;
+        let values = field_values(fields)?;
+        self.device
+            .set_stored_fields(slot, values, &self.hub.slot_store())
+            .await
     }
 
     async fn set_mode(

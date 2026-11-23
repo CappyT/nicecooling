@@ -28,8 +28,10 @@ use super::feed::FeedSent;
 use super::fields::{self, EditError, FieldRow, FieldValue};
 use super::mode::{self, COMMAND_DELAY, Mode};
 use super::software_sensors::SoftwareSlots;
-use super::worker::{Job, ProfileRequest, ProfileTicket, WorkerParts, WriteWorker};
-use super::write::{WriteEnv, WriteError, out_of_range_field, take_backup};
+use super::worker::{
+    Job, ProfileRequest, ProfileTicket, StoredReply, StoredRequest, WorkerParts, WriteWorker,
+};
+use super::write::{FieldEdit, WriteEnv, WriteError, out_of_range_field, take_backup};
 use super::{DeviceEvent, DeviceIo, blocking, clock, counters, reset_alarm};
 use crate::profiles::activate::{Decision, Failure};
 use crate::state::slots::SlotMeta;
@@ -49,7 +51,7 @@ pub struct AttachParams {
 }
 
 /// What the properties of the interface show. A change of it emits `PropertiesChanged`.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct Info {
     pub firmware: u16,
     pub structure: u16,
@@ -170,6 +172,13 @@ fn write_error(error: WriteError) -> Error {
         WriteError::NotSupported => {
             Error::not_supported("the registry of this firmware lacks the command")
         }
+        WriteError::NoStoredSlot => Error::not_found("the slot has no stored report 3"),
+        WriteError::ActiveSlot => {
+            Error::invalid("the slot is the active slot of the device: use SetFields")
+        }
+        WriteError::FieldNotEditable(field) => {
+            Error::invalid(format!("{field} is not an editable field"))
+        }
     }
 }
 
@@ -266,16 +275,6 @@ impl Attached {
         };
         let (info, _) = watch::channel(info_of(&params.registry, &state));
         let info = Arc::new(info);
-        let failed_backup: Arc<dyn Fn(&str) + Send + Sync> = {
-            let info = Arc::clone(&info);
-            Arc::new(move |backup| {
-                info.send_if_modified(|current| {
-                    let changed = current.failed_write_backup != backup;
-                    backup.clone_into(&mut current.failed_write_backup);
-                    changed
-                });
-            })
-        };
         let worker = WriteWorker::spawn(WorkerParts {
             io: io.clone(),
             registry: Arc::clone(&params.registry),
@@ -283,7 +282,7 @@ impl Attached {
             last_known: Arc::clone(&last_known),
             events: events.clone(),
             save_delay: params.save_delay,
-            failed_backup,
+            info: Arc::clone(&info),
         });
         Ok(Arc::new(Self {
             backups: Backups::new(&params.state_dir, &serial),
@@ -604,15 +603,61 @@ impl Attached {
         Ok(fields::rows(&self.registry, &report1, &report3))
     }
 
-    /// One write path run for all fields. Returns after the read-back, with the report 3 that the
-    /// read-back returned, or `None` when there was nothing to write.
-    pub async fn set_fields(&self, values: Vec<(String, FieldValue)>) -> Result<Option<Report3>> {
-        let edits = fields::edits(&self.registry, values).map_err(|e| match e {
+    fn edits(&self, values: Vec<(String, FieldValue)>) -> Result<Vec<FieldEdit>> {
+        fields::edits(&self.registry, values).map_err(|e| match e {
             EditError::NoSuchField(id) => Error::not_found(format!("no field {id}")),
             EditError::BadValue(id) => {
                 Error::invalid(format!("the value of {id} does not fit the field"))
             }
-        })?;
+        })
+    }
+
+    async fn stored(
+        &self,
+        slot: u8,
+        slots: &SlotStore,
+        edits: Option<Vec<FieldEdit>>,
+    ) -> Result<StoredReply> {
+        let slot = Slot::new(u32::from(slot))
+            .ok_or_else(|| Error::invalid("a slot is a number from 1 to 4"))?;
+        self.worker
+            .stored(StoredRequest {
+                slots: slots.clone(),
+                leakshield: self.id(),
+                slot,
+                edits,
+            })
+            .await
+            .map_err(write_error)
+    }
+
+    /// The stored settings of a slot (design D18). The device is not read.
+    pub async fn get_stored_fields(
+        &self,
+        slot: u8,
+        slots: &SlotStore,
+    ) -> Result<Vec<(String, FieldValue)>> {
+        match self.stored(slot, slots, None).await? {
+            StoredReply::Fields(fields) => Ok(fields),
+            StoredReply::Written => Err(failed("the worker answered a read with a write")),
+        }
+    }
+
+    /// Changes the stored report 3 of another slot. The device gets nothing.
+    pub async fn set_stored_fields(
+        &self,
+        slot: u8,
+        values: Vec<(String, FieldValue)>,
+        slots: &SlotStore,
+    ) -> Result<()> {
+        let edits = self.edits(values)?;
+        self.stored(slot, slots, Some(edits)).await.map(|_| ())
+    }
+
+    /// One write path run for all fields. Returns after the read-back, with the report 3 that the
+    /// read-back returned, or `None` when there was nothing to write.
+    pub async fn set_fields(&self, values: Vec<(String, FieldValue)>) -> Result<Option<Report3>> {
+        let edits = self.edits(values)?;
         if edits.is_empty() {
             return Ok(None);
         }

@@ -76,6 +76,11 @@ fn profile_error(error: ProfileError, id: &str) -> Error {
 }
 
 impl Hub {
+    /// The stored Leakshield settings of the four slots.
+    pub fn slot_store(&self) -> crate::state::SlotStore {
+        self.slots.clone()
+    }
+
     pub fn profile_ids(&self) -> Vec<String> {
         self.inner().profiles.ids().map(str::to_owned).collect()
     }

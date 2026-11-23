@@ -4,6 +4,7 @@ use std::time::Duration;
 use nicecooling_protocol::registry::Registry;
 use nicecooling_protocol::sim::Request;
 use nicecoolingd::leakshield::DeviceEvent;
+use nicecoolingd::leakshield::attached::Info;
 use nicecoolingd::leakshield::external::{ExternalDetector, LastKnown, POLL_PERIOD};
 use nicecoolingd::leakshield::save_settings::SAVE_SETTINGS_DELAY;
 use nicecoolingd::leakshield::worker::{Job, WorkerParts, WriteWorker};
@@ -67,7 +68,7 @@ async fn own_write_emits_no_signal() {
         last_known: Arc::clone(&rig.last_known),
         events,
         save_delay: SAVE_SETTINGS_DELAY,
-        failed_backup: Arc::new(|_| {}),
+        info: Arc::new(tokio::sync::watch::channel(Info::default()).0),
     });
 
     worker

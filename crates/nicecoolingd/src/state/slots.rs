@@ -25,6 +25,9 @@ pub struct SlotMeta {
     pub structure: u16,
     /// The serial of the Leakshield that produced the report, as `<first>-<second>`.
     pub serial: String,
+    /// `SetStoredFields` changed the report. The next activation writes it with a read-back, and
+    /// a good read-back clears the mark.
+    pub edited: bool,
 }
 
 impl SlotMeta {
@@ -34,6 +37,7 @@ impl SlotMeta {
             firmware,
             structure,
             serial: serial.to_owned(),
+            edited: false,
         }
     }
 }
@@ -101,6 +105,17 @@ impl SlotStore {
         write_atomic(&dir.join("report3.bin"), &report.encode())?;
         self.store
             .save(&format!("{}/meta.json", Self::rel(leakshield, slot)), meta)?;
+        Ok(())
+    }
+
+    /// Sets or clears the `edited` mark of a slot.
+    pub fn set_edited(&self, leakshield: &str, slot: Slot, edited: bool) -> io::Result<()> {
+        let file = format!("{}/meta.json", Self::rel(leakshield, slot));
+        let mut meta = self.store.load::<SlotMeta>(&file).value;
+        if meta.edited != edited {
+            meta.edited = edited;
+            self.store.save(&file, &meta)?;
+        }
         Ok(())
     }
 

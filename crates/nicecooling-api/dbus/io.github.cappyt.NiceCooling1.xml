@@ -272,6 +272,21 @@
       <annotation name="io.github.cappyt.NiceCooling1.Authorization" value="write"/>
       <arg name="fields" type="a{sv}" direction="in"/>
     </method>
+    <!-- The stored settings of a slot (1 to 4), as field id to value. They use the variant types of GetFields. The device is not
+         read. Fails with NotFound for a slot with no stored report 3 and with NotSupported for a firmware that the registry
+         does not cover. -->
+    <method name="GetStoredFields">
+      <annotation name="io.github.cappyt.NiceCooling1.Authorization" value="read"/>
+      <arg name="slot" type="y" direction="in"/>
+      <arg name="fields" type="a{sv}" direction="out"/>
+    </method>
+    <!-- Changes the stored report 3 of another slot and sends nothing to the device. The slot of ActiveSlot fails with InvalidArgument:
+         use SetFields. The next activation of the slot uses the verified write path. -->
+    <method name="SetStoredFields">
+      <annotation name="io.github.cappyt.NiceCooling1.Authorization" value="write"/>
+      <arg name="slot" type="y" direction="in"/>
+      <arg name="fields" type="a{sv}" direction="in"/>
+    </method>
     <method name="SetMode">
       <annotation name="io.github.cappyt.NiceCooling1.Authorization" value="write-or-critical"/>
       <arg name="mode" type="s" direction="in"/>

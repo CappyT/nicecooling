@@ -45,6 +45,9 @@ pub trait Leakshield {
     /// (field id, risk class safety|low, value, writable, reason)
     fn get_fields(&self) -> zbus::Result<Vec<(String, String, OwnedValue, bool, String)>>;
     fn set_fields(&self, fields: HashMap<&str, Value<'_>>) -> zbus::Result<()>;
+    /// The stored settings of a slot, as field id to value.
+    fn get_stored_fields(&self, slot: u8) -> zbus::Result<HashMap<String, OwnedValue>>;
+    fn set_stored_fields(&self, slot: u8, fields: HashMap<&str, Value<'_>>) -> zbus::Result<()>;
     fn set_mode(&self, mode: &str) -> zbus::Result<()>;
     fn start_action(&self, action: &str) -> zbus::Result<()>;
     fn cancel_action(&self) -> zbus::Result<()>;

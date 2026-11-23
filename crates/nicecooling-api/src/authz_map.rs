@@ -225,6 +225,11 @@ mod tests {
         assert_eq!(asks("Sensor", "SetName", None), Some(Action::Write));
         assert_eq!(asks("Manager", "GetCalibrationTables", None), None);
         assert_eq!(asks("Leakshield", "GetFields", None), None);
+        assert_eq!(asks("Leakshield", "GetStoredFields", None), None);
+        assert_eq!(
+            asks("Leakshield", "SetStoredFields", None),
+            Some(Action::Write)
+        );
         assert_eq!(asks("Profile", "GetContent", None), None);
         assert_eq!(
             asks("io.github.cappyt.NiceCooling1.Loop", "Delete", None),

@@ -22,6 +22,9 @@ pub enum Decision {
     Keep,
     /// Write this report 3 as it is.
     Write(Box<Report3>),
+    /// The slot is marked as edited: write this report 3 with the read-back of design D11. A good
+    /// read-back clears the mark.
+    WriteVerified(Box<Report3>),
 }
 
 #[derive(Debug)]
@@ -76,6 +79,9 @@ pub fn decide(
     }
     if stored.meta.serial != serial {
         return Err(Failure::SerialMismatch);
+    }
+    if stored.meta.edited {
+        return Ok(Decision::WriteVerified(Box::new(stored.report3)));
     }
     Ok(Decision::Write(Box::new(stored.report3)))
 }

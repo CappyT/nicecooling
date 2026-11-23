@@ -57,8 +57,14 @@ pub enum WriteError {
     NoSuchBackup,
     /// The backup does not fit the device: structure or firmware.
     BackupMismatch(&'static str),
-    /// The registry of the firmware lacks the command.
+    /// The registry of the firmware lacks the command, or does not cover the stored firmware.
     NotSupported,
+    /// The slot has no stored report 3.
+    NoStoredSlot,
+    /// `SetStoredFields` for the slot that the device runs: `SetFields` changes it.
+    ActiveSlot,
+    /// The daemon sets this field itself.
+    FieldNotEditable(String),
 }
 
 impl fmt::Display for WriteError {
@@ -75,6 +81,9 @@ impl fmt::Display for WriteError {
             Self::NoSuchBackup => write!(f, "no such backup"),
             Self::BackupMismatch(why) => write!(f, "backup does not fit the device: {why}"),
             Self::NotSupported => write!(f, "the registry of this firmware lacks the command"),
+            Self::NoStoredSlot => write!(f, "the slot has no stored report 3"),
+            Self::ActiveSlot => write!(f, "the slot is the active slot of the device"),
+            Self::FieldNotEditable(field) => write!(f, "{field} is not an editable field"),
         }
     }
 }
@@ -132,11 +141,9 @@ fn encode(scalar: Scalar, raw: i64) -> Vec<u8> {
 
 /// Checks the edits against the registry and the firmware. No device I/O.
 fn plan<'a>(
-    registry: &'a Registry,
-    report1: &Report1,
+    access: Access<'a>,
     edits: &'a [FieldEdit],
 ) -> Result<Vec<(&'a Field, &'a FieldEdit)>, WriteError> {
-    let access = Access::new(registry, report1);
     let mut planned = Vec::new();
     for edit in edits {
         let field = access
@@ -230,7 +237,7 @@ pub fn write_fields(
     edits: &[FieldEdit],
     now_us: u64,
 ) -> Result<Written, WriteError> {
-    let planned = plan(env.registry, report1, edits)?;
+    let planned = plan(Access::new(env.registry, report1), edits)?;
     let backup = take_backup(env, report1, Reason::BeforeWrite, now_us)?;
     let mask = &env.registry.report3.volatile_mask;
     let mut report3 = env
@@ -275,6 +282,48 @@ pub fn write_stored(
         backup,
         report3: report3.clone(),
     })
+}
+
+/// A Profile activation of an edited slot (design D18): the verified write of D11 without the
+/// second read of report 3, because the slot replaces the device settings as a whole. It backs up
+/// reports 3, 5 and 8, writes the stored report 3 and reads it back. The read-back must match
+/// outside the volatile mask. The written report is the read-back.
+pub fn write_edited(
+    env: &WriteEnv<'_>,
+    report1: &Report1,
+    report3: &Report3,
+    now_us: u64,
+) -> Result<Written, WriteError> {
+    if let Some(reason) = Access::new(env.registry, report1).device_reason() {
+        return Err(WriteError::Refused(WriteRefusal::ReadOnly(reason)));
+    }
+    let backup = take_backup(env, report1, Reason::BeforeWrite, now_us)?;
+    let report3 = write_and_verify(env, report3, &backup)?;
+    Ok(Written { backup, report3 })
+}
+
+/// The report 3 of a stored slot with `edits` applied, with the rules of `SetFields` against the
+/// firmware and the structure of the slot. It does not read the device. The CRC is valid after the
+/// encode of the result.
+pub fn edit_stored(
+    registry: &Registry,
+    firmware: u16,
+    structure: u16,
+    stored: &Report3,
+    edits: &[FieldEdit],
+) -> Result<Report3, WriteError> {
+    let access = Access::for_firmware(registry, firmware, structure);
+    if let Some(edit) = edits.iter().find(|e| e.field == "device_profile") {
+        return Err(WriteError::FieldNotEditable(edit.field.clone()));
+    }
+    let mut report3 = stored.clone();
+    for (field, edit) in plan(access, edits)? {
+        let scalar = field.value_type.scalar;
+        for (offset, &raw) in field.element_offsets().into_iter().zip(&edit.raw) {
+            report3.set_bytes(offset, &encode(scalar, raw));
+        }
+    }
+    Ok(report3)
 }
 
 /// Writes report 3 of a backup and reads it back. Reports 5 and 8 stay as they are. The state

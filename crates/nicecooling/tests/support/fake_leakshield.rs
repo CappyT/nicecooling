@@ -557,6 +557,36 @@ impl Leakshield {
         Ok(())
     }
 
+    /// The stored settings of a slot: the fake keeps one set for all slots.
+    async fn get_stored_fields(&self, slot: u8) -> fdo::Result<HashMap<String, OwnedValue>> {
+        if !(1..=4).contains(&slot) {
+            return Err(fdo::Error::Failed(
+                "io.github.cappyt.NiceCooling1.Error.InvalidArgument".into(),
+            ));
+        }
+        let device = self.device.lock().expect("device");
+        Ok(device
+            .fields
+            .iter()
+            .map(|field| (field.id.to_owned(), to_value(&field.value)))
+            .collect())
+    }
+
+    async fn set_stored_fields(
+        &self,
+        #[zbus(header)] header: zbus::message::Header<'_>,
+        slot: u8,
+        fields: HashMap<String, OwnedValue>,
+    ) -> fdo::Result<()> {
+        let mut names: Vec<&String> = fields.keys().collect();
+        names.sort();
+        let list: Vec<&str> = names.iter().map(|name| name.as_str()).collect();
+        self.shared.record(
+            &format!("SetStoredFields({slot},{})", list.join(",")),
+            &header,
+        )
+    }
+
     async fn set_mode(
         &self,
         #[zbus(header)] header: zbus::message::Header<'_>,

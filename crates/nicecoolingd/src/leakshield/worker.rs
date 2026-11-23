@@ -7,18 +7,24 @@ use nicecooling_core::profile::Slot;
 use nicecooling_protocol::registry::Registry;
 use nicecooling_protocol::report1::Report1;
 use nicecooling_protocol::report3::Report3;
-use tokio::sync::{OwnedSemaphorePermit, Semaphore, mpsc, oneshot};
+use tokio::sync::{OwnedSemaphorePermit, Semaphore, mpsc, oneshot, watch};
 use tokio::time::Instant;
 
+use super::attached::Info;
 use super::backup::Backups;
 use super::external::LastKnown;
 use super::factory_reset::factory_reset;
+use super::fields::{self, FieldValue};
 use super::save_settings;
-use super::write::{FieldEdit, WriteEnv, WriteError, Written, restore, write_fields, write_stored};
+use super::write::{
+    FieldEdit, WriteEnv, WriteError, Written, edit_stored, restore, write_edited, write_fields,
+    write_stored,
+};
 use super::{DeviceEvent, DeviceIo, blocking};
 use crate::profiles::activate::{Decision, Failure, decide};
 use crate::profiles::spacing::{Decision as Timing, Spacing};
 use crate::state::SlotStore;
+use crate::state::slots::SlotMeta;
 
 pub enum Job {
     /// `report1` is the latest report 1: it gives the firmware and the structure.
@@ -37,7 +43,24 @@ pub enum Job {
     ProfileWrite {
         report1: Report1,
         report3: Report3,
+        /// The slot is edited: back up, write and read back (`write_edited`).
+        verified: bool,
     },
+}
+
+/// A read or a change of the stored settings of a slot. It sends nothing to the device.
+pub struct StoredRequest {
+    pub slots: SlotStore,
+    /// The id of the Leakshield: the name of its slot directory.
+    pub leakshield: String,
+    pub slot: Slot,
+    /// `None` reads the slot.
+    pub edits: Option<Vec<FieldEdit>>,
+}
+
+pub enum StoredReply {
+    Fields(Vec<(String, FieldValue)>),
+    Written,
 }
 
 /// A Profile activation for one Leakshield (design D14). The worker decides on it when it arrives
@@ -66,8 +89,14 @@ struct ProfileMessage {
     reply: oneshot::Sender<Result<ProfileDone, Failure>>,
 }
 
+struct StoredMessage {
+    request: StoredRequest,
+    reply: oneshot::Sender<Result<StoredReply, WriteError>>,
+}
+
 enum Queued {
     Job(Box<Message>),
+    Stored(StoredMessage),
     Profile(ProfileMessage),
     /// A newer activation that sends no request: it still drops the request that waits.
     CancelProfile,
@@ -88,9 +117,8 @@ pub struct WorkerParts {
     pub events: mpsc::UnboundedSender<DeviceEvent>,
     /// `SAVE_SETTINGS_DELAY` in the daemon.
     pub save_delay: Duration,
-    /// Gets the backup id of a Profile write that failed, and an empty text when a good Profile
-    /// write or a restore ends it.
-    pub failed_backup: Arc<dyn Fn(&str) + Send + Sync>,
+    /// What the properties show. The worker sets `failed_write_backup` and `active_slot`.
+    pub info: Arc<watch::Sender<Info>>,
 }
 
 /// Handle of the worker task. The task ends when the last handle is dropped.
@@ -134,6 +162,19 @@ impl WriteWorker {
 }
 
 impl WriteWorker {
+    /// Runs a read or a change of a stored slot in the order of the queue. A Profile write that
+    /// waits goes first.
+    pub async fn stored(&self, request: StoredRequest) -> Result<StoredReply, WriteError> {
+        let (reply, result) = oneshot::channel();
+        let message = Queued::Stored(StoredMessage { request, reply });
+        if self.queue.send(message).is_err() {
+            return Err(WriteError::Disconnected { backup: None });
+        }
+        result
+            .await
+            .unwrap_or(Err(WriteError::Disconnected { backup: None }))
+    }
+
     /// Drops the Profile request that waits, in the order of the queue. The request ends with
     /// `Superseded`. Use it when a newer activation has no request to send.
     pub fn cancel_profile(&self) {
@@ -186,7 +227,16 @@ fn execute(parts: &WorkerParts, job: Job) -> Result<Written, WriteError> {
         }
         Job::Restore { report1, backup } => restore(&env, &report1, &backup, now_us()),
         Job::FactoryReset { report1 } => factory_reset(&env, &report1, now_us()),
-        Job::ProfileWrite { report1, report3 } => write_stored(&env, &report1, &report3, now_us()),
+        Job::ProfileWrite {
+            report1,
+            report3,
+            verified: false,
+        } => write_stored(&env, &report1, &report3, now_us()),
+        Job::ProfileWrite {
+            report1,
+            report3,
+            verified: true,
+        } => write_edited(&env, &report1, &report3, now_us()),
     };
     if let Ok(written) = &result
         && let Err(e) = last.set(written.report3.clone())
@@ -194,6 +244,67 @@ fn execute(parts: &WorkerParts, job: Job) -> Result<Written, WriteError> {
         eprintln!("nicecoolingd: last known report 3 not saved: {e}");
     }
     result
+}
+
+fn note_failed_backup(parts: &WorkerParts, backup: &str) {
+    parts.info.send_if_modified(|info| {
+        let changed = info.failed_write_backup != backup;
+        backup.clone_into(&mut info.failed_write_backup);
+        changed
+    });
+}
+
+/// The device runs the slot that a good Profile write put on it, until report 1 says otherwise.
+fn note_active_slot(parts: &WorkerParts, slot: u8) {
+    parts.info.send_if_modified(|info| {
+        let changed = info.active_slot != slot;
+        info.active_slot = slot;
+        changed
+    });
+}
+
+/// Reads or changes a stored slot. The checks use the firmware and the structure of the slot and
+/// the last report 1: the device is not read.
+fn run_stored(parts: &WorkerParts, request: StoredRequest) -> Result<StoredReply, WriteError> {
+    let registry = &parts.registry;
+    let stored = request
+        .slots
+        .load(&request.leakshield, request.slot)
+        .map_err(WriteError::Backup)?
+        .ok_or(WriteError::NoStoredSlot)?;
+    if stored.meta.firmware != registry.firmware
+        || stored.meta.structure != registry.structure
+        || stored.report3.structure_number() != registry.structure
+    {
+        return Err(WriteError::NotSupported);
+    }
+    let Some(edits) = &request.edits else {
+        return Ok(StoredReply::Fields(fields::values(
+            registry,
+            &stored.report3,
+        )));
+    };
+    if parts.info.borrow().active_slot == request.slot.get() {
+        return Err(WriteError::ActiveSlot);
+    }
+    let report3 = edit_stored(
+        registry,
+        stored.meta.firmware,
+        stored.meta.structure,
+        &stored.report3,
+        edits,
+    )?;
+    if !edits.is_empty() {
+        let meta = SlotMeta {
+            edited: true,
+            ..stored.meta
+        };
+        request
+            .slots
+            .store(registry, &request.leakshield, request.slot, &report3, &meta)
+            .map_err(WriteError::Backup)?;
+    }
+    Ok(StoredReply::Written)
 }
 
 fn send_save_settings(parts: &WorkerParts, backup: &str) {
@@ -220,7 +331,7 @@ fn run_job(
     let restores = matches!(job, Job::Restore { .. });
     let result = blocking(|| execute(parts, job));
     if restores && result.is_ok() {
-        (parts.failed_backup)("");
+        note_failed_backup(parts, "");
     }
     // A write that failed its read-back still changed report 3 on the device.
     let backup = match &result {
@@ -266,12 +377,22 @@ fn decide_profile(
     Ok((report1, decision))
 }
 
+/// A decision that writes: the report 3, and whether the write reads it back.
+fn writes(decision: Decision) -> Result<(Box<Report3>, bool), Decision> {
+    match decision {
+        Decision::Write(report3) => Ok((report3, false)),
+        Decision::WriteVerified(report3) => Ok((report3, true)),
+        other => Err(other),
+    }
+}
+
 /// Writes the report 3 that a decision chose, and answers the request.
 fn write_profile(
     parts: &WorkerParts,
+    request: &ProfileRequest,
     reply: oneshot::Sender<Result<ProfileDone, Failure>>,
     report1: Report1,
-    report3: Box<Report3>,
+    (report3, verified): (Box<Report3>, bool),
     save: &mut Option<(Instant, String)>,
     spacing: &mut Spacing,
 ) {
@@ -279,19 +400,38 @@ fn write_profile(
     let job = Job::ProfileWrite {
         report1: report1.clone(),
         report3: (*report3).clone(),
+        verified,
     };
     let result = run_job(parts, job, save);
     match &result {
-        Ok(_) => (parts.failed_backup)(""),
+        Ok(_) => {
+            note_failed_backup(parts, "");
+            note_active_slot(parts, request.slot.get());
+            // The read-back matched: the slot is as the device holds it.
+            if verified
+                && let Err(e) = request
+                    .slots
+                    .set_edited(&request.leakshield, request.slot, false)
+            {
+                eprintln!(
+                    "nicecoolingd: the edited mark of slot {} of {} stays: {e}",
+                    request.slot, request.leakshield
+                );
+            }
+        }
         Err(error) => {
             if let Some(backup) = error.backup_id() {
-                (parts.failed_backup)(backup);
+                note_failed_backup(parts, backup);
             }
         }
     }
     let result = result
         .map(|_| ProfileDone {
-            decision: Decision::Write(report3),
+            decision: if verified {
+                Decision::WriteVerified(report3)
+            } else {
+                Decision::Write(report3)
+            },
             report1,
         })
         .map_err(Failure::Write);
@@ -308,12 +448,12 @@ fn finish_profile(
 ) {
     let ProfileMessage { request, reply } = message;
     match decide_profile(parts, &request) {
-        Ok((report1, Decision::Write(report3))) => {
-            write_profile(parts, reply, report1, report3, save, spacing);
-        }
-        Ok((report1, decision)) => {
-            let _ = reply.send(Ok(ProfileDone { decision, report1 }));
-        }
+        Ok((report1, decision)) => match writes(decision) {
+            Ok(write) => write_profile(parts, &request, reply, report1, write, save, spacing),
+            Err(decision) => {
+                let _ = reply.send(Ok(ProfileDone { decision, report1 }));
+            }
+        },
         Err(failure) => {
             let _ = reply.send(Err(failure));
         }
@@ -334,13 +474,18 @@ fn start_profile(
     }
     let now = Instant::now();
     match decide_profile(parts, &message.request) {
-        Ok((report1, Decision::Write(report3))) => match spacing.request(now) {
-            Timing::WriteAt(at) if at > now => *waiting = Some((at, message)),
-            _ => write_profile(parts, message.reply, report1, report3, save, spacing),
+        Ok((report1, decision)) => match writes(decision) {
+            Ok(write) => match spacing.request(now) {
+                Timing::WriteAt(at) if at > now => *waiting = Some((at, message)),
+                _ => {
+                    let ProfileMessage { request, reply } = message;
+                    write_profile(parts, &request, reply, report1, write, save, spacing);
+                }
+            },
+            Err(decision) => {
+                let _ = message.reply.send(Ok(ProfileDone { decision, report1 }));
+            }
         },
-        Ok((report1, decision)) => {
-            let _ = message.reply.send(Ok(ProfileDone { decision, report1 }));
-        }
         Err(failure) => {
             let _ = message.reply.send(Err(failure));
         }
@@ -398,6 +543,14 @@ async fn run(parts: WorkerParts, mut queue: mpsc::UnboundedReceiver<Queued>) {
                     finish_profile(&parts, old, &mut save, &mut spacing);
                 }
                 run_message(&parts, *message, &mut save);
+            }
+            Queued::Stored(StoredMessage { request, reply }) => {
+                // As for a job: the Profile write that waits goes first.
+                if let Some((at, old)) = waiting.take() {
+                    tokio::time::sleep_until(at).await;
+                    finish_profile(&parts, old, &mut save, &mut spacing);
+                }
+                let _ = reply.send(run_stored(&parts, request));
             }
             Queued::Profile(message) => {
                 start_profile(&parts, message, &mut waiting, &mut save, &mut spacing);

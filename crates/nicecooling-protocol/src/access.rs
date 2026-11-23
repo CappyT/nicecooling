@@ -41,10 +41,16 @@ pub struct Access<'a> {
 
 impl<'a> Access<'a> {
     pub fn new(registry: &'a Registry, report1: &Report1) -> Self {
+        Self::for_firmware(registry, report1.firmware_version, report1.structure_number)
+    }
+
+    /// The access of a report 3 that is not on the device, from the firmware and the structure
+    /// that it comes from.
+    pub fn for_firmware(registry: &'a Registry, firmware: u16, structure: u16) -> Self {
         Self {
             registry,
-            firmware: report1.firmware_version,
-            structure: report1.structure_number,
+            firmware,
+            structure,
         }
     }
 

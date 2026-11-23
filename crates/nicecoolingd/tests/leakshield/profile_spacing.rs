@@ -7,6 +7,7 @@ use std::time::Duration;
 use nicecooling_core::profile::Slot;
 use nicecooling_protocol::report3::Report3;
 use nicecooling_protocol::sim::Request;
+use nicecoolingd::leakshield::attached::Info;
 use nicecoolingd::leakshield::save_settings::SAVE_SETTINGS_DELAY;
 use nicecoolingd::leakshield::worker::{Job, ProfileRequest, WorkerParts, WriteWorker};
 use nicecoolingd::profiles::activate::{Decision, Failure};
@@ -28,7 +29,7 @@ fn start(rig: &Rig) -> WriteWorker {
         last_known: Arc::clone(&rig.last_known),
         events,
         save_delay: SAVE_SETTINGS_DELAY,
-        failed_backup: Arc::new(|_| {}),
+        info: Arc::new(tokio::sync::watch::channel(Info::default()).0),
     })
 }
 
