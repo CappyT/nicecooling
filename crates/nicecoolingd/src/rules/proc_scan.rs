@@ -47,7 +47,9 @@ impl ProcessSource for ProcFs {
             })
             .filter_map(|e| {
                 let path = e.path();
-                let comm = fs::read_to_string(path.join("comm")).ok()?;
+                // The kernel cuts `comm` at 15 bytes, so it can end inside a UTF-8 character.
+                let comm = fs::read(path.join("comm")).ok()?;
+                let comm = String::from_utf8_lossy(&comm);
                 let exe = fs::read_link(path.join("exe"))
                     .ok()
                     .and_then(|target| {
@@ -152,6 +154,99 @@ mod tests {
         };
         assert!(by_cmdline.holds(&list));
         assert!(!rule("cyberpunk2077.exe").holds(&list));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    /// The kernel cuts `comm` at 15 bytes, so a UTF-8 name can end in half a character.
+    #[test]
+    fn a_process_with_a_non_utf8_comm_is_still_matched() {
+        let root = temp("non-utf8-comm");
+        let dir = root.join("4242");
+        fs::create_dir_all(&dir).unwrap();
+        let mut comm = b"Weltraumspiel_".to_vec();
+        comm.extend([0xC3, b'\n']);
+        fs::write(dir.join("comm"), comm).unwrap();
+        fs::write(
+            dir.join("cmdline"),
+            b"Z:\\Games\\Cyberpunk2077.exe\0--fullscreen\0",
+        )
+        .unwrap();
+        std::os::unix::fs::symlink("/opt/games/game.bin", dir.join("exe")).unwrap();
+
+        let list = ProcFs::new(&root).scan();
+
+        assert_eq!(list.entries.len(), 1);
+        let by_cmdline = ProcessRule {
+            match_on: MatchOn::Cmdline,
+            ..rule("cyberpunk2077.exe")
+        };
+        let none = ProcessRule {
+            match_mode: MatchMode::None,
+            ..rule("game.bin")
+        };
+        assert!(by_cmdline.holds(&list));
+        assert!(rule("game.bin").holds(&list));
+        assert!(!none.holds(&list));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn a_non_utf8_cmdline_still_matches_its_readable_part() {
+        let root = temp("non-utf8-cmdline");
+        let dir = root.join("77");
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("comm"), "loader\n").unwrap();
+        fs::write(dir.join("cmdline"), b"\xFF\xFEgame.exe\0\xC3").unwrap();
+
+        let list = ProcFs::new(&root).scan();
+
+        let by_cmdline = ProcessRule {
+            match_on: MatchOn::Cmdline,
+            ..rule("game.exe")
+        };
+        assert!(by_cmdline.holds(&list));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    /// The arguments of `cmdline` are separated by NUL. A rule sees one space between them, and
+    /// the trailing NUL leaves no space at the end.
+    #[test]
+    fn cmdline_nul_separators_become_single_spaces() {
+        let root = temp("cmdline-nul");
+        let dir = root.join("5");
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("comm"), "wine\n").unwrap();
+        fs::write(dir.join("cmdline"), b"wine\0game.exe\0-windowed\0").unwrap();
+
+        let list = ProcFs::new(&root).scan();
+
+        let on = |name: &str| ProcessRule {
+            match_on: MatchOn::Cmdline,
+            ..rule(name)
+        };
+        assert!(on("wine game.exe -windowed").holds(&list));
+        assert!(!on("game.exe -windowed ").holds(&list));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    /// A process that exits during the scan leaves a directory without files, or without `comm`.
+    #[test]
+    fn a_process_that_vanishes_during_the_scan_is_skipped() {
+        let root = temp("vanished");
+        add_process(&root, 100, "game", "/opt/x/game", &["/opt/x/game"]);
+        // Its files are gone, but the directory is still listed.
+        fs::create_dir_all(root.join("200")).unwrap();
+        // `exe` and `cmdline` are gone, `comm` is still there.
+        fs::create_dir_all(root.join("300")).unwrap();
+        fs::write(root.join("300/comm"), "half\n").unwrap();
+        // A pid that is a file, not a directory.
+        fs::write(root.join("400"), "x").unwrap();
+
+        let list = ProcFs::new(&root).scan();
+
+        assert_eq!(list.entries.len(), 2);
+        assert!(rule("game").holds(&list));
+        assert!(rule("half").holds(&list));
         fs::remove_dir_all(root).unwrap();
     }
 
