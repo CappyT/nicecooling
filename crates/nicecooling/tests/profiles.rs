@@ -821,16 +821,13 @@ async fn rule_group_editor_calls_set_rule_groups() {
     ui.open_group(&harness.state, 0);
     ui.set_group_enabled(false);
     ui.remove_rule(3);
-    ui.save_group(&harness.state)
-        .expect("a command")
-        .run_on_daemon(&harness.client)
-        .await
-        .expect("groups");
-    harness
-        .until("the edit shows", |state| {
-            state.snapshot.rule_groups[0].rules.len() == 3 && !state.snapshot.rule_groups[0].enabled
-        })
-        .await;
+    let edit = ui.save_group(&harness.state).expect("a command");
+    edit.run_on_daemon(&harness.client).await.expect("groups");
+    // The daemon sends no signal for an edit of the rules: the app reads the groups again.
+    let refresh = edit.refresh(&harness.client).await.expect("a refresh");
+    harness.state.apply(&refresh);
+    let group = &harness.state.snapshot.rule_groups[0];
+    assert!(group.rules.len() == 3 && !group.enabled);
     ui.open_group(&harness.state, 0);
     ui.delete_group(&harness.state)
         .expect("a command")
@@ -1867,5 +1864,38 @@ fn review_restore_offer_for_each_failed_leakshield() {
     assert_eq!(
         offer[0].text,
         "The Curves are active. The Leakshield write failed."
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn rule_group_edit_reads_the_groups_again() {
+    let bus = PrivateBus::start("profiles-group-edit");
+    let _daemon = FakeDaemon::start(bus.connect().await, Options::default()).await;
+    let mut harness = Harness::start(&bus).await;
+    harness
+        .until("the Profiles are known", |state| {
+            !state.snapshot.profiles.is_empty()
+        })
+        .await;
+    // A new group changes `RuleGroupState`: the signal brings the group.
+    let create = Command::SetRuleGroups {
+        groups: vec![group("", "profile_2", vec![sensor_rule()])],
+    };
+    create.run_on_daemon(&harness.client).await.expect("create");
+    harness
+        .until("the group shows", |state| {
+            state.snapshot.rule_groups.len() == 1
+        })
+        .await;
+    // An edit of the rules keeps the id, the order and the state: the daemon sends no signal.
+    let mut edited = harness.state.snapshot.rule_groups.clone();
+    edited[0].rules = vec![process_rule(), time_rule()];
+    let edit = Command::SetRuleGroups { groups: edited };
+    edit.run_on_daemon(&harness.client).await.expect("edit");
+    let refresh = edit.refresh(&harness.client).await.expect("a refresh");
+    harness.state.apply(&refresh);
+    assert_eq!(
+        harness.state.snapshot.rule_groups[0].rules,
+        [process_rule(), time_rule()]
     );
 }

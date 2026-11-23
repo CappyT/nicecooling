@@ -537,8 +537,21 @@ impl Profiles {
             ids.push(id.clone());
             stored.push((id, target, enabled, rules));
         }
+        // As the real daemon does: `RuleGroupState` changes with the ids, the order or a state of
+        // the groups, not with the rules or the target of a group.
+        let before: Vec<String> = self
+            .shared
+            .groups
+            .lock()
+            .expect("groups")
+            .iter()
+            .map(|group| group.0.clone())
+            .collect();
+        let changed = before != ids;
         *self.shared.groups.lock().expect("groups") = stored;
-        self.rule_group_state_changed(&emitter).await?;
+        if changed {
+            self.rule_group_state_changed(&emitter).await?;
+        }
         Ok(ids)
     }
 

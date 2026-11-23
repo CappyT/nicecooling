@@ -471,6 +471,14 @@ impl Command {
             Self::SetAlarmResponse { .. } | Self::ResetResponse { .. } => {
                 client.responses().await.ok().map(DaemonEvent::Responses)
             }
+            // `RuleGroupState` changes with the ids, the order and the states of the groups, not
+            // with their rules or targets.
+            Self::SetRuleGroups { .. } => client.rule_groups().await.ok().map(|groups| {
+                DaemonEvent::Derived(Box::new(Derived {
+                    rule_groups: Some(groups),
+                    ..Derived::default()
+                }))
+            }),
             Self::SaveCalibration { .. } => client.calibration_tables().await.ok().map(|tables| {
                 DaemonEvent::Derived(Box::new(Derived {
                     calibration_tables: Some(tables),
