@@ -1,0 +1,147 @@
+nav:
+  overview: Overview
+  loops: Loops
+  channels: Channels
+  sensors: Sensors
+  devices: Devices
+  control: Control
+  profiles: Profiles
+  alarms: Alarms
+  history: History
+  settings: Settings
+  leakshield: Leakshield
+  more_notices: "%{count} more notices"
+status:
+  connecting: Connecting to the daemon
+  daemon_connected: Daemon connected
+  daemon_offline: Daemon offline
+  daemon_down: Daemon down
+  profile: "Profile: %{name}"
+  profile_with_cause: "Profile: %{name} (%{cause})"
+  cause_rule: rule
+  cause_manual: manual
+  no_alarms: No active Alarms
+  alarms:
+    one: "%{count} Alarm"
+    other: "%{count} Alarms"
+  warnings:
+    one: "%{count} Warning"
+    other: "%{count} Warnings"
+  poweroff_in: "poweroff in %{time}"
+banner:
+  poweroff:
+    title: "%{event} on %{source}"
+    detail: "%{loop}. The PC powers off when the countdown ends."
+    button: Cancel poweroff
+  offline:
+    title: The daemon is offline. The values are not live, and you cannot change settings.
+    button: Try again
+  down:
+    title: The daemon is down. nicecooling protection is off.
+    detail: No Curve, no Feed, no alarm response. The Board runs its Hardware curves from the BIOS snapshot.
+    button: Show how to start it
+  unknown_firmware:
+    title: "Leakshield firmware %{firmware} is unknown. Every field is read-only."
+    button: Open Fields
+  immediate_switching:
+    title: Immediate switching is on. Rules change the Profile without delay.
+    button: Open Profiles
+dialog:
+  daemon_down:
+    title: Start the daemon
+    body: "Run these commands in a terminal:"
+    close: Close
+tooltip:
+  daemon_offline: The daemon is offline.
+  needs_admin: Needs the administrator password
+menu:
+  primary: Main menu
+  shortcuts: Keyboard shortcuts
+  about: About nicecooling
+  quit: Quit
+event:
+  unknown:
+    title: "Event %{id}"
+  pump_stop:
+    title: Pump stopped
+  leakshield_unreachable:
+    title: Leakshield unreachable
+  lost_input:
+    title: Input lost
+  another_writer:
+    title: Another program writes a Channel
+  manual_at_snapshot:
+    title: Channel in manual mode at the BIOS snapshot
+  state_fallback:
+    title: The saved state was not read
+  leakshield_fill_level_low_warning:
+    title: Fill level Warning
+  leakshield_fill_level_low_alarm:
+    title: Fill level Alarm
+  leakshield_leak_warning:
+    title: Leak Warning
+  leakshield_leak_alarm:
+    title: Large leak Alarm
+  leakshield_pump_idle_time_warning:
+    title: Pump idle time Warning
+  leakshield_pump_idle_time_alarm:
+    title: Pump idle time Alarm
+  leakshield_pump_runtime_alarm:
+    title: Pump runtime Alarm
+  leakshield_high_pressure_drop:
+    title: High pressure drop Alarm
+  leakshield_supply_voltage:
+    title: Supply voltage Alarm
+  leakshield_pump_stall:
+    title: Pump stall Alarm
+  leakshield_pump_overcurrent:
+    title: Pump overcurrent Alarm
+  leakshield_pump_low_volume:
+    title: Pump low volume Alarm
+tray:
+  tooltip: "nicecooling: %{summary}"
+  tooltip_offline: "nicecooling: daemon offline"
+  tooltip_down: "nicecooling: daemon down, protection is off"
+  cancel_poweroff: "Cancel poweroff (%{time})"
+  loop_line: "%{name}: %{values}"
+  daemon_offline: Daemon offline
+  daemon_down: "Daemon down: nicecooling protection is off"
+  profile: "Profile: %{name}"
+  profile_none: Profile
+  revoke_manual: Revoke manual activation
+  open: Open nicecooling
+  quit: Quit
+  hint:
+    text: The tray icon is not visible. On GNOME, turn on the AppIndicator extension.
+    link: How to turn it on
+notification:
+  action:
+    cancel_poweroff: Cancel poweroff
+    open: Open nicecooling
+    open_channels: Open Channels
+    open_leakshield: Open Leakshield
+  poweroff:
+    body: "%{source}. The PC powers off in %{seconds} s."
+  pump_stop:
+    body: "%{source}: a Pump channel reads 0 rpm. Every Channel is at 100 %. The PC powers off in %{seconds} s."
+  leakshield_unreachable:
+    body: "%{source}: no data from the Leakshield for 10 s. Check its USB cable."
+  daemon_down:
+    title: nicecooling protection is off
+    body: The daemon is down. The Board runs its Hardware curves. No Feed and no alarm response until the daemon runs.
+  warning:
+    body: "%{source}."
+  lost_input:
+    body: "%{source} runs at 100 % until its Input returns."
+  external_change:
+    title: Leakshield setting changed outside nicecooling
+    body: "%{fields}. The next Profile activation overwrites it."
+  profile_switched:
+    title: "Profile: %{name}"
+    body: The Profile rules chose this Profile.
+  poweroff_cancelled:
+    title: Poweroff cancelled
+    body: The Alarm is still active.
+  poweroff_failed:
+    title: Poweroff failed
+    body: "The daemon could not power off the PC: %{error}"

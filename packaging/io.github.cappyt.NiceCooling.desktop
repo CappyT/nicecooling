@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=NiceCooling
+GenericName=Cooling control
+Comment=Control the fans, the pump and the Leakshield of the water loop
+Exec=nicecooling
+Icon=io.github.cappyt.NiceCooling
+Terminal=false
+Categories=System;Monitor;HardwareSettings;
+Keywords=fan;pump;cooling;leakshield;
+StartupNotify=true

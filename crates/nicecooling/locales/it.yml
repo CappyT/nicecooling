@@ -1,0 +1,147 @@
+nav:
+  overview: Panoramica
+  loops: Loop
+  channels: Canali
+  sensors: Sensori
+  devices: Dispositivi
+  control: Controllo
+  profiles: Profili
+  alarms: Allarmi
+  history: Cronologia
+  settings: Impostazioni
+  leakshield: Leakshield
+  more_notices: "Altri %{count} avvisi"
+status:
+  connecting: Connessione al demone
+  daemon_connected: Demone connesso
+  daemon_offline: Demone offline
+  daemon_down: Demone fermo
+  profile: "Profilo: %{name}"
+  profile_with_cause: "Profilo: %{name} (%{cause})"
+  cause_rule: regola
+  cause_manual: manuale
+  no_alarms: Nessun Allarme attivo
+  alarms:
+    one: "%{count} Allarme"
+    other: "%{count} Allarmi"
+  warnings:
+    one: "%{count} Avviso"
+    other: "%{count} Avvisi"
+  poweroff_in: "spegnimento tra %{time}"
+banner:
+  poweroff:
+    title: "%{event} su %{source}"
+    detail: "%{loop}. Il PC si spegne alla fine del conto alla rovescia."
+    button: Annulla lo spegnimento
+  offline:
+    title: Il demone è offline. I valori non sono in tempo reale e non puoi cambiare le impostazioni.
+    button: Riprova
+  down:
+    title: Il demone è fermo. La protezione di nicecooling è spenta.
+    detail: Nessuna Curva, nessun Feed, nessuna risposta agli allarmi. La Scheda usa le sue curve Hardware dallo snapshot del BIOS.
+    button: Mostra come avviarlo
+  unknown_firmware:
+    title: "Il firmware %{firmware} del Leakshield è sconosciuto. Ogni campo è in sola lettura."
+    button: Apri i Campi
+  immediate_switching:
+    title: Il cambio immediato è attivo. Le regole cambiano il Profilo senza ritardo.
+    button: Apri i Profili
+dialog:
+  daemon_down:
+    title: Avvia il demone
+    body: "Esegui questi comandi in un terminale:"
+    close: Chiudi
+tooltip:
+  daemon_offline: Il demone è offline.
+  needs_admin: Richiede la password di amministratore
+menu:
+  primary: Menu principale
+  shortcuts: Scorciatoie da tastiera
+  about: Informazioni su nicecooling
+  quit: Esci
+event:
+  unknown:
+    title: "Evento %{id}"
+  pump_stop:
+    title: Pompa ferma
+  leakshield_unreachable:
+    title: Leakshield non raggiungibile
+  lost_input:
+    title: Ingresso perso
+  another_writer:
+    title: Un altro programma scrive su un Canale
+  manual_at_snapshot:
+    title: Canale in modo manuale allo snapshot del BIOS
+  state_fallback:
+    title: Lo stato salvato non è stato letto
+  leakshield_fill_level_low_warning:
+    title: Avviso di livello basso
+  leakshield_fill_level_low_alarm:
+    title: Allarme di livello basso
+  leakshield_leak_warning:
+    title: Avviso di perdita
+  leakshield_leak_alarm:
+    title: Allarme di perdita grande
+  leakshield_pump_idle_time_warning:
+    title: Avviso di pompa ferma a lungo
+  leakshield_pump_idle_time_alarm:
+    title: Allarme di pompa ferma a lungo
+  leakshield_pump_runtime_alarm:
+    title: Allarme di tempo di funzionamento della pompa
+  leakshield_high_pressure_drop:
+    title: Allarme di forte caduta di pressione
+  leakshield_supply_voltage:
+    title: Allarme di tensione di alimentazione
+  leakshield_pump_stall:
+    title: Allarme di pompa bloccata
+  leakshield_pump_overcurrent:
+    title: Allarme di sovracorrente della pompa
+  leakshield_pump_low_volume:
+    title: Allarme di volume basso della pompa
+tray:
+  tooltip: "nicecooling: %{summary}"
+  tooltip_offline: "nicecooling: demone offline"
+  tooltip_down: "nicecooling: demone fermo, la protezione è spenta"
+  cancel_poweroff: "Annulla lo spegnimento (%{time})"
+  loop_line: "%{name}: %{values}"
+  daemon_offline: Demone offline
+  daemon_down: "Demone fermo: la protezione di nicecooling è spenta"
+  profile: "Profilo: %{name}"
+  profile_none: Profilo
+  revoke_manual: Revoca l'attivazione manuale
+  open: Apri nicecooling
+  quit: Esci
+  hint:
+    text: L'icona nella barra non è visibile. Su GNOME, attiva l'estensione AppIndicator.
+    link: Come attivarla
+notification:
+  action:
+    cancel_poweroff: Annulla lo spegnimento
+    open: Apri nicecooling
+    open_channels: Apri i Canali
+    open_leakshield: Apri il Leakshield
+  poweroff:
+    body: "%{source}. Il PC si spegne tra %{seconds} s."
+  pump_stop:
+    body: "%{source}: un canale pompa legge 0 giri/min. Ogni Canale è al 100 %. Il PC si spegne tra %{seconds} s."
+  leakshield_unreachable:
+    body: "%{source}: nessun dato dal Leakshield da 10 s. Controlla il cavo USB."
+  daemon_down:
+    title: La protezione di nicecooling è spenta
+    body: Il demone è fermo. La Scheda usa le sue curve Hardware. Nessun Feed e nessuna risposta agli allarmi finché il demone non gira.
+  warning:
+    body: "%{source}."
+  lost_input:
+    body: "%{source} gira al 100 % finché il suo Ingresso non torna."
+  external_change:
+    title: Impostazione del Leakshield cambiata fuori da nicecooling
+    body: "%{fields}. La prossima attivazione di un Profilo la sovrascrive."
+  profile_switched:
+    title: "Profilo: %{name}"
+    body: Le regole dei Profili hanno scelto questo Profilo.
+  poweroff_cancelled:
+    title: Spegnimento annullato
+    body: L'Allarme è ancora attivo.
+  poweroff_failed:
+    title: Spegnimento non riuscito
+    body: "Il demone non ha potuto spegnere il PC: %{error}"
