@@ -26,13 +26,22 @@ pub(super) struct RuleQueue {
     manual: Option<ManualCommand>,
 }
 
-impl Default for RuleQueue {
+impl RuleQueue {
     /// The first tick reads everything.
-    fn default() -> Self {
+    pub(super) fn first() -> Self {
         Self {
             sync: true,
             groups: true,
             timing: true,
+            manual: None,
+        }
+    }
+
+    fn empty() -> Self {
+        Self {
+            sync: false,
+            groups: false,
+            timing: false,
             manual: None,
         }
     }
@@ -143,7 +152,7 @@ impl Hub {
     fn rule_poll(&self) -> HostInput {
         let (wall_us, local) = local::now();
         let mut inner = self.inner();
-        let queue = std::mem::take(&mut inner.rule_queue);
+        let queue = std::mem::replace(&mut inner.rule_queue, RuleQueue::empty());
         let state = &inner.state;
         let timing = Timing {
             rule_delay: Duration::from_secs(u64::from(state.profiles.rule_delay_s)),

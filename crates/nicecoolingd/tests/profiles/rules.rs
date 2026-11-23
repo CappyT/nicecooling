@@ -489,3 +489,139 @@ async fn rule_group_state_follows_the_groups() {
     rig.step(3).await;
     assert_eq!(profiles.rule_group_state().await.unwrap()[0].2, since);
 }
+
+/// Advances the simulated clock by one second and runs one tick, without a pause.
+fn tick(rig: &mut Rig) {
+    rig.clock
+        .as_ref()
+        .expect("a rig with a simulated clock")
+        .advance(Duration::from_secs(1));
+    rig.daemon.as_mut().unwrap().runner.tick();
+}
+
+fn active(rig: &Rig) -> String {
+    rig.daemon.as_ref().unwrap().hub.profiles_state().active
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn set_rule_timing_changes_delay_and_dwell_and_properties() {
+    let mut rig = Rig::start_with_clock_and(with_profile_3).await;
+    let profiles = profiles(&rig).await;
+    // The defaults.
+    assert_eq!(profiles.rule_delay_seconds().await.unwrap(), 30);
+    assert_eq!(profiles.dwell_seconds().await.unwrap(), 300);
+
+    profiles.set_rule_timing(10, 60).await.unwrap();
+    assert_eq!(profiles.rule_delay_seconds().await.unwrap(), 10);
+    assert_eq!(profiles.dwell_seconds().await.unwrap(), 60);
+    let two = path(Kind::Profile, "profile_2");
+    profiles
+        .set_rule_groups(vec![group("", &two, true, vec![always()])])
+        .await
+        .unwrap();
+    profiles.return_to_automatic().await.unwrap();
+
+    // The group holds from the first tick and wins after the Rule delay of 10 s.
+    let mut switched = None;
+    for n in 0..30 {
+        tick(&mut rig);
+        if active(&rig) == "profile_2" {
+            switched = Some(n);
+            break;
+        }
+    }
+    // The first tick returns to automatic: it starts the timers of the group.
+    assert!(matches!(switched, Some(10 | 11)), "{switched:?}");
+
+    // The group goes. Its Profile stays for the Profile dwell of 60 s, then the Default Profile.
+    profiles.set_rule_groups(Vec::new()).await.unwrap();
+    let mut back = None;
+    for n in 0..200 {
+        tick(&mut rig);
+        if active(&rig) == "profile_default" {
+            back = Some(n);
+            break;
+        }
+    }
+    assert!(matches!(back, Some(59..=61)), "{back:?}");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn rule_timing_survives_restart() {
+    let mut rig = Rig::start_with_clock_and(with_profile_3).await;
+    let profiles = profiles(&rig).await;
+    profiles.set_rule_timing(7, 99).await.unwrap();
+    profiles.set_immediate_switching(true).await.unwrap();
+
+    rig.restart_daemon().await;
+
+    let state = rig.daemon.as_ref().unwrap().hub.profiles_state();
+    assert_eq!((state.rule_delay_s, state.dwell_s), (7, 99));
+    assert!(state.immediate_switching);
+    let file = std::fs::read_to_string(rig.state.join("state.json")).unwrap();
+    assert!(file.contains("\"rule_delay_s\": 7"), "{file}");
+    assert!(file.contains("\"dwell_s\": 99"), "{file}");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn set_rule_timing_asks_write() {
+    let rig = Rig::start_with_clock_and(with_profile_3).await;
+    let profiles = profiles(&rig).await;
+    profiles.set_rule_timing(5, 5).await.unwrap();
+    profiles.set_immediate_switching(true).await.unwrap();
+    profiles.return_to_automatic().await.unwrap();
+    profiles
+        .activate_profile(&path(Kind::Profile, "profile_4"))
+        .await
+        .unwrap();
+    assert_eq!(rig.authorizer.calls(), [(Action::Write, false); 4]);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn immediate_switching_applies_a_group_in_the_tick_where_it_holds() {
+    let mut rig = Rig::start_with_clock_and(with_profile_3).await;
+    let profiles = profiles(&rig).await;
+    let two = path(Kind::Profile, "profile_2");
+    profiles.set_immediate_switching(true).await.unwrap();
+    assert!(profiles.immediate_switching().await.unwrap());
+    profiles
+        .set_rule_groups(vec![group("", &two, true, vec![always()])])
+        .await
+        .unwrap();
+    profiles.return_to_automatic().await.unwrap();
+    tick(&mut rig);
+    assert_eq!(active(&rig), "profile_2");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn manual_activation_lasts_until_return_to_automatic() {
+    let mut rig = Rig::start_with_clock_and(with_profile_3).await;
+    let profiles = profiles(&rig).await;
+    let two = path(Kind::Profile, "profile_2");
+    profiles.set_immediate_switching(true).await.unwrap();
+    profiles
+        .set_rule_groups(vec![group("", &two, true, vec![always()])])
+        .await
+        .unwrap();
+    tick(&mut rig);
+    tick(&mut rig);
+    assert_eq!(active(&rig), "profile_3");
+
+    // The user activates a Profile by hand: it wins at once.
+    profiles
+        .activate_profile(&path(Kind::Profile, "profile_4"))
+        .await
+        .unwrap();
+    assert_eq!(active(&rig), "profile_4");
+    assert_eq!(profiles.activation_cause().await.unwrap(), "manual");
+    for _ in 0..20 {
+        tick(&mut rig);
+    }
+    assert_eq!(active(&rig), "profile_4");
+
+    // The rules decide again.
+    profiles.return_to_automatic().await.unwrap();
+    tick(&mut rig);
+    assert_eq!(active(&rig), "profile_2");
+    assert_eq!(profiles.activation_cause().await.unwrap(), "rule");
+}

@@ -627,7 +627,7 @@ impl Hub {
             profiles: init.profiles,
             deleted: BTreeSet::new(),
             active_state: "applied",
-            rule_queue: rules::RuleQueue::default(),
+            rule_queue: rules::RuleQueue::first(),
             rule_states: Vec::new(),
             presets: init.presets,
             board: init.board,
