@@ -158,23 +158,29 @@ The event list has 15 entries of 20 bytes at offset 465: time u32 (`device_clock
 
 ### Warnings and Alarms
 
-`alarm_bits` bits and the event identifiers of `docs/api.md`:
+`alarm_bits` bits and the event identifiers of `docs/api.md`. The bit identifier is the name of the event list entry (codes 100-110). The group is the event of the Alarms tab. Each group has one Device response in report 3.
 
-| Bit | Event identifier | Severity |
-|---|---|---|
-| 0 | `leakshield.fill-level-low-warning` | warning |
-| 1 | `leakshield.fill-level-low-alarm` | alarm |
-| 2 | `leakshield.leak-warning` | warning |
-| 3 | `leakshield.pump-idle-time-warning` | warning |
-| 4 | `leakshield.pump-idle-time-alarm` | alarm |
-| 5 | `leakshield.pump-runtime-alarm` | alarm |
-| 6 | `leakshield.high-pressure-drop` | alarm |
-| 7 | `leakshield.supply-voltage` | alarm |
-| 8 | `leakshield.pump-stall` | alarm |
-| 9 | `leakshield.pump-overcurrent` | alarm |
-| 10 | `leakshield.pump-low-volume` | alarm |
+| Bit | Event identifier | Severity | Group (event and Device response) |
+|---|---|---|---|
+| 0 | `leakshield.fill-level-low-warning` | warning | `leakshield.fill-level-low-warning`, field `fill_level_warning_response_*` |
+| 1 | `leakshield.fill-level-low-alarm` | alarm | `leakshield.fill-level-low-alarm`, field `fill_level_alarm_response_*` |
+| 2 | `leakshield.leak-warning` | warning | `leakshield.leak-warning`, field `leak_rate_warning_response_*` |
+| 3 | `leakshield.pump-idle-time-warning` | warning | none: aquasuite shows it as a Warning only |
+| 4 | `leakshield.pump-idle-time-alarm` | alarm | `leakshield.leak-alarm-small` (small leak), field `leak_rate_alarm_1_response_*` |
+| 5 | `leakshield.pump-runtime-alarm` | alarm | `leakshield.leak-alarm` (large leak), field `leak_rate_alarm_2_response_*` |
+| 6 | `leakshield.high-pressure-drop` | alarm | `leakshield.leak-alarm` (large leak), field `leak_rate_alarm_2_response_*` |
+| 7 | `leakshield.supply-voltage` | alarm | `leakshield.system-alarm`, field `system_alarm_response_*` |
+| 8 | `leakshield.pump-stall` | alarm | `leakshield.system-alarm`, field `system_alarm_response_*` |
+| 9 | `leakshield.pump-overcurrent` | alarm | `leakshield.system-alarm`, field `system_alarm_response_*` |
+| 10 | `leakshield.pump-low-volume` | alarm | `leakshield.system-alarm`, field `system_alarm_response_*` |
 
 The severity follows the event name: the code names bits 0, 2 and 3 "warning" and the others "alarm".
+
+The leak alarms have no bit of their own. aquasuite names the bits in its sensor list: bit 4 is "Leak alarm 1", bit 5 is "Leak alarm 2 - pump runtime" and bit 6 is "Leak alarm 2 - high pressure drop" (P3). The text of the Alarms page says that Alarm 1 triggers on small leaks and Alarm 2 on large leaks. The pump idle time alarm is the small leak (the pump starts too often). The pump runtime alarm and the high pressure drop alarm are the large leak. The code defines these names and the bit order. The link from each Device response field to its bits is inferred: the code defines no table that ties a response to a bit, because the device applies the response. Firmware 1022 is encrypted, so the dump cannot confirm it.
+
+The system alarm group is bits 7 to 10: aquasuite sets its "System" sensor when the supply voltage, pump stall, pump overcurrent or low volume bit is active (P3). The group has the severity alarm.
+
+`alarm_bits` is the current state and `alarm_bits_latched` is the state kept until an alarm reset. aquasuite shows a bit as active when it is set in either field. It uses only `alarm_bits` for the state of the page marker (P3).
 
 ## Report 2
 
