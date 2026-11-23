@@ -96,6 +96,26 @@ mod tests {
     }
 
     #[test]
+    fn a_warning_with_a_signal_and_poweroff_has_no_overlap() {
+        let fields = [field(
+            "leak_rate_warning_response_action",
+            2.0,
+            "not-verified",
+        )];
+        let responses = vec![(
+            "leakshield.leak-warning".to_owned(),
+            "poweroff".to_owned(),
+            30,
+        )];
+        let rows = rows(&fields, &responses);
+        assert_eq!(rows.len(), 1);
+        assert_eq!(
+            (rows[0].2.as_str(), rows[0].3.as_str()),
+            ("signal-long", "")
+        );
+    }
+
+    #[test]
     fn a_field_that_nobody_can_trust_has_no_row() {
         let fields = [
             field("leak_rate_alarm_2_response_action", 2.0, "unknown-firmware"),

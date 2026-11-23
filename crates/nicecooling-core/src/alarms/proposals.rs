@@ -2,6 +2,7 @@
 //! when a device setting overlaps with an alarm response of the daemon (ADR-0007). The functions
 //! are pure: the daemon never writes a proposal on its own.
 
+use super::Severity;
 use super::leakshield::GROUPS;
 
 /// The Device response of an event: what the Leakshield does by itself (`*_response_action` in
@@ -89,7 +90,7 @@ pub fn propose(
             let system = group.id == "leakshield.system-alarm";
             let overlap = if now == DeviceResponse::KeySequence {
                 Some(Overlap::KeySequenceOn)
-            } else if now.is_signal() && poweroff(group.id) {
+            } else if now.is_signal() && group.severity == Severity::Alarm && poweroff(group.id) {
                 Some(Overlap::DoublePoweroff)
             } else {
                 None
@@ -228,6 +229,15 @@ mod tests {
         let list = run(None, &system, &[SYSTEM]);
         assert_eq!(of(&list, SYSTEM).overlap, Some(Overlap::DoublePoweroff));
         assert_eq!(Overlap::DoublePoweroff.as_str(), "double-poweroff");
+    }
+
+    #[test]
+    fn no_double_poweroff_on_a_warning() {
+        let warning = "leakshield.leak-warning";
+        let signal = [("leak_rate_warning_response_action", SignalLong)];
+        let list = run(None, &signal, &[warning]);
+        let p = of(&list, "leak-warning");
+        assert_eq!((p.overlap, p.proposed), (Option::None, SignalLong));
     }
 
     #[test]

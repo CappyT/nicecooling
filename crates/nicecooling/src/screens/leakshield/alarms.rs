@@ -493,13 +493,16 @@ fn recommendations(input: &ScreenInput<'_>, device: &Device<'_>) -> Vec<Recommen
             continue;
         };
         let title = locale.event_title(&response_event(def.event));
-        let (kind, text, button) = if !proposal.overlap.is_empty() {
+        let (kind, text, button) = if proposal.overlap == "double-poweroff" {
             (
                 RecommendationKind::Warning,
-                locale.fmt("leakshield.alarms.rec.overlap", &[("event", &title)]),
-                locale.tr("leakshield.alarms.rec.overlap_button"),
+                locale.fmt(
+                    "leakshield.alarms.rec.double_poweroff",
+                    &[("event", &title)],
+                ),
+                locale.tr("leakshield.alarms.rec.double_poweroff_button"),
             )
-        } else if proposal.current == "key-sequence" {
+        } else if proposal.overlap == "key-sequence-on" || proposal.current == "key-sequence" {
             (
                 RecommendationKind::Warning,
                 locale.fmt("leakshield.alarms.rec.key_sequence", &[("event", &title)]),
@@ -526,6 +529,12 @@ fn recommendations(input: &ScreenInput<'_>, device: &Device<'_>) -> Vec<Recommen
         } else {
             continue;
         };
+        let Some(code) = DEVICE_RESPONSES
+            .iter()
+            .position(|r| *r == proposal.proposed)
+        else {
+            continue;
+        };
         let field = def.response_field.to_owned();
         let control = format!("recommendation:{}", def.event);
         let writable = device.access(&field).writable;
@@ -538,7 +547,7 @@ fn recommendations(input: &ScreenInput<'_>, device: &Device<'_>) -> Vec<Recommen
                     fields_command(
                         device.id,
                         &control,
-                        vec![(field, FieldValue::Text(proposal.proposed.clone()))],
+                        vec![(field, FieldValue::Number(code as f64))],
                     ),
                 )
             }),

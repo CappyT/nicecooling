@@ -413,13 +413,13 @@ pub fn leakshield_data() -> LeakshieldData {
                 alarm: "leak-alarm-small".into(),
                 current: "key-sequence".into(),
                 proposed: "none".into(),
-                overlap: String::new(),
+                overlap: "key-sequence-on".into(),
             },
             ResponseProposal {
                 alarm: "leak-alarm".into(),
                 current: "signal-long".into(),
                 proposed: "none".into(),
-                overlap: "poweroff-overlap".into(),
+                overlap: "double-poweroff".into(),
             },
             ResponseProposal {
                 alarm: "fill-level-low-warning".into(),

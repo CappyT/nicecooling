@@ -959,8 +959,8 @@ leakshield:
       ok: "The Device responses match the recommendation."
       key_sequence: "The key sequence is on for the %{event}. The Leakshield types it into the focused window, a terminal included."
       key_sequence_button: "Turn it off"
-      overlap: "Two poweroff responses overlap for the %{event}: the device signal and nicecooling. The signal cuts the power without a clean poweroff."
-      overlap_button: "Set the Device response to None"
+      double_poweroff: "Two poweroff responses overlap for the %{event}: the device signal and nicecooling. The signal cuts the power without a clean poweroff."
+      double_poweroff_button: "Set the Device response to None"
       use: "Recommended: %{response} for the %{event}. It is the only protection when Linux hangs."
       use_button: "Use the recommendation"
     column:

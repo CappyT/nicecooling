@@ -1137,7 +1137,7 @@ fn overlap_warning_shown() {
             control: "recommendation:leak-alarm".into(),
             fields: vec![(
                 "leak_rate_alarm_2_response_action".into(),
-                FieldValue::Text("none".into())
+                FieldValue::Number(0.0)
             )]
         }
     );
@@ -1173,6 +1173,48 @@ fn overlap_warning_shown() {
         .proposals
         .clear();
     assert!(alarms(&none, &feedback).recommendations.is_empty());
+}
+
+#[test]
+fn each_overlap_id_shows_its_own_text() {
+    let mut state = with_leakshield();
+    let feedback = Feedback::default();
+    let data = state.snapshot.leakshield_data.get_mut(LEAKSHIELD).unwrap();
+    data.proposals.retain(|p| p.alarm == "leak-alarm");
+    for (overlap, text) in [
+        (
+            "double-poweroff",
+            "Two poweroff responses overlap for the Large leak Alarm",
+        ),
+        (
+            "key-sequence-on",
+            "The key sequence is on for the Large leak Alarm.",
+        ),
+    ] {
+        let data = state.snapshot.leakshield_data.get_mut(LEAKSHIELD).unwrap();
+        data.proposals[0].overlap = overlap.into();
+        let model = alarms(&state, &feedback);
+        assert_eq!(model.recommendations.len(), 1);
+        assert!(
+            model.recommendations[0].text.starts_with(text),
+            "{overlap}: {}",
+            model.recommendations[0].text
+        );
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn accepting_a_proposal_sends_the_number() {
+    let (_bus, daemon, harness) = started(Options::default()).await;
+    let state = with_leakshield();
+    let model = alarms(&state, &Feedback::default());
+    // The Large leak Alarm proposes none, the Small one turns the key sequence off.
+    let button = model.recommendations[1].button.as_ref().unwrap();
+    run(&harness, &button.1).await;
+    assert_eq!(
+        daemon.calls().last().unwrap(),
+        "SetFields(leak_rate_alarm_2_response_action=0) interactive=true"
+    );
 }
 
 #[test]

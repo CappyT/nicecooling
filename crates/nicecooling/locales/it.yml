@@ -959,8 +959,8 @@ leakshield:
       ok: "Le risposte del dispositivo corrispondono alla raccomandazione."
       key_sequence: "La sequenza di tasti è attiva per: %{event}. Il Leakshield la digita nella finestra attiva, anche in un terminale."
       key_sequence_button: "Disattivala"
-      overlap: "Due risposte di spegnimento si sovrappongono per: %{event}. Il segnale del dispositivo e nicecooling. Il segnale toglie la corrente senza uno spegnimento pulito."
-      overlap_button: "Imposta la risposta del dispositivo su Nessuna"
+      double_poweroff: "Due risposte di spegnimento si sovrappongono per: %{event}. Il segnale del dispositivo e nicecooling. Il segnale toglie la corrente senza uno spegnimento pulito."
+      double_poweroff_button: "Imposta la risposta del dispositivo su Nessuna"
       use: "Consigliato: %{response} per: %{event}. È l'unica protezione quando Linux si blocca."
       use_button: "Usa la raccomandazione"
     column:

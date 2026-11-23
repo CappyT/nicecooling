@@ -670,7 +670,7 @@ impl Leakshield {
                     "system-alarm" => ("signal-long".to_owned(), String::new()),
                     // The fake daemon powers off after a large leak, so a signal overlaps it.
                     "leak-alarm" if now.starts_with("signal") => {
-                        ("none".to_owned(), "poweroff-overlap".to_owned())
+                        ("none".to_owned(), "double-poweroff".to_owned())
                     }
                     _ if now == "key-sequence" => ("none".to_owned(), String::new()),
                     _ => (now.clone(), String::new()),
