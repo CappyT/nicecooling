@@ -73,3 +73,42 @@ fn collect(dir: &Path, keys: &mut BTreeSet<(String, bool)>) {
         }
     }
 }
+
+/// Every quoted label of the Layout and States sections of a screen file of `docs/ui/screens/`.
+pub fn quoted_labels(screen_file: &str) -> Vec<String> {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../docs/ui/screens")
+        .join(screen_file);
+    let text = std::fs::read_to_string(&path).expect("screen file");
+    let mut labels: Vec<String> = Vec::new();
+    let mut inside = false;
+    for line in text.lines() {
+        if let Some(title) = line.strip_prefix("## ") {
+            inside = matches!(title.trim(), "Layout" | "States");
+            continue;
+        }
+        if !inside {
+            continue;
+        }
+        let mut parts = line.split('"');
+        // The pieces at odd positions sit between a pair of quotes.
+        parts.next();
+        for (index, piece) in parts.enumerate() {
+            if index % 2 == 0 && !piece.trim().is_empty() && !labels.contains(&piece.to_owned()) {
+                labels.push(piece.to_owned());
+            }
+        }
+    }
+    labels
+}
+
+/// The labels of a screen file that no English text of the app contains. A label with data in
+/// it ("Active since 21:46:51") is in `examples`: the test checks its fixed part.
+pub fn missing_labels(screen_file: &str, examples: &[&str]) -> Vec<String> {
+    let en = load("en");
+    quoted_labels(screen_file)
+        .into_iter()
+        .filter(|label| !examples.contains(&label.as_str()))
+        .filter(|label| !en.values().any(|text| text.contains(label.as_str())))
+        .collect()
+}

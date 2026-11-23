@@ -23,6 +23,7 @@ use crate::screens::alarms::AlarmsUi;
 use crate::screens::channels::ChannelsUi;
 use crate::screens::first_run::FirstRunUi;
 use crate::screens::history::{ChartData, HistoryUi};
+use crate::screens::leakshield::LeakshieldUi;
 use crate::screens::loops::LoopsUi;
 use crate::screens::profiles::ProfilesUi;
 use crate::screens::sensors::SensorsUi;
@@ -49,6 +50,8 @@ pub enum InputKey {
     RuleField(&'static str),
     /// The delay of an alarm response, by event.
     ResponseDelay(String),
+    /// An input of the Leakshield page. The first part of the key names the control.
+    Ls(String),
 }
 
 use crate::screens::history::{PROGRESS_DELAY, progress_due};
@@ -88,6 +91,9 @@ pub struct ScreenView {
     pub(crate) profiles: ProfilesUi,
     pub(crate) alarms: AlarmsUi,
     pub(crate) first_run: FirstRunUi,
+    pub(crate) leakshield: LeakshieldUi,
+    /// The focus of the Fields table of the Leakshield page: Up and Down move the selection.
+    pub(crate) ls_focus: Option<gpui::FocusHandle>,
     /// The focus of the Rule group list: Alt+Up and Alt+Down move the selected group.
     pub(crate) groups_focus: Option<gpui::FocusHandle>,
     /// The focus of the Channels list: Up and Down move the selection.
@@ -139,6 +145,8 @@ impl ScreenView {
             profiles: ProfilesUi::default(),
             alarms: AlarmsUi::default(),
             first_run: FirstRunUi::default(),
+            leakshield: LeakshieldUi::default(),
+            ls_focus: Some(cx.focus_handle()),
             groups_focus: Some(cx.focus_handle()),
             channels_focus: Some(cx.focus_handle()),
             inputs: HashMap::new(),
@@ -315,6 +323,49 @@ impl ScreenView {
         state
     }
 
+    /// A slider with its own range. `Release` carries the value that the user chose.
+    pub(crate) fn range_slider(
+        &mut self,
+        key: &str,
+        range: (f32, f32),
+        value: f32,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Entity<SliderState> {
+        if let Some(state) = self.sliders.get(key) {
+            if !self.busy_sliders.contains(key)
+                && (state.read(cx).value().start() - value).abs() > 0.01
+            {
+                state.update(cx, |slider, cx| slider.set_value(value, window, cx));
+            }
+            return state.clone();
+        }
+        let (min, max) = range;
+        let state = cx.new(|_| {
+            SliderState::new()
+                .min(min)
+                .max(max)
+                .step(1.)
+                .default_value(value)
+        });
+        let name = key.to_owned();
+        cx.subscribe(
+            &state,
+            move |this: &mut Self, _, event: &SliderEvent, cx| match event {
+                SliderEvent::Change(_) => {
+                    this.busy_sliders.insert(name.clone());
+                }
+                SliderEvent::Release(value) => {
+                    this.busy_sliders.remove(&name);
+                    this.on_slider(&name, value.start(), cx);
+                }
+            },
+        )
+        .detach();
+        self.sliders.insert(key.to_owned(), state.clone());
+        state
+    }
+
     /// The data of the History chart. A live window reads again after 2 s, a fixed window
     /// when it changes. The read runs in the background: the axes show at once and the lines
     /// appear when the query ends.
@@ -425,7 +476,7 @@ impl Render for ScreenView {
             Page::Alarms => self.render_alarms(&p, window, cx),
             Page::Settings => self.render_settings(&p, window, cx),
             Page::FirstRun => self.render_first_run(&p, window, cx),
-            Page::Leakshield(_) => div().into_any_element(),
+            Page::Leakshield(id) => self.render_leakshield(&id, &p, window, cx),
         };
         v_flex()
             .id("screen")

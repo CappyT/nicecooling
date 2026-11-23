@@ -147,6 +147,7 @@ impl ScreenView {
                     }
                 }
             }
+            InputKey::Ls(name) => self.on_ls_input(name, &value, changes, commits, cx),
             _ => {}
         }
         cx.notify();
@@ -155,7 +156,9 @@ impl ScreenView {
     /// A slider reports the value when the user releases it.
     pub(crate) fn on_slider(&mut self, key: &str, value: f32, cx: &mut Context<Self>) {
         let duty = f64::from(value).round();
-        if let Some(loop_id) = key.strip_prefix("floor:") {
+        if let Some(name) = key.strip_prefix("ls:") {
+            self.on_ls_slider(name, f64::from(value), cx);
+        } else if let Some(loop_id) = key.strip_prefix("floor:") {
             self.send(Command::SetPumpFloor {
                 loop_id: loop_id.to_owned(),
                 duty,

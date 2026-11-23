@@ -37,7 +37,7 @@ pub fn plain(locale: Locale, value: f64) -> String {
 /// The decimals that a unit shows.
 fn digits(unit: &str) -> usize {
     match unit {
-        "degC" | "V" | "A" | "W" => 1,
+        "degC" | "V" | "A" | "W" | "mbar/min" => 1,
         _ => 0,
     }
 }
@@ -82,4 +82,9 @@ pub fn clock_minutes(us: u64) -> String {
 /// "2026-11-20 08:14".
 pub fn date_time(us: u64) -> String {
     local_text(us, "%Y-%m-%d %H:%M")
+}
+
+/// "2026-11-21 18:02:11".
+pub fn date_time_seconds(us: u64) -> String {
+    local_text(us, "%Y-%m-%d %H:%M:%S")
 }

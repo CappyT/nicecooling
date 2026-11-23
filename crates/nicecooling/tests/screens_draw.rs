@@ -323,3 +323,193 @@ fn the_profiles_screen_draws_groups_and_every_editor(cx: &mut TestAppContext) {
         visual.update(|window, cx| window.draw(cx).clear(cx));
     }
 }
+
+#[gpui::test]
+fn every_leakshield_tab_draws_in_each_state(cx: &mut TestAppContext) {
+    use gpui::AppContext as _;
+    use nicecooling::screen_view::ScreenView;
+    use nicecooling::screens::leakshield::Tab;
+    use nicecooling::screens::leakshield::overview::Confirm;
+    use nicecooling::screens::leakshield::settings::Step;
+    use nicecooling::screens::leakshield::system::Ask;
+    use support::fixtures::with_leakshield;
+
+    for language in [Language::English, Language::Italian] {
+        let (model, rig) = start(cx, language);
+        let state = with_leakshield();
+        rig.events
+            .send(DaemonEvent::Snapshot(Box::new(state.snapshot.clone())))
+            .unwrap();
+        rig.events
+            .send(DaemonEvent::Sensors(state.sensors.clone().unwrap()))
+            .unwrap();
+        cx.run_until_parked();
+        let (commands, _inbox) = mpsc::unbounded_channel();
+        let window = cx.update(|cx| {
+            cx.open_window(gpui::WindowOptions::default(), |_, cx| {
+                cx.new(|cx| ScreenView::new(model.clone(), commands.clone(), cx))
+            })
+            .expect("a window")
+        });
+        let draw_window = |cx: &mut TestAppContext| {
+            cx.run_until_parked();
+            let mut visual = VisualTestContext::from_window(window.into(), cx);
+            visual.update(|window, cx| window.draw(cx).clear(cx));
+        };
+        let show = |cx: &mut TestAppContext, tab: Tab| {
+            window
+                .update(cx, |view, _, cx| {
+                    view.show_leakshield_tab(LEAKSHIELD, tab, cx)
+                })
+                .unwrap();
+            draw_window(cx);
+        };
+        // Every tab, then the questions and the steps that change their look.
+        for tab in Tab::ALL {
+            show(cx, tab);
+            show(cx, tab);
+        }
+        show(cx, Tab::Overview);
+        for confirm in [
+            Confirm::Mode("monitor".into()),
+            Confirm::Measure,
+            Confirm::RefillSteps,
+        ] {
+            window
+                .update(cx, |view, _, _| {
+                    view.leakshield_ui().overview.confirm = Some(confirm)
+                })
+                .unwrap();
+            draw_window(cx);
+        }
+        window
+            .update(cx, |view, _, _| {
+                let ui = view.leakshield_ui();
+                ui.overview.confirm = None;
+                ui.overview.test_setup = true;
+            })
+            .unwrap();
+        draw_window(cx);
+        show(cx, Tab::Settings);
+        for step in Step::ALL {
+            window
+                .update(cx, |view, _, _| {
+                    let ui = view.leakshield_ui();
+                    ui.settings.go(step);
+                    ui.settings.pending.insert(
+                        "pump_max_speed".into(),
+                        nicecooling::model::FieldValue::Number(4900.0),
+                    );
+                    ui.settings.pending.insert(
+                        "reservoir_total_volume".into(),
+                        nicecooling::model::FieldValue::Number(300.0),
+                    );
+                    ui.settings.request_discard();
+                })
+                .unwrap();
+            draw_window(cx);
+        }
+        show(cx, Tab::System);
+        for ask in [
+            Ask::Restore("backup_1".into()),
+            Ask::FactoryReset,
+            Ask::RefillHistory,
+            Ask::ServiceCounter,
+        ] {
+            window
+                .update(cx, |view, _, _| view.leakshield_ui().system.request(ask))
+                .unwrap();
+            draw_window(cx);
+        }
+        show(cx, Tab::Display);
+        window
+            .update(cx, |view, _, _| {
+                let ui = view.leakshield_ui();
+                ui.display.select(2);
+                ui.display.gallery = true;
+            })
+            .unwrap();
+        draw_window(cx);
+        show(cx, Tab::Lighting);
+        window
+            .update(cx, |view, _, _| {
+                let ui = view.leakshield_ui();
+                ui.lighting.toggle(1);
+                ui.lighting.effect_picker = Some(3);
+            })
+            .unwrap();
+        draw_window(cx);
+        show(cx, Tab::Sensors);
+        window
+            .update(cx, |view, _, _| {
+                view.leakshield_ui().sensors.clear = Some(3)
+            })
+            .unwrap();
+        draw_window(cx);
+        show(cx, Tab::Fields);
+        window
+            .update(cx, |view, _, _| {
+                view.leakshield_ui().fields.select("reservoir_total_volume")
+            })
+            .unwrap();
+        draw_window(cx);
+
+        // An Action runs, an Alarm is active, then the Leakshield leaves.
+        let mut running = state.snapshot.clone();
+        running.leakshields[0].running_action = "test".into();
+        let mut leak = alarm(
+            "a1",
+            "leakshield.leak-warning",
+            LEAKSHIELD,
+            Response::Notify,
+            0,
+        );
+        leak.raised_us = NOW_US;
+        running.alarms = vec![leak];
+        rig.events
+            .send(DaemonEvent::Snapshot(Box::new(running)))
+            .unwrap();
+        cx.run_until_parked();
+        for tab in Tab::ALL {
+            show(cx, tab);
+        }
+        for action in ["measure-fill-level", "deaerate"] {
+            let mut snapshot = state.snapshot.clone();
+            snapshot.leakshields[0].running_action = action.into();
+            rig.events
+                .send(DaemonEvent::Snapshot(Box::new(snapshot)))
+                .unwrap();
+            cx.run_until_parked();
+            show(cx, Tab::Overview);
+            show(cx, Tab::Status);
+        }
+        let mut gone = state.snapshot.clone();
+        gone.leakshields[0].connected = false;
+        rig.events
+            .send(DaemonEvent::Snapshot(Box::new(gone)))
+            .unwrap();
+        cx.run_until_parked();
+        for tab in Tab::ALL {
+            show(cx, tab);
+        }
+        for link in [Link::Offline, Link::Down] {
+            rig.events.send(DaemonEvent::Link(link)).unwrap();
+            cx.run_until_parked();
+            for tab in Tab::ALL {
+                show(cx, tab);
+            }
+        }
+        // A Leakshield with an unknown firmware and one without data.
+        let mut unknown = state.snapshot.clone();
+        unknown.leakshields[0].read_only_reason = "unknown-firmware".into();
+        unknown.leakshield_data.clear();
+        rig.events
+            .send(DaemonEvent::Snapshot(Box::new(unknown)))
+            .unwrap();
+        cx.run_until_parked();
+        for tab in Tab::ALL {
+            show(cx, tab);
+        }
+        cx.update(|cx| cx.quit());
+    }
+}

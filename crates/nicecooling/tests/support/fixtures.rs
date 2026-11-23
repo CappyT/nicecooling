@@ -1,6 +1,7 @@
 use nicecooling::model::{
-    AlarmEntry, AppState, CalibrationTableInfo, Cause, ChannelInfo, Control, CurveSpec,
-    LeakshieldInfo, Link, LoopInfo, ProfileInfo, Response, SensorInfo, SensorSample, Severity,
+    AlarmEntry, AppState, BackupEntry, CalibrationTableInfo, Cause, ChannelInfo, Control,
+    CurveSpec, DeviceEvent, FieldEntry, FieldRisk, FieldValue, LeakshieldData, LeakshieldInfo,
+    Link, LoopInfo, ProfileInfo, Response, ResponseProposal, SensorInfo, SensorSample, Severity,
 };
 
 pub const LEAKSHIELD: &str = "leakshield_20417_31072";
@@ -216,5 +217,274 @@ pub fn full() -> AppState {
     });
     state.last_sensors = state.sensors.clone();
     state.snapshot.leakshields[0].mode = "shield".into();
+    state
+}
+
+fn field(id: &str, risk: FieldRisk, value: FieldValue, writable: bool) -> FieldEntry {
+    FieldEntry {
+        id: id.into(),
+        risk,
+        value,
+        writable,
+        reason: if writable {
+            String::new()
+        } else {
+            "not-verified".into()
+        },
+    }
+}
+
+/// The fields, events, backups and Software sensors of a Leakshield with known firmware.
+pub fn leakshield_data() -> LeakshieldData {
+    use FieldRisk::{Low, Safety};
+    let n = FieldValue::Number;
+    let t = |text: &str| FieldValue::Text(text.into());
+    let list = |values: Vec<f64>| FieldValue::List(values);
+    let fields = vec![
+        field("default_mode", Safety, t("shield"), true),
+        field("test_pressure", Safety, n(300.0), true),
+        field("shield_pressure_low", Safety, n(250.0), false),
+        field("shield_pressure_working_range", Safety, n(50.0), false),
+        field("shield_pressure_max_range", Safety, n(50.0), false),
+        field("shield_pressure_low_standby", Safety, n(80.0), true),
+        field("monitor_pressure_low", Safety, n(100.0), false),
+        field("monitor_pressure_working_range", Safety, n(20.0), false),
+        field("monitor_pressure_max_range", Safety, n(20.0), false),
+        field("shield_flags", Safety, n(127.0), true),
+        field(
+            "vacuum_timer_start_hour",
+            Safety,
+            list(vec![9.0, 18.0]),
+            true,
+        ),
+        field(
+            "vacuum_timer_start_minute",
+            Safety,
+            list(vec![0.0, 0.0]),
+            true,
+        ),
+        field("vacuum_timer_end_hour", Safety, list(vec![9.0, 18.0]), true),
+        field(
+            "vacuum_timer_end_minute",
+            Safety,
+            list(vec![1.0, 1.0]),
+            true,
+        ),
+        field("reservoir_model", Safety, t("custom"), true),
+        field("reservoir_total_volume", Safety, n(270.0), false),
+        field("reservoir_air_volume_full", Safety, n(65.0), true),
+        field("reservoir_air_volume_empty", Safety, n(260.0), true),
+        field("pump_model", Safety, t("d5"), true),
+        field("pump_max_speed", Safety, n(4800.0), true),
+        field("pump_max_pressure", Safety, n(375.0), true),
+        field("pump_start_speed", Safety, n(2500.0), true),
+        field("pump_start_flow", Safety, n(130.0), true),
+        field("alarm_buzzer", Safety, n(1.0), true),
+        field("fill_level_warning_threshold", Safety, n(60.0), true),
+        field("fill_level_alarm_threshold", Safety, n(20.0), true),
+        field("leak_rate_warning_threshold", Safety, n(150.0), true),
+        field(
+            "fill_level_warning_response_action",
+            Safety,
+            t("none"),
+            true,
+        ),
+        field("fill_level_alarm_response_action", Safety, t("none"), true),
+        field("leak_rate_warning_response_action", Safety, t("none"), true),
+        field("leak_rate_alarm_1_response_action", Safety, t("none"), true),
+        field(
+            "leak_rate_alarm_2_response_action",
+            Safety,
+            t("signal-long"),
+            true,
+        ),
+        field("system_alarm_response_action", Safety, t("none"), false),
+        field("standby_conditions", Safety, n(11.0), true),
+        field("display_page_time", Low, n(10.0), true),
+        field("display_brightness_active", Low, t("low"), true),
+        field("display_brightness_idle", Low, t("low"), true),
+        field("display_flags", Low, n(0.0), true),
+        field("clock_flags", Safety, n(1.0), true),
+        field("clock_timezone", Safety, n(1.0), true),
+        field(
+            "page_template",
+            Low,
+            list(vec![
+                13.0, 2.0, 3.0, 255.0, 255.0, 255.0, 255.0, 255.0, 255.0, 255.0,
+            ]),
+            true,
+        ),
+        field("page_options", Low, list(vec![1.0; 10]), true),
+        field(
+            "page_sources",
+            Low,
+            {
+                let mut sources = vec![255.0; 80];
+                // Page 2 shows the pressure; page 3 shows the pressure and Software sensor 3.
+                sources[8] = 0.0;
+                sources[16] = 0.0;
+                sources[17] = 10.0;
+                list(sources)
+            },
+            true,
+        ),
+        field("led_controller_mode", Low, list(vec![1.0, 3.0]), true),
+        field("led_controller_first_led", Low, list(vec![0.0, 2.0]), true),
+        field("led_controller_led_count", Low, list(vec![6.0, 3.0]), true),
+        field("led_controller_source", Low, list(vec![-1.0, 10.0]), true),
+        field(
+            "led_controller_parameters",
+            Low,
+            list(
+                [
+                    50.0, 100.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+                ]
+                .repeat(2),
+            ),
+            true,
+        ),
+        field("led_controller_color_hue", Low, list(vec![0.0; 12]), true),
+        field(
+            "led_controller_color_saturation",
+            Low,
+            list(vec![255.0; 12]),
+            true,
+        ),
+        field(
+            "led_controller_color_value",
+            Low,
+            list(vec![255.0; 12]),
+            true,
+        ),
+    ];
+    let mut software: Vec<(u16, Option<String>)> = (1..=12).map(|slot| (slot, None)).collect();
+    software[2].1 = Some("nct6798_temp1".into());
+    LeakshieldData {
+        fields,
+        events: vec![
+            DeviceEvent {
+                time_us: 1_700_000_100_000_000,
+                id: "mode-changed".into(),
+                details: [
+                    ("from".to_owned(), "monitor".to_owned()),
+                    ("to".to_owned(), "shield".to_owned()),
+                ]
+                .into_iter()
+                .collect(),
+            },
+            DeviceEvent {
+                time_us: 1_700_000_050_000_000,
+                id: "vacuum-pump-started".into(),
+                details: [("pressure".to_owned(), "281".to_owned())]
+                    .into_iter()
+                    .collect(),
+            },
+            DeviceEvent {
+                time_us: 1_700_000_000_000_000,
+                id: "system-start".into(),
+                details: Default::default(),
+            },
+        ],
+        backups: vec![
+            BackupEntry {
+                id: "backup_2".into(),
+                time_us: 1_700_000_200_000_000,
+                sha256: "ab".repeat(32),
+                firmware: 1040,
+                reason: "manual".into(),
+            },
+            BackupEntry {
+                id: "backup_1".into(),
+                time_us: 1_700_000_000_000_000,
+                sha256: "cd".repeat(32),
+                firmware: 1040,
+                reason: "before-write".into(),
+            },
+        ],
+        software_sensors: software,
+        proposals: vec![
+            ResponseProposal {
+                alarm: "leak-warning".into(),
+                current: "none".into(),
+                proposed: "none".into(),
+                overlap: String::new(),
+            },
+            ResponseProposal {
+                alarm: "leak-alarm-small".into(),
+                current: "key-sequence".into(),
+                proposed: "none".into(),
+                overlap: String::new(),
+            },
+            ResponseProposal {
+                alarm: "leak-alarm".into(),
+                current: "signal-long".into(),
+                proposed: "none".into(),
+                overlap: "poweroff-overlap".into(),
+            },
+            ResponseProposal {
+                alarm: "fill-level-low-warning".into(),
+                current: "none".into(),
+                proposed: "none".into(),
+                overlap: String::new(),
+            },
+            ResponseProposal {
+                alarm: "fill-level-low-alarm".into(),
+                current: "none".into(),
+                proposed: "none".into(),
+                overlap: String::new(),
+            },
+            ResponseProposal {
+                alarm: "system-alarm".into(),
+                current: "none".into(),
+                proposed: "signal-long".into(),
+                overlap: String::new(),
+            },
+        ],
+        structure: 100,
+        writable: true,
+        clock_offset_s: -42,
+        software_sensor_slots: 12,
+    }
+}
+
+/// `full()` with the data of a Leakshield, its live sensors and a Loop that feeds it.
+pub fn with_leakshield() -> AppState {
+    let mut state = full();
+    state
+        .snapshot
+        .leakshield_data
+        .insert(LEAKSHIELD.into(), leakshield_data());
+    for (name, label, kind, unit) in [
+        ("volume_change", "Volume change", "other", "ml/h"),
+        ("pressure_change", "Pressure change", "other", "mbar/min"),
+        ("feed_rpm", "Pump speed", "fan", "rpm"),
+        ("flow", "Flow", "flow", "l/h"),
+    ] {
+        let info = sensor(
+            &format!("{LEAKSHIELD}_{name}"),
+            label,
+            kind,
+            unit,
+            "leakshield",
+            "",
+        );
+        state.snapshot.sensors.insert(info.id.clone(), info);
+    }
+    let live = [
+        ("volume_change", 2.0),
+        ("pressure_change", -0.4),
+        ("feed_rpm", 2840.0),
+        ("flow", 115.0),
+    ];
+    for sample in [&mut state.sensors, &mut state.last_sensors]
+        .into_iter()
+        .flatten()
+    {
+        for (name, value) in live {
+            sample
+                .sensors
+                .push((format!("{LEAKSHIELD}_{name}"), value, 0));
+        }
+    }
     state
 }

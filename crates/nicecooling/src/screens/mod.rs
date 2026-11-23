@@ -12,6 +12,7 @@ pub mod format;
 mod handlers;
 pub mod history;
 pub mod history_view;
+pub mod leakshield;
 pub mod loops;
 pub mod loops_view;
 pub mod overview;
@@ -78,8 +79,12 @@ impl WriteOutcome {
                     },
                 }
             }
-            zbus::Error::FDO(error) => match **error {
+            zbus::Error::FDO(error) => match &**error {
                 zbus::fdo::Error::AccessDenied(_) => Self::NotAuthorized,
+                // The daemon error is in the text, as for `org.freedesktop.DBus.Error.Failed`.
+                zbus::fdo::Error::Failed(message) => Self::Refused {
+                    error: message.rsplit('.').next().unwrap_or_default().to_owned(),
+                },
                 _ => Self::Refused {
                     error: error.to_string(),
                 },

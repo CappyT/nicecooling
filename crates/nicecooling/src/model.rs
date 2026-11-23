@@ -143,6 +143,8 @@ pub enum FieldValue {
     Flag(bool),
     Number(f64),
     Text(String),
+    /// A field that the device repeats (display pages, LED controllers): one number each.
+    List(Vec<f64>),
 }
 
 /// What a Profile holds for one Channel (`docs/storage.md`, Profile file).
@@ -287,6 +289,123 @@ pub struct PressureLimits {
     pub max: f64,
 }
 
+/// The risk class of a Leakshield field (`docs/api.md`, `GetFields`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FieldRisk {
+    Safety,
+    Low,
+}
+
+impl FieldRisk {
+    pub fn parse(text: &str) -> Self {
+        if text == "low" {
+            Self::Low
+        } else {
+            Self::Safety
+        }
+    }
+}
+
+/// One row of `GetFields`.
+#[derive(Clone, Debug, PartialEq)]
+pub struct FieldEntry {
+    pub id: String,
+    pub risk: FieldRisk,
+    pub value: FieldValue,
+    pub writable: bool,
+    /// The read-only reason identifier, empty for a writable field.
+    pub reason: String,
+}
+
+/// One row of `GetEvents`: the time on the device clock, the identifier and the details as text.
+#[derive(Clone, Debug, PartialEq)]
+pub struct DeviceEvent {
+    pub time_us: u64,
+    pub id: String,
+    pub details: BTreeMap<String, String>,
+}
+
+/// One row of `ListBackups`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BackupEntry {
+    pub id: String,
+    pub time_us: u64,
+    pub sha256: String,
+    pub firmware: u16,
+    /// `first`, `before-write`, `manual` or `import`.
+    pub reason: String,
+}
+
+/// One row of `GetDeviceResponseProposals`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ResponseProposal {
+    /// The event identifier without the prefix `leakshield.`: `leak-warning`.
+    pub alarm: String,
+    /// `none`, `signal-short`, `signal-long` or `key-sequence`.
+    pub current: String,
+    pub proposed: String,
+    /// The identifier of the overlap warning, empty without one.
+    pub overlap: String,
+}
+
+/// What the app reads from one Leakshield beyond its properties: the calls of the interface
+/// that have no signal. A call that the daemon does not support leaves its part empty.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct LeakshieldData {
+    pub fields: Vec<FieldEntry>,
+    /// Newest first.
+    pub events: Vec<DeviceEvent>,
+    /// Newest first.
+    pub backups: Vec<BackupEntry>,
+    /// `(slot, sensor)`: the slots 1 to 12, with the sensor that fills each.
+    pub software_sensors: Vec<(u16, Option<String>)>,
+    pub proposals: Vec<ResponseProposal>,
+    pub structure: u16,
+    pub writable: bool,
+    /// Device time minus PC time, in seconds.
+    pub clock_offset_s: i64,
+    pub software_sensor_slots: u16,
+}
+
+impl LeakshieldData {
+    pub fn field(&self, id: &str) -> Option<&FieldEntry> {
+        self.fields.iter().find(|field| field.id == id)
+    }
+
+    pub fn number(&self, id: &str) -> Option<f64> {
+        match &self.field(id)?.value {
+            FieldValue::Number(value) => Some(*value),
+            FieldValue::Flag(on) => Some(f64::from(u8::from(*on))),
+            _ => None,
+        }
+    }
+
+    pub fn list(&self, id: &str) -> Option<&[f64]> {
+        match &self.field(id)?.value {
+            FieldValue::List(values) => Some(values),
+            _ => None,
+        }
+    }
+
+    /// The minimum, target and maximum pressure of a Mode in mbar, from its limit fields: the
+    /// lower limit, the lower limit plus the working range, and the setpoint plus the upper range.
+    pub fn pressure_limits(&self, mode: &str) -> Option<PressureLimits> {
+        let prefix = if mode == "monitor" {
+            "monitor"
+        } else {
+            "shield"
+        };
+        let low = self.number(&format!("{prefix}_pressure_low"))?;
+        let working = self.number(&format!("{prefix}_pressure_working_range"))?;
+        let upper = self.number(&format!("{prefix}_pressure_max_range"))?;
+        Some(PressureLimits {
+            min: low,
+            target: low + working,
+            max: low + working + upper,
+        })
+    }
+}
+
 /// The sources and the function of a Derived sensor.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct DerivedDef {
@@ -415,6 +534,8 @@ pub struct Snapshot {
     pub responses: Vec<ResponseRule>,
     /// `GetContent` of each Profile, by Profile id.
     pub profile_contents: BTreeMap<String, ProfileContent>,
+    /// What the app reads from each connected Leakshield, by Leakshield id.
+    pub leakshield_data: BTreeMap<String, LeakshieldData>,
     pub daemon_version: String,
 }
 

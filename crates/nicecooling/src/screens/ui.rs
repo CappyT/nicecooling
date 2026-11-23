@@ -15,6 +15,7 @@ pub enum TagKind {
     Warning,
     Alarm,
     Offline,
+    Success,
 }
 
 /// A 22 px pill with 12 px text.
@@ -25,6 +26,7 @@ pub fn tag(text: impl Into<SharedString>, kind: TagKind, p: &Palette) -> Div {
         TagKind::Warning => (p.warning_tint, p.warning),
         TagKind::Alarm => (p.alarm_bg, p.alarm_fg),
         TagKind::Offline => (p.offline_tint, p.offline),
+        TagKind::Success => (p.selected, p.success),
     };
     div()
         .h(px(22.))

@@ -1,7 +1,7 @@
 //! What a tray entry, a notification button, a banner button or a screen asks the app to do.
 
 use crate::daemon_client::DaemonClient;
-use crate::model::{Response, RuleGroup};
+use crate::model::{FieldValue, Response, RuleGroup};
 use crate::shell::Page;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -133,6 +133,59 @@ pub enum Command {
     RestoreBackup {
         leakshield: String,
         backup: String,
+    },
+    /// One write path run for all fields. `control` names the control that shows the result.
+    SetLeakshieldFields {
+        leakshield: String,
+        control: String,
+        fields: Vec<(String, FieldValue)>,
+    },
+    /// `shield`, `monitor` or `release`. `release` needs the polkit action `critical`.
+    ChangeLeakshieldMode {
+        leakshield: String,
+        mode: String,
+    },
+    /// `test`, `measure-fill-level` or `deaerate`. A Test writes its pressure first.
+    StartLeakshieldAction {
+        leakshield: String,
+        action: String,
+        test_pressure: Option<f64>,
+    },
+    CancelLeakshieldAction {
+        leakshield: String,
+    },
+    SyncLeakshieldClock {
+        leakshield: String,
+    },
+    ResetRefillHistory {
+        leakshield: String,
+    },
+    ResetServiceCounter {
+        leakshield: String,
+    },
+    /// An empty sensor clears the slot.
+    SetSoftwareSensor {
+        leakshield: String,
+        slot: u16,
+        sensor: String,
+    },
+    CreateBackup {
+        leakshield: String,
+    },
+    /// Save the three reports of a backup in a text file.
+    ExportBackup {
+        leakshield: String,
+        backup: String,
+        path: std::path::PathBuf,
+    },
+    /// Add the backup of a file to the list of the Leakshield. It does not write the device.
+    ImportBackup {
+        leakshield: String,
+        path: std::path::PathBuf,
+    },
+    /// Needs the polkit action `critical`.
+    FactoryReset {
+        leakshield: String,
     },
     /// Save the Calibration table of a Loop. A preset is read-only: the points go into a new
     /// user table, and the Loop uses it from then on.
@@ -271,6 +324,77 @@ impl Command {
             Self::RestoreBackup { leakshield, backup } => {
                 client.restore_backup(leakshield, backup).await?
             }
+            Self::SetLeakshieldFields {
+                leakshield, fields, ..
+            } => client.set_leakshield_fields(leakshield, fields).await?,
+            Self::ChangeLeakshieldMode { leakshield, mode } => {
+                client.set_leakshield_mode(leakshield, mode).await?
+            }
+            Self::StartLeakshieldAction {
+                leakshield,
+                action,
+                test_pressure,
+            } => {
+                if let Some(pressure) = test_pressure {
+                    client
+                        .set_leakshield_fields(
+                            leakshield,
+                            &[("test_pressure".to_owned(), FieldValue::Number(*pressure))],
+                        )
+                        .await?;
+                }
+                client.start_leakshield_action(leakshield, action).await?
+            }
+            Self::CancelLeakshieldAction { leakshield } => {
+                client.leakshield_call(leakshield, "CancelAction").await?
+            }
+            Self::SyncLeakshieldClock { leakshield } => {
+                client.leakshield_call(leakshield, "SyncClock").await?
+            }
+            Self::ResetRefillHistory { leakshield } => {
+                client
+                    .leakshield_call(leakshield, "ResetRefillHistory")
+                    .await?
+            }
+            Self::ResetServiceCounter { leakshield } => {
+                client
+                    .leakshield_call(leakshield, "ResetServiceCounter")
+                    .await?
+            }
+            Self::SetSoftwareSensor {
+                leakshield,
+                slot,
+                sensor,
+            } => {
+                client
+                    .set_software_sensor(leakshield, *slot, sensor)
+                    .await?
+            }
+            Self::CreateBackup { leakshield } => {
+                client.leakshield_call(leakshield, "CreateBackup").await?
+            }
+            Self::ExportBackup {
+                leakshield,
+                backup,
+                path,
+            } => {
+                let reports = client.get_backup(leakshield, backup).await?;
+                std::fs::write(
+                    path,
+                    crate::screens::leakshield::system::backup_file(&reports),
+                )
+                .map_err(|error| zbus::Error::Failure(error.to_string()))?;
+            }
+            Self::ImportBackup { leakshield, path } => {
+                let text = std::fs::read_to_string(path)
+                    .map_err(|error| zbus::Error::Failure(error.to_string()))?;
+                let reports = crate::screens::leakshield::system::parse_backup_file(&text)
+                    .ok_or_else(|| zbus::Error::Failure("not a backup file".into()))?;
+                client.import_backup(leakshield, &reports).await?;
+            }
+            Self::FactoryReset { leakshield } => {
+                client.leakshield_call(leakshield, "FactoryReset").await?
+            }
             Self::SaveCalibration {
                 loop_id,
                 sensor,
@@ -287,6 +411,26 @@ impl Command {
             }
         }
         Ok(true)
+    }
+
+    /// The Leakshield that this command writes. The app reads the device again after it.
+    pub fn leakshield(&self) -> Option<&str> {
+        match self {
+            Self::RestoreBackup { leakshield, .. }
+            | Self::SetLeakshieldFields { leakshield, .. }
+            | Self::ChangeLeakshieldMode { leakshield, .. }
+            | Self::StartLeakshieldAction { leakshield, .. }
+            | Self::CancelLeakshieldAction { leakshield }
+            | Self::SyncLeakshieldClock { leakshield }
+            | Self::ResetRefillHistory { leakshield }
+            | Self::ResetServiceCounter { leakshield }
+            | Self::SetSoftwareSensor { leakshield, .. }
+            | Self::CreateBackup { leakshield }
+            | Self::ExportBackup { leakshield, .. }
+            | Self::ImportBackup { leakshield, .. }
+            | Self::FactoryReset { leakshield } => Some(leakshield),
+            _ => None,
+        }
     }
 
     /// The control that shows the result of this command. `None` for a command without
@@ -324,6 +468,24 @@ impl Command {
             Self::SetRuleGroups { .. } => "rule-groups".to_owned(),
             Self::SetAlarmResponse { event, .. } => format!("alarm-response:{event}"),
             Self::RestoreBackup { leakshield, .. } => format!("restore:{leakshield}"),
+            Self::SetLeakshieldFields {
+                leakshield,
+                control,
+                ..
+            } => format!("ls:{leakshield}:{control}"),
+            Self::ChangeLeakshieldMode { leakshield, .. } => format!("ls:{leakshield}:mode"),
+            Self::StartLeakshieldAction { leakshield, .. }
+            | Self::CancelLeakshieldAction { leakshield } => format!("ls:{leakshield}:action"),
+            Self::SyncLeakshieldClock { leakshield } => format!("ls:{leakshield}:clock"),
+            Self::ResetRefillHistory { leakshield } => format!("ls:{leakshield}:refill-history"),
+            Self::ResetServiceCounter { leakshield } => format!("ls:{leakshield}:service-counter"),
+            Self::SetSoftwareSensor {
+                leakshield, slot, ..
+            } => format!("ls:{leakshield}:software-sensor:{slot}"),
+            Self::CreateBackup { leakshield }
+            | Self::ExportBackup { leakshield, .. }
+            | Self::ImportBackup { leakshield, .. } => format!("ls:{leakshield}:backups"),
+            Self::FactoryReset { leakshield } => format!("ls:{leakshield}:factory-reset"),
             Self::CancelPoweroff { .. } | Self::OpenWindow(_) | Self::Quit => return None,
         })
     }

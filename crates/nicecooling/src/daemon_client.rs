@@ -14,9 +14,10 @@ use zbus::{Connection, MatchRule, MessageStream, Proxy};
 use zbus::{OwnedObjectPath, OwnedVariant as OwnedValue, Variant as Value};
 
 use crate::model::{
-    AlarmDetails, AlarmEntry, BoardInfo, CalibrationTableInfo, Cause, ChannelInfo, ChannelOverride,
-    Control, CurveSpec, DaemonEvent, DerivedDef, FieldValue, LeakshieldInfo, Link, LoopInfo,
-    ProfileChannel, ProfileContent, ProfileInfo, Response, ResponseRule, Rule, RuleGroup,
+    AlarmDetails, AlarmEntry, BackupEntry, BoardInfo, CalibrationTableInfo, Cause, ChannelInfo,
+    ChannelOverride, Control, CurveSpec, DaemonEvent, DerivedDef, DeviceEvent, FieldEntry,
+    FieldRisk, FieldValue, LeakshieldData, LeakshieldInfo, Link, LoopInfo, ProfileChannel,
+    ProfileContent, ProfileInfo, Response, ResponseProposal, ResponseRule, Rule, RuleGroup,
     SensorInfo, SensorSample, Severity, Snapshot, UnitState,
 };
 
@@ -387,20 +388,105 @@ impl DaemonClient {
         }
         snapshot.daemon_version = self.daemon_version().await.unwrap_or_default();
         for device in snapshot.leakshields.iter_mut().filter(|d| d.connected) {
-            device.field_counts = self.field_counts(&device.id).await.ok();
+            let data = self.leakshield_data(&device.id).await;
+            if !data.fields.is_empty() {
+                let read_only = data.fields.iter().filter(|field| !field.writable).count();
+                device.field_counts = Some((data.fields.len() as u32, read_only as u32));
+            }
+            snapshot.leakshield_data.insert(device.id.clone(), data);
         }
         Ok(snapshot)
     }
 
-    /// `GetFields`: how many fields the device has, and how many of them are read-only.
-    async fn field_counts(&self, leakshield: &str) -> zbus::Result<(u32, u32)> {
-        let proxy = self
-            .proxy(&object("leakshield", leakshield), "Leakshield")
-            .await?;
+    /// Read what a Leakshield has beyond its properties. A call that fails (the daemon answers
+    /// `NotSupported`, or the device is away) leaves its part empty.
+    pub async fn leakshield_data(&self, id: &str) -> LeakshieldData {
+        let Ok(proxy) = self.proxy(&object("leakshield", id), "Leakshield").await else {
+            return LeakshieldData::default();
+        };
+        let mut data = LeakshieldData {
+            structure: proxy.get_property("Structure").await.unwrap_or_default(),
+            writable: proxy.get_property("Writable").await.unwrap_or_default(),
+            clock_offset_s: proxy.get_property("ClockOffset").await.unwrap_or_default(),
+            software_sensor_slots: proxy
+                .get_property("SoftwareSensorSlots")
+                .await
+                .unwrap_or_default(),
+            ..LeakshieldData::default()
+        };
         let fields: Vec<(String, String, OwnedValue, bool, String)> =
-            proxy.call("GetFields", &()).await?;
-        let read_only = fields.iter().filter(|field| !field.3).count();
-        Ok((fields.len() as u32, read_only as u32))
+            proxy.call("GetFields", &()).await.unwrap_or_default();
+        data.fields = fields
+            .into_iter()
+            .filter_map(|(id, risk, value, writable, reason)| {
+                Some(FieldEntry {
+                    id,
+                    risk: FieldRisk::parse(&risk),
+                    value: field_value(&value)?,
+                    writable,
+                    reason,
+                })
+            })
+            .collect();
+        let events: Vec<(u64, String, Props)> =
+            proxy.call("GetEvents", &()).await.unwrap_or_default();
+        data.events = events
+            .into_iter()
+            .map(|(time_us, id, details)| DeviceEvent {
+                time_us,
+                id,
+                details: details
+                    .iter()
+                    .filter_map(|(key, value)| Some((key.clone(), text_of(value)?)))
+                    .collect(),
+            })
+            .collect();
+        data.events
+            .sort_by_key(|event| std::cmp::Reverse(event.time_us));
+        let backups: Vec<(String, u64, String, u16, String)> =
+            proxy.call("ListBackups", &()).await.unwrap_or_default();
+        data.backups = backups
+            .into_iter()
+            .map(|(id, time_us, sha256, firmware, reason)| BackupEntry {
+                id,
+                time_us,
+                sha256,
+                firmware,
+                reason,
+            })
+            .collect();
+        data.backups
+            .sort_by_key(|backup| std::cmp::Reverse(backup.time_us));
+        let slots: Vec<(u16, OwnedObjectPath)> = proxy
+            .call("GetSoftwareSensors", &())
+            .await
+            .unwrap_or_default();
+        data.software_sensors = slots
+            .into_iter()
+            .map(|(slot, sensor)| {
+                (
+                    slot,
+                    (sensor.as_str() != "/").then(|| last_element(sensor.as_str())),
+                )
+            })
+            .collect();
+        let proposals: Vec<(String, String, String, String)> = proxy
+            .call("GetDeviceResponseProposals", &())
+            .await
+            .unwrap_or_default();
+        data.proposals = proposals
+            .into_iter()
+            .map(|(alarm, current, proposed, overlap)| ResponseProposal {
+                alarm: alarm
+                    .strip_prefix("leakshield.")
+                    .unwrap_or(&alarm)
+                    .to_owned(),
+                current,
+                proposed,
+                overlap,
+            })
+            .collect();
+        data
     }
 
     async fn daemon_version(&self) -> zbus::Result<String> {
@@ -777,6 +863,115 @@ impl DaemonClient {
         Ok(id)
     }
 
+    fn leakshield_path(id: &str) -> String {
+        object("leakshield", id)
+    }
+
+    /// `SetFields`: one write path run for all fields.
+    pub async fn set_leakshield_fields(
+        &self,
+        leakshield: &str,
+        fields: &[(String, FieldValue)],
+    ) -> zbus::Result<()> {
+        let fields: HashMap<String, Value<'static>> = fields
+            .iter()
+            .map(|(name, value)| {
+                let value = match value {
+                    FieldValue::Flag(on) => Value::Bool(*on),
+                    FieldValue::Number(number) => Value::F64(*number),
+                    FieldValue::Text(text) => Value::from(text.clone()),
+                    FieldValue::List(list) => Value::from(list.clone()),
+                };
+                (name.clone(), value)
+            })
+            .collect();
+        self.write(
+            &Self::leakshield_path(leakshield),
+            "Leakshield",
+            "SetFields",
+            &(fields,),
+        )
+        .await
+    }
+
+    /// `SetMode` with `shield`, `monitor` or `release`. `release` needs the action `critical`.
+    pub async fn set_leakshield_mode(&self, leakshield: &str, mode: &str) -> zbus::Result<()> {
+        self.write(
+            &Self::leakshield_path(leakshield),
+            "Leakshield",
+            "SetMode",
+            &(mode,),
+        )
+        .await
+    }
+
+    pub async fn start_leakshield_action(
+        &self,
+        leakshield: &str,
+        action: &str,
+    ) -> zbus::Result<()> {
+        self.write(
+            &Self::leakshield_path(leakshield),
+            "Leakshield",
+            "StartAction",
+            &(action,),
+        )
+        .await
+    }
+
+    /// A call of the Leakshield interface that takes no argument and needs `write`.
+    pub async fn leakshield_call(&self, leakshield: &str, method: &str) -> zbus::Result<()> {
+        self.write(
+            &Self::leakshield_path(leakshield),
+            "Leakshield",
+            method,
+            &(),
+        )
+        .await
+    }
+
+    pub async fn set_software_sensor(
+        &self,
+        leakshield: &str,
+        slot: u16,
+        sensor: &str,
+    ) -> zbus::Result<()> {
+        let sensor = object_path("sensor", sensor)?;
+        self.write(
+            &Self::leakshield_path(leakshield),
+            "Leakshield",
+            "SetSoftwareSensor",
+            &(slot, sensor),
+        )
+        .await
+    }
+
+    /// The three reports of a backup, for the export file.
+    pub async fn get_backup(
+        &self,
+        leakshield: &str,
+        backup: &str,
+    ) -> zbus::Result<(Vec<u8>, Vec<u8>, Vec<u8>)> {
+        self.proxy(&Self::leakshield_path(leakshield), "Leakshield")
+            .await?
+            .call("GetBackup", &(backup,))
+            .await
+    }
+
+    pub async fn import_backup(
+        &self,
+        leakshield: &str,
+        reports: &(Vec<u8>, Vec<u8>, Vec<u8>),
+    ) -> zbus::Result<String> {
+        self.write_returning(
+            &Self::leakshield_path(leakshield),
+            "Leakshield",
+            "ImportBackup",
+            &(&reports.0, &reports.1, &reports.2),
+        )
+        .await
+    }
+
     /// The restore needs the polkit action `critical`.
     pub async fn restore_backup(&self, leakshield: &str, backup: &str) -> zbus::Result<()> {
         self.write(
@@ -787,6 +982,34 @@ impl DaemonClient {
         )
         .await
     }
+}
+
+/// A field value of `GetFields`: a flag, a number, a text or a list of numbers.
+fn field_value(value: &OwnedValue) -> Option<FieldValue> {
+    Some(match unwrapped(value) {
+        Value::Bool(flag) => FieldValue::Flag(*flag),
+        Value::Str(text) => FieldValue::Text(text.to_string()),
+        Value::Array(items) => {
+            FieldValue::List(items.iter().filter_map(|item| number_of(item)).collect())
+        }
+        other => FieldValue::Number(number_of(other)?),
+    })
+}
+
+/// A scalar of an `a{sv}` as text, for the details of a device event.
+fn text_of(value: &OwnedValue) -> Option<String> {
+    Some(match unwrapped(value) {
+        Value::Bool(flag) => flag.to_string(),
+        Value::Str(text) => text.to_string(),
+        other => {
+            let number = number_of(other)?;
+            if (number - number.round()).abs() < 1e-9 {
+                format!("{number:.0}")
+            } else {
+                format!("{number}")
+            }
+        }
+    })
 }
 
 fn last_element(path: &str) -> String {
@@ -1027,6 +1250,9 @@ fn content_of(content: &Props) -> ProfileContent {
                     let value = match value {
                         Value::Bool(flag) => FieldValue::Flag(*flag),
                         Value::Str(text) => FieldValue::Text(text.to_string()),
+                        Value::Array(items) => FieldValue::List(
+                            items.iter().filter_map(|item| number_of(item)).collect(),
+                        ),
                         other => FieldValue::Number(number_of(other)?),
                     };
                     Some((name.clone(), value))

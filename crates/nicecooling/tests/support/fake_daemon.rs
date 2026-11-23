@@ -15,6 +15,8 @@ use zbus::object_server::{ObjectServer, SignalEmitter};
 use zbus::{Connection, fdo, interface};
 use zbus::{OwnedVariant as OwnedValue, Variant as Value};
 
+use super::fake_leakshield::{DeviceOptions, Fv, Leakshield};
+
 pub const LEAKSHIELD: &str = "leakshield_20417_31072";
 
 type ActiveRow = (
@@ -121,7 +123,7 @@ impl Default for Shared {
 }
 
 impl Shared {
-    fn record(&self, call: &str, header: &zbus::message::Header<'_>) -> fdo::Result<()> {
+    pub fn record(&self, call: &str, header: &zbus::message::Header<'_>) -> fdo::Result<()> {
         let interactive = header
             .primary()
             .flags()
@@ -137,7 +139,7 @@ impl Shared {
     }
 }
 
-fn path(suffix: &str) -> OwnedObjectPath {
+pub fn path(suffix: &str) -> OwnedObjectPath {
     OwnedObjectPath::try_from(format!("{ROOT}/{suffix}")).expect("object path")
 }
 
@@ -1263,101 +1265,14 @@ impl Loop {
     }
 }
 
-struct Leakshield {
-    firmware: u16,
-    read_only_reason: String,
-    shared: Arc<Shared>,
-}
-
-#[interface(name = "io.github.cappyt.NiceCooling1.Leakshield")]
-impl Leakshield {
-    #[zbus(property)]
-    fn id(&self) -> String {
-        LEAKSHIELD.into()
-    }
-
-    #[zbus(property)]
-    fn serial(&self) -> String {
-        "20417-31072".into()
-    }
-
-    #[zbus(property)]
-    fn firmware(&self) -> u16 {
-        self.firmware
-    }
-
-    #[zbus(property)]
-    fn connected(&self) -> bool {
-        true
-    }
-
-    #[zbus(property)]
-    fn read_only_reason(&self) -> String {
-        self.read_only_reason.clone()
-    }
-
-    #[zbus(property)]
-    fn mode(&self) -> String {
-        "shield".into()
-    }
-
-    #[zbus(property)]
-    fn running_action(&self) -> String {
-        String::new()
-    }
-
-    /// (field id, risk class, value, writable, reason)
-    async fn get_fields(&self) -> Vec<(String, String, OwnedValue, bool, String)> {
-        let value = |v: f64| OwnedValue::try_from(Value::F64(v)).expect("value");
-        vec![
-            (
-                "display_brightness_active".into(),
-                "low".into(),
-                value(3.0),
-                true,
-                String::new(),
-            ),
-            (
-                "led_strip_brightness".into(),
-                "low".into(),
-                value(60.0),
-                true,
-                String::new(),
-            ),
-            (
-                "default_mode".into(),
-                "safety".into(),
-                value(1.0),
-                false,
-                "not-verified".into(),
-            ),
-        ]
-    }
-
-    async fn restore_backup(
-        &self,
-        #[zbus(header)] header: zbus::message::Header<'_>,
-        backup: &str,
-    ) -> fdo::Result<()> {
-        self.shared
-            .record(&format!("RestoreBackup({LEAKSHIELD},{backup})"), &header)
-    }
-
-    #[zbus(signal)]
-    async fn external_change(emitter: &SignalEmitter<'_>, fields: Vec<String>) -> zbus::Result<()>;
-
-    #[zbus(signal)]
-    async fn write_failed(
-        emitter: &SignalEmitter<'_>,
-        error: &str,
-        backup: &str,
-    ) -> zbus::Result<()>;
-}
-
 #[derive(Default)]
 pub struct Options {
     /// A Leakshield with the firmware 1042 that the registry does not know.
     pub unknown_firmware: bool,
+    /// The firmware of the Leakshield has no cancel and reset commands.
+    pub no_reset_commands: bool,
+    /// A Pump channel of the Loop runs: the Refill is refused.
+    pub pump_running: bool,
 }
 
 pub struct FakeDaemon {
@@ -1549,11 +1464,15 @@ impl FakeDaemon {
         server
             .at(
                 path(&format!("leakshield/{LEAKSHIELD}")),
-                Leakshield {
+                Leakshield::new(
                     firmware,
-                    read_only_reason: reason.into(),
-                    shared: shared.clone(),
-                },
+                    reason,
+                    DeviceOptions {
+                        no_reset_commands: options.no_reset_commands,
+                        pump_running: options.pump_running,
+                    },
+                    shared.clone(),
+                ),
             )
             .await
             .expect("leakshield");
@@ -1563,6 +1482,17 @@ impl FakeDaemon {
 
     pub fn calls(&self) -> Vec<String> {
         self.shared.calls.lock().expect("calls").clone()
+    }
+
+    /// The value of a stored field of the fake Leakshield.
+    pub async fn stored_field(&self, id: &str) -> Option<Fv> {
+        let iface = self
+            .conn
+            .object_server()
+            .interface::<_, Leakshield>(path(&format!("leakshield/{LEAKSHIELD}")))
+            .await
+            .expect("leakshield");
+        iface.get().await.stored(id)
     }
 
     pub fn deny_writes(&self, deny: bool) {

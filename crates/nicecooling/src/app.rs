@@ -218,11 +218,29 @@ pub fn init(cx: &mut App, mode: StartMode, backend: Backend) -> Entity<AppModel>
                             if let Err(error) = &result {
                                 eprintln!("nicecooling: {daemon_command:?}: {error}");
                             }
-                            result
+                            // A Leakshield write changes what the screens show: read it again.
+                            let device = match daemon_command.leakshield() {
+                                Some(id) => Some((id.to_owned(), client.leakshield_data(id).await)),
+                                None => None,
+                            };
+                            (result, device)
                         });
                         let model = model.clone();
                         cx.spawn(async move |cx| {
-                            let result = task.await;
+                            let (result, device) = match task.await {
+                                Ok((result, device)) => (Ok(result), device),
+                                Err(error) => (Err(error), None),
+                            };
+                            if let Some((id, data)) = device
+                                && !data.fields.is_empty()
+                            {
+                                cx.update(|cx| {
+                                    model.update(cx, |app, cx| {
+                                        app.state.snapshot.leakshield_data.insert(id, data);
+                                        cx.notify();
+                                    });
+                                });
+                            }
                             let Some(key) = key else { return };
                             let outcome = match result {
                                 Ok(Ok(_)) => WriteOutcome::Applied { at_us: now_us() },
