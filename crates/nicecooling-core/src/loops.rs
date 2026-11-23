@@ -55,3 +55,9 @@ impl Loop {
         format!("{}_flow", self.id)
     }
 }
+
+/// The id of the tachometer sensor of a Pump channel: `nct6798_pwm6` -> `nct6798_fan6`.
+pub fn tach_sensor(channel: &str) -> Option<String> {
+    let (chip, number) = channel.rsplit_once("_pwm")?;
+    Some(format!("{chip}_fan{number}"))
+}

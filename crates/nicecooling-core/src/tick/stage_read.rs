@@ -17,6 +17,7 @@ impl Stage for ReadStage {
     }
 
     fn run(&mut self, ctx: &mut TickContext) {
+        ctx.leakshields = self.source.leakshields();
         for (id, reading) in self.source.snapshot() {
             // A value that is not finite counts as no value, as a stale one does.
             if reading.value.is_finite() && ctx.now.saturating_sub(reading.at) <= STALE_AFTER {

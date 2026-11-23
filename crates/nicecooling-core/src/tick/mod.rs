@@ -4,6 +4,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::time::Duration;
 
+use crate::alarms::{ActiveAlarms, LeakshieldStatus};
 use crate::calibration::CalibrationTable;
 use crate::curve::Curve;
 use crate::derived::DerivedSensor;
@@ -47,6 +48,11 @@ pub struct Reading {
 /// The value table as the tick sees it. A call returns at once and never waits on a device.
 pub trait ValueSource: Send {
     fn snapshot(&self) -> BTreeMap<String, Reading>;
+
+    /// What the sources know of each Leakshield, by Leakshield id.
+    fn leakshields(&self) -> BTreeMap<String, LeakshieldStatus> {
+        BTreeMap::new()
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -102,6 +108,10 @@ pub struct TickContext {
     pub out_of_range: BTreeSet<String>,
     pub channels: BTreeMap<String, ChannelTick>,
     pub warnings: Warnings,
+    /// The Alarms, and the Warnings of the Leakshield. Stage 3.
+    pub alarms: ActiveAlarms,
+    /// The Leakshields as the sources last saw them. Stage 1.
+    pub leakshields: BTreeMap<String, LeakshieldStatus>,
     /// Device errors of this tick, as text.
     pub errors: Vec<String>,
 }
@@ -158,7 +168,7 @@ impl Pipeline {
         Self::new(vec![
             Box::new(stage_read::ReadStage::new(source)),
             Box::new(stage_derive::DeriveStage),
-            Box::new(stage_alarms::AlarmsStage),
+            Box::new(stage_alarms::AlarmsStage::default()),
             Box::new(stage_rules::RulesStage),
             Box::new(stage_curve::CurveStage::default()),
             Box::new(stage_step::StepStage),

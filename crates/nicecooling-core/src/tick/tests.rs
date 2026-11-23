@@ -4,7 +4,9 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use super::*;
+use crate::alarms::{LeakshieldStatus, Severity};
 use crate::clock::{Clock, SimClock};
+use crate::loops::Loop;
 
 const SECOND: Duration = Duration::from_secs(1);
 
@@ -87,11 +89,18 @@ impl Default for Readback {
 }
 
 #[derive(Clone)]
-struct SharedValues(Arc<Mutex<BTreeMap<String, Reading>>>);
+struct SharedValues(
+    Arc<Mutex<BTreeMap<String, Reading>>>,
+    Arc<Mutex<BTreeMap<String, LeakshieldStatus>>>,
+);
 
 impl ValueSource for SharedValues {
     fn snapshot(&self) -> BTreeMap<String, Reading> {
         self.0.lock().unwrap().clone()
+    }
+
+    fn leakshields(&self) -> BTreeMap<String, LeakshieldStatus> {
+        self.1.lock().unwrap().clone()
     }
 }
 
@@ -119,7 +128,7 @@ impl Harness {
         for setup in &config.channels {
             chip.lock().unwrap().set(&setup.id, 200, 5);
         }
-        let values = SharedValues(Arc::default());
+        let values = SharedValues(Arc::default(), Arc::default());
         let pipeline =
             Pipeline::standard(Box::new(values.clone()), Box::new(SharedChip(chip.clone())));
         Self {
@@ -203,7 +212,7 @@ impl Stage for Recorder {
 
 #[test]
 fn stage_order() {
-    let values = SharedValues(Arc::default());
+    let values = SharedValues(Arc::default(), Arc::default());
     let chip = Arc::new(Mutex::new(Chip {
         clock: SimClock::default(),
         cache: Duration::ZERO,
@@ -698,4 +707,105 @@ fn failed_release_is_retried() {
     h.ticks(2);
     assert_eq!(h.chip.lock().unwrap().releases, ["ch", "ch"]);
     assert!(h.ctx.errors.is_empty());
+}
+
+fn pump_loop(pumps: &[&str]) -> LoopSetup {
+    LoopSetup {
+        config: Loop {
+            id: "loop_1".into(),
+            name: "Main loop".into(),
+            pump_channels: pumps.iter().map(|p| (*p).to_owned()).collect(),
+            flow_sensor: None,
+            calibration_table: None,
+            water_temperature: None,
+            leakshield: Some("ls_1".into()),
+            pump_floor: 0.0,
+        },
+        table: None,
+    }
+}
+
+/// A Loop with one pump on a Channel that stays on its Hardware curve.
+fn pump_on_hardware() -> Harness {
+    Harness::new(
+        TickConfig {
+            channels: vec![setup("chip_pwm6", Control::Hardware)],
+            loops: vec![pump_loop(&["chip_pwm6"])],
+            ..TickConfig::default()
+        },
+        Duration::ZERO,
+    )
+}
+
+#[test]
+fn stage_raises_pump_stop_after_5s_on_the_current_pwm() {
+    let mut h = pump_on_hardware();
+    for t in 0..5 {
+        h.set("chip_fan6", 0.0);
+        h.set("chip_pwm6", 120.0);
+        h.tick();
+        assert!(!h.ctx.alarms.is_active("pump-stop", "loop_1"), "tick {t}");
+    }
+    h.set("chip_fan6", 0.0);
+    h.set("chip_pwm6", 120.0);
+    h.tick();
+    assert!(h.ctx.alarms.is_active("pump-stop", "loop_1"));
+    assert_eq!(
+        h.ctx.alarms.iter().collect::<Vec<_>>(),
+        [("pump-stop", "loop_1", Severity::Alarm)]
+    );
+}
+
+#[test]
+fn stage_pump_stop_ignores_a_pump_that_is_off() {
+    let mut h = pump_on_hardware();
+    for _ in 0..30 {
+        h.set("chip_fan6", 0.0);
+        h.set("chip_pwm6", 0.0);
+        h.tick();
+    }
+    assert!(!h.ctx.alarms.any_active("pump-stop"));
+}
+
+#[test]
+fn stage_decodes_and_clears_leakshield_bits() {
+    let mut h = pump_on_hardware();
+    let status = |bits, at| LeakshieldStatus {
+        alarm_bits: bits,
+        report1_at: Some(at),
+    };
+    let set = |h: &Harness, bits| {
+        h.values
+            .1
+            .lock()
+            .unwrap()
+            .insert("ls_1".into(), status(bits, h.clock.now()));
+    };
+    set(&h, 0b101);
+    h.tick();
+    assert_eq!(
+        h.ctx.alarms.iter().collect::<Vec<_>>(),
+        [
+            (
+                "leakshield.fill-level-low-warning",
+                "ls_1",
+                Severity::Warning
+            ),
+            ("leakshield.leak-warning", "ls_1", Severity::Warning),
+        ]
+    );
+    set(&h, 0b100);
+    h.tick();
+    assert!(
+        !h.ctx
+            .alarms
+            .is_active("leakshield.fill-level-low-warning", "ls_1")
+    );
+    assert!(h.ctx.alarms.is_active("leakshield.leak-warning", "ls_1"));
+    // A stale report 1 keeps the events: the state of the device is unknown.
+    h.ticks(5);
+    assert!(h.ctx.alarms.is_active("leakshield.leak-warning", "ls_1"));
+    set(&h, 0);
+    h.tick();
+    assert_eq!(h.ctx.alarms.iter().count(), 0);
 }
