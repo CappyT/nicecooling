@@ -93,7 +93,7 @@ Each active Alarm or Warning (`Alarms.Active`) and each `AlarmRaised` signal car
 - Resolution when an instance rises, first match wins: the forced `notify` of a firmware update, the override of (event, Leakshield), the default of the event, the built-in default.
 - `SetResponse` with source `""` sets the default of the event. With a source, an event that is not `leakshield.*` fails with `InvalidArgument`, and a source that is not a known Leakshield id fails with `NotFound`. The known ids are the identity map of the state, connected or not.
 - `ResetResponse(event, "")` sets the default of the event back to its built-in default. `ResetResponse(event, source)` removes the override. It accepts any stored key, also the key of a Leakshield that no longer exists.
-- `GetResponses` returns, in the event order of the table above: one row for each event with source `""` and override false. Then, for each `leakshield.*` event, one resolved row for each known Leakshield. A row has override true when an override exists.
+- `GetResponses` returns, in the event order of the table above: one row for each event with source `""`. Its override is true when the default of the event differs from the built-in default, in the response or in the delay. Then, for each `leakshield.*` event, one resolved row for each known Leakshield. Its override is true when an override exists. So the app needs no copy of the built-in defaults: it shows "Reset" on every row with override true.
 - `GetDeviceResponseProposals` uses the resolved response of each Leakshield for the `double-poweroff` overlap.
 - `state.json` stores an override under the key `<event>@<source>` (`storage.md`).
 

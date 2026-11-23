@@ -119,8 +119,9 @@ pub fn resolve(
 pub type Row = (String, String, String, u32, bool);
 
 /// The rows of `GetResponses`, in the event order of `docs/api.md`: one row for each event with
-/// source `""`, then, for each event of the Leakshield, one resolved row for each of
-/// `leakshields`.
+/// source `""` (override true when the default of the event differs from the built-in default,
+/// in the response or in the delay), then, for each event of the Leakshield, one resolved row
+/// for each of `leakshields` (override true when an override exists).
 pub fn rows(table: &BTreeMap<String, AlarmResponse>, leakshields: &[String]) -> Vec<Row> {
     let defaults = events().map(|(event, _)| {
         let (response, delay) = resolve(table, event, "", false);
@@ -129,7 +130,7 @@ pub fn rows(table: &BTreeMap<String, AlarmResponse>, leakshields: &[String]) -> 
             String::new(),
             response.as_str().to_owned(),
             delay,
-            false,
+            (response, delay) != default_response(event),
         )
     });
     let per_device = events()
@@ -251,6 +252,31 @@ mod tests {
             .find(|r| r.0 == "leakshield-unreachable")
             .unwrap();
         assert_eq!(unreachable.2, "notify");
+    }
+
+    #[test]
+    fn default_row_is_overridden_when_it_differs_from_builtin() {
+        let mut table = BTreeMap::new();
+        let flags = |table: &BTreeMap<String, AlarmResponse>| {
+            rows(table, &[])
+                .into_iter()
+                .filter(|r| r.4)
+                .map(|r| r.0)
+                .collect::<Vec<_>>()
+        };
+        assert!(flags(&table).is_empty());
+        table.insert("pump-stop".to_owned(), entry("poweroff", 30));
+        assert!(
+            flags(&table).is_empty(),
+            "the built-in values are no override"
+        );
+        table.insert("pump-stop".to_owned(), entry("poweroff", 5));
+        table.insert("lost-input".to_owned(), entry("none", 30));
+        table.insert("leakshield-unreachable".to_owned(), entry("notify", 5));
+        assert_eq!(
+            flags(&table),
+            ["pump-stop", "leakshield-unreachable", "lost-input"]
+        );
     }
 
     #[test]

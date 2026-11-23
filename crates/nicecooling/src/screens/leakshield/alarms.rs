@@ -3,7 +3,7 @@
 
 use crate::command::{Command, response_feedback_key};
 use crate::model::{AlarmEntry, FieldValue, Response, Severity};
-use crate::screens::alarms::{DEFAULT_DELAY_S, default_response};
+use crate::screens::alarms::DEFAULT_DELAY_S;
 use crate::screens::format::clock;
 use crate::screens::leakshield::{Device, TabState, fields_command, write_line};
 use crate::screens::{FeedbackLine, ScreenInput};
@@ -208,7 +208,7 @@ pub fn current_response(input: &ScreenInput<'_>, id: &str, event: &str) -> (Resp
     input
         .state
         .leakshield_response(event, id)
-        .map_or((default_response(event), DEFAULT_DELAY_S, false), |rule| {
+        .map_or((Response::None, DEFAULT_DELAY_S, false), |rule| {
             (rule.response, rule.delay_s, rule.overridden)
         })
 }

@@ -896,7 +896,26 @@ fn row<'a>(
 
 #[test]
 fn leakshield_alarms_states() {
-    let state = with_leakshield();
+    let mut state = with_leakshield();
+    // The resolved rows of the daemon: the Large leak powers off after 30 s, the others notify.
+    state.snapshot.responses = [
+        "leakshield.leak-warning",
+        "leakshield.leak-alarm",
+        "leakshield-unreachable",
+    ]
+    .into_iter()
+    .map(|event| ResponseRule {
+        event: event.into(),
+        source: LEAKSHIELD.into(),
+        response: if event == "leakshield.leak-alarm" {
+            Response::Poweroff
+        } else {
+            Response::Notify
+        },
+        delay_s: 30,
+        overridden: false,
+    })
+    .collect();
     let feedback = Feedback::default();
     let model = alarms(&state, &feedback);
     assert_eq!(model.state, TabState::Ready);
@@ -970,6 +989,7 @@ fn leakshield_alarms_states() {
             f.value = FieldValue::Text("key-sequence".into());
         }
     }
+    sent.snapshot.responses = state.snapshot.responses.clone();
     let model = alarms(&sent, &Feedback::default());
     assert_eq!(
         row(&model, "leak-alarm").device.as_ref().unwrap().current,

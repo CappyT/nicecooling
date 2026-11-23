@@ -8,7 +8,6 @@ use nicecooling::model::{
 };
 use nicecooling::screens::alarms::{
     AlarmsModel, AlarmsState, AlarmsUi, CountdownDialog, DialogButton, HistoryFilter,
-    default_response,
 };
 use nicecooling::screens::format::clock;
 use nicecooling::screens::{Feedback, ScreenInput, WriteOutcome};
@@ -43,6 +42,14 @@ fn rule(event: &str, response: Response, delay_s: u32) -> ResponseRule {
         response,
         delay_s,
         overridden: false,
+    }
+}
+
+/// A default row that differs from the built-in default: the daemon sets override true.
+fn changed_rule(event: &str, response: Response, delay_s: u32) -> ResponseRule {
+    ResponseRule {
+        overridden: true,
+        ..rule(event, response, delay_s)
     }
 }
 
@@ -190,13 +197,6 @@ fn alarms_states() {
     assert!(!model_at(&offline, NOW_US).responses.enabled);
     assert!(model_at(&offline, NOW_US).active.rows.is_empty());
 
-    // The defaults: "Large leak" and "Pump stopped" power off, the others notify.
-    assert_eq!(
-        default_response("leakshield.leak-alarm"),
-        Response::Poweroff
-    );
-    assert_eq!(default_response("pump-stop"), Response::Poweroff);
-    assert_eq!(default_response("leakshield-unreachable"), Response::Notify);
     let table = model_at(&with_responses(), NOW_US).responses;
     assert_eq!(table.groups[0].title, "Leakshield");
     assert_eq!(table.groups[1].title, "nicecooling");
@@ -210,8 +210,8 @@ fn alarms_states() {
 
     // A row that differs has "Reset", and a delay of 0 s has a warning.
     let mut changed = with_responses();
-    changed.snapshot.responses[1] = rule("leakshield.leak-alarm", Response::Poweroff, 0);
-    changed.snapshot.responses[3] = rule("leakshield-unreachable", Response::None, 30);
+    changed.snapshot.responses[1] = changed_rule("leakshield.leak-alarm", Response::Poweroff, 0);
+    changed.snapshot.responses[3] = changed_rule("leakshield-unreachable", Response::None, 30);
     let table = model_at(&changed, NOW_US).responses;
     let leak_row = &table.groups[0].rows[1];
     assert!(leak_row.differs);
@@ -941,7 +941,7 @@ fn reset_link_on_override_and_changed_default() {
 
     // A default row that differs from the built-in default: "Reset" with source "".
     let mut state = with_leakshield_rows();
-    state.snapshot.responses[0] = rule("leakshield.leak-warning", Response::None, 30);
+    state.snapshot.responses[0] = changed_rule("leakshield.leak-warning", Response::None, 30);
     let table = model_at(&state, NOW_US).responses;
     assert_eq!(
         table.groups[0].rows[0].reset,
@@ -1087,4 +1087,33 @@ fn review_poweroff_requested_survives_the_restart_close() {
         "shown: {}",
         shown.history.rows[0].response
     );
+}
+
+// Review 11: a default row that holds a delay other than the built-in one gets "Reset" although
+// its response is the built-in one. The app does not guess: the flag of the daemon decides.
+#[test]
+fn review_reset_on_default_row_with_changed_delay() {
+    let mut state = with_responses();
+    state.snapshot.responses = vec![changed_rule("lost-input", Response::Notify, 5)];
+    let feedback = Feedback::default();
+    let find = |state: &AppState| {
+        AlarmsModel::build(&input(state, &feedback, NOW_US), &AlarmsUi::default())
+            .responses
+            .groups
+            .iter()
+            .flat_map(|g| g.rows.clone())
+            .find(|r| r.event == "lost-input")
+            .expect("row")
+    };
+    assert_eq!(
+        find(&state).reset,
+        Some(Command::ResetResponse {
+            event: "lost-input".into(),
+            source: String::new(),
+        }),
+        "the daemon holds 5 s, the built-in default is another delay"
+    );
+    // The same values without the flag: the row holds the built-in default.
+    state.snapshot.responses = vec![rule("lost-input", Response::Notify, 5)];
+    assert!(find(&state).reset.is_none());
 }

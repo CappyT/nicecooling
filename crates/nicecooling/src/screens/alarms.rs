@@ -13,16 +13,9 @@ use crate::screens::format::{clock, optional_value, value_text};
 use crate::screens::{FeedbackLine, ScreenInput, WriteOutcome};
 use crate::shell::Page;
 
-/// The default alarm response of an event type: "Large leak" and "Pump stopped" power the PC off
-/// after 30 s. Every other event notifies.
+/// The delay that the app shows while the daemon has sent no response row. The built-in defaults
+/// are the daemon's: a row with override true differs from them.
 pub const DEFAULT_DELAY_S: u32 = 30;
-
-pub fn default_response(event: &str) -> Response {
-    match event {
-        "leakshield.leak-alarm" | "pump-stop" => Response::Poweroff,
-        _ => Response::Notify,
-    }
-}
 
 /// The severity of an event type.
 pub fn event_severity(event: &str) -> Severity {
@@ -378,13 +371,8 @@ fn open_page(state: &AppState, alarm: &AlarmEntry) -> Option<Page> {
 
 fn response_row(input: &ScreenInput<'_>, rule: &ResponseRule, enabled: bool) -> ResponseRow {
     let locale = input.locale;
-    let default = default_response(&rule.event);
-    let differs = if rule.source.is_empty() {
-        rule.response != default
-            || (rule.response == Response::Poweroff && rule.delay_s != DEFAULT_DELAY_S)
-    } else {
-        rule.overridden
-    };
+    // The daemon says whether a row differs from the built-in default or has an override.
+    let differs = rule.overridden;
     let key = response_feedback_key(&rule.event, &rule.source);
     // A Leakshield row has the overlap of its device. A default row has the overlap of any device.
     let overlap = input

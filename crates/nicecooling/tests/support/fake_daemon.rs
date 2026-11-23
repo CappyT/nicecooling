@@ -616,12 +616,18 @@ impl Alarms {
         let mut rows: Vec<_> = defaults
             .iter()
             .map(|(event, response, delay_s)| {
+                // As the daemon: override true when the default differs from the built-in one.
+                let builtin = if matches!(event.as_str(), "leakshield.leak-alarm" | "pump-stop") {
+                    "poweroff"
+                } else {
+                    "notify"
+                };
                 (
                     event.clone(),
                     String::new(),
                     response.clone(),
                     *delay_s,
-                    false,
+                    response != builtin || *delay_s != 30,
                 )
             })
             .collect();

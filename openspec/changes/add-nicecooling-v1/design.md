@@ -383,7 +383,7 @@ Every new time is in microseconds since the Unix epoch. The daemon reads the wal
 | Failed Profile write | `Leakshield.FailedWriteBackup` (`s`): the backup id of the last Profile write of this Leakshield that failed. Empty after a good Profile write and after `RestoreBackup`. |
 | Profile dwell | `Profiles.DwellUntil` (`t`): the end of the running Profile dwell, 0 when no dwell runs. |
 | Alarm history | `Alarms.GetHistory(since_us t, limit u) -> a(sssssttsa{sv})`: instance, event, severity, source, response, raised_us, cleared_us (0 while active), outcome, details. Class `read`. |
-| Alarm response per Leakshield | `SetResponse(event s, source s, response s, delay_s u)`, `ResetResponse(event s, source s)` (class `write`), `GetResponses() -> a(sssub)`: event, source, response, delay, override. Source `""` is the default of the event. |
+| Alarm response per Leakshield | `SetResponse(event s, source s, response s, delay_s u)`, `ResetResponse(event s, source s)` (class `write`), `GetResponses() -> a(sssub)`: event, source, response, delay, override. Source `""` is the default of the event, with override true when it differs from the built-in default. |
 
 Every new property emits `PropertiesChanged` when its value changes, except the const ones.
 
@@ -439,7 +439,7 @@ Every new property emits `PropertiesChanged` when its value changes, except the 
 - Resolution when an instance rises: the forced `notify` of a firmware update (change `add-leakshield-firmware-update`), then the override of (event, Leakshield), then the default of the event, then the built-in default.
 - `SetResponse` with source `""` sets the default of the event. With a source: an event that is not `leakshield.*` fails with `InvalidArgument`, and a source that is not a known Leakshield id fails with `NotFound`. A known Leakshield is one that the daemon attached since its start, connected or not.
 - `ResetResponse(event, "")` sets the default of the event back to the built-in default. `ResetResponse(event, source)` removes the override. It accepts any stored key, also the key of a Leakshield that no longer exists.
-- `GetResponses` returns, in the event order of `api.md`: one row per event with source `""` and override false, then, for each `leakshield.*` event, one resolved row per known Leakshield, with override true when an override exists.
+- `GetResponses` returns, in the event order of `api.md`: one row per event with source `""`, with override true when the default of the event differs from the built-in default (the response or the delay). Then, for each `leakshield.*` event, one resolved row per known Leakshield, with override true when an override exists. The app has no copy of the built-in defaults: it shows "Reset" on each row with override true.
 - `state.json` stores an override under the key `<event>@<source>`. A state file without overrides loads as before.
 - `GetDeviceResponseProposals` uses the resolved response of each Leakshield for its `double-poweroff` overlap.
 

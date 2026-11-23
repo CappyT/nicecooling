@@ -105,7 +105,8 @@ async fn default_responses() {
     // A user response replaces the default, and a bad one is refused.
     set_response(&proxy, "pump-stop", "none", 0).await;
     let rows = proxy.get_responses().await.unwrap();
-    assert!(rows.contains(&("pump-stop".into(), "".into(), "none".into(), 0, false)));
+    // The default differs from the built-in default: the row says so.
+    assert!(rows.contains(&("pump-stop".into(), "".into(), "none".into(), 0, true)));
     let e = proxy
         .set_response("pump-stop", "", "reboot", 0)
         .await
@@ -1025,7 +1026,7 @@ async fn reset_response_removes_override() {
     );
     assert_eq!(
         response_row(&proxy, LARGE, "").await,
-        ("notify".to_owned(), 10, false)
+        ("notify".to_owned(), 10, true)
     );
 }
 
@@ -1037,6 +1038,10 @@ async fn reset_default_restores_builtin() {
     assert_eq!(
         response_row(&proxy, LARGE, support::LEAKSHIELD).await,
         ("none".to_owned(), 5, false)
+    );
+    assert_eq!(
+        response_row(&proxy, LARGE, "").await,
+        ("none".to_owned(), 5, true)
     );
 
     proxy.reset_response(LARGE, "").await.unwrap();
@@ -1136,13 +1141,51 @@ async fn old_state_without_overrides_loads() {
 
     assert_eq!(
         response_row(&proxy, "pump-stop", "").await,
-        ("none".to_owned(), 7, false)
+        ("none".to_owned(), 7, true)
     );
-    // The Leakshield follows the default of the event, and nothing is an override.
+    // The Leakshield follows the default of the event, and no Leakshield row is an override.
     assert_eq!(
         response_row(&proxy, LARGE, support::LEAKSHIELD).await,
         ("notify".to_owned(), 11, false)
     );
     let rows = proxy.get_responses().await.unwrap();
-    assert!(rows.iter().all(|r| !r.4));
+    assert!(rows.iter().filter(|r| !r.1.is_empty()).all(|r| !r.4));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn default_row_override_follows_the_builtin_default() {
+    let rig = Rig::start_with_clock().await;
+    let proxy = alarms(&rig).await;
+    // The built-in default: no override.
+    assert_eq!(
+        response_row(&proxy, LARGE, "").await,
+        ("poweroff".to_owned(), 30, false)
+    );
+    // The same response with another delay differs from the built-in default.
+    proxy.set_response(LARGE, "", "poweroff", 5).await.unwrap();
+    assert_eq!(
+        response_row(&proxy, LARGE, "").await,
+        ("poweroff".to_owned(), 5, true)
+    );
+    // A `notify` row with another delay differs too.
+    proxy
+        .set_response("lost-input", "", "notify", 5)
+        .await
+        .unwrap();
+    assert_eq!(
+        response_row(&proxy, "lost-input", "").await,
+        ("notify".to_owned(), 5, true)
+    );
+    // Back to the built-in values by hand: the default is the built-in default again.
+    proxy.set_response(LARGE, "", "poweroff", 30).await.unwrap();
+    assert_eq!(
+        response_row(&proxy, LARGE, "").await,
+        ("poweroff".to_owned(), 30, false)
+    );
+    // A row of a Leakshield has the flag of its own override only.
+    proxy.set_response(LARGE, "", "poweroff", 5).await.unwrap();
+    assert_eq!(
+        response_row(&proxy, LARGE, support::LEAKSHIELD).await,
+        ("poweroff".to_owned(), 5, false)
+    );
 }
