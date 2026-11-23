@@ -77,13 +77,15 @@ Rejected:
 
 ### D3. Image container
 
-The `data` of a row is a UTF-8 XML document with a byte order mark: the root `FirmwareContainer` holds `firmware`, which holds the `Segment` elements. Each `Segment` has the child elements `adr_start` (decimal) and `data` (base64). `image.rs` parses it with `roxmltree` 0.21 and `base64` 0.22, from `[workspace.dependencies]`. `nicecooling-api` already uses `roxmltree` 0.21, and `Cargo.lock` holds `base64` 0.22.1.
+The `data` of a row is a UTF-8 XML document with a byte order mark: `FirmwareContainer`, one `firmware`, and `Segment` elements. Each `Segment` has one child element `adr_start` (decimal) and one child element `data` (base64), and each holds text only. `image.rs` parses it with `roxmltree` 0.21 and `base64` 0.22, from `[workspace.dependencies]`. `nicecooling-api` already uses `roxmltree` 0.21, and `Cargo.lock` holds `base64` 0.22.1.
 
-`image::parse(bytes: &[u8]) -> Result<Image, ImageError>` gives `Image { segments: Vec<Segment> }` with `Segment { adr_start: u32, data: Vec<u8> }`. It refuses an image when:
+`image::parse(bytes: &[u8]) -> Result<Image, ImageError>` gives an `Image` with the accessor `segments()`. A `Segment` has the accessors `adr_start() -> u32` and `data() -> &[u8]`. The fields are private and `parse` is the only constructor, so every later function relies on the checks below. It refuses an image when:
 
 - the bytes are not XML, or the root element is not `FirmwareContainer`;
-- the document has no segment, or a segment has bad base64 or an `adr_start` that is not a u32;
+- the shape differs: the root has not exactly one child element `firmware`, a child of `firmware` is not a `Segment`, a `Segment` has an element other than one `adr_start` and one `data`, or `adr_start` or `data` holds a comment or an element. A comment between elements is skipped. Thus a part of a value is never read as the whole value;
+- the document has no segment, or a segment has bad base64, no data or an `adr_start` that is not a u32;
 - a segment starts below 0x4000. That is the area of the bootloader;
+- a segment starts at an address that is not a multiple of 1024. The chunk address of D5 is `adr_start + n x 1024`, and no source shows that the bootloader takes another alignment;
 - the end of a segment, rounded up to a whole chunk, does not fit in a u32;
 - two segments overlap;
 - the decoded data of all segments is above 1 MiB. No source gives the flash size (OQ2). The bound is about 9 times the reference segment of 109952 bytes.

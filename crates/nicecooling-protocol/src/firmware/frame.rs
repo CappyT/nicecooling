@@ -58,12 +58,13 @@ impl From<ReportError> for FrameError {
 /// padded with 0xFF.
 pub fn chunks(image: &Image) -> Vec<Chunk> {
     let mut out = Vec::new();
-    for segment in &image.segments {
-        for (n, part) in segment.data.chunks(CHUNK_SIZE).enumerate() {
+    for segment in image.segments() {
+        for (n, part) in segment.data().chunks(CHUNK_SIZE).enumerate() {
             let mut data = [PAD; CHUNK_SIZE];
             data[..part.len()].copy_from_slice(part);
+            let address = u64::from(segment.adr_start()) + (n * CHUNK_SIZE) as u64;
             out.push(Chunk {
-                address: segment.adr_start + (n * CHUNK_SIZE) as u32,
+                address: u32::try_from(address).expect("parse keeps every chunk below 2^32"),
                 data,
             });
         }
@@ -73,9 +74,9 @@ pub fn chunks(image: &Image) -> Vec<Chunk> {
 
 pub fn chunk_count(image: &Image) -> usize {
     image
-        .segments
+        .segments()
         .iter()
-        .map(|s| s.data.len().div_ceil(CHUNK_SIZE))
+        .map(|s| s.data().len().div_ceil(CHUNK_SIZE))
         .sum()
 }
 
@@ -118,18 +119,14 @@ impl Chunk {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::firmware::image::Segment;
+    use crate::firmware::image::tests::image_of;
 
     fn image(segments: &[(u32, usize)]) -> Image {
-        Image {
-            segments: segments
-                .iter()
-                .map(|&(adr_start, len)| Segment {
-                    adr_start,
-                    data: (0..len).map(|i| (i % 251) as u8).collect(),
-                })
-                .collect(),
-        }
+        let segments: Vec<(u32, Vec<u8>)> = segments
+            .iter()
+            .map(|&(adr_start, len)| (adr_start, (0..len).map(|i| (i % 251) as u8).collect()))
+            .collect();
+        image_of(&segments)
     }
 
     #[test]
@@ -148,11 +145,14 @@ mod tests {
         let chunks = chunks(&image);
         let last_of_first = &chunks[1];
         assert_eq!(last_of_first.address, 0x4400);
-        assert_eq!(last_of_first.data[..476], image.segments[0].data[1024..]);
+        assert_eq!(
+            last_of_first.data[..476],
+            image.segments()[0].data()[1024..]
+        );
         assert!(last_of_first.data[476..].iter().all(|&b| b == 0xFF));
         let last = chunks.last().unwrap();
         assert!(last.data[384..].iter().all(|&b| b == 0xFF));
-        assert_eq!(last.data[..384], image.segments[1].data[107 * 1024..]);
+        assert_eq!(last.data[..384], image.segments()[1].data()[107 * 1024..]);
     }
 
     #[test]

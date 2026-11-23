@@ -543,17 +543,12 @@ mod tests {
 
     use super::*;
     use crate::firmware::bootloader::{Identity, restart_into_bootloader, restart_plain};
-    use crate::firmware::image::Segment;
+    use crate::firmware::image::tests::image_of;
 
     const NEW_FIRMWARE: u16 = 1023;
 
     fn image() -> Image {
-        Image {
-            segments: vec![Segment {
-                adr_start: 0x4000,
-                data: (0..3000).map(|i| (i % 251) as u8).collect(),
-            }],
-        }
+        image_of(&[(0x4000, (0..3000).map(|i| (i % 251) as u8).collect())])
     }
 
     fn device(chunks: &[(usize, ChunkBehavior)]) -> SimDevice {
