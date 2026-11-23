@@ -1,6 +1,6 @@
 # Verification writes
 
-This procedure runs one Verification write for each Safety field of `crates/nicecooling-protocol/registry/leakshield.toml` with `tools/nicecooling-verify` (task 5.12). Task 5.13 runs it. A Safety field is writable only after its Verification write passes (design D10).
+This procedure runs one Verification write for each Safety field of `crates/nicecooling-protocol/registry/leakshield.toml` with `tools/nicecooling-verify` (task 5.12). Task 5.13 runs it. A Safety field is writable only after its Verification write passes (design D10). `signal_output_config` and `alarm_start_delay` have no safe test value: they have no Verification write and stay read-only.
 
 ## Base safe state
 
@@ -26,8 +26,8 @@ Record each result in the section of the field as `Result: <date>, firmware 1022
 
 - Offset 3, u8. Value in the fw1022 dump: 0.
 - Test value: the current value plus or minus one raw step (1).
-- Safe loop state: base. The code does not define the meaning of the values. Do not write this field until the meaning is known. Expected registry change: none, the field stays `code-defined`.
-- Result: open
+- Safe loop state: base. The code does not define the meaning of the values, so no test value is safe. The field has no Verification write and stays read-only (owner decision, gate 2.14). Expected registry change: none, the field stays `code-defined`.
+- Result: none, read-only
 
 ### fill_level_calibration
 
@@ -145,8 +145,8 @@ Record each result in the section of the field as `Result: <date>, firmware 1022
 
 - Offset 534, u8. Value in the fw1022 dump: 5.
 - Test value: the current value plus or minus one raw step (1).
-- Safe loop state: base. The code does not define the meaning of the values. Do not write this field until the meaning is known. Expected registry change: none, the field stays `code-defined`.
-- Result: open
+- Safe loop state: base. The code does not define the meaning of the values, so no test value is safe. The field has no Verification write and stays read-only (owner decision, gate 2.14). Expected registry change: none, the field stays `code-defined`.
+- Result: none, read-only
 
 ### alarm_enable
 
