@@ -438,8 +438,8 @@
 
   <!-- Object path: /io/github/cappyt/NiceCooling1 -->
   <interface name="io.github.cappyt.NiceCooling1.Alarms">
-    <!-- (instance id, event id, severity warning|alarm, source id, response none|notify|poweroff, raised us, poweroff at us or 0) -->
-    <property name="Active" type="a(sssssst)" access="read"/>
+    <!-- (instance id, event id, severity warning|alarm, source id, response none|notify|poweroff, raised us, poweroff at us or 0, details); api.md gives the detail keys -->
+    <property name="Active" type="a(ssssstta{sv})" access="read"/>
 
     <!-- (event id, response, delay s) -->
     <method name="GetResponses">
@@ -464,6 +464,7 @@
       <arg name="source" type="s"/>
       <arg name="response" type="s"/>
       <arg name="poweroff_at_us" type="t"/>
+      <arg name="details" type="a{sv}"/>
     </signal>
     <signal name="AlarmCleared">
       <arg name="instance" type="s"/>

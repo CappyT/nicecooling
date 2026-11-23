@@ -49,6 +49,8 @@ Alarms and Warnings use one identifier each. The app maps an identifier to its t
 | `state-fallback` | warning | empty: the state loaded from the last-known-good copy, or no copy loaded |
 | `leakshield.<name>` | warning or alarm | Leakshield id; one identifier for each Warning and Alarm that report 1 encodes, named in `docs/protocol/leakshield.md` |
 
+Each active Alarm or Warning (`Alarms.Active`) and each `AlarmRaised` signal carries `details` (`a{sv}`) for the notification text: `value` (`d`) and `limit` (`d`) in `unit` (`s`) when the event compares a value with a limit, and `sensor` (`o`) when a sensor caused it. A key is absent when it does not apply.
+
 ## Read-only reasons
 
 `ReadOnlyReason` and the reason of `GetFields` use these identifiers: `unknown-firmware`, `unknown-structure`, `not-verified`, `disconnected`, `action-running`.
