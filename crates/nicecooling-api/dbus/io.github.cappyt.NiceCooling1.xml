@@ -344,7 +344,7 @@
     <property name="Active" type="o" access="read"/>
     <!-- default | rule | manual -->
     <property name="ActivationCause" type="s" access="read"/>
-    <!-- applied | leakshield-failed | leakshield-paused -->
+    <!-- applied | leakshield-failed -->
     <property name="ActiveState" type="s" access="read"/>
     <property name="Default" type="o" access="read">
       <annotation name="org.freedesktop.DBus.Property.EmitsChangedSignal" value="const"/>

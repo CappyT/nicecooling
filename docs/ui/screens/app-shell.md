@@ -12,7 +12,7 @@ The shell is the frame of every screen: sidebar, header bar, global banners, con
 | Header bar | 46 px | Page title, subtitle on a device page, primary menu button, close button |
 | Banners | 46 px each, 64 px for the poweroff banner | Under the header bar, above the tab strip |
 | Content | rest | The screen. It scrolls vertically |
-| Status bar | 28 px | Daemon connection, active Profile, Alarm count, Maintenance pause |
+| Status bar | 28 px | Daemon connection, active Profile, Alarm count |
 
 ### Sidebar entries
 
@@ -30,7 +30,6 @@ A long label truncates with an ellipsis. Icons and counts keep their width.
 | Daemon | Green dot and "Daemon connected", the offline icon and "Daemon offline", or the octagon and "Daemon down" in the Alarm color | Settings, daemon section |
 | Profile | "Profile: Quiet (rule)" or "Profile: Gaming (manual)" | Profiles |
 | Alarms | "No active Alarms", "2 Warnings", "1 Alarm", or "1 Alarm, poweroff in 0:21" | Alarms |
-| Maintenance pause | Clock icon and "Maintenance pause", only while it is active | The Leakshield that causes it |
 
 ## Global banners
 
@@ -42,8 +41,7 @@ A banner spans the content width. The order from the top is fixed. A screen show
 | 2 | Daemon offline | Offline tint | "The daemon is offline. The values are not live, and you cannot change settings." | "Try again" |
 | 2 | Daemon down | Alarm, solid | "The daemon is down. nicecooling protection is off." and "No Curve, no Feed, no alarm response. The Board runs its Hardware curves from the BIOS snapshot." | "Show how to start it" |
 | 3 | Unknown firmware | Warning tint | "Leakshield firmware 1042 is unknown. Every field is read-only." | "Open Fields" |
-| 4 | Maintenance pause | Accent tint | "Maintenance pause: Profile rules do not write the Leakshield." Then the cause: "A Test runs." or "The Mode is RELEASE, set outside a Profile." | "Open Leakshield" |
-| 5 | Immediate switching | Warning tint | "Immediate switching is on. Rules change the Profile without delay." | "Open Profiles" |
+| 4 | Immediate switching | Warning tint | "Immediate switching is on. Rules change the Profile without delay." | "Open Profiles" |
 
 The poweroff banner shows on every screen while a countdown runs. No screen can hide it.
 

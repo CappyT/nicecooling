@@ -18,7 +18,7 @@ systemd creates the directory with `StateDirectory=nicecooling` and `StateDirect
 |---|---|---|
 | `state.json` | JSON | Global state, see below. |
 | `profiles/<profile id>/profile.json` | JSON | One Profile, see below. |
-| `profiles/<profile id>/leakshield/<leakshield id>/report3.bin` | binary | The whole report 3 with its report ID byte, as the device produced it. A Profile activation writes it. |
+| `profiles/<profile id>/leakshield/<leakshield id>/report3.bin` | binary | The whole report 3 with its report ID byte, as the device produced it, except the `device_profile` byte (the Profile number) and the CRC that follows it. A Profile activation writes it when the device profile number differs. |
 | `profiles/<profile id>/assets/<leakshield id>/<asset id>.bin` | binary | Display assets of the Profile. The asset write path is open until the reverse engineering answers it. |
 | `bios-snapshot.json` | JSON | The BIOS snapshot, see below. |
 | `lease.json` | JSON | The takeover lease: `{"schema_version":1,"created_us":<t>,"boot_id":"<from /proc/sys/kernel/random/boot_id>"}`. The file exists from before the first manual write until a restore whose read-back matches. |
@@ -49,6 +49,7 @@ Every JSON file above has a `.lkg` copy, except `lease.json` and the backup `met
 | `id`, `name` | string | |
 | `channels` | object | Map from Channel id to `{"control": "hardware"|"curve"|"fixed", "input", "points": [[input, duty]], "smoothing_s", "step_limit_pct_per_s", "fixed_duty"}`. |
 | `pump_floors` | object | Map from Loop id to the Pump floor in percent. |
+| `device_profile` | integer | The device profile number of the Profile (u8). The Default Profile has 1. A new Profile gets the next free number. The `device_profile` byte of every stored `report3.bin` of the Profile holds the same number, with a valid CRC. |
 | `leakshield` | object | Map from Leakshield id to `{"firmware", "structure"}` of the stored `report3.bin`. |
 
 `GetContent` returns the same keys as an `a{sv}`, plus `leakshield_fields`: for each Leakshield id, the decoded fields of the stored report 3.

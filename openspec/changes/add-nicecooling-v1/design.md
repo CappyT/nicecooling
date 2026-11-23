@@ -27,7 +27,7 @@ Terms that the safety decisions use (`GLOSSARY.md` has the full list):
 - **Mode**: the persistent state of the Leakshield: SHIELD, MONITOR or RELEASE. RELEASE releases the vacuum so that the loop can be opened. The protection is off.
 - **Action**: a temporary Leakshield procedure: Test, Measure fill level, Deaerate or Refill. In this design, "polkit action" always names a polkit permission, never an Action.
 - **Safety field**: a Leakshield setting that affects the leak protection. **Verified field**: a setting that nicecooling may write.
-- **Maintenance pause**: the state in which Profile rules do not write the Leakshield (ADR-0007).
+- **Device profile number**: the number that the Leakshield holds as its current profile (report 1 `active_profile`). Each Profile has one, and a Profile activation writes the Leakshield only when the numbers differ.
 - **Profile rule**: a condition that activates a Profile. The **Rule delay** is how long the condition must hold. The **Profile dwell** is the minimum time the Profile stays active.
 - **BIOS snapshot**: the writable `pwmN*` attributes of all Channels, as the Board had them before nicecooling took control.
 
@@ -241,6 +241,7 @@ The protocol crate holds one registry entry per field in `registry/leakshield.to
 - Conventions (`docs/protocol/leakshield.md`): offsets count from the report ID byte at offset 0, as in the fixtures. Multi-byte fields are big-endian. The report 3 CRC is CRC-16/USB over the 747 struct bytes (offsets 1 to 747), stored big-endian at offsets 748-749.
 - The serial is in report 1 bytes 3-6, as two big-endian u16. The firmware version is in bytes 13-14.
 - `verification_state` has four values: `code-defined` (the aquasuite code defines the field, no check yet), `plausible-read` (the value in the fw1022 fixtures is in range), `verified-write` (a Verification write passed) and `failed` (a Verification write failed). A low-risk field is writable at `plausible-read` or `verified-write`. A Safety field is writable only at `verified-write`. A field in any other state is read-only.
+- The Safety fields `signal_output_config` and `alarm_start_delay` have no safe test value, because the aquasuite code does not define their values. They get no Verification write and stay read-only (`docs/hardware-checks/verification-writes.md`).
 - Verification is a development-time procedure on the reference Leakshield: plausible reads on the fixtures and supervised Verification writes in the manual hardware checks. `tools/nicecooling-verify` runs one Verification write (task 5.12).
 - The result is static registry data. The app has no runtime ledger and no write control for a Verification write.
 - The registry is keyed on firmware 1022. The fw1019 fixtures stay as decode tests, and firmware 1019 is read-only. An unknown firmware version is read-only. The UI says why.
@@ -265,13 +266,17 @@ Backups keep reports 3, 5 and 8, but a restore writes only report 3, until repor
 
 External change detection: the daemon reads report 3 every 10 s and compares it with the last known value outside the volatile mask. A difference is an external change (ADR-0006). After its own verified write, the daemon updates the last known value. The daemon keeps the last known report 3 on disk, so detection survives a restart.
 
-Rejected: a write without a second read, because another tool can change report 3 between the first read and the write.
+A Profile activation does not use steps 2 and 5. It writes the stored report 3 as stored and does not read it back (D14). Steps 1 and 6 apply to it.
+
+Rejected: a user write without a second read, because another tool can change report 3 between the first read and the write.
 
 ### D12. Mode, Action, Feed message and clock (leakshield-operation)
 
 - The daemon sends the Feed message of each Loop that has a Leakshield on every tick. The Leakshield computes the loop pressure from it.
 - The out-of-tree driver is the reference for the Feed message codec and its golden tests. nicecooling does not depend on it. The driver covers only the Feed message, and it sends a second Feed message when it runs next to the daemon.
-- The transport of Mode and Action, and the Feed message slots for Software sensor values, are open (see Open Questions).
+- Mode and Action use one transport: report 2 command 12 (`set_mode`) with the Mode or Action code as parameter (`docs/protocol/leakshield.md`).
+- The Feed message has 16 slots: slot 0 is the pump speed, slot 1 is the flow, slots 2 and 3 are spare, and slots 4 to 15 are the 12 Software sensors.
+- The aquasuite code does not define what the Leakshield does when the Feed stops. Task 5.11 measures it.
 - The daemon refuses a Refill while a Pump channel of the same Loop reads above 0 rpm (ADR-0007).
 - `CancelAction` fails with `NotSupported` until the registry has a cancel command for the firmware. `ClearPumpRuntime` uses the command that the reverse engineering documents (task 2.9).
 - The Leakshield stamps its event list and its time-controlled vacuum generation with its clock, and it has no battery for it. The user can set the device clock from the PC clock at any offset (`SyncClock`). The daemon sets the device clock by itself only when the device time differs from the PC time by more than 60 s. This is its only Leakshield write without a user action or a Profile activation.
@@ -306,11 +311,14 @@ Rejected: the plain logind `PowerOff` call. Since systemd 257, logind obeys bloc
 - The Rule delay and the Profile dwell are settings of the daemon. They apply to every rule. `SetRuleTiming` changes them. The defaults are 30 s and 5 min (300 s). Immediate switching removes both.
 - A change made in nicecooling goes into the active Profile at once, with no confirm step.
 - A Profile stores the whole report 3 of each Leakshield, as the device produced it, as aquasuite does.
-- A switch writes the Curves, then the stored report 3 through the write path of D11, only when it differs from the device report outside the volatile mask. The volatile bytes come from the current device report. When the Profile and the device have different firmware, the daemon does not write the Leakshield part and reports `leakshield-failed`.
+- Each Profile has a device profile number (u8), as aquasuite does (`docs/protocol/leakshield.md`, section Device profiles in aquasuite). The number is in `profile.json` and in the `device_profile` byte of each stored report 3. The daemon sets the byte and the CRC when it stores a report in the Profile. The Default Profile keeps the number 1, which the device has now. A new Profile gets the next free number. The valid range is open (see Open Questions).
+- A switch writes the Curves, then, for each Leakshield, the stored whole report 3 as stored. It writes only when the device profile number of the Profile differs from report 1 `active_profile` of the device. It does not compare bytes and does not read the report back. The save-settings command follows 4 s after the last report 3 write (the worker timer of D11). The backup step of D11 applies before the write.
+- The write goes out also while an Action runs and while the Mode is RELEASE. The owner accepted the risk that a time rule writes SHIELD on an open loop (ADR-0007).
+- Spacing, as in aquasuite: a request writes at once when no write waits and the last profile write is older than 2 s. Otherwise the worker keeps only the newest request and writes it 1.5 s after the last profile write. The Rule delay and the Profile dwell still decide when a rule activates a Profile.
+- The daemon writes no Leakshield part when the firmware of the device is unknown, when it differs from the firmware of the stored report, or when the serial differs from the serial of the stored report. It reports `leakshield-failed`.
 - A switch can thus write bytes of fields that are not Verified fields. The device produced these bytes on the same firmware (owner decision).
-- After a verified write that the user started in nicecooling, the daemon stores the read-back report 3 in the active Profile.
-- The Maintenance pause blocks the Leakshield part while an Action runs or the Mode is RELEASE. The pause opens for any RELEASE that a Profile activation did not write. A Leakshield part that the pause blocked is dropped: the daemon does not write it when the pause ends. The next activation of a Profile writes the Leakshield again.
-- When the Leakshield part fails its read-back, the Profile shows "Curves applied, Leakshield failed" and offers the restore.
+- After a Profile write, the daemon stores the written report as the last known report 3 (D11). After a verified write that the user started in nicecooling, the daemon stores the read-back report 3 in the active Profile.
+- When the write of the Leakshield part fails, the Profile shows "Curves applied, Leakshield failed" and offers the restore.
 - Process rules scan `/proc` every 2 s.
 
 Rejected: Profile rules on suspend and resume. They need a logind inhibitor and a bypass of the delay and the dwell. They also need a full Leakshield write in a window of about 5 s, and they have no effect on Curves. The reconcile rule of D7 covers resume.
@@ -390,10 +398,7 @@ Files that remain after removal: `/var/lib/nicecooling/` and the user history in
 
 ## Open Questions
 
-- The contents of reports 5 and 8, and the device clock offsets in the reports. The reverse engineering tasks answer them.
-- The transport of Mode and Action, and the Feed message slots for Software sensor values.
-- The commands that clear the pump runtime and cancel a running Action.
-- The behavior of the Leakshield when the Feed stops.
-- The write path of display assets.
-- Mode handling and automatic profile switching in aquasuite.
+- The commands that clear the pump runtime and cancel a running Action. The aquasuite code does not define them. Candidates for the pump runtime: `reset_statistics` (13) and `service_reset` (25000).
+- The behavior of the Leakshield when the Feed stops. The aquasuite code does not define it. Task 5.11 measures it.
+- The valid range of the device profile number. The aquasuite code gives the type only (u8).
 - The license of nicecooling and its compatibility with CoolerControl (GPL-3.0), before any distribution.

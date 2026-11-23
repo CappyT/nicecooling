@@ -48,10 +48,10 @@ The pump speed and the flow that the host sends to the Leakshield, so that it ca
 _Avoid_: user-provided values
 
 **Feed message**:
-The message on the bulk endpoint of the Leakshield that carries the Feed.
+The message on the bulk endpoint of the Leakshield that carries the Feed. It has 16 slots: slot 0 is the pump speed, slot 1 is the flow, slots 2 and 3 are spare, and slots 4 to 15 are the 12 Software sensors.
 
 **Software sensor**:
-One of the 12 Leakshield slots that the host fills with a value, for display pages or lighting.
+One of the 12 Leakshield slots (Feed message slots 4 to 15) that the host fills with a value, for display pages or lighting.
 
 **Verified field**:
 A Leakshield setting that aquasuite's code defines and that the registry marks as verified for the device model and firmware version: by a plausible read on the fixtures for a low-risk field, by a Verification write for a Safety field.
@@ -62,8 +62,8 @@ A Leakshield setting that affects the leak protection: Mode, pressure, reservoir
 **Verification write**:
 A supervised test during development that writes a known value to one field of the reference Leakshield, reads back the device settings, checks that only the expected bytes changed, and restores the previous value. The app has no control for it.
 
-**Maintenance pause**:
-The state in which Profile rules do not write the Leakshield, because an Action runs or the Mode is RELEASE set outside a Profile.
+**Device profile number**:
+The number that the Leakshield holds as its current profile (report 1 `active_profile`). Each Profile has one number, and the stored report 3 of the Profile carries it (`device_profile`). A Profile activation writes the Leakshield only when the numbers differ.
 
 ## Fan control
 
@@ -106,7 +106,7 @@ The minimum Duty of the Pump channel. No Curve goes below it.
 ## Profiles
 
 **Profile**:
-A named set of Curves and Leakshield settings that becomes active as one unit.
+A named set of Curves and Leakshield settings that becomes active as one unit. It has a device profile number.
 _Avoid_: preset, scene
 
 **Default Profile**:

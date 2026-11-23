@@ -2,16 +2,31 @@
 
 ## Purpose
 
-Defines Profiles, the Default Profile, the Profile rules that activate them, the timing rules that stop fast switching, and the Maintenance pause that protects the Leakshield during maintenance.
+Defines Profiles, the Default Profile, the Profile rules that activate them, the timing rules that stop fast switching, and the rules for the Leakshield write that a Profile switch causes.
 
 ## ADDED Requirements
 
 ### Requirement: Profile content
-A Profile SHALL hold a set of Curves and the whole settings report of each Leakshield as the device produced it, with binary assets such as display logos. The daemon SHALL store each Profile in one place.
+A Profile SHALL hold a set of Curves, a device profile number, and the whole settings report of each Leakshield as the device produced it (with the device profile number set), with binary assets such as display logos. The daemon SHALL store each Profile in one place.
 
 #### Scenario: Save a Profile
 - **WHEN** the user saves a Profile with a display logo
 - **THEN** activating it later writes the logo and the stored settings
+
+### Requirement: Device profile number
+Each Profile SHALL have a device profile number, a u8 that the stored report 3 of the Profile carries in `device_profile`. The Default Profile SHALL keep the number that the Leakshield has now, 1. A new Profile SHALL get the next free number. The daemon SHALL set the number in each report 3 that it stores in the Profile.
+
+#### Scenario: Default Profile number
+- **WHEN** the daemon creates the Default Profile
+- **THEN** its device profile number is 1
+
+#### Scenario: New Profile
+- **WHEN** the user creates a Profile and the numbers 1 and 2 are in use
+- **THEN** the Profile gets the next free number
+
+#### Scenario: Stored report carries the number
+- **WHEN** the daemon stores a report 3 in a Profile
+- **THEN** the `device_profile` byte of the report holds the number of the Profile and the CRC is valid
 
 ### Requirement: Default Profile
 A Default Profile SHALL always exist and SHALL NOT be deletable. It SHALL be active when no Profile rule wins and no manual activation exists. A change that the user makes while it is active SHALL go into it.
@@ -36,29 +51,70 @@ Activating a Profile SHALL apply its Curves and its Leakshield snapshot as one u
 - **THEN** the Curves and the Leakshield values of the Profile become active
 
 ### Requirement: Partial switch
-When the Leakshield part of a Profile switch fails its read-back, the Curves SHALL stay applied. The API SHALL report the state "Curves applied, Leakshield failed" and offer the restore of the backup.
+When the Leakshield part of a Profile switch fails with a write error, the Curves SHALL stay applied. The API SHALL report the state "Curves applied, Leakshield failed" and offer the restore of the backup.
 
 #### Scenario: Leakshield write fails
-- **WHEN** a Profile switch applies the Curves and the Leakshield read-back fails
+- **WHEN** a Profile switch applies the Curves and the write of the report 3 fails
 - **THEN** the Profile state is "Curves applied, Leakshield failed" and the restore is offered
 
-### Requirement: Write only on a difference
-A Profile switch SHALL write the stored Leakshield settings only when they differ from the device settings outside the volatile mask. It SHALL keep the volatile bytes of the device. It SHALL NOT write them when the Profile and the device have different firmware.
+### Requirement: Write only when the profile number differs
+A Profile switch SHALL write the stored whole report 3 of a Leakshield, as stored, only when the device profile number of the Profile differs from the number that the device reports in report 1 `active_profile`. It SHALL NOT compare bytes and SHALL NOT read the report back.
 
-#### Scenario: Same Leakshield values
-- **WHEN** two Profiles hold the same Leakshield settings
-- **THEN** a switch between them writes nothing to the Leakshield
+#### Scenario: Device already has the number
+- **WHEN** the user activates a Profile and the device already reports the number of that Profile
+- **THEN** the daemon writes nothing to the Leakshield
+
+#### Scenario: Different number
+- **WHEN** the user activates a Profile and the device reports another number
+- **THEN** the daemon writes the whole stored report 3 as stored, and does not read it back
+
+### Requirement: Write in any Mode
+A Profile switch SHALL write the Leakshield also while an Action runs and while the Mode is RELEASE.
+
+#### Scenario: Action running
+- **WHEN** a Test runs and a time rule activates a Profile with another number
+- **THEN** the Curves apply and the daemon writes the stored report 3 to the Leakshield
+
+#### Scenario: Mode RELEASE
+- **WHEN** the Mode is RELEASE and a Profile with another number and Mode SHIELD is activated
+- **THEN** the daemon writes the stored report 3
+
+### Requirement: Write only to a matching device
+A Profile switch SHALL NOT write a Leakshield whose firmware is unknown, whose firmware differs from the firmware of the stored report 3, or whose serial differs from the serial of the stored report 3.
 
 #### Scenario: Different firmware
 - **WHEN** the stored settings come from another firmware version than the device runs
 - **THEN** the daemon writes no Leakshield setting and reports "Curves applied, Leakshield failed"
 
+#### Scenario: Other serial
+- **WHEN** the stored report 3 comes from a Leakshield with another serial than the device
+- **THEN** the daemon writes no Leakshield setting and reports "Curves applied, Leakshield failed"
+
+### Requirement: Leakshield write spacing
+The daemon SHALL write a Profile switch to the Leakshield at once when no write waits and the last profile write is older than 2 seconds. Otherwise it SHALL keep only the newest request and write it 1.5 seconds after the last profile write. It SHALL send the save-settings command 4 seconds after the last report 3 write.
+
+#### Scenario: Write at once
+- **WHEN** a Profile switch needs a write, no write waits and the last profile write is 10 seconds old
+- **THEN** the daemon writes the report 3 at once
+
+#### Scenario: Newest request wins
+- **WHEN** three Profile switches need a write within 2 seconds after a profile write
+- **THEN** the daemon writes only the newest one, 1.5 seconds after the last profile write
+
+#### Scenario: Save-settings follows
+- **WHEN** the daemon writes a report 3 for a Profile switch
+- **THEN** it sends one save-settings command 4 seconds after that write
+
 ### Requirement: Overwrite external changes
-Activating a Profile SHALL write the Profile snapshot over a Leakshield setting that another tool changed.
+Activating a Profile whose device profile number differs from the number of the device SHALL write the Profile snapshot over a Leakshield setting that another tool changed.
 
 #### Scenario: External change overwritten
-- **WHEN** the device button changed a field and the user activates a Profile
+- **WHEN** the device button changed a field and the user activates a Profile with another number
 - **THEN** the field takes the value of the Profile
+
+#### Scenario: External change kept
+- **WHEN** the device button changed a field and the user activates the Profile whose number the device already reports
+- **THEN** the field keeps the value that the button set
 
 ### Requirement: Profile rules
 A Profile rule SHALL activate a Profile on a condition: a running process, a time or a sensor threshold. The daemon SHALL evaluate the rules in list order every tick.
@@ -164,25 +220,6 @@ A Profile that the user activated by hand SHALL become active at once, also duri
 #### Scenario: Manual activation during the dwell
 - **WHEN** the user activates a Profile by hand 2 minutes after a rule activation
 - **THEN** the Profile becomes active in the same tick
-
-### Requirement: Maintenance pause
-While an Action runs, or while the Mode is RELEASE and no Profile activation wrote it, Profile rules SHALL NOT write the Leakshield. Any RELEASE that a Profile activation did not write SHALL open the pause. Curves SHALL still follow the rules.
-
-#### Scenario: RELEASE from the device button
-- **WHEN** the user sets the Mode RELEASE with the device button
-- **THEN** the Maintenance pause opens and no rule writes the Leakshield
-
-#### Scenario: RELEASE from a Profile
-- **WHEN** a Profile activation writes the Mode RELEASE
-- **THEN** the Maintenance pause does not open
-
-#### Scenario: Time rule during Test
-- **WHEN** a Test runs and a time rule activates a Profile with Mode SHIELD
-- **THEN** the Curves of the Profile apply and the Leakshield receives no write
-
-#### Scenario: Pause ends
-- **WHEN** a rule became the winner during the pause and the Action then ends
-- **THEN** the daemon does not write the Leakshield part of that Profile, and the next activation of a Profile writes the Leakshield again
 
 ### Requirement: Profiles with critical values
 Saving a Profile that contains Mode RELEASE SHALL NOT need admin authorization.

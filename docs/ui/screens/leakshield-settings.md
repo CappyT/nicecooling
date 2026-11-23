@@ -39,7 +39,6 @@ Each setting row has: the name, the verification badge, a caption, and the contr
 | Write failed | The row has the `alarm-tint` ground and the text "Write failed: the read-back does not match." The writes stop. Button "Restore the backup" with the padlock, and "Keep the current state" |
 | Applied | Success row: "5 settings written and verified." The changes go into the active Profile |
 | Alarm | The poweroff banner shows above the wizard. The wizard stays open |
-| Maintenance pause | Banner 4 of the shell. The wizard still writes, because the user starts the write |
 
 ## Interactions
 

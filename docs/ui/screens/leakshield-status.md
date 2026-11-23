@@ -19,7 +19,7 @@ The tab shows what the Leakshield does now: its operating data, its internal par
 | Leakshield unreachable | Offline banner. The schematic is dim, bubbles are dashed with "--". The event list keeps its last content |
 | Idle | No part is filled. Status: "Protecting" |
 | Pump runs | The vacuum pump and the pump valve are filled, with "running" and "open". Status: "Building pressure" |
-| Action runs | Status: "Test", "Measuring the fill level", "Deaerating", "Refill". The Maintenance pause banner shows |
+| Action runs | Status: "Test", "Measuring the fill level", "Deaerating", "Refill" |
 | Warning | The value that caused it has the triangle in its tile. The event list has a row with the triangle |
 | Alarm | The PT bubble is red. The event row has the octagon. The poweroff banner shows when the alarm response is poweroff |
 | Unknown firmware | The values that nicecooling can still decode show. The others show "--". Banner 3 |

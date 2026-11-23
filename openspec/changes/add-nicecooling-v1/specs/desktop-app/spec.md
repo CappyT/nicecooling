@@ -97,7 +97,7 @@ The app SHALL let the user create, edit, activate and revoke Profiles and their 
 - **THEN** the daemon holds a manual activation
 
 #### Scenario: Leakshield part failed
-- **WHEN** the Leakshield part of a Profile switch fails its read-back
+- **WHEN** the Leakshield part of a Profile switch fails with a write error
 - **THEN** the app shows "Curves applied, Leakshield failed" and offers the restore
 
 ### Requirement: Languages

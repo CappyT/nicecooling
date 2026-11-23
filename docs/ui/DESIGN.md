@@ -267,7 +267,7 @@ Each state has four signals: icon shape, color, text label, and a place in the s
 
 Rules:
 
-- **Order.** When several banners apply, the order from the top is: poweroff countdown, daemon down or offline, unknown firmware, Maintenance pause, Immediate switching on. A screen shows at most three banners. Others collapse into "2 more notices" on the last one.
+- **Order.** When several banners apply, the order from the top is: poweroff countdown, daemon down or offline, unknown firmware, Immediate switching on. A screen shows at most three banners. Others collapse into "2 more notices" on the last one.
 - **Locked is not read-only.** Locked means that the control works and polkit asks for the administrator password: setting RELEASE directly, restoring a backup, factory reset. Read-only means that nicecooling cannot write the field, and the caption says why.
 - **Verification state** of a Leakshield field is a badge, not a severity: see `widgets.md`, "Verification state badge".
 - **Write feedback** uses the same icons: check (`success`) for "Verified", octagon (`alarm`) for "Failed".

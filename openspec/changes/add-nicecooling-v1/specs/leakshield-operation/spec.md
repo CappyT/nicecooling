@@ -18,7 +18,7 @@ The user SHALL be able to start an Action: Test, Measure fill level, Deaerate or
 
 #### Scenario: Test ends
 - **WHEN** a Test ends
-- **THEN** the Leakshield returns to its Mode and the Maintenance pause ends
+- **THEN** the Leakshield returns to its Mode
 
 ### Requirement: Refill only in standby
 nicecooling SHALL NOT start a Refill while a Pump channel of the Loop of the Leakshield reads above 0 rpm. It SHALL tell the user to start the Refill with the device button with the PC in standby.
@@ -46,7 +46,7 @@ The user SHALL be able to clear the pump runtime of the Leakshield.
 - **THEN** the daemon sends the documented command to the Leakshield
 
 ### Requirement: Send the Feed message
-For each Loop with a Leakshield, the daemon SHALL send the Feed (pump speed and flow) in a Feed message every tick. The Feed message SHALL have 51 bytes: 49 bytes that start with `0x04`, then a big-endian CRC-16/USB over those 49 bytes.
+For each Loop with a Leakshield, the daemon SHALL send the Feed (pump speed and flow) in a Feed message every tick. The Feed message SHALL have 51 bytes: 49 bytes that start with `0x04`, then a big-endian CRC-16/USB over those 49 bytes. The message SHALL have 16 slots: slot 0 is the pump speed, slot 1 is the flow, slots 2 and 3 are spare, and slots 4 to 15 are the 12 Software sensors.
 
 #### Scenario: Feed content
 - **WHEN** the pump reads 3000 rpm and the calibrated flow is 115 L/h
@@ -57,7 +57,7 @@ For each Loop with a Leakshield, the daemon SHALL send the Feed (pump speed and 
 - **THEN** the Leakshield computes the loop pressure from it
 
 ### Requirement: Software sensor values
-The daemon SHALL write values into the 12 Software sensor slots of the Leakshield, so that display pages and lighting can show them.
+The daemon SHALL write values into the 12 Software sensor slots of the Leakshield (Feed message slots 4 to 15), so that display pages and lighting can show them.
 
 #### Scenario: Assign a sensor
 - **WHEN** the user assigns the water temperature to a Software sensor slot

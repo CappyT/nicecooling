@@ -51,7 +51,7 @@ Alarms and Warnings use one identifier each. The app maps an identifier to its t
 
 ## Read-only reasons
 
-`ReadOnlyReason` and the reason of `GetFields` use these identifiers: `unknown-firmware`, `unknown-structure`, `not-verified`, `disconnected`, `action-running`, `maintenance-pause`.
+`ReadOnlyReason` and the reason of `GetFields` use these identifiers: `unknown-firmware`, `unknown-structure`, `not-verified`, `disconnected`, `action-running`.
 
 ## Leakshield fields
 

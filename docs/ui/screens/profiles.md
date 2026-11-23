@@ -41,11 +41,10 @@ Row 1: "Condition" (select) and "Activate Profile" (select). Row 2: the fields o
 | Manual activation | Tag "Active manually". Information row in the rules card: "Profile rules wait until you revoke the manual activation." Button "Revoke" |
 | Rule delay runs | The rule tag says "True, activates in 18 s" |
 | Profile dwell runs | The active Profile caption says "Stays for 3 min more (Profile dwell)" |
-| Immediate switching on | Banner 5 of the shell. "Rule delay" and "Profile dwell" are disabled, caption "Not used with Immediate switching" |
-| Maintenance pause | Banner 4. Information row in the detail: "The Curves of this Profile are active. Its Leakshield snapshot waits for the end of the Maintenance pause." |
+| Immediate switching on | Banner 4 of the shell. "Rule delay" and "Profile dwell" are disabled, caption "Not used with Immediate switching" |
 | Profile with RELEASE | Warning row: "This Profile sets Mode RELEASE: the Loop has no leak protection while it is active." Saving it needs no administrator password |
 | Differs from other Profiles | Warning row: "Alarm thresholds differ from 2 other Profiles" with the values, and "Apply to all Profiles" |
-| External change | Information row: "Display brightness changed outside nicecooling. Activating this Profile overwrites it." |
+| External change | Information row: "Display brightness changed outside nicecooling. Activating another Profile overwrites it." |
 | Activating | Write status. With Leakshield differences, a dialog first shows the diff table and "Activate" |
 | Activation failed | The diff table row has the failure. "Restore the backup" with the padlock. The Curves stay active |
 | Alarm | Not used. The poweroff banner shows above |

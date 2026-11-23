@@ -51,7 +51,7 @@ nicecooling controls the cooling of one Linux desktop: the fans and the pump on 
 
 - Scope of the UI: `docs/ui/components.md` lists every screen, state and widget of version 1.
 - Terms: `GLOSSARY.md`. UI copy and docs use these terms exactly.
-- Safety rules: `docs/adr/0007-safety-rules-for-profiles-actions-and-alarms.md` (Maintenance pause, Refill only in standby, the daemon handles leaks, no extra check on Profiles with critical values).
+- Safety rules: `docs/adr/0007-safety-rules-for-profiles-actions-and-alarms.md` (Profile activation writes the Leakshield in any Mode, Refill only in standby, the daemon handles leaks, no extra check on Profiles with critical values).
 - The app is the session agent: `docs/adr/0005-desktop-app-is-the-session-agent.md`. The history has gaps while no session runs the app.
 - With an unknown firmware version, every Leakshield field is read-only.
 - Out of scope: Leakshield firmware update, Board RGB, Corsair devices, GPU fan control. Out of version 1: Experimental devices, a Verification write from the app, suspend Profile rules.

@@ -61,7 +61,7 @@
       '<div class="grow"></div>' + nav('settings', 'Settings', 'sliders') + '</nav>';
     var sbAl = al ? '<span class="t-alarm"><b>' + icon('alarm') + ' ' + (d.alarmtext || al + ' Alarm') + '</b></span>' : wn ? '<span class="t-warn"><b>' + icon('warn') + ' ' + wn + ' Warning</b></span>' : '<span>No active Alarms</span>';
     var sb = '<footer class="sb">' + (d.daemon === 'down' ? '<span class="t-alarm"><b>' + icon('alarm') + ' Daemon down</b></span>' : d.daemon === 'off' ? '<span class="t-off">' + icon('off') + ' Daemon offline</span>' : '<span><i class="dot"></i>Daemon connected</span>') +
-      '<span>Profile: ' + (d.profile || 'Quiet (rule)') + '</span>' + sbAl + (d.pause ? '<span>' + icon('clock') + ' Maintenance pause</span>' : '') + '</footer>';
+      '<span>Profile: ' + (d.profile || 'Quiet (rule)') + '</span>' + sbAl + '</footer>';
     var w = document.createElement('div'); w.className = 'win';
     w.innerHTML = side + '<header class="hb">' + '<span class="title">' + d.title + (d.subtitle ? '<small>' + d.subtitle + '</small>' : '') + '</span><span class="right"><span class="btn sm flat icon">' + icon('menu') + '</span><span class="close">' + icon('x') + '</span></span></header><div class="content"></div>' + sb;
     var c = w.querySelector('.content');

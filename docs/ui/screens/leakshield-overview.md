@@ -40,7 +40,7 @@ While an Action runs, the Action view replaces item 3, and the Action bar shows 
 | Locked | RELEASE has the padlock. The click opens the polkit dialog. After a denial: "Not authorized. The Mode did not change." |
 | Warning | The status tag is a warning tag ("Leak Warning"). The row that caused it has the triangle |
 | Alarm | The status tag is the Alarm tag. The gauge marker and value are red. The poweroff banner shows when the alarm response is poweroff |
-| Action runs | Action view, "Cancel", and the Maintenance pause banner |
+| Action runs | Action view and "Cancel" |
 | Mode RELEASE | Warning banner: "Mode RELEASE: the Loop has no leak protection." |
 | Pump runs (Refill) | The instruction row always shows. nicecooling has no Refill button |
 
