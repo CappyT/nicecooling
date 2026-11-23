@@ -334,13 +334,50 @@ fn from_value(value: &OwnedValue) -> Option<Fv> {
     })
 }
 
-/// What the daemon does with a value for a stored field: a name goes to an enum field only, a
-/// number goes to a scaled field, and an integer field takes an integer or a whole `d`.
-fn fit(stored: &Fv, value: Fv) -> Option<Fv> {
+const REGISTRY: &str = include_str!("../../../nicecooling-protocol/registry/leakshield.toml");
+
+/// The names of the enum field `id` in the registry, as the daemon checks them.
+fn registry_names(id: &str) -> Vec<String> {
+    static TABLE: std::sync::OnceLock<toml::Table> = std::sync::OnceLock::new();
+    let table = TABLE.get_or_init(|| REGISTRY.parse().expect("registry"));
+    table["field"]
+        .as_array()
+        .expect("fields")
+        .iter()
+        .find(|f| f["id"].as_str() == Some(id))
+        .and_then(|f| f.get("names"))
+        .and_then(|names| names.as_array())
+        .map(|names| {
+            names
+                .iter()
+                .filter_map(|n| n.as_str().map(str::to_owned))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn len(value: &Fv) -> usize {
+    match value {
+        Fv::TextList(list) => list.len(),
+        Fv::List(list) => list.len(),
+        Fv::Ints(list) => list.len(),
+        _ => 1,
+    }
+}
+
+/// What the daemon does with a value for a stored field: a listed name goes to an enum field only,
+/// a number goes to a scaled field, and an integer field takes an integer or a whole `d`. A list
+/// keeps the length of the field.
+fn fit(id: &str, stored: &Fv, value: Fv) -> Option<Fv> {
     let whole_number = |n: f64| (n.fract() == 0.0).then_some(n as i64);
+    if len(stored) != len(&value) {
+        return None;
+    }
+    let listed = |name: &String| registry_names(id).contains(name);
     match (stored, value) {
-        (Fv::Text(_), value @ Fv::Text(_)) | (Fv::TextList(_), value @ Fv::TextList(_)) => {
-            Some(value)
+        (Fv::Text(_), Fv::Text(name)) => listed(&name).then_some(Fv::Text(name)),
+        (Fv::TextList(_), Fv::TextList(names)) => {
+            names.iter().all(listed).then_some(Fv::TextList(names))
         }
         (Fv::Num(_), Fv::Num(n)) => Some(Fv::Num(n)),
         (Fv::Num(_), Fv::Int(n)) => Some(Fv::Num(n as f64)),
@@ -482,7 +519,7 @@ impl Leakshield {
                 ));
             }
             if from_value(value)
-                .and_then(|v| fit(&stored.value, v))
+                .and_then(|v| fit(name, &stored.value, v))
                 .is_none()
             {
                 return Err(fdo::Error::Failed(
@@ -493,7 +530,7 @@ impl Leakshield {
         for (name, value) in &fields {
             if let Some(stored) = device.fields.iter_mut().find(|field| field.id == name) {
                 stored.value = from_value(value)
-                    .and_then(|v| fit(&stored.value, v))
+                    .and_then(|v| fit(name, &stored.value, v))
                     .expect("checked");
             }
         }
