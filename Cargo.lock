@@ -4138,6 +4138,7 @@ dependencies = [
 name = "nicecooling-verify"
 version = "0.1.0"
 dependencies = [
+ "nicecooling-api",
  "nicecooling-protocol",
  "nicecoolingd",
  "tokio",

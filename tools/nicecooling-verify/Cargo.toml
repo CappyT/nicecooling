@@ -8,7 +8,13 @@ publish.workspace = true
 workspace = true
 
 [dependencies]
+nicecooling-api.workspace = true
 nicecoolingd.workspace = true
 nicecooling-protocol.workspace = true
-tokio.workspace = true
+tokio = { workspace = true, features = ["rt", "macros"] }
 zbus.workspace = true
+
+# The simulated device and the simulated USB bus. Only the tests of the tool use them.
+[dev-dependencies]
+nicecooling-protocol = { workspace = true, features = ["sim"] }
+tokio = { workspace = true, features = ["sync"] }
