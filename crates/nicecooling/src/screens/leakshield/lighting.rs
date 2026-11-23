@@ -12,7 +12,6 @@ use crate::screens::{FeedbackLine, ScreenInput};
 /// The integrated LEDs of the Leakshield.
 pub const LEDS: usize = 6;
 /// The controllers that the device holds, at most.
-pub const MAX_CONTROLLERS: usize = 8;
 const COLORS: usize = 6;
 const PARAMS: usize = 12;
 /// The effect of an unused controller.
@@ -230,16 +229,11 @@ impl LightingUi {
 
     pub fn add(&mut self, input: &ScreenInput<'_>, id: &str) -> Option<Command> {
         self.edit(input, id, |table| {
-            if table.used().len() >= MAX_CONTROLLERS {
+            // The device has a fixed number of controllers: a new one takes an unused slot.
+            let Some(slot) = table.controllers.iter().position(|c| c.mode == UNUSED) else {
                 return false;
-            }
-            match table.controllers.iter().position(|c| c.mode == UNUSED) {
-                Some(slot) => table.controllers[slot] = Controller::new(),
-                None if table.controllers.len() < MAX_CONTROLLERS => {
-                    table.controllers.push(Controller::new());
-                }
-                None => return false,
-            }
+            };
+            table.controllers[slot] = Controller::new();
             true
         })
     }
@@ -250,13 +244,10 @@ impl LightingUi {
             let Some(copy) = table.controllers.get(index).cloned() else {
                 return false;
             };
-            if table.used().len() >= MAX_CONTROLLERS {
+            let Some(slot) = table.controllers.iter().position(|c| c.mode == UNUSED) else {
                 return false;
-            }
-            match table.controllers.iter().position(|c| c.mode == UNUSED) {
-                Some(slot) => table.controllers[slot] = copy,
-                None => table.controllers.push(copy),
-            }
+            };
+            table.controllers[slot] = copy;
             true
         })
     }
@@ -607,7 +598,7 @@ impl LightingModel {
             enabled: enabled && device.can_write() && writable,
             tooltip,
         };
-        let full = used.len() >= MAX_CONTROLLERS;
+        let full = used.len() >= table.controllers.len();
         let limit = locale.tr("leakshield.lighting.limit");
         let selected_one = ui.selected.len() == 1;
 

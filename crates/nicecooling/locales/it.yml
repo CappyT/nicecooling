@@ -1056,7 +1056,7 @@ leakshield:
     add: "Aggiungi"
     duplicate: "Duplica"
     delete: "Elimina"
-    limit: "Il Leakshield ha 8 controller."
+    limit: "Il Leakshield ha 2 controller."
     empty: "Nessun controller. I LED sono spenti."
     add_first: "Aggiungi un controller"
     controller_n: "Controller %{n}"

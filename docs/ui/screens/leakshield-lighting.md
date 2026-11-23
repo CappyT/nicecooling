@@ -2,7 +2,7 @@
 
 No comp. The LED timeline editor is in `../widgets.md`.
 
-The tab sets the RGBpx lighting: 6 integrated LEDs and the external LEDs, with up to 8 controllers.
+The tab sets the RGBpx lighting: 6 integrated LEDs and the external LEDs, with up to 2 controllers.
 
 ## Layout
 
@@ -24,7 +24,7 @@ A dialog, 560 px wide: a list of effects with a name and a one-line text. A sele
 | Empty | No controller: the timeline shows the LED row and the text "No controller. The LEDs are off." with the button "Add a controller" |
 | Loading | Grey timeline |
 | Device offline | Offline banner. The timeline shows the last settings without handles |
-| Limit reached | "Add" and "Duplicate" are disabled at 8 controllers. Tooltip: "The Leakshield has 8 controllers." |
+| Limit reached | "Add" and "Duplicate" are disabled when both controllers are in use. Tooltip: "The Leakshield has 2 controllers." |
 | Covered controller | A bar that a higher bar covers completely is dim. Caption: "Covered by Controller 1" |
 | LEDs used by the device | LEDs that show a Leakshield state now (an alarm) have a small padlock in their cell. Caption: "The Leakshield uses these LEDs while an alarm is active." |
 | Sensor-driven without value | Warning icon on the parameter. The effect uses the "From" value |

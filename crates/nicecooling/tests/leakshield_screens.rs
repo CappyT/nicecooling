@@ -1607,7 +1607,8 @@ fn leakshield_lighting_states() {
         model.external,
         "External LEDs: 0 connected. Set the count to match the strip on the RGBpx output."
     );
-    assert!(model.add.enabled && !model.duplicate.enabled && !model.delete.enabled);
+    // Both controllers of the device are in use, and nothing is selected.
+    assert!(!model.add.enabled && !model.duplicate.enabled && !model.delete.enabled);
     assert!(model.panel.is_none() && model.empty.is_none());
 
     // A selected controller: its parameters.
@@ -1638,7 +1639,7 @@ fn leakshield_lighting_states() {
     );
     assert!(empty.cells.iter().all(|c| !c.lit));
 
-    // 8 controllers: "Add" and "Duplicate" are off, with the reason.
+    // Both controllers in use: "Add" and "Duplicate" are off, with the reason.
     let mut full = state.clone();
     for id in [
         "led_controller_mode",
@@ -1650,9 +1651,9 @@ fn leakshield_lighting_states() {
             &mut full,
             id,
             if id == "led_controller_mode" {
-                FieldValue::TextList(vec!["fixed-color".into(); 8])
+                FieldValue::TextList(vec!["fixed-color".into(); 2])
             } else {
-                FieldValue::List(vec![0.0; 8])
+                FieldValue::List(vec![0.0; 2])
             },
         );
     }
@@ -1662,16 +1663,16 @@ fn leakshield_lighting_states() {
         ("led_controller_color_saturation", 6),
         ("led_controller_color_value", 6),
     ] {
-        set_field(&mut full, id, FieldValue::List(vec![1.0; 8 * size]));
+        set_field(&mut full, id, FieldValue::List(vec![1.0; 2 * size]));
     }
     let mut ui = LightingUi::default();
     ui.toggle(0);
     let model = lighting(&full, &ui);
-    assert_eq!(model.bars.len(), 8);
+    assert_eq!(model.bars.len(), 2);
     assert!(!model.add.enabled && !model.duplicate.enabled);
     assert_eq!(
         model.add.tooltip.as_deref(),
-        Some("The Leakshield has 8 controllers.")
+        Some("The Leakshield has 2 controllers.")
     );
     assert!(model.delete.enabled);
 
@@ -1745,16 +1746,28 @@ fn leakshield_lighting_commands() {
             other => panic!("not a list: {other:?}"),
         }
     };
+    // The device has 2 controllers. "Add" and "Duplicate" take the free slot and never add an
+    // entry: with both controllers in use they send nothing.
     let mut ui = LightingUi::default();
-    // "Add" takes the first free slot, or a new entry.
-    let add = ui.add(&screen_input, LEAKSHIELD).expect("add");
-    assert_eq!(modes_of(&add), ["fixed-color", "rainbow", "fixed-color"]);
-    assert_eq!(list_of(&add, "led_controller_color_hue").len(), 18);
+    assert!(ui.add(&screen_input, LEAKSHIELD).is_none());
+    let mut free = state.clone();
+    set_field(
+        &mut free,
+        "led_controller_mode",
+        FieldValue::TextList(vec!["rainbow".into(), "unused".into()]),
+    );
+    let free_input = en(&free, &feedback);
+    let add = ui.add(&free_input, LEAKSHIELD).expect("add");
+    assert_eq!(modes_of(&add), ["rainbow", "fixed-color"]);
+    assert_eq!(list_of(&add, "led_controller_color_hue").len(), 12);
     // "Duplicate" needs one selected controller.
+    assert!(ui.duplicate(&free_input, LEAKSHIELD).is_none());
+    ui.toggle(0);
+    let copy = ui.duplicate(&free_input, LEAKSHIELD).expect("duplicate");
+    assert_eq!(modes_of(&copy), ["rainbow", "rainbow"]);
     assert!(ui.duplicate(&screen_input, LEAKSHIELD).is_none());
+    let mut ui = LightingUi::default();
     ui.toggle(1);
-    let copy = ui.duplicate(&screen_input, LEAKSHIELD).expect("duplicate");
-    assert_eq!(modes_of(&copy), ["fixed-color", "rainbow", "rainbow"]);
     // A bar moves, grows, and changes its priority.
     let moved = ui.shift(&screen_input, LEAKSHIELD, 1, 0).expect("move");
     assert_eq!(list_of(&moved, "led_controller_first_led"), [0.0, 3.0]);
@@ -3136,34 +3149,39 @@ async fn display_and_lighting_writes_reach_the_fake_daemon() {
         refreshed.field("display_brightness_idle").map(|f| &f.value),
         Some(&FieldValue::Text("off".into()))
     );
+    let modes = |list: [&str; 2]| Some(Fv::TextList(list.map(String::from).to_vec()));
+    // Both controllers of the device are in use: "Add" sends nothing.
     let mut lighting = LightingUi::default();
-    let command = lighting.add(&screen_input, LEAKSHIELD).expect("a command");
+    assert!(lighting.add(&screen_input, LEAKSHIELD).is_none());
+    lighting.toggle(1);
+    let command = lighting
+        .delete(&screen_input, LEAKSHIELD)
+        .expect("a command");
     run(&harness, &command).await;
     assert_eq!(
         daemon.stored_field("led_controller_mode").await,
-        Some(Fv::TextList(
-            ["rainbow", "fixed-color", "fixed-color"]
-                .map(String::from)
-                .to_vec()
-        ))
+        modes(["rainbow", "unused"])
     );
-    let data = harness.client.leakshield_data(LEAKSHIELD).await;
-    let model = LightingModel::build(
-        &en(
-            &{
-                let mut state = harness.state.clone();
-                state
-                    .snapshot
-                    .leakshield_data
-                    .insert(LEAKSHIELD.into(), data);
-                state
-            },
-            &feedback,
-        ),
-        &LightingUi::default(),
-        LEAKSHIELD,
+    let refreshed = |data| {
+        let mut state = harness.state.clone();
+        state
+            .snapshot
+            .leakshield_data
+            .insert(LEAKSHIELD.into(), data);
+        state
+    };
+    let state = refreshed(harness.client.leakshield_data(LEAKSHIELD).await);
+    let command = LightingUi::default()
+        .add(&en(&state, &feedback), LEAKSHIELD)
+        .expect("a command");
+    run(&harness, &command).await;
+    assert_eq!(
+        daemon.stored_field("led_controller_mode").await,
+        modes(["rainbow", "fixed-color"])
     );
-    assert_eq!(model.bars.len(), 3);
+    let state = refreshed(harness.client.leakshield_data(LEAKSHIELD).await);
+    let model = LightingModel::build(&en(&state, &feedback), &LightingUi::default(), LEAKSHIELD);
+    assert_eq!(model.bars.len(), 2);
 }
 
 #[tokio::test(flavor = "multi_thread")]
