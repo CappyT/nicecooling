@@ -494,3 +494,73 @@ async fn no_actions_capability_cancel_in_tray_and_window() {
         })
     );
 }
+
+#[test]
+fn a_snapshot_keeps_the_alarm_notifications_of_the_active_instances_only() {
+    let mut state = online();
+    let event = DaemonEvent::Snapshot(Box::new({
+        let mut snapshot = state.snapshot.clone();
+        snapshot.alarms = vec![alarm(
+            "alarm_200_1",
+            "pump-stop",
+            "loop_1",
+            Response::Poweroff,
+            30,
+        )];
+        snapshot
+    }));
+    state.apply(&event);
+    assert_eq!(
+        plan(&event, &state, NOW_US, EN, NotifyPrefs::default()),
+        vec![Plan::CloseStaleAlarms {
+            active: vec!["alarm_200_1".into()]
+        }]
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_snapshot_closes_the_notification_of_an_instance_of_an_earlier_daemon() {
+    let _guard = SESSION_LOCK.lock().await;
+    let bus = PrivateBus::start("notify-stale");
+    use_as_session_bus(&bus);
+    let server = FakeNotificationServer::start(bus.connect().await, &["actions", "body"]).await;
+    let (tx, _commands) = unbounded_channel();
+    let mut state = online();
+    let prefs = NotifyPrefs::default();
+
+    let mut notifier = Notifier::new(tx);
+    for instance in ["alarm_100_1", "alarm_100_2"] {
+        let event = raised(
+            alarm(instance, "pump-stop", "loop_1", Response::Poweroff, 30),
+            &mut state,
+        );
+        notifier = show(notifier, single(plan(&event, &state, NOW_US, EN, prefs))).await;
+    }
+    let shown = server.received();
+    assert_eq!(shown.len(), 2);
+    // The daemon restarted: only the new instance is active, and the app missed the clear of
+    // the other ones.
+    let mut snapshot = state.snapshot.clone();
+    snapshot.alarms = vec![alarm(
+        "alarm_200_1",
+        "pump-stop",
+        "loop_1",
+        Response::Poweroff,
+        30,
+    )];
+    let event = DaemonEvent::Snapshot(Box::new(snapshot));
+    state.apply(&event);
+    let plans = plan(&event, &state, NOW_US, EN, prefs);
+    tokio::task::spawn_blocking(move || {
+        let mut notifier = notifier;
+        for step in plans {
+            notifier.apply(step).expect("apply");
+        }
+        notifier
+    })
+    .await
+    .unwrap();
+    let mut closed = server.closed();
+    closed.sort_unstable();
+    assert_eq!(closed, [shown[0].id, shown[1].id]);
+}

@@ -36,7 +36,7 @@ Terms that the safety decisions use (`GLOSSARY.md` has the full list):
 **Goals:**
 
 - Without a user session, the daemon runs the Curves, sends the Feed message, evaluates the Alarms and runs the alarm responses.
-- From the end of the alarm delay to power off, at most 60 s pass.
+- From the end of the alarm delay to power off, 60 s is the goal. It is not a hard bound: see the poweroff drop-in in the Alarms decisions.
 - nicecooling writes only Verified fields to the Leakshield.
 - The domain core (Loops, Curves, Profiles, Rule groups, Alarms) runs in tests without hardware.
 
@@ -289,9 +289,9 @@ Sources: Leakshield Warnings and Alarms decoded from report 1, and nicecooling e
 
 - Leakshield unreachable: report 1 is missing, or the Feed message fails, for 10 s. It closes when report 1 arrives and the Feed message succeeds for 10 s in a row. Default alarm response: notify.
 - One table sets the alarm response of every Warning and Alarm: none, notify, or poweroff after a delay. Defaults: large leak and pump stop power off after 30 s. Everything else notifies.
-- The daemon emits `AlarmRaised`. At expiry it calls logind `PowerOffWithFlags` with `SD_LOGIND_SKIP_INHIBITORS` (0x10). On a call error it emits `PoweroffFailed` and retries every 5 s.
+- The daemon emits `AlarmRaised`. At expiry it calls logind `PowerOffWithFlags` with `SD_LOGIND_SKIP_INHIBITORS` (0x10). On a call error it emits `PoweroffFailed` and retries every 5 s. A call that does not answer in 10 s is an error. `CancelPoweroff` fails with `PoweroffStarted` once the call is under way, because logind may already queue the poweroff.
 - A daemon restart during a countdown restarts the countdown if the Alarm is still active.
-- The RPM ships a drop-in for `poweroff.target`: `JobTimeoutSec=55s` and `JobTimeoutAction=poweroff-force`. Delay inhibitors still wait up to `InhibitDelayMaxSec` (default 5 s) before logind queues the job. With the default value, the 60 s goal holds.
+- The RPM ships a drop-in for `poweroff.target`: `JobTimeoutSec=55s` and `JobTimeoutAction=poweroff-force`. Delay inhibitors still wait up to `InhibitDelayMaxSec` (default 5 s) before logind queues the job. With the default value, the forced poweroff starts 60 s after the end of the alarm delay at the latest. The 60 s are a goal and not a hard bound: `poweroff-force` ends the job but not the shutdown, because `systemd-shutdown` still sends SIGTERM and SIGKILL to the remaining processes and waits for them. The owner keeps `poweroff-force` after 55 s and accepts that a stuck process can take longer.
 - Cancel path: the app shows the Alarm notification with critical urgency and checks the `actions` capability of the notification server. "Cancel poweroff" is also in the tray menu and in the window. The app of any session can cancel.
 - The daemon proposes these device settings: the key-sequence Device response off on every alarm, and the signal output only as a long press on the system Alarm. `GetDeviceResponseProposals` returns them. It warns when a setting overlaps with its alarm responses: `key-sequence-on`, and `double-poweroff` when the signal output is set on a Leakshield Alarm whose alarm response is poweroff. The daemon does not write the proposals on its own (ADR-0007).
 

@@ -621,3 +621,40 @@ fn alarms_labels() {
         assert!(!EN.event_title(event).starts_with("Event "));
     }
 }
+
+#[test]
+fn a_cancel_that_came_too_late_says_the_poweroff_started() {
+    let mut state = with_responses();
+    state.snapshot.alarms = vec![alarm(
+        "alarm_1_1",
+        "pump-stop",
+        "loop_1",
+        Response::Poweroff,
+        30,
+    )];
+    let cancel = Command::CancelPoweroff {
+        instance: "alarm_1_1".into(),
+    };
+    let key = cancel
+        .feedback_key()
+        .expect("the cancel has a feedback key");
+    let mut feedback = Feedback::default();
+    feedback.set(
+        key,
+        WriteOutcome::Refused {
+            error: "PoweroffStarted".into(),
+        },
+    );
+    for (locale, text) in [
+        (EN, "The PC already powers off. The cancel came too late."),
+        (
+            IT,
+            "Il PC si sta già spegnendo. L'annullamento è arrivato troppo tardi.",
+        ),
+    ] {
+        let mut input = input(&state, &feedback, NOW_US);
+        input.locale = locale;
+        let model = AlarmsModel::build(&input, &AlarmsUi::default());
+        assert_eq!(model.active.rows[0].cancelled.as_deref(), Some(text));
+    }
+}

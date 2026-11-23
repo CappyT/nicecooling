@@ -486,7 +486,8 @@ impl Command {
             | Self::ExportBackup { leakshield, .. }
             | Self::ImportBackup { leakshield, .. } => format!("ls:{leakshield}:backups"),
             Self::FactoryReset { leakshield } => format!("ls:{leakshield}:factory-reset"),
-            Self::CancelPoweroff { .. } | Self::OpenWindow(_) | Self::Quit => return None,
+            Self::CancelPoweroff { instance } => format!("poweroff:{instance}"),
+            Self::OpenWindow(_) | Self::Quit => return None,
         })
     }
 }

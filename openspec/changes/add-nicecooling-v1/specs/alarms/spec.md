@@ -118,8 +118,16 @@ At the end of the delay, the daemon SHALL call logind `PowerOffWithFlags` with t
 - **WHEN** the logind call returns an error
 - **THEN** the daemon emits `PoweroffFailed` and calls again after 5 seconds
 
+#### Scenario: logind does not answer
+- **WHEN** the logind call has no answer after 10 seconds
+- **THEN** the daemon counts the call as failed, emits `PoweroffFailed` and calls again after 5 seconds
+
+#### Scenario: Cancel after the call started
+- **WHEN** the user calls CancelPoweroff while the logind call is under way
+- **THEN** the call fails with `PoweroffStarted` and the daemon emits no `PoweroffCancelled`
+
 ### Requirement: Poweroff time bound
-The RPM SHALL install a drop-in for `poweroff.target` with `JobTimeoutSec=55s` and `JobTimeoutAction=poweroff-force`. Delay inhibitors wait up to `InhibitDelayMaxSec`, which is 5 seconds by default. From the end of the alarm delay to power off, at most 60 seconds SHALL pass with the default `InhibitDelayMaxSec`.
+The RPM SHALL install a drop-in for `poweroff.target` with `JobTimeoutSec=55s` and `JobTimeoutAction=poweroff-force`. Delay inhibitors wait up to `InhibitDelayMaxSec`, which is 5 seconds by default. From the end of the alarm delay to the start of the forced poweroff, at most 60 seconds SHALL pass with the default `InhibitDelayMaxSec`. The time to power off is 60 seconds as a goal and not a bound: `systemd-shutdown` waits for the processes after SIGTERM and SIGKILL.
 
 #### Scenario: Shutdown stalls
 - **WHEN** an orderly shutdown takes more than 55 seconds after logind queues the job

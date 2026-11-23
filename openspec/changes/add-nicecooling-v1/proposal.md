@@ -9,7 +9,7 @@ On Linux, the Aqua Computer LEAKSHIELD is only half supported: the kernel driver
 - A root daemon, `nicecoolingd`, that discovers hwmon sensors and Channels on any Board, runs software Curves, and restores the BIOS snapshot when it stops. It reads each device in its own task, feeds a systemd watchdog, and keeps all its state in `/var/lib/nicecooling/`.
 - Loops that group Pump channels, a flow sensor with a Calibration table, a water temperature sensor and a Leakshield; per-Loop Pump floor and pump-stop Alarm.
 - Full Leakshield support except firmware update: Modes, Actions, every setting of the aquasuite wizard, alarms, display pages, Software sensors, RGBpx lighting, clock, backup and restore. Writes are limited to Verified fields.
-- Alarm handling with a configurable alarm response per Warning and Alarm, including a poweroff after a cancellable delay that ends in at most 60 s.
+- Alarm handling with a configurable alarm response per Warning and Alarm, including a poweroff after a cancellable delay that aims to end in 60 s.
 - Profiles that bundle Curves and one of the four Leakshield slots, which hold the full Leakshield settings, with a Default Profile and Rule groups of sensor, process, time and interval rules.
 - A D-Bus system API with polkit authorization.
 - A GPUI desktop app: tray icon, notifications, sensor history, Curve editor, Leakshield pages, English and Italian.

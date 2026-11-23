@@ -15,7 +15,7 @@ use zbus::object_server::SignalEmitter;
 use zbus::{Connection, OwnedVariant, Variant, interface};
 
 use super::Hub;
-use crate::alarms::logind::SD_LOGIND_SKIP_INHIBITORS;
+use crate::alarms::logind::{CALL_TIMEOUT, SD_LOGIND_SKIP_INHIBITORS, call_poweroff};
 use crate::alarms::poweroff::Effect;
 
 pub struct Alarms {
@@ -147,7 +147,8 @@ pub async fn run_effects(
             };
             let hub = hub.clone();
             tokio::spawn(async move {
-                let result = login1.power_off_with_flags(SD_LOGIND_SKIP_INHIBITORS).await;
+                let result =
+                    call_poweroff(login1.as_ref(), SD_LOGIND_SKIP_INHIBITORS, CALL_TIMEOUT).await;
                 hub.poweroff_result(&instance, result);
             });
             continue;

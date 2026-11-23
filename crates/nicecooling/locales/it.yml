@@ -655,6 +655,7 @@ alarms:
   countdown: "Spegnimento tra %{time}"
   cancel_poweroff: Annulla lo spegnimento
   cancelled: "Spegnimento annullato alle %{time}. L'Allarme è ancora attivo."
+  poweroff_started: Il PC si sta già spegnendo. L'annullamento è arrivato troppo tardi.
   delay_zero: Con 0 s non puoi annullare lo spegnimento.
   caption:
     pump_stop: Ogni Canale è al 100 %. L'Allarme si chiude quando la pompa gira per 10 s.

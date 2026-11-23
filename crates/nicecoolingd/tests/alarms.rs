@@ -3,17 +3,22 @@
 
 mod support;
 
-use std::sync::atomic::Ordering;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
 use futures_util::StreamExt;
 use nicecooling_api::alarms::AlarmsProxy;
-use support::{Rig, error_name};
+use nicecooling_api::errors::Error;
+use nicecoolingd::alarms::logind::{CallFuture, Login1, ZbusLogin1};
+use nicecoolingd::dbus::alarms::run_effects;
+use support::{PrivateBus, Rig, error_name};
 use tokio::time::timeout;
 
 const ERR: &str = "io.github.cappyt.NiceCooling1.Error";
 const PUMP_STALL: &str = "leakshield.system-alarm";
 const PUMP_STALL_BIT: u32 = 1 << 8;
+const LEAK_BIT: u32 = 1 << 6;
 const LEAK_WARNING_BIT: u32 = 1 << 2;
 
 async fn alarms(rig: &Rig) -> AlarmsProxy<'static> {
@@ -58,7 +63,7 @@ async fn default_responses() {
     let proxy = alarms(&rig).await;
     let rows = proxy.get_responses().await.unwrap();
     // One row for each event and group, not for each alarm bit.
-    assert_eq!(rows.len(), 7 + 7);
+    assert_eq!(rows.len(), 8 + 7);
     for id in [
         "leakshield.leak-alarm-small",
         "leakshield.leak-alarm",
@@ -462,4 +467,132 @@ async fn unreachable_rises_when_the_feed_message_fails() {
     rig.sim.fail_bulk(false);
     rig.step(14).await;
     assert!(active(&proxy).await.is_empty());
+}
+
+/// A logind that accepts the call after `delay`. `started` and `accepted` count the calls.
+struct SlowLogin1 {
+    started: Arc<AtomicUsize>,
+    accepted: Arc<AtomicUsize>,
+    delay: Duration,
+}
+
+impl Login1 for SlowLogin1 {
+    fn power_off_with_flags(&self, _flags: u64) -> CallFuture {
+        let (started, accepted, delay) = (self.started.clone(), self.accepted.clone(), self.delay);
+        Box::pin(async move {
+            started.fetch_add(1, Ordering::SeqCst);
+            tokio::time::sleep(delay).await;
+            accepted.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        })
+    }
+}
+
+/// A logind on a private bus that never answers `PowerOffWithFlags`.
+struct HangingLogin1(Arc<AtomicUsize>);
+
+#[zbus::interface(name = "org.freedesktop.login1.Manager")]
+impl HangingLogin1 {
+    async fn power_off_with_flags(&self, _flags: u64) -> zbus::fdo::Result<()> {
+        self.0.fetch_add(1, Ordering::SeqCst);
+        std::future::pending::<()>().await;
+        Ok(())
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn instance_ids_stay_unique_across_a_restart() {
+    let mut rig = Rig::start_with_clock().await;
+    let proxy = alarms(&rig).await;
+    set_response(&proxy, PUMP_STALL, "poweroff", 30).await;
+    raise(&rig, PUMP_STALL_BIT);
+    rig.step(2).await;
+    let old_system = active(&proxy).await[0].0.clone();
+    assert!(old_system.starts_with("alarm_"));
+    // A large leak starts, and the daemon restarts. The app still shows the old notification.
+    raise(&rig, PUMP_STALL_BIT | LEAK_BIT);
+    rig.restart_daemon().await;
+    rig.step(1).await;
+    let hub = rig.daemon.as_ref().unwrap().hub.clone();
+    let rows = hub.alarm_rows();
+    assert!(rows.iter().all(|r| r.instance != old_system), "{rows:?}");
+    // The cancel of the old notification must not touch the countdown of the large leak.
+    assert!(matches!(
+        hub.cancel_poweroff(&old_system),
+        Err(Error::NoPoweroff(_))
+    ));
+    let leak = hub
+        .alarm_rows()
+        .into_iter()
+        .find(|r| r.event == "leakshield.leak-alarm")
+        .unwrap();
+    assert_ne!(leak.poweroff_at_us, 0);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn cancel_during_the_logind_call_fails_with_poweroff_started() {
+    let mut rig = Rig::start_with_clock().await;
+    // The restarted daemon is not on the bus: the test runs its effects with its own logind.
+    rig.restart_daemon().await;
+    let hub = rig.daemon.as_ref().unwrap().hub.clone();
+    let started = Arc::new(AtomicUsize::new(0));
+    let accepted = Arc::new(AtomicUsize::new(0));
+    hub.set_login1(Arc::new(SlowLogin1 {
+        started: started.clone(),
+        accepted: accepted.clone(),
+        delay: Duration::from_secs(2),
+    }));
+    let rx = hub.take_alarm_receiver().unwrap();
+    tokio::spawn(run_effects(rig.server.clone(), hub.clone(), rx));
+    hub.set_alarm_response(PUMP_STALL, "poweroff", 2).unwrap();
+    raise(&rig, PUMP_STALL_BIT);
+    rig.step(1).await;
+    let instance = hub.alarm_rows()[0].instance.clone();
+    rig.step(2).await;
+    assert_eq!(started.load(Ordering::SeqCst), 1, "the call is under way");
+    assert_eq!(accepted.load(Ordering::SeqCst), 0);
+    // The user cancels while logind handles the call: it is too late, and the answer says so.
+    let cancel = hub.cancel_poweroff(&instance);
+    assert!(
+        matches!(cancel, Err(Error::PoweroffStarted(_))),
+        "{cancel:?}"
+    );
+    assert_ne!(hub.alarm_rows()[0].poweroff_at_us, 0);
+    tokio::time::sleep(Duration::from_secs(3)).await;
+    assert_eq!(accepted.load(Ordering::SeqCst), 1);
+    // After logind accepted the call, the poweroff has started too.
+    assert!(matches!(
+        hub.cancel_poweroff(&instance),
+        Err(Error::PoweroffStarted(_))
+    ));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_logind_that_never_answers_fails_the_call_and_retries() {
+    let mut rig = Rig::start_with_clock().await;
+    rig.restart_daemon().await;
+    let hub = rig.daemon.as_ref().unwrap().hub.clone();
+    let bus = PrivateBus::start();
+    let calls = Arc::new(AtomicUsize::new(0));
+    let mock = bus.connect().await;
+    mock.object_server()
+        .at("/org/freedesktop/login1", HangingLogin1(calls.clone()))
+        .await
+        .unwrap();
+    mock.request_name("org.freedesktop.login1").await.unwrap();
+    hub.set_login1(Arc::new(ZbusLogin1::new(bus.connect().await)));
+    let rx = hub.take_alarm_receiver().unwrap();
+    tokio::spawn(run_effects(rig.server.clone(), hub.clone(), rx));
+    hub.set_alarm_response(PUMP_STALL, "poweroff", 2).unwrap();
+    raise(&rig, PUMP_STALL_BIT);
+    rig.step(4).await;
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    // The call times out after 10 s of real time and counts as failed.
+    tokio::time::sleep(Duration::from_secs(11)).await;
+    rig.step(6).await;
+    assert_eq!(
+        calls.load(Ordering::SeqCst),
+        2,
+        "the failed call is retried"
+    );
 }

@@ -38,9 +38,10 @@ impl Response {
 }
 
 /// The events of nicecooling (`docs/api.md`, section Event identifiers).
-const NICECOOLING_EVENTS: [(&str, Severity); 7] = [
+const NICECOOLING_EVENTS: [(&str, Severity); 8] = [
     ("pump-stop", Severity::Alarm),
     ("leakshield-unreachable", Severity::Alarm),
+    ("leakshield-unknown-firmware", Severity::Warning),
     ("lost-input", Severity::Warning),
     ("another-writer", Severity::Warning),
     ("manual-at-snapshot", Severity::Warning),
@@ -114,7 +115,7 @@ mod tests {
     fn default_responses() {
         let table = BTreeMap::new();
         let rows = rows(&table);
-        assert_eq!(rows.len(), 7 + 7);
+        assert_eq!(rows.len(), 8 + 7);
         for (event, response, delay) in &rows {
             let expected = if event == "pump-stop" || event == "leakshield.leak-alarm" {
                 "poweroff"
@@ -129,6 +130,17 @@ mod tests {
             .find(|r| r.0 == "leakshield-unreachable")
             .unwrap();
         assert_eq!(unreachable.1, "notify");
+    }
+
+    #[test]
+    fn the_unknown_firmware_warning_has_a_notify_row() {
+        let ids: Vec<String> = rows(&BTreeMap::new()).into_iter().map(|r| r.0).collect();
+        assert!(ids.iter().any(|e| e == "leakshield-unknown-firmware"));
+        assert_eq!(
+            resolve(&BTreeMap::new(), "leakshield-unknown-firmware"),
+            (Response::Notify, DEFAULT_DELAY_S)
+        );
+        assert!(validate("leakshield-unknown-firmware", "none", 0).is_ok());
     }
 
     #[test]

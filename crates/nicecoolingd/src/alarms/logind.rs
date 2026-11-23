@@ -3,6 +3,7 @@
 
 use std::future::Future;
 use std::pin::Pin;
+use std::time::Duration;
 
 use zbus::Connection;
 
@@ -10,11 +11,25 @@ use zbus::Connection;
 /// obeys them also for root (design D13).
 pub const SD_LOGIND_SKIP_INHIBITORS: u64 = 0x10;
 
+/// A logind that does not answer in this time has failed the call: the alarm manager retries.
+pub const CALL_TIMEOUT: Duration = Duration::from_secs(10);
+
 pub type CallFuture = Pin<Box<dyn Future<Output = Result<(), String>> + Send>>;
 
 pub trait Login1: Send + Sync {
     /// Calls `PowerOffWithFlags`. An error is the text of the failure.
     fn power_off_with_flags(&self, flags: u64) -> CallFuture;
+}
+
+/// Calls `PowerOffWithFlags` and counts a call that outlasts `timeout` as failed.
+pub async fn call_poweroff(
+    login1: &dyn Login1,
+    flags: u64,
+    timeout: Duration,
+) -> Result<(), String> {
+    tokio::time::timeout(timeout, login1.power_off_with_flags(flags))
+        .await
+        .unwrap_or_else(|_| Err(format!("logind did not answer in {} s", timeout.as_secs())))
 }
 
 #[zbus::proxy(
@@ -52,5 +67,39 @@ impl Login1 for ZbusLogin1 {
                 .await
                 .map_err(|e| e.to_string())
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct Never;
+
+    impl Login1 for Never {
+        fn power_off_with_flags(&self, _flags: u64) -> CallFuture {
+            Box::pin(std::future::pending())
+        }
+    }
+
+    struct Accepts;
+
+    impl Login1 for Accepts {
+        fn power_off_with_flags(&self, _flags: u64) -> CallFuture {
+            Box::pin(async { Ok(()) })
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_call_that_never_answers_fails_after_the_timeout() {
+        let error = call_poweroff(&Never, SD_LOGIND_SKIP_INHIBITORS, CALL_TIMEOUT)
+            .await
+            .unwrap_err();
+        assert_eq!(error, "logind did not answer in 10 s");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn an_answer_in_time_passes() {
+        assert!(call_poweroff(&Accepts, 0, CALL_TIMEOUT).await.is_ok());
     }
 }

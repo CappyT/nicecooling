@@ -22,6 +22,7 @@ pub enum Error {
     VerifyFailed(String),
     Disconnected(String),
     NoPoweroff(String),
+    PoweroffStarted(String),
 }
 
 pub type Result<T> = std::result::Result<T, Error>;

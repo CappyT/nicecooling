@@ -8,7 +8,7 @@ use crate::model::{
     AlarmEntry, AppState, Link, Outcome, Response, ResponseRule, Severity, format_countdown,
 };
 use crate::screens::format::{clock, optional_value, value_text};
-use crate::screens::{FeedbackLine, ScreenInput};
+use crate::screens::{FeedbackLine, ScreenInput, WriteOutcome};
 use crate::shell::Page;
 use crate::widgets::loop_diagram::fan_sensor;
 
@@ -279,7 +279,14 @@ fn active_card(input: &ScreenInput<'_>) -> ActiveCard {
                 .cancelled
                 .get(&alarm.instance)
                 .filter(|_| alarm.poweroff_at_us == 0 && alarm.response == Response::Poweroff)
-                .map(|at| locale.fmt("alarms.cancelled", &[("time", &clock(*at))]));
+                .map(|at| locale.fmt("alarms.cancelled", &[("time", &clock(*at))]))
+                .or_else(|| {
+                    let too_late = matches!(
+                        input.feedback.get(&format!("poweroff:{}", alarm.instance)),
+                        Some(WriteOutcome::Refused { error }) if error == "PoweroffStarted"
+                    );
+                    too_late.then(|| locale.tr("alarms.poweroff_started"))
+                });
             let first_pump = alarm.event == "pump-stop";
             ActiveRow {
                 instance: alarm.instance.clone(),

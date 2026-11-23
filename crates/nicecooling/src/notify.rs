@@ -15,6 +15,8 @@ use crate::shell::Page;
 pub const APP_NAME: &str = "nicecooling";
 const APP_ICON: &str = "io.github.cappyt.NiceCooling";
 const DAEMON_DOWN_KEY: &str = "daemon-down";
+/// The instance ids of the daemon start with this prefix (`docs/api.md`).
+const ALARM_PREFIX: &str = "alarm_";
 
 /// The switches of the Settings screen (`notifications` in `settings.toml`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -63,6 +65,10 @@ pub struct NotificationSpec {
 pub enum Plan {
     Show(NotificationSpec),
     Close(String),
+    /// Close every alarm notification whose instance is not in `active`.
+    CloseStaleAlarms {
+        active: Vec<String>,
+    },
 }
 
 fn open_button(locale: Locale) -> Button {
@@ -87,6 +93,11 @@ pub fn plan(
             .into_iter()
             .collect(),
         DaemonEvent::AlarmCleared { instance } => vec![Plan::Close(instance.clone())],
+        // A clear can pass while the app has no link, and a restarted daemon starts new
+        // instances: the Active list is the truth.
+        DaemonEvent::Snapshot(snapshot) => vec![Plan::CloseStaleAlarms {
+            active: snapshot.alarms.iter().map(|a| a.instance.clone()).collect(),
+        }],
         DaemonEvent::PoweroffCancelled { instance } => vec![Plan::Show(NotificationSpec {
             key: instance.clone(),
             title: locale.tr("notification.poweroff_cancelled.title"),
@@ -253,6 +264,23 @@ impl Notifier {
                     close(id)?;
                 }
                 Ok(())
+            }
+            Plan::CloseStaleAlarms { active } => {
+                let stale: Vec<String> = self
+                    .ids
+                    .keys()
+                    .filter(|key| key.starts_with(ALARM_PREFIX) && !active.contains(key))
+                    .cloned()
+                    .collect();
+                let mut result = Ok(());
+                for key in stale {
+                    if let Some(id) = self.ids.remove(&key)
+                        && let Err(error) = close(id)
+                    {
+                        result = Err(error.into());
+                    }
+                }
+                result
             }
         }
     }

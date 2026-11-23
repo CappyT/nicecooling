@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use super::{STALE_AFTER, Stage, TickContext};
+use super::{STALE_AFTER, Stage, TickContext, percent_to_raw};
 use crate::alarms::leakshield::{self, GROUPS};
 use crate::alarms::pump_stop::{PumpReading, PumpStop};
 use crate::alarms::unreachable::Unreachable;
@@ -81,12 +81,13 @@ impl Stage for AlarmsStage {
                 .iter()
                 .map(|channel| PumpReading {
                     rpm: tach_sensor(channel).and_then(|id| values.get(&id).copied()),
-                    // The Duty of the last tick, or the `pwmN` value of a Hardware curve.
+                    // The Duty of the last tick, or the `pwmN` value of a Hardware curve. A Duty
+                    // that the reconcile stage writes as raw 0 is off by choice.
                     duty_positive: channels
                         .get(channel)
                         .and_then(|t| t.last_duty)
                         .or_else(|| values.get(channel).copied())
-                        .is_some_and(|duty| duty > 0.0),
+                        .is_some_and(|duty| percent_to_raw(duty) > 0),
                 })
                 .collect();
             let rule = self.pump_stop.entry(setup.config.id.clone()).or_default();

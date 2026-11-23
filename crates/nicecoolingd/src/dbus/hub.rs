@@ -5,7 +5,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use nicecooling_api::Error;
 use nicecooling_api::errors::Result;
@@ -21,7 +21,7 @@ use tokio::sync::{mpsc, oneshot};
 
 use super::leakshield::LeakshieldInfo;
 use crate::alarms::logind::Login1;
-use crate::alarms::poweroff::{AlarmManager, Effect, Event, Row};
+use crate::alarms::poweroff::{AlarmManager, CancelError, Effect, Event, Row};
 use crate::alarms::response;
 use crate::leakshield::software_sensors::Assignment;
 use crate::snapshot::{self, BiosSnapshot};
@@ -187,6 +187,12 @@ pub struct Hub {
     login1: OnceLock<Arc<dyn Login1>>,
     /// zbus runs the handlers on its own runtime: Tokio timers and tasks go through this handle.
     runtime: tokio::runtime::Handle,
+}
+
+fn wall_us() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |d| d.as_micros() as u64)
 }
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -607,7 +613,7 @@ impl Hub {
             releases: Mutex::new(Vec::new()),
             reports,
             report_rx: Mutex::new(Some(report_rx)),
-            alarms: Mutex::new(AlarmManager::default()),
+            alarms: Mutex::new(AlarmManager::new(wall_us())),
             alarm_effects,
             alarm_rx: Mutex::new(Some(alarm_rx)),
             login1: OnceLock::new(),
@@ -796,11 +802,17 @@ impl Hub {
         Ok(())
     }
 
-    /// `NoPoweroff` when the instance has no pending poweroff.
+    /// `NoPoweroff` when the instance has no pending poweroff, `PoweroffStarted` when the call
+    /// to logind is under way or done.
     pub fn cancel_poweroff(&self, instance: &str) -> Result<()> {
-        let effect = lock(&self.alarms)
-            .cancel(instance)
-            .ok_or_else(|| Error::NoPoweroff(format!("{instance} has no pending poweroff")))?;
+        let effect = lock(&self.alarms).cancel(instance).map_err(|e| match e {
+            CancelError::NoPoweroff => {
+                Error::NoPoweroff(format!("{instance} has no pending poweroff"))
+            }
+            CancelError::PoweroffStarted => Error::PoweroffStarted(format!(
+                "{instance} already called logind: the PC powers off"
+            )),
+        })?;
         let _ = self.alarm_effects.send(effect);
         Ok(())
     }

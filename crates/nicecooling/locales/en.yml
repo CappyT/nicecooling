@@ -655,6 +655,7 @@ alarms:
   countdown: "Poweroff in %{time}"
   cancel_poweroff: Cancel poweroff
   cancelled: "Poweroff cancelled %{time}. The Alarm is still active."
+  poweroff_started: The PC already powers off. The cancel came too late.
   delay_zero: With 0 s you cannot cancel the poweroff.
   caption:
     pump_stop: Every Channel is at 100 %. The Alarm closes when the pump runs for 10 s.
