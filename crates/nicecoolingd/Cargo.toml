@@ -18,7 +18,11 @@ sd-notify.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
-tokio.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time", "sync", "signal"] }
 toml.workspace = true
 zbus.workspace = true
 zbus_polkit.workspace = true
+
+[dev-dependencies]
+nicecooling-hwmon = { workspace = true, features = ["fake"] }
+tokio = { workspace = true, features = ["test-util"] }

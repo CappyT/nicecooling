@@ -1,0 +1,618 @@
+//! The BIOS snapshot and its restore (design D8, `docs/storage.md`).
+
+use std::collections::BTreeMap;
+use std::io;
+use std::path::Path;
+
+use nicecooling_hwmon::discovery::Channel;
+use nicecooling_hwmon::identity::DeviceIdentity;
+use nicecooling_hwmon::sysfs::{Sysfs, channel_attributes, read_attr, write_attr};
+use serde::{Deserialize, Serialize};
+
+use crate::daemon::Paths;
+use crate::lease::Lease;
+use crate::state::{self, Source, StateStore};
+
+pub const SNAPSHOT_FILE: &str = "bios-snapshot.json";
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SnapshotBoard {
+    pub vendor: String,
+    pub model: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ChannelSnapshot {
+    pub channel: u32,
+    pub manual_at_snapshot: bool,
+    /// `[name, value]` in restore order: all others, then `pwmN`, then `pwmN_enable`.
+    pub attributes: Vec<(String, String)>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ChipSnapshot {
+    pub hwmon_name: String,
+    pub device_path: String,
+    pub channels: Vec<ChannelSnapshot>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BiosSnapshot {
+    pub schema_version: u32,
+    pub taken_us: u64,
+    pub board: SnapshotBoard,
+    pub chips: Vec<ChipSnapshot>,
+}
+
+/// A Warning to raise: event id and source id (`docs/api.md`).
+pub type WarningToRaise = (String, String);
+
+/// Manual mode is `pwmN_enable` 1. A Channel in manual mode at raw 255 reads enable 0.
+fn is_manual(enable: &str, raw: &str) -> bool {
+    enable == "1" || (enable == "0" && raw == "255")
+}
+
+/// Reads every writable `pwmN*` attribute of every Channel. Channels of GPU drivers are
+/// not Channels, so they are not part of it.
+pub fn take(channels: &[Channel], board: SnapshotBoard, taken_us: u64) -> io::Result<BiosSnapshot> {
+    let mut chips: BTreeMap<&DeviceIdentity, Vec<ChannelSnapshot>> = BTreeMap::new();
+    for channel in channels {
+        let mut attributes = Vec::new();
+        for name in channel_attributes(&channel.dir, channel.number)? {
+            if let Ok(value) = read_attr(&channel.dir, &name) {
+                attributes.push((name, value));
+            }
+        }
+        let value = |suffix: &str| {
+            let name = format!("pwm{}{suffix}", channel.number);
+            attributes
+                .iter()
+                .find(|(n, _)| *n == name)
+                .map(|(_, v)| v.as_str())
+                .unwrap_or_default()
+        };
+        let manual_at_snapshot = is_manual(value("_enable"), value(""));
+        chips
+            .entry(&channel.device)
+            .or_default()
+            .push(ChannelSnapshot {
+                channel: channel.number,
+                manual_at_snapshot,
+                attributes,
+            });
+    }
+    Ok(BiosSnapshot {
+        schema_version: 1,
+        taken_us,
+        board,
+        chips: chips
+            .into_iter()
+            .map(|(device, mut channels)| {
+                channels.sort_by_key(|c| c.channel);
+                ChipSnapshot {
+                    hwmon_name: device.hwmon_name.clone(),
+                    device_path: device.device_path.clone(),
+                    channels,
+                }
+            })
+            .collect(),
+    })
+}
+
+fn load_snapshot(store: &StateStore) -> Option<state::Loaded<BiosSnapshot>> {
+    let loaded = store.load::<BiosSnapshot>(SNAPSHOT_FILE);
+    (loaded.source != Source::Defaults).then_some(loaded)
+}
+
+/// The takeover steps before the first write. With no lease it takes a new snapshot,
+/// before any Channel changes. With a lease it keeps the existing snapshot.
+pub fn prepare(
+    store: &StateStore,
+    lease: &Lease,
+    channels: &[Channel],
+    board: SnapshotBoard,
+    now_us: u64,
+) -> io::Result<Vec<WarningToRaise>> {
+    let mut warnings = Vec::new();
+    if lease.exists() {
+        if load_snapshot(store).is_none_or(|s| s.fallback) {
+            warnings.push(("state-fallback".to_owned(), String::new()));
+        }
+        return Ok(warnings);
+    }
+    let snapshot = take(channels, board, now_us)?;
+    store.save(SNAPSHOT_FILE, &snapshot)?;
+    // The load also writes the last-known-good copy.
+    if load_snapshot(store).is_none_or(|s| s.value != snapshot) {
+        return Err(io::Error::other("the BIOS snapshot does not read back"));
+    }
+    for chip in &snapshot.chips {
+        for channel in chip.channels.iter().filter(|c| c.manual_at_snapshot) {
+            warnings.push((
+                "manual-at-snapshot".to_owned(),
+                format!("{}_pwm{}", chip.hwmon_name, channel.channel),
+            ));
+        }
+    }
+    Ok(warnings)
+}
+
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct RestoreReport {
+    /// Every attribute reads back as the snapshot has it.
+    pub matched: bool,
+    pub problems: Vec<String>,
+}
+
+type WriteFn<'a> = dyn FnMut(&Path, &str, &str) -> io::Result<()> + 'a;
+
+pub fn restore(sysfs: &Sysfs, snapshot: &BiosSnapshot) -> RestoreReport {
+    restore_with(sysfs, snapshot, &mut |dir, name, value| {
+        write_attr(dir, name, value)
+    })
+}
+
+/// Writes the attributes in the order of the snapshot, then reads all of them back.
+/// For a Channel in an automatic mode (`pwmN_enable` 2 or more) the chip sets `pwmN`
+/// itself, so the read-back skips `pwmN` there.
+pub fn restore_with(
+    sysfs: &Sysfs,
+    snapshot: &BiosSnapshot,
+    write: &mut WriteFn<'_>,
+) -> RestoreReport {
+    let mut report = RestoreReport {
+        matched: true,
+        problems: Vec::new(),
+    };
+    let devices = sysfs.hwmon_devices().unwrap_or_default();
+    for chip in &snapshot.chips {
+        let identity = DeviceIdentity {
+            hwmon_name: chip.hwmon_name.clone(),
+            device_path: chip.device_path.clone(),
+        };
+        let Some(device) = devices.iter().find(|d| d.identity == identity) else {
+            report.matched = false;
+            report.problems.push(format!(
+                "{} {}: device not found",
+                chip.hwmon_name, chip.device_path
+            ));
+            continue;
+        };
+        for channel in &chip.channels {
+            for (name, value) in &channel.attributes {
+                if let Err(e) = write(&device.dir, name, value) {
+                    report.matched = false;
+                    report.problems.push(format!("{name}: write failed: {e}"));
+                }
+            }
+            let automatic = channel
+                .attributes
+                .iter()
+                .find(|(n, _)| *n == format!("pwm{}_enable", channel.channel))
+                .and_then(|(_, v)| v.parse::<u32>().ok())
+                .is_some_and(|mode| mode >= 2);
+            for (name, value) in &channel.attributes {
+                if automatic && *name == format!("pwm{}", channel.channel) {
+                    continue;
+                }
+                if read_attr(&device.dir, name).ok().as_deref() != Some(value) {
+                    report.matched = false;
+                    report
+                        .problems
+                        .push(format!("{name}: read-back differs from the snapshot"));
+                }
+            }
+        }
+    }
+    report
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum RestoreOutcome {
+    /// No lease: the daemon never took control. Nothing changes.
+    NoLease,
+    Restored(RestoreReport),
+    /// No readable snapshot: the controlled Channels went to manual mode at raw 255.
+    Fallback {
+        channels: usize,
+    },
+}
+
+/// `nicecoolingd --restore-bios`.
+pub fn restore_bios(paths: &Paths) -> io::Result<RestoreOutcome> {
+    let store = StateStore::new(&paths.state_dir);
+    let lease = Lease::new(&paths.state_dir);
+    if !lease.exists() {
+        return Ok(RestoreOutcome::NoLease);
+    }
+    let sysfs = Sysfs::new(&paths.sysfs_root);
+    if let Some(snapshot) = load_snapshot(&store) {
+        let report = restore(&sysfs, &snapshot.value);
+        if report.matched {
+            lease.remove()?;
+        }
+        return Ok(RestoreOutcome::Restored(report));
+    }
+
+    let loaded = state::load_state(&store);
+    let discovery = nicecooling_hwmon::discovery::discover(&sysfs, None, &loaded.state.names)?;
+    let controlled: Vec<_> = if loaded.fallback {
+        Vec::new()
+    } else {
+        loaded
+            .profile
+            .channels
+            .iter()
+            .filter(|(_, c)| c.control != state::ControlKind::Hardware)
+            .map(|(id, _)| id.as_str())
+            .collect()
+    };
+    let channels: Vec<_> = discovery
+        .channels
+        .iter()
+        .filter(|c| controlled.is_empty() || controlled.contains(&c.id.as_str()))
+        .collect();
+    for channel in &channels {
+        let n = channel.number;
+        let _ = write_attr(&channel.dir, &format!("pwm{n}_enable"), "1");
+        let _ = write_attr(&channel.dir, &format!("pwm{n}"), "255");
+    }
+    Ok(RestoreOutcome::Fallback {
+        channels: channels.len(),
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use nicecooling_hwmon::board::select_board_for;
+    use nicecooling_hwmon::discovery::{Discovery, discover};
+    use nicecooling_hwmon::fake::FakeSysfs;
+    use std::fs;
+    use std::path::PathBuf;
+
+    struct Env {
+        fake: FakeSysfs,
+        state: PathBuf,
+        discovery: Discovery,
+        board: SnapshotBoard,
+    }
+
+    impl Env {
+        fn new(name: &str) -> Self {
+            let fake = FakeSysfs::reference_board();
+            let state = std::env::temp_dir().join(format!(
+                "nicecooling-snapshot-{}-{name}",
+                std::process::id()
+            ));
+            let _ = fs::remove_dir_all(&state);
+            fs::create_dir_all(&state).unwrap();
+            let boards = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../data/boards");
+            let sysfs = fake.sysfs();
+            let file = select_board_for(&sysfs, &boards).unwrap();
+            let discovery = discover(&sysfs, file.as_ref(), &Default::default()).unwrap();
+            let board = SnapshotBoard {
+                vendor: sysfs.dmi("board_vendor"),
+                model: sysfs.dmi("board_name"),
+            };
+            Self {
+                fake,
+                state,
+                discovery,
+                board,
+            }
+        }
+
+        fn store(&self) -> StateStore {
+            StateStore::new(&self.state)
+        }
+
+        fn lease(&self) -> Lease {
+            Lease::new(&self.state)
+        }
+
+        fn prepare(&self) -> Vec<WarningToRaise> {
+            prepare(
+                &self.store(),
+                &self.lease(),
+                &self.discovery.channels,
+                self.board.clone(),
+                1,
+            )
+            .unwrap()
+        }
+
+        fn paths(&self) -> Paths {
+            Paths {
+                sysfs_root: self.fake.root().to_owned(),
+                state_dir: self.state.clone(),
+                boards_dir: PathBuf::from("/nonexistent"),
+                calibration_dir: PathBuf::from("/nonexistent"),
+            }
+        }
+
+        /// Every `pwm*` file of the Super I/O chip and of the GPU, by path.
+        fn pwm_files(&self) -> BTreeMap<PathBuf, String> {
+            let mut files = BTreeMap::new();
+            for device in self.fake.sysfs().hwmon_devices().unwrap() {
+                for a in device
+                    .attributes()
+                    .unwrap()
+                    .into_iter()
+                    .filter(|a| a.name.starts_with("pwm"))
+                {
+                    files.insert(device.dir.join(&a.name), device.read(&a.name).unwrap());
+                }
+            }
+            files
+        }
+
+        /// The files that differ between two maps, as text.
+        fn diff(a: &BTreeMap<PathBuf, String>, b: &BTreeMap<PathBuf, String>) -> Vec<String> {
+            a.iter()
+                .filter(|(path, value)| b.get(*path) != Some(*value))
+                .map(|(path, value)| format!("{} {value} vs {:?}", path.display(), b.get(path)))
+                .collect()
+        }
+
+        /// The directory of the Super I/O chip.
+        fn chip_dir(&self) -> PathBuf {
+            self.fake
+                .attr_path("nct6798", "pwm1")
+                .parent()
+                .unwrap()
+                .to_owned()
+        }
+
+        fn chip(&self, snapshot: &BiosSnapshot) -> ChipSnapshot {
+            snapshot
+                .chips
+                .iter()
+                .find(|c| c.hwmon_name == "nct6798")
+                .unwrap()
+                .clone()
+        }
+    }
+
+    impl Drop for Env {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.state);
+        }
+    }
+
+    #[test]
+    fn first_start_snapshot_before_any_write() {
+        let env = Env::new("first");
+        let before = env.pwm_files();
+        let warnings = env.prepare();
+        assert!(env.state.join(SNAPSHOT_FILE).exists());
+        assert!(!env.lease().exists());
+        assert_eq!(
+            Env::diff(&env.pwm_files(), &before),
+            Vec::<String>::new(),
+            "preparing the snapshot changes no Channel"
+        );
+        // The reference Board has the pump Channel in manual mode at 255.
+        assert_eq!(
+            warnings,
+            [("manual-at-snapshot".to_owned(), "nct6798_pwm6".to_owned())]
+        );
+    }
+
+    #[test]
+    fn snapshot_holds_22_attributes_per_channel() {
+        let env = Env::new("attrs");
+        env.prepare();
+        let snapshot = env.store().load::<BiosSnapshot>(SNAPSHOT_FILE).value;
+        let chip = env.chip(&snapshot);
+        assert_eq!(chip.channels.len(), 7);
+        for channel in &chip.channels {
+            let n = channel.channel;
+            // `pwm2` of the CPU Fan has 6 more attributes: `pwm2_weight_*`.
+            let expected = if n == 2 { 28 } else { 22 };
+            assert_eq!(channel.attributes.len(), expected, "pwm{n}");
+            let names: Vec<_> = channel
+                .attributes
+                .iter()
+                .map(|(name, _)| name.as_str())
+                .collect();
+            assert!(
+                names
+                    .iter()
+                    .all(|name| name.starts_with(&format!("pwm{n}")))
+            );
+            assert_eq!(
+                names[names.len() - 2..],
+                [format!("pwm{n}"), format!("pwm{n}_enable")]
+            );
+        }
+        let pump = &chip.channels[5];
+        assert!(
+            pump.attributes
+                .contains(&("pwm6_enable".to_owned(), "0".to_owned()))
+        );
+        assert!(
+            pump.attributes
+                .contains(&("pwm6".to_owned(), "255".to_owned()))
+        );
+        assert_eq!(snapshot.board.model, "ROG CROSSHAIR VIII DARK HERO");
+    }
+
+    #[test]
+    fn snapshot_excludes_gpu_pwm() {
+        let env = Env::new("gpu");
+        env.prepare();
+        let snapshot = env.store().load::<BiosSnapshot>(SNAPSHOT_FILE).value;
+        assert!(snapshot.chips.iter().all(|c| c.hwmon_name == "nct6798"));
+        let text = fs::read_to_string(env.state.join(SNAPSHOT_FILE)).unwrap();
+        assert!(!text.contains("amdgpu"));
+    }
+
+    #[test]
+    fn first_start_with_manual_channel() {
+        let env = Env::new("manual");
+        env.fake.set(
+            &env.fake
+                .attr_path("nct6798", "pwm1_enable")
+                .strip_prefix(env.fake.root())
+                .unwrap()
+                .display()
+                .to_string(),
+            "1",
+        );
+        let warnings = env.prepare();
+        let snapshot = env.store().load::<BiosSnapshot>(SNAPSHOT_FILE).value;
+        let manual: Vec<_> = env
+            .chip(&snapshot)
+            .channels
+            .iter()
+            .filter(|c| c.manual_at_snapshot)
+            .map(|c| c.channel)
+            .collect();
+        assert_eq!(manual, [1, 6]);
+        assert_eq!(warnings.len(), 2);
+        assert!(warnings.contains(&("manual-at-snapshot".to_owned(), "nct6798_pwm1".to_owned())));
+    }
+
+    #[test]
+    fn restart_with_lease_keeps_snapshot() {
+        let env = Env::new("restart");
+        env.prepare();
+        env.lease().create("boot", 1).unwrap();
+        let first = fs::read(env.state.join(SNAPSHOT_FILE)).unwrap();
+        // The daemon controls the Channels now.
+        for (path, _) in env.pwm_files().iter().filter(|(p, _)| p.ends_with("pwm3")) {
+            fs::write(path, "77\n").unwrap();
+        }
+        let warnings = env.prepare();
+        assert!(warnings.is_empty());
+        assert_eq!(fs::read(env.state.join(SNAPSHOT_FILE)).unwrap(), first);
+    }
+
+    fn disturb(env: &Env) {
+        let dir = env.chip_dir();
+        for (path, _) in env.pwm_files() {
+            if path.parent() == Some(dir.as_path()) {
+                fs::write(&path, "1\n").unwrap();
+            }
+        }
+    }
+
+    #[test]
+    fn restore_matches_removes_lease() {
+        let env = Env::new("restore");
+        let before = env.pwm_files();
+        env.prepare();
+        env.lease().create("boot", 1).unwrap();
+        disturb(&env);
+        assert!(!Env::diff(&env.pwm_files(), &before).is_empty());
+
+        let outcome = restore_bios(&env.paths()).unwrap();
+        assert_eq!(
+            outcome,
+            RestoreOutcome::Restored(RestoreReport {
+                matched: true,
+                problems: vec![]
+            })
+        );
+        assert_eq!(Env::diff(&env.pwm_files(), &before), Vec::<String>::new());
+        assert!(!env.lease().exists());
+        assert!(env.state.join(SNAPSHOT_FILE).exists());
+    }
+
+    #[test]
+    fn restore_mismatch_keeps_lease_and_snapshot() {
+        let env = Env::new("mismatch");
+        env.prepare();
+        env.lease().create("boot", 1).unwrap();
+        let snapshot = fs::read(env.state.join(SNAPSHOT_FILE)).unwrap();
+        let stuck = env.fake.attr_path("nct6798", "pwm3_start");
+        fs::write(&stuck, "9\n").unwrap();
+        let mut mode = fs::metadata(&stuck).unwrap().permissions();
+        std::os::unix::fs::PermissionsExt::set_mode(&mut mode, 0o444);
+        fs::set_permissions(&stuck, mode).unwrap();
+
+        let RestoreOutcome::Restored(report) = restore_bios(&env.paths()).unwrap() else {
+            panic!("not restored")
+        };
+        assert!(!report.matched);
+        assert!(report.problems.iter().any(|p| p.starts_with("pwm3_start")));
+        assert!(env.lease().exists());
+        assert_eq!(fs::read(env.state.join(SNAPSHOT_FILE)).unwrap(), snapshot);
+    }
+
+    #[test]
+    fn restore_order_others_then_pwm_then_enable() {
+        let env = Env::new("order");
+        env.prepare();
+        let snapshot = env.store().load::<BiosSnapshot>(SNAPSHOT_FILE).value;
+        let mut order = Vec::new();
+        restore_with(&env.fake.sysfs(), &snapshot, &mut |_, name, _| {
+            order.push(name.to_owned());
+            Ok(())
+        });
+        assert_eq!(order.len(), 6 * 22 + 28);
+        for n in 1..=7 {
+            let start = order
+                .iter()
+                .position(|name| name.starts_with(&format!("pwm{n}")))
+                .unwrap();
+            let group = order[start..]
+                .iter()
+                .take_while(|name| name.starts_with(&format!("pwm{n}")))
+                .collect::<Vec<_>>();
+            let len = group.len();
+            assert_eq!(
+                group[len - 2..],
+                [&format!("pwm{n}"), &format!("pwm{n}_enable")]
+            );
+            assert!(
+                group[..len - 2]
+                    .iter()
+                    .all(|name| **name != format!("pwm{n}") && **name != format!("pwm{n}_enable"))
+            );
+        }
+    }
+
+    #[test]
+    fn restore_bios_without_lease_changes_nothing() {
+        let env = Env::new("nolease");
+        let before = env.pwm_files();
+        assert_eq!(restore_bios(&env.paths()).unwrap(), RestoreOutcome::NoLease);
+        assert_eq!(Env::diff(&env.pwm_files(), &before), Vec::<String>::new());
+        assert!(fs::read_dir(&env.state).unwrap().next().is_none());
+    }
+
+    #[test]
+    fn restore_bios_without_snapshot_sets_raw_255() {
+        let env = Env::new("nosnapshot");
+        env.lease().create("boot", 1).unwrap();
+        let before = env.pwm_files();
+        assert_eq!(
+            restore_bios(&env.paths()).unwrap(),
+            RestoreOutcome::Fallback { channels: 7 }
+        );
+        let after = env.pwm_files();
+        let chip = env.chip_dir();
+        for (path, value) in &after {
+            let name = path.file_name().unwrap().to_string_lossy();
+            if path.parent() == Some(chip.as_path()) {
+                if name.len() == 4 {
+                    assert_eq!(value, "255", "{name}");
+                } else if name.ends_with("_enable") {
+                    assert_eq!(value, "1", "{name}");
+                } else {
+                    assert_eq!(value, &before[path], "{name}");
+                }
+            } else {
+                assert_eq!(value, &before[path], "GPU {name}");
+            }
+        }
+        assert!(env.lease().exists());
+        // The next start raises `state-fallback`.
+        assert_eq!(
+            env.prepare(),
+            [("state-fallback".to_owned(), String::new())]
+        );
+    }
+}
