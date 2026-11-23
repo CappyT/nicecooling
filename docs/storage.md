@@ -26,8 +26,9 @@ systemd creates the directory with `StateDirectory=nicecooling` and `StateDirect
 | `lease.json` | JSON | The takeover lease: `{"schema_version":1,"created_us":<t>,"boot_id":"<from /proc/sys/kernel/random/boot_id>"}`. The file exists from before the first manual write until a restore whose read-back matches. |
 | `leakshield/<leakshield id>/last-known-report3.bin` | binary | Report 3 with its report ID byte, as the daemon last read or wrote it. External change detection compares against it, also after a daemon restart. |
 | `backups/<leakshield id>/<UTC yyyymmddThhmmssZ>-<sha256 first 12 hex>/` | directory | One backup: `report3.bin`, `report5.bin`, `report8.bin` (each with its report ID byte) and `meta.json`. |
+| `leakshield/<leakshield id>/firmware-update.json` | JSON | The record of a firmware update that is not finished, see below. It exists only from before the restart into the bootloader until the device is back in normal operation. |
 
-Every JSON file above has a `.lkg` copy, except `lease.json` and the backup `meta.json`.
+Every JSON file above has a `.lkg` copy, except `lease.json`, `firmware-update.json` and the backup `meta.json`.
 
 The daemon creates the files of the four slots of a Leakshield when it first reads the Leakshield. Each slot gets a copy of the report 3 of the device with its own number and a valid CRC. A Profile delete never deletes a slot file.
 
@@ -85,6 +86,25 @@ The file follows the common rules, with one change: the history has its own writ
 ### Backup `meta.json`
 
 `{"schema_version":1, "created_us", "leakshield", "serial", "firmware", "reason": "first"|"before-write"|"manual"|"import", "sha256": <hex of report3.bin || report5.bin || report8.bin>}`. The first backup that comes from the device has the reason `first`, whatever the caller asked for. An import never has it. Retention keeps the `first` backup of a serial, the 20 newest and the backup that was just saved; a backup with the same `sha256` as an existing one is not written.
+
+### `firmware-update.json`
+
+```json
+{"schema_version": 1, "serial": "20417-31072", "usb_path": "1-3", "hardware": 1000, "bootloader": 100,
+ "firmware_before": 1022, "backup": "20261123T100000Z-0123456789ab", "started_us": 0,
+ "image": {"id": 26, "version": 1022, "language": "en"}}
+```
+
+| Key | Type | Content |
+|---|---|---|
+| `serial` | string or null | The text form of the Leakshield serial. |
+| `usb_path` | string | The USB port path of the device when the update started. |
+| `hardware`, `bootloader`, `firmware_before` | integer or null | The values of report 1 before the restart into the bootloader. |
+| `backup` | string or null | The directory name of the backup that the update saved. |
+| `started_us` | integer | The start of the update. |
+| `image` | object | The chosen image: the row `id` of the package database, its `version` and its `language` (`en` or `de`). It holds no image bytes. |
+
+`serial`, `hardware`, `bootloader`, `firmware_before` and `backup` are null after a resume that had no record. The file has no `.lkg` copy. A file that does not parse, or that has a higher `schema_version`, counts as absent: the daemon logs it and the next update needs the option `unverified_target`. A job that ends with the device in normal operation deletes the file. The daemon also deletes it when it finds the device in normal operation.
 
 ## Shipped data: `/usr/share/nicecooling/`
 
