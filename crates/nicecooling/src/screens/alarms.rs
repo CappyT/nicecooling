@@ -511,9 +511,6 @@ fn duration_text(locale: Locale, from_us: u64, to_us: Option<u64>) -> String {
 }
 
 fn outcome_key(record: &AlarmRecord) -> &'static str {
-    if record.closed_by_restart {
-        return "alarms.history.closed_by_restart";
-    }
     match record.outcome {
         Outcome::None => "alarms.history.none",
         Outcome::Notified => "alarms.history.notified",
@@ -543,7 +540,11 @@ fn history_card(input: &ScreenInput<'_>, ui: &AlarmsUi) -> HistoryCard {
             event: locale.event_title(&record.event),
             severity: record.severity,
             source: state.source_with_loop(&record.source, &locale.tr("nav.leakshield")),
-            duration: duration_text(locale, record.raised_us, record.cleared_us),
+            duration: if record.closed_by_restart {
+                locale.tr("alarms.history.closed_by_restart")
+            } else {
+                duration_text(locale, record.raised_us, record.cleared_us)
+            },
             response: locale.tr(outcome_key(record)),
             sensor: state
                 .snapshot

@@ -398,7 +398,9 @@ fn history_closed_by_restart_text() {
     state.snapshot.alarm_history = vec![row];
     let feedback = Feedback::default();
     let shown = AlarmsModel::build(&input(&state, &feedback, NOW_US), &AlarmsUi::default());
-    assert_eq!(shown.history.rows[0].response, "Closed by a daemon restart");
+    // The restart replaces the duration, which the daemon did not measure. The outcome stays.
+    assert_eq!(shown.history.rows[0].duration, "Closed by a daemon restart");
+    assert_eq!(shown.history.rows[0].response, "Notified");
     let italian = AlarmsModel::build(
         &ScreenInput {
             locale: IT,
@@ -407,7 +409,7 @@ fn history_closed_by_restart_text() {
         &AlarmsUi::default(),
     );
     assert_eq!(
-        italian.history.rows[0].response,
+        italian.history.rows[0].duration,
         "Chiuso da un riavvio del daemon"
     );
 }
@@ -1060,5 +1062,29 @@ async fn responses_of_a_leakshield_go_through_the_daemon() {
             ),
             format!("ResetResponse(leakshield.leak-alarm,{LEAKSHIELD}) interactive=true"),
         ]
+    );
+}
+
+// Review 11 (adversarial): the poweroff ran, the PC went down, and the next daemon start closed
+// the row. After the reboot the user must still read that the PC was powered off.
+#[test]
+fn review_poweroff_requested_survives_the_restart_close() {
+    let mut state = with_responses();
+    let mut row = record(
+        "a1",
+        "leakshield.leak-alarm",
+        Severity::Alarm,
+        Outcome::PoweroffRequested,
+        NOW_US,
+        Some(NOW_US + 60_000_000),
+    );
+    row.closed_by_restart = true;
+    state.snapshot.alarm_history = vec![row];
+    let feedback = Feedback::default();
+    let shown = AlarmsModel::build(&input(&state, &feedback, NOW_US), &AlarmsUi::default());
+    assert!(
+        shown.history.rows[0].response.contains("PC powered off"),
+        "shown: {}",
+        shown.history.rows[0].response
     );
 }
