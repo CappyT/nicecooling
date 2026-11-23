@@ -20,16 +20,19 @@ use tokio::task::JoinHandle;
 
 use super::action::{self, Action};
 use super::backup::{BackupEntry, BackupSet, Backups, ImportError, Reason};
+use super::events::{Event, decode_events};
 use super::external::{ExternalDetector, LastKnown};
 use super::fields::{self, EditError, FieldRow, FieldValue};
 use super::mode::{self, COMMAND_DELAY, Mode};
+use super::software_sensors::SoftwareSlots;
 use super::worker::{Job, WorkerParts, WriteWorker};
 use super::write::{WriteEnv, WriteError, take_backup};
-use super::{DeviceEvent, DeviceIo, blocking, clock};
+use super::{DeviceEvent, DeviceIo, blocking, clock, counters};
 
 /// The automatic clock sync runs at most this often, so a device that ignores it is not flooded.
 const AUTO_CLOCK_GAP: Duration = Duration::from_secs(60);
 
+#[derive(Clone)]
 pub struct AttachParams {
     /// `/var/lib/nicecooling`.
     pub state_dir: PathBuf,
@@ -73,6 +76,7 @@ pub struct Attached {
     events: mpsc::UnboundedSender<DeviceEvent>,
     events_rx: Mutex<Option<mpsc::UnboundedReceiver<DeviceEvent>>>,
     last_auto_clock: Mutex<Option<Instant>>,
+    software: Arc<SoftwareSlots>,
 }
 
 impl fmt::Debug for Attached {
@@ -137,6 +141,9 @@ fn write_error(error: WriteError) -> Error {
         }
         WriteError::Backup(e) => io_error(e),
         WriteError::Device { error, .. } => device_error(error),
+        WriteError::NotSupported => {
+            Error::not_supported("the registry of this firmware lacks the command")
+        }
     }
 }
 
@@ -199,6 +206,7 @@ impl Attached {
             events,
             events_rx: Mutex::new(Some(events_rx)),
             last_auto_clock: Mutex::new(None),
+            software: Arc::default(),
         }))
     }
 
@@ -212,6 +220,24 @@ impl Attached {
 
     pub fn io(&self) -> &DeviceIo {
         &self.io
+    }
+
+    /// The Software sensor slots. The Feed stage reads them.
+    pub fn software_slots(&self) -> Arc<SoftwareSlots> {
+        Arc::clone(&self.software)
+    }
+
+    /// The device vanished: its transports close and the Leakshield shows as disconnected.
+    pub fn detach(&self) {
+        self.io.detach();
+        self.mark_disconnected();
+    }
+
+    /// The device came back with new transports. It reads report 1 at once, so that the state
+    /// shows the device again before the next period of the source.
+    pub fn reattach(&self, io: &DeviceIo) {
+        self.io.replace(io);
+        self.poll(now_unix());
     }
 
     pub fn info(&self) -> Info {
@@ -391,6 +417,26 @@ impl Attached {
         self.send(clock::command(&self.registry, now), Duration::ZERO)
     }
 
+    pub fn reset_refill_history(&self) -> Result<()> {
+        self.send(
+            counters::reset_refill_history(&self.registry),
+            COMMAND_DELAY,
+        )
+    }
+
+    pub fn reset_service_counter(&self) -> Result<()> {
+        let serial = self.state.lock().unwrap().report1.serial;
+        self.send(
+            counters::reset_service_counter(&self.registry, serial),
+            COMMAND_DELAY,
+        )
+    }
+
+    /// The events of report 1, oldest first.
+    pub fn get_events(&self) -> Result<Vec<Event>> {
+        Ok(decode_events(&self.fresh_report1()?))
+    }
+
     pub fn get_fields(&self) -> Result<Vec<FieldRow>> {
         let report1 = self.fresh_report1()?;
         let report3 = blocking(|| self.io.read_report3()).map_err(device_error)?;
@@ -421,6 +467,16 @@ impl Attached {
                 report1,
                 backup: backup.to_owned(),
             })
+            .await
+            .map_err(write_error)?;
+        Ok(())
+    }
+
+    /// Backs up the settings, sends the factory defaults command and reads report 3 back.
+    pub async fn factory_reset(&self) -> Result<()> {
+        let report1 = self.fresh_report1()?;
+        self.worker
+            .submit(Job::FactoryReset { report1 })
             .await
             .map_err(write_error)?;
         Ok(())

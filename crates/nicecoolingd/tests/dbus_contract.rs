@@ -172,28 +172,6 @@ async fn unfilled_interfaces_reply_not_supported() {
     assert_eq!(leakshield.software_sensor_slots().await.unwrap(), 12);
     stub!(
         seen,
-        "Leakshield.ResetRefillHistory",
-        leakshield.reset_refill_history()
-    );
-    stub!(
-        seen,
-        "Leakshield.ResetServiceCounter",
-        leakshield.reset_service_counter()
-    );
-    stub!(seen, "Leakshield.GetEvents", leakshield.get_events());
-    stub!(
-        seen,
-        "Leakshield.GetSoftwareSensors",
-        leakshield.get_software_sensors()
-    );
-    stub!(
-        seen,
-        "Leakshield.SetSoftwareSensor",
-        leakshield.set_software_sensor(1, &none)
-    );
-    stub!(seen, "Leakshield.FactoryReset", leakshield.factory_reset());
-    stub!(
-        seen,
         "Leakshield.GetDeviceResponseProposals",
         leakshield.get_device_response_proposals()
     );
@@ -293,7 +271,7 @@ async fn unfilled_interfaces_reply_not_supported() {
                 .map(move |m| format!("{name}.{}", m.attribute("name").unwrap()))
         })
         .collect();
-    // The methods that the Leakshield tests cover (`tests/leakshield/api.rs`) are wired.
+    // The methods that the Leakshield tests cover (`tests/leakshield/`) are wired.
     let wired = [
         "GetFields",
         "SetFields",
@@ -306,6 +284,12 @@ async fn unfilled_interfaces_reply_not_supported() {
         "GetBackup",
         "ImportBackup",
         "RestoreBackup",
+        "ResetRefillHistory",
+        "ResetServiceCounter",
+        "GetEvents",
+        "GetSoftwareSensors",
+        "SetSoftwareSensor",
+        "FactoryReset",
     ]
     .map(|m| format!("Leakshield.{m}"));
     let in_xml: BTreeSet<String> = in_xml.into_iter().filter(|m| !wired.contains(m)).collect();

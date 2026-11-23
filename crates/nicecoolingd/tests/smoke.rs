@@ -180,6 +180,6 @@ async fn smoke() {
     );
     // The device was read, and the clock command did not go out.
     assert!(sim.commands().is_empty());
-    assert_eq!(daemon.leakshields.len(), 1);
+    assert_eq!(daemon.fleet.all().len(), 1);
     fs::remove_dir_all(state).unwrap();
 }

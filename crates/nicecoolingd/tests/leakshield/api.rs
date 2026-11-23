@@ -12,7 +12,7 @@ use nicecooling_api::sensor::SensorProxy;
 use tokio::time::timeout;
 use zbus::{OwnedVariant, Variant};
 
-use crate::support::{LEAKSHIELD, Rig, error_name, path};
+use crate::support::{LEAKSHIELD, Rig, error_name, none_path, path};
 
 const ERR: &str = "io.github.cappyt.NiceCooling1.Error";
 const WRITABLE: &str = "display_page_time";
@@ -425,8 +425,17 @@ async fn wired_methods_do_not_reply_not_supported() {
     call!("GetBackup", proxy.get_backup("b"));
     call!("ImportBackup", proxy.import_backup(&[], &[], &[]));
     call!("RestoreBackup", proxy.restore_backup("b"));
+    call!("ResetRefillHistory", proxy.reset_refill_history());
+    call!("ResetServiceCounter", proxy.reset_service_counter());
+    call!("GetEvents", proxy.get_events());
+    call!("GetSoftwareSensors", proxy.get_software_sensors());
+    call!(
+        "SetSoftwareSensor",
+        proxy.set_software_sensor(1, &none_path())
+    );
+    call!("FactoryReset", proxy.factory_reset());
 
-    assert_eq!(replies.len(), 11);
+    assert_eq!(replies.len(), 17);
     for (name, error) in replies {
         assert_ne!(error.as_deref(), Some(not_supported), "{name}");
     }

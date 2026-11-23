@@ -10,6 +10,7 @@ use tokio::time::Instant;
 
 use super::backup::Backups;
 use super::external::LastKnown;
+use super::factory_reset::factory_reset;
 use super::save_settings;
 use super::write::{FieldEdit, WriteEnv, WriteError, Written, restore, write_fields};
 use super::{DeviceEvent, DeviceIo, blocking};
@@ -23,6 +24,9 @@ pub enum Job {
     Restore {
         report1: Report1,
         backup: String,
+    },
+    FactoryReset {
+        report1: Report1,
     },
 }
 
@@ -107,6 +111,7 @@ fn execute(parts: &WorkerParts, job: Job) -> Result<Written, WriteError> {
             write_fields(&env, &report1, &base, &edits, now_us())
         }
         Job::Restore { report1, backup } => restore(&env, &report1, &backup, now_us()),
+        Job::FactoryReset { report1 } => factory_reset(&env, &report1, now_us()),
     };
     if let Ok(written) = &result
         && let Err(e) = last.set(written.report3.clone())
@@ -148,8 +153,12 @@ async fn run(parts: WorkerParts, mut queue: mpsc::UnboundedReceiver<Message>) {
         let Some(Message { job, reply, permit }) = message else {
             return;
         };
+        // The factory reset takes the settings from the device: no save-settings command follows.
+        let saves = !matches!(job, Job::FactoryReset { .. });
         let result = blocking(|| execute(&parts, job));
-        if let Ok(written) = &result {
+        if let Ok(written) = &result
+            && saves
+        {
             pending = Some((Instant::now() + parts.save_delay, written.backup.clone()));
         }
         // The queue is free before the caller sees the result.

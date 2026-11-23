@@ -1,15 +1,22 @@
-//! Hot-plug: the Leakshield is matched by its USB path, so a replug reattaches the same device.
-//! `UsbEvent` is the event of this module. The `nusb` adapter converts into it, and tests send it.
+//! USB devices and hot-plug. The Leakshield is matched by its USB path, so a replug reattaches the
+//! same device. `UsbEvent` is the event of this module. The `nusb` adapter converts into it, and
+//! tests send it.
 
 use std::collections::HashMap;
 use std::fmt;
 
 use nicecooling_protocol::device::{PRODUCT_ID, VENDOR_ID};
 use nusb::hotplug::HotplugEvent;
-use nusb::{DeviceId, DeviceInfo};
+use nusb::{DeviceId, DeviceInfo, MaybeFuture};
+use tokio::sync::mpsc;
+
+/// USB device version (BCD) of a Leakshield in its bootloader: 2.00. The application has 1.00.
+const BOOTLOADER_BCD: u16 = 0x0200;
+/// The bootloader has no keyboard interface.
+const BOOTLOADER_INTERFACES: usize = 2;
 
 /// `<bus>-<port>.<port>...`, the name that sysfs gives the device: `1-2.3`.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct UsbPath(pub String);
 
 impl UsbPath {
@@ -25,70 +32,32 @@ impl fmt::Display for UsbPath {
     }
 }
 
+/// What the daemon needs to know about a USB device before it opens it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct UsbDevice {
+    pub path: UsbPath,
+    pub vendor: u16,
+    pub product: u16,
+    pub bcd_device: u16,
+    pub interfaces: usize,
+}
+
+impl UsbDevice {
+    pub fn is_leakshield(&self) -> bool {
+        (self.vendor, self.product) == (VENDOR_ID, PRODUCT_ID)
+    }
+
+    /// A Leakshield that a firmware update left in its bootloader. Its HID interface has a short
+    /// report 1 and no settings, so the daemon never opens it.
+    pub fn in_bootloader(&self) -> bool {
+        self.bcd_device == BOOTLOADER_BCD && self.interfaces == BOOTLOADER_INTERFACES
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum UsbEvent {
-    Connected {
-        path: UsbPath,
-        vendor: u16,
-        product: u16,
-    },
-    Disconnected {
-        path: UsbPath,
-    },
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Action {
-    /// The Leakshield is there: open it and resume reading and the Feed message.
-    Attach,
-    /// The Leakshield is gone: its transfers fail until it comes back.
-    Detach,
-    Ignore,
-}
-
-/// Follows one Leakshield by USB path. The first Leakshield that connects sets the path.
-#[derive(Debug, Default)]
-pub struct Attachment {
-    path: Option<UsbPath>,
-    attached: bool,
-}
-
-impl Attachment {
-    /// Follows the Leakshield at `path`, which is already attached.
-    pub fn at(path: UsbPath) -> Self {
-        Self {
-            path: Some(path),
-            attached: true,
-        }
-    }
-
-    pub fn path(&self) -> Option<&UsbPath> {
-        self.path.as_ref()
-    }
-
-    pub fn on_event(&mut self, event: &UsbEvent) -> Action {
-        match event {
-            UsbEvent::Connected {
-                path,
-                vendor,
-                product,
-            } if (*vendor, *product) == (VENDOR_ID, PRODUCT_ID) => {
-                if self.path.get_or_insert_with(|| path.clone()) == path && !self.attached {
-                    self.attached = true;
-                    Action::Attach
-                } else {
-                    Action::Ignore
-                }
-            }
-            UsbEvent::Disconnected { path }
-                if self.path.as_ref() == Some(path) && self.attached =>
-            {
-                self.attached = false;
-                Action::Detach
-            }
-            _ => Action::Ignore,
-        }
-    }
+    Connected(UsbDevice),
+    Disconnected { path: UsbPath },
 }
 
 /// Converts `nusb` events. `nusb` names a removed device by an id only, so the adapter keeps the
@@ -98,20 +67,27 @@ pub struct NusbEvents {
     paths: HashMap<DeviceId, UsbPath>,
 }
 
+pub fn describe(info: &DeviceInfo) -> UsbDevice {
+    UsbDevice {
+        path: UsbPath::new(info.bus_id(), info.port_chain()),
+        vendor: info.vendor_id(),
+        product: info.product_id(),
+        bcd_device: info.device_version(),
+        interfaces: info.interfaces().count(),
+    }
+}
+
 impl NusbEvents {
-    pub fn connected(&mut self, info: &DeviceInfo) -> UsbEvent {
-        let path = UsbPath::new(info.bus_id(), info.port_chain());
-        self.paths.insert(info.id(), path.clone());
-        UsbEvent::Connected {
-            path,
-            vendor: info.vendor_id(),
-            product: info.product_id(),
-        }
+    /// Remembers the path of a device that exists already, so that its removal has a path.
+    pub fn remember(&mut self, info: &DeviceInfo) -> UsbDevice {
+        let device = describe(info);
+        self.paths.insert(info.id(), device.path.clone());
+        device
     }
 
     pub fn convert(&mut self, event: HotplugEvent) -> Option<UsbEvent> {
         match event {
-            HotplugEvent::Connected(info) => Some(self.connected(&info)),
+            HotplugEvent::Connected(info) => Some(UsbEvent::Connected(self.remember(&info))),
             HotplugEvent::Disconnected(id) => self
                 .paths
                 .remove(&id)
@@ -120,37 +96,43 @@ impl NusbEvents {
     }
 }
 
-/// Watches the USB bus and calls `on_event` for each event until the watch ends. The caller owns
-/// the initial enumeration: it passes the devices that exist at the start to `NusbEvents::connected`.
-pub async fn watch(mut on_event: impl FnMut(UsbEvent)) -> std::io::Result<()> {
+/// Watches the USB bus and sends each event until the watch ends or `events` closes. It starts
+/// the watch first and lists the devices after it, so that no removal slips through.
+pub async fn watch(events: mpsc::UnboundedSender<UsbEvent>) -> std::io::Result<()> {
     use futures_core::Stream;
-    use std::pin::Pin;
 
     let mut watch = nusb::watch_devices().map_err(std::io::Error::from)?;
-    let mut events = NusbEvents::default();
-    while let Some(event) = std::future::poll_fn(|cx| Pin::new(&mut watch).poll_next(cx)).await {
-        if let Some(event) = events.convert(event) {
-            on_event(event);
+    let mut known = NusbEvents::default();
+    for info in nusb::list_devices().wait().map_err(std::io::Error::from)? {
+        known.remember(&info);
+    }
+    loop {
+        let next = tokio::select! {
+            () = events.closed() => return Ok(()),
+            next = std::future::poll_fn(|cx| Pin::new(&mut watch).poll_next(cx)) => next,
+        };
+        let Some(event) = next else {
+            return Ok(());
+        };
+        if let Some(event) = known.convert(event)
+            && events.send(event).is_err()
+        {
+            return Ok(());
         }
     }
-    Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn connected(path: &str) -> UsbEvent {
-        UsbEvent::Connected {
-            path: UsbPath(path.to_owned()),
+    fn device(bcd_device: u16, interfaces: usize) -> UsbDevice {
+        UsbDevice {
+            path: UsbPath("1-2.3".to_owned()),
             vendor: VENDOR_ID,
             product: PRODUCT_ID,
-        }
-    }
-
-    fn disconnected(path: &str) -> UsbEvent {
-        UsbEvent::Disconnected {
-            path: UsbPath(path.to_owned()),
+            bcd_device,
+            interfaces,
         }
     }
 
@@ -161,31 +143,11 @@ mod tests {
     }
 
     #[test]
-    fn replug_at_the_same_path_attaches_again() {
-        let mut attachment = Attachment::at(UsbPath("1-2.3".to_owned()));
-        assert_eq!(attachment.on_event(&disconnected("1-2.3")), Action::Detach);
-        assert_eq!(attachment.on_event(&disconnected("1-2.3")), Action::Ignore);
-        assert_eq!(attachment.on_event(&connected("1-2.3")), Action::Attach);
-    }
-
-    #[test]
-    fn other_path_and_other_device_are_ignored() {
-        let mut attachment = Attachment::at(UsbPath("1-2.3".to_owned()));
-        assert_eq!(attachment.on_event(&disconnected("1-4")), Action::Ignore);
-        attachment.on_event(&disconnected("1-2.3"));
-        assert_eq!(attachment.on_event(&connected("1-4")), Action::Ignore);
-        let other = UsbEvent::Connected {
-            path: UsbPath("1-2.3".to_owned()),
-            vendor: 0x1234,
-            product: 0x5678,
-        };
-        assert_eq!(attachment.on_event(&other), Action::Ignore);
-    }
-
-    #[test]
-    fn first_leakshield_sets_the_path() {
-        let mut attachment = Attachment::default();
-        assert_eq!(attachment.on_event(&connected("2-1")), Action::Attach);
-        assert_eq!(attachment.path(), Some(&UsbPath("2-1".to_owned())));
+    fn bootloader_has_bcd_2_00_and_two_interfaces() {
+        assert!(device(0x0200, 2).in_bootloader());
+        // The application: version 1.00 and three interfaces.
+        assert!(!device(0x0100, 3).in_bootloader());
+        assert!(!device(0x0200, 3).in_bootloader());
+        assert!(!device(0x0100, 2).in_bootloader());
     }
 }

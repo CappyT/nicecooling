@@ -627,6 +627,36 @@ impl Hub {
         }
     }
 
+    /// Adds a Leakshield that attached after the start, with its sensors, and registers their
+    /// D-Bus objects when the API is on a bus.
+    pub fn add_leakshield(self: &Arc<Self>, device: LeakshieldInfo) {
+        let sensors = crate::sources::leakshield::sensor_metas(&device.id());
+        let ids: Vec<String> = sensors.iter().map(|s| s.id.clone()).collect();
+        {
+            let mut inner = self.inner();
+            inner.sensors.extend(sensors);
+            inner.leakshields.push(device.clone());
+        }
+        if let Some(connection) = self.connection.get() {
+            let (hub, connection) = (self.clone(), connection.clone());
+            self.runtime.spawn(async move {
+                for id in ids {
+                    if let Err(e) =
+                        super::register_sensor(connection.object_server(), &hub, &id).await
+                    {
+                        eprintln!("nicecoolingd: cannot register the sensor {id}: {e}");
+                    }
+                }
+                if let Err(e) = super::leakshield::register(&connection, &hub, &device).await {
+                    eprintln!(
+                        "nicecoolingd: cannot register the Leakshield {}: {e}",
+                        device.id()
+                    );
+                }
+            });
+        }
+    }
+
     pub fn set_connection(&self, connection: zbus::Connection) {
         let _ = self.connection.set(connection);
     }

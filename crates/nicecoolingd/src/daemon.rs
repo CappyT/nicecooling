@@ -6,7 +6,6 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use nicecooling_api::ids::leakshield_sensor_id;
 use nicecooling_core::calibration::Preset;
 use nicecooling_core::clock::Clock;
 use nicecooling_core::tick::Pipeline;
@@ -14,18 +13,22 @@ use nicecooling_hwmon::board::select_board_for;
 use nicecooling_hwmon::discovery::discover_with;
 use nicecooling_hwmon::sysfs::Sysfs;
 use nicecooling_protocol::registry::Registry;
+use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 
 use crate::dbus::stage::ApiStage;
 use crate::dbus::{BoardInfo, ChannelMeta, Hub, HubInit, SensorMeta, sensor_meta};
-use crate::leakshield::feed::feed_channel;
+use crate::fleet::{Attacher, Fleet, OPEN_RETRY_DELAY, UsbAttach};
+use crate::leakshield::feed::feed_channel_with;
 use crate::leakshield::save_settings::SAVE_SETTINGS_DELAY;
 use crate::leakshield::{AttachParams, Attached, DeviceIo, external};
 use crate::lease::Lease;
 use crate::rescan::{self, Rescan};
 use crate::snapshot::{self, SnapshotBoard};
+use crate::sources::hotplug::UsbPath;
 use crate::sources::hwmon::{Source, chip_readers, spawn_source};
-use crate::sources::leakshield::{self as leakshield_source, SENSORS};
+use crate::sources::leakshield::{self as leakshield_source, sensor_metas};
+use crate::sources::usb::UsbBus;
 use crate::state::{self, StateStore};
 use crate::tick_runner::{SysfsChannels, TickRunner};
 use crate::value_table::ValueTable;
@@ -66,6 +69,11 @@ pub struct Options {
     pub boot_id: String,
     /// The Leakshields to attach. The caller opens them: tests pass simulated devices.
     pub leakshields: Vec<DeviceIo>,
+    /// The USB bus to enumerate at the start and to watch for hot-plug. `None` attaches no USB
+    /// device, so a test never reaches the real bus. `main` sets `NusbBus`.
+    pub usb: Option<Arc<dyn UsbBus>>,
+    /// The time between two tries to open a Leakshield whose hidraw node is not there yet.
+    pub usb_retry_delay: Duration,
     /// The time between the last report 3 write and the save-settings command.
     pub save_settings_delay: Duration,
     /// The time between two reads of report 3 for the external change detection.
@@ -85,6 +93,8 @@ impl Options {
             source_period: Duration::from_secs(1),
             boot_id,
             leakshields: Vec::new(),
+            usb: None,
+            usb_retry_delay: OPEN_RETRY_DELAY,
             save_settings_delay: SAVE_SETTINGS_DELAY,
             external_period: external::POLL_PERIOD,
             rescan_period: rescan::RESCAN_PERIOD,
@@ -97,8 +107,8 @@ pub struct Daemon {
     pub values: ValueTable,
     /// The model behind the D-Bus API. `dbus::serve` puts it on a bus.
     pub hub: Arc<Hub>,
-    /// The attached Leakshields.
-    pub leakshields: Vec<Arc<Attached>>,
+    /// The attached Leakshields, also those that attach after the start.
+    pub fleet: Arc<Fleet>,
     sources: Vec<Source>,
     rescan: JoinHandle<()>,
     /// The Feed sender and the external change detection of each Leakshield.
@@ -179,10 +189,40 @@ pub async fn start<N: Notifier + 'static>(
         registry: Arc::new(Registry::leakshield()),
         save_delay: options.save_settings_delay,
     };
+    let fleet = Arc::new(Fleet::default());
+    let mut present: Vec<(Option<UsbPath>, DeviceIo)> = options
+        .leakshields
+        .iter()
+        .map(|io| (None, io.clone()))
+        .collect();
+    let usb = options.usb.clone().map(|bus| UsbAttach {
+        bus,
+        retry_delay: options.usb_retry_delay,
+    });
+    let (usb_events, usb_rx) = mpsc::unbounded_channel();
+    if let Some(usb) = &usb {
+        // The watch starts before the listing, so that no plug or unplug falls between them.
+        usb.bus.watch(usb_events);
+        present.extend(
+            usb.open_present()
+                .await
+                .into_iter()
+                .map(|(path, io)| (Some(path), io)),
+        );
+    }
     let mut leakshields: Vec<Arc<Attached>> = Vec::new();
-    for io in &options.leakshields {
-        match Attached::open(io.clone(), &attach) {
-            Ok(device) => leakshields.push(device),
+    for (path, io) in present {
+        match Attached::open(io, &attach) {
+            Ok(device) if fleet.get(&device.id()).is_some() => {
+                eprintln!(
+                    "nicecoolingd: the Leakshield {} attaches twice",
+                    device.id()
+                );
+            }
+            Ok(device) => {
+                fleet.insert(device.clone(), path);
+                leakshields.push(device);
+            }
             Err(e) => eprintln!("nicecoolingd: a Leakshield did not answer: {e}"),
         }
     }
@@ -231,17 +271,11 @@ pub async fn start<N: Notifier + 'static>(
             .sensors
             .iter()
             .map(sensor_meta)
-            .chain(leakshields.iter().flat_map(|device| {
-                SENSORS
-                    .into_iter()
-                    .map(move |(field, name, kind, unit)| SensorMeta {
-                        id: leakshield_sensor_id(&device.id(), field),
-                        name: name.to_owned(),
-                        kind,
-                        unit,
-                        driver: String::new(),
-                    })
-            }))
+            .chain(
+                leakshields
+                    .iter()
+                    .flat_map(|device| sensor_metas(&device.id())),
+            )
             .collect::<Vec<SensorMeta>>(),
         channels: defaults
             .channels
@@ -275,38 +309,50 @@ pub async fn start<N: Notifier + 'static>(
     let io = SysfsChannels::new(&discovery.channels, lease, options.boot_id.clone())
         .with_snapshot(snapshot::read_snapshot(&store));
     let mut pipeline = Pipeline::standard(Box::new(values.clone()), Box::new(io));
-    let (feed_stage, feed_link) = feed_channel();
+    let (feed_stage, feed_link) = feed_channel_with(fleet.software_lookup());
     pipeline.push(Box::new(feed_stage));
     pipeline.push(Box::new(ApiStage::new(hub.clone())));
     pipeline.push(Box::new(WatchdogStage::new(notifier)));
-    let mut runner = TickRunner::new(pipeline, config, clock, options.tick_period);
+    let mut runner = TickRunner::new(pipeline, config, clock.clone(), options.tick_period);
     for (event, source) in warnings {
         runner.context().warnings.raise(&event, &source);
     }
-    let devices: BTreeMap<String, DeviceIo> = leakshields
-        .iter()
-        .map(|d| (d.id(), d.io().clone()))
-        .collect();
-    let by_id: BTreeMap<String, Arc<Attached>> =
-        leakshields.iter().map(|d| (d.id(), d.clone())).collect();
-    let mut leakshield_tasks = vec![tokio::spawn(feed_link.run(
-        Arc::new(devices),
-        move |id, result| {
-            if let Some(device) = by_id.get(id) {
-                device.feed_result(&result);
-            }
-        },
-    ))];
+    let mut leakshield_tasks = vec![tokio::spawn({
+        let (devices, reporting) = (fleet.clone(), fleet.clone());
+        feed_link.run(
+            move || devices.io_map(),
+            move |id, result| {
+                if let Some(device) = reporting.get(id) {
+                    device.feed_result(&result);
+                }
+            },
+        )
+    })];
     leakshield_tasks.extend(
         leakshields
             .iter()
             .map(|d| d.spawn_external_detection(options.external_period)),
     );
+    if let Some(usb) = usb {
+        leakshield_tasks.push(
+            Attacher {
+                fleet: fleet.clone(),
+                usb,
+                params: attach,
+                hub: hub.clone(),
+                values: values.clone(),
+                clock: clock.clone(),
+                source_period: options.source_period,
+                external_period: options.external_period,
+            }
+            .spawn(usb_rx),
+        );
+    }
     Ok(Daemon {
         runner,
         values,
         hub,
-        leakshields,
+        fleet,
         sources,
         rescan,
         leakshield_tasks,

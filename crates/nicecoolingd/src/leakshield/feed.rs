@@ -9,6 +9,7 @@ use nicecooling_protocol::device::DeviceError;
 use nicecooling_protocol::feed::{FeedMessage, UNIT_LITERS_PER_HOUR, UNIT_SPEED_RPM};
 use tokio::sync::watch;
 
+use super::software_sensors::SoftwareSlots;
 use super::{DeviceIo, blocking};
 
 pub const SLOT_PUMP_SPEED: usize = 0;
@@ -49,9 +50,13 @@ pub fn feed_for_loop(setup: &LoopSetup, values: &BTreeMap<String, f64>) -> FeedM
     message
 }
 
+/// Finds the Software sensor slots of a Leakshield by its id.
+pub type SoftwareLookup = Arc<dyn Fn(&str) -> Option<Arc<SoftwareSlots>> + Send + Sync>;
+
 /// Stage 10. It runs for each Loop that has a Leakshield and leaves the other Loops alone.
 pub struct FeedStage {
     out: watch::Sender<Messages>,
+    software: Option<SoftwareLookup>,
 }
 
 /// The receiving end of the stage, held by the sender task.
@@ -59,9 +64,19 @@ pub struct FeedLink {
     rx: watch::Receiver<Messages>,
 }
 
+/// A Feed stage that carries the pump speed and the flow only.
 pub fn feed_channel() -> (FeedStage, FeedLink) {
+    channel(None)
+}
+
+/// A Feed stage that also carries the Software sensors of each Leakshield.
+pub fn feed_channel_with(software: SoftwareLookup) -> (FeedStage, FeedLink) {
+    channel(Some(software))
+}
+
+fn channel(software: Option<SoftwareLookup>) -> (FeedStage, FeedLink) {
     let (out, rx) = watch::channel(Messages::new());
-    (FeedStage { out }, FeedLink { rx })
+    (FeedStage { out, software }, FeedLink { rx })
 }
 
 impl Stage for FeedStage {
@@ -76,7 +91,11 @@ impl Stage for FeedStage {
             .iter()
             .filter_map(|l| {
                 let id = l.config.leakshield.clone()?;
-                Some((id, feed_for_loop(l, &ctx.values)))
+                let mut message = feed_for_loop(l, &ctx.values);
+                if let Some(slots) = self.software.as_ref().and_then(|find| find(&id)) {
+                    slots.fill(&mut message, &ctx.values);
+                }
+                Some((id, message))
             })
             .collect();
         if !messages.is_empty() {
@@ -110,15 +129,16 @@ impl FeedLink {
         }
     }
 
-    /// Sends the Feed message of every tick until the stage is dropped.
+    /// Sends the Feed message of every tick until the stage is dropped. `devices` gives the
+    /// Leakshields that exist at that moment: one can attach later.
     pub async fn run(
         mut self,
-        devices: Arc<BTreeMap<String, DeviceIo>>,
+        devices: impl Fn() -> BTreeMap<String, DeviceIo>,
         mut report: impl FnMut(&str, Result<(), DeviceError>),
     ) {
         while self.rx.changed().await.is_ok() {
             let messages = self.rx.borrow_and_update().clone();
-            send_all(&messages, &devices, &mut report);
+            send_all(&messages, &devices(), &mut report);
         }
     }
 }

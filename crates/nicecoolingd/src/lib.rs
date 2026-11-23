@@ -3,6 +3,7 @@
 pub mod authz;
 pub mod daemon;
 pub mod dbus;
+pub mod fleet;
 pub mod leakshield;
 pub mod lease;
 pub mod rescan;

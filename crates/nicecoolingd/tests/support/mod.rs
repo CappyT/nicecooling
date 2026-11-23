@@ -6,6 +6,7 @@
 
 pub mod bus;
 pub mod polkit_mock;
+pub mod sim_usb;
 
 use std::fs;
 use std::path::PathBuf;
@@ -123,7 +124,20 @@ impl Rig {
         Self::build(true, |_, _| {}).await
     }
 
+    /// The daemon attaches the Leakshields of `usb` instead of a device in the options.
+    pub async fn start_with_usb(usb: sim_usb::SimUsb) -> Self {
+        Self::build_full(false, |_, _| {}, Some(usb)).await
+    }
+
     async fn build(polkit: bool, prepare: impl FnOnce(&FakeSysfs, &std::path::Path)) -> Self {
+        Self::build_full(polkit, prepare, None).await
+    }
+
+    async fn build_full(
+        polkit: bool,
+        prepare: impl FnOnce(&FakeSysfs, &std::path::Path),
+        usb: Option<sim_usb::SimUsb>,
+    ) -> Self {
         let with_loop = true;
         let fake = sim_tree();
         let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
@@ -153,7 +167,16 @@ impl Rig {
         // The fixture clock is from the day of the dump. A clock far from now makes the daemon set it.
         let now = clock::device_seconds(attached::now_unix()).unwrap();
         sim.edit_report1(|r| r.device_clock = now);
-        options.leakshields = vec![DeviceIo::new(Arc::new(sim.clone()), Arc::new(sim.clone()))];
+        match usb {
+            Some(usb) => {
+                options.usb = Some(Arc::new(usb));
+                options.usb_retry_delay = Duration::from_millis(10);
+            }
+            None => {
+                options.leakshields =
+                    vec![DeviceIo::new(Arc::new(sim.clone()), Arc::new(sim.clone()))];
+            }
+        }
         options.save_settings_delay = Duration::from_millis(200);
         let daemon = daemon::start(&options, Arc::new(TokioClock::new()), NoPing)
             .await

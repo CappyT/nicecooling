@@ -60,7 +60,9 @@ struct State {
     bulk: Vec<Vec<u8>>,
 }
 
-/// Report 2 command `set_mode` and the codes that it takes (`docs/protocol/leakshield.md`).
+/// Report 2 commands that the simulated device acts on (`docs/protocol/leakshield.md`):
+/// `set_mode` and the codes that it takes, and the others.
+const COMMAND_FACTORY_DEFAULTS: u32 = 3;
 const COMMAND_SET_MODE: u32 = 12;
 const COMMAND_SET_CLOCK: u32 = 37000;
 
@@ -95,6 +97,8 @@ impl State {
                 }
                 self.edit_report1(|r| r.mode = code as i16);
             }
+            // The settings that the device returns to are the fw1022 dump.
+            (COMMAND_FACTORY_DEFAULTS, _) => self.report3 = REPORT3.to_vec(),
             (COMMAND_SET_CLOCK, seconds) => self.edit_report1(|r| {
                 r.device_clock = seconds;
                 r.status_bits |= 1 << 2;

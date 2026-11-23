@@ -6,9 +6,13 @@ mod action;
 mod api;
 mod backup;
 mod clock;
+mod events;
 mod external;
 mod feed;
+mod hotplug;
 mod mode;
+mod reset;
+mod software_sensors;
 #[path = "../support/mod.rs"]
 mod support;
 mod write;

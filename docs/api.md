@@ -62,6 +62,11 @@ Each active Alarm or Warning (`Alarms.Active`) and each `AlarmRaised` signal car
 - The variant type comes from the registry: `b` for a flag, `s` for an enum value (our own lowercase name), `d` for a scaled number, `x` for an unscaled integer, `s` for a text.
 - `SetFields` runs the write path of design D11 once for all fields. It returns after the read-back. The save-settings command (report 2) goes out 4 s after the last write; a failure then emits `WriteFailed`.
 
+## Leakshield events and Software sensors
+
+- `GetEvents` returns the event list of report 1, oldest first. The identifier is `leakshield.<name>`, with the names of `docs/protocol/leakshield.md` (section Event list). A code that the document does not name gives `leakshield.event-<code>`. The time is the device time in microseconds since the Unix epoch: the clock offset is not applied. `details` holds `entry_id`, `mode`, `procedure_state`, `pressure` (mbar), `pressure_leak_rate`, `volume_leak_rate`, `value_1` and `value_2`, all as `d`. A value that the device marks as "no value" is absent.
+- A Software sensor slot is a number from 1 to 12 and maps to Feed message slot 3 + n. `GetSoftwareSensors` returns all 12 slots, with `/` for an empty one. `SetSoftwareSensor` fills a slot with a sensor, or clears it with `/`. A slot outside 1 to 12 and a sensor whose unit has no device unit code fail with `InvalidArgument`. An unknown sensor fails with `NotFound`. The assignment is kept in the daemon memory only. The Feed message of a Loop carries the slots of its Leakshield.
+
 ## Leakshield slots
 
 A Leakshield slot is a number from 1 to 4, as in aquasuite (`docs/protocol/leakshield.md`, section Device profile numbers). The number is the device profile number: report 3 `device_profile` and report 1 `active_profile`. Each Profile references one slot with the property `Slot` of the interface `Profile`. `SetSlot` changes it (class `write`). The Default Profile has slot 1, and `SetSlot` on it fails with `InvalidArgument`. A slot outside 1 to 4 fails with `InvalidArgument`.
@@ -133,7 +138,7 @@ Error names have the prefix `io.github.cappyt.NiceCooling1.Error.`. polkit denia
 | `VerifyFailed` | The read-back differs outside the volatile mask. The message holds the backup id. |
 | `Disconnected` | The device is not connected. |
 | `NoPoweroff` | `CancelPoweroff` for an instance with no pending poweroff. |
-| `NotSupported` | `CancelAction`, `ResetRefillHistory` or `ResetServiceCounter` when the field registry of the device firmware lacks the command (`cancel_action`, `reset_refill_history`, `reset_service_counter`). |
+| `NotSupported` | `CancelAction`, `ResetRefillHistory`, `ResetServiceCounter` or `FactoryReset` when the field registry of the device firmware lacks the command (`cancel_action`, `reset_refill_history`, `reset_service_counter`, `factory_defaults`). |
 
 ## Authorization
 

@@ -2,7 +2,6 @@ use nicecooling_protocol::device::DeviceError;
 use nicecooling_protocol::feed::FeedMessage;
 use nicecooling_protocol::report3::Report3;
 use nicecooling_protocol::sim::Request;
-use nicecoolingd::sources::hotplug::{Action, Attachment, UsbEvent, UsbPath};
 
 use crate::Rig;
 
@@ -36,37 +35,29 @@ fn write_report3_with_crc() {
 }
 
 #[test]
-fn disconnect_then_reattach_by_usb_path() {
-    let rig = Rig::new("reattach");
-    let path = UsbPath("1-2.3".to_owned());
-    let mut attachment = Attachment::at(path.clone());
+fn detach_closes_the_transports_and_replace_opens_new_ones() {
+    let rig = Rig::new("swap");
     assert!(rig.io.read_report1().is_ok());
 
-    rig.sim.disconnect();
+    rig.io.detach();
     assert!(matches!(
         rig.io.read_report1(),
         Err(DeviceError::Disconnected)
     ));
-    let gone = UsbEvent::Disconnected { path: path.clone() };
-    assert_eq!(attachment.on_event(&gone), Action::Detach);
+    assert!(matches!(
+        rig.io.send_feed(&FeedMessage::default()),
+        Err(DeviceError::Disconnected)
+    ));
 
-    // A Leakshield at another path is not this one.
-    rig.sim.reconnect();
-    let elsewhere = UsbEvent::Connected {
-        path: UsbPath("1-4".to_owned()),
-        vendor: 0x0c70,
-        product: 0xf014,
-    };
-    assert_eq!(attachment.on_event(&elsewhere), Action::Ignore);
-
-    let back = UsbEvent::Connected {
-        path,
-        vendor: 0x0c70,
-        product: 0xf014,
-    };
-    assert_eq!(attachment.on_event(&back), Action::Attach);
-    assert!(rig.io.read_report1().is_ok());
-    assert!(rig.io.send_feed(&FeedMessage::default()).is_ok());
+    // The clones of the handle share the transports, so a replug reaches the write worker and
+    // the Feed sender too.
+    let other = Rig::new("swap-new");
+    let shared = rig.io.clone();
+    rig.io.replace(&other.io);
+    assert!(shared.read_report1().is_ok());
+    shared.send_feed(&FeedMessage::default()).unwrap();
+    assert_eq!(other.sim.bulk_messages().len(), 1);
+    assert!(rig.sim.bulk_messages().is_empty());
 }
 
 #[test]

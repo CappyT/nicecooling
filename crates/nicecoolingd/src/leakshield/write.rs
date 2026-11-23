@@ -57,6 +57,8 @@ pub enum WriteError {
     NoSuchBackup,
     /// The backup does not fit the device: structure or firmware.
     BackupMismatch(&'static str),
+    /// The registry of the firmware lacks the command.
+    NotSupported,
 }
 
 impl fmt::Display for WriteError {
@@ -72,6 +74,7 @@ impl fmt::Display for WriteError {
             Self::Backup(e) => write!(f, "backup failed: {e}"),
             Self::NoSuchBackup => write!(f, "no such backup"),
             Self::BackupMismatch(why) => write!(f, "backup does not fit the device: {why}"),
+            Self::NotSupported => write!(f, "the registry of this firmware lacks the command"),
         }
     }
 }
@@ -93,7 +96,7 @@ pub struct WriteEnv<'a> {
     pub backups: &'a Backups,
 }
 
-fn device_error(error: DeviceError, backup: Option<&str>) -> WriteError {
+pub(super) fn device_error(error: DeviceError, backup: Option<&str>) -> WriteError {
     let backup = backup.map(str::to_owned);
     match error {
         DeviceError::Disconnected => WriteError::Disconnected { backup },

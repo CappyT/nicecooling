@@ -6,19 +6,20 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use nicecooling_api::errors::Result;
-use nicecooling_api::ids::Kind;
+use nicecooling_api::ids::{self, Kind};
 use tokio::sync::mpsc;
 use zbus::message::Header;
 use zbus::object_server::SignalEmitter;
 use zbus::{Connection, OwnedObjectPath, OwnedVariant, Variant, interface};
 
 use super::hub::{Hub, LoopView};
-use super::{not_supported_stub, object};
+use super::{not_supported_stub, object, optional_object};
 use crate::leakshield::DeviceEvent;
 use crate::leakshield::action::{self, LoopPumps};
 use crate::leakshield::attached::{Attached, Info, now_unix};
 use crate::leakshield::backup::BackupSet;
 use crate::leakshield::fields::FieldValue;
+use crate::leakshield::software_sensors::{Assignment, SLOT_COUNT};
 
 /// What the hub keeps of a Leakshield: the attached device.
 pub type LeakshieldInfo = Arc<Attached>;
@@ -86,7 +87,6 @@ fn variant_of(value: FieldValue) -> OwnedVariant {
     OwnedVariant::try_from(variant).expect("a number has no file descriptor")
 }
 
-#[allow(unused_variables)]
 #[interface(name = "io.github.cappyt.NiceCooling1.Leakshield")]
 impl Leakshield {
     #[zbus(property(emits_changed_signal = "const"))]
@@ -141,7 +141,7 @@ impl Leakshield {
 
     #[zbus(property)]
     fn software_sensor_slots(&self) -> u16 {
-        12
+        SLOT_COUNT as u16
     }
 
     #[zbus(out_args("fields"))]
@@ -239,26 +239,88 @@ impl Leakshield {
         self.device.sync_clock(now_unix())
     }
 
-    async fn reset_refill_history(&self) -> Result<()> {
-        stub("ResetRefillHistory")
+    async fn reset_refill_history(
+        &self,
+        #[zbus(connection)] connection: &Connection,
+        #[zbus(header)] header: Header<'_>,
+    ) -> Result<()> {
+        self.authorize(connection, &header, "ResetRefillHistory", None)
+            .await?;
+        self.device.reset_refill_history()
     }
 
-    async fn reset_service_counter(&self) -> Result<()> {
-        stub("ResetServiceCounter")
+    async fn reset_service_counter(
+        &self,
+        #[zbus(connection)] connection: &Connection,
+        #[zbus(header)] header: Header<'_>,
+    ) -> Result<()> {
+        self.authorize(connection, &header, "ResetServiceCounter", None)
+            .await?;
+        self.device.reset_service_counter()
     }
 
     #[zbus(out_args("events"))]
     async fn get_events(&self) -> Result<Vec<(u64, String, HashMap<String, OwnedVariant>)>> {
-        stub("GetEvents")
+        Ok(self
+            .device
+            .get_events()?
+            .into_iter()
+            .map(|event| {
+                let details = event
+                    .details
+                    .into_iter()
+                    .map(|(key, value)| (key.to_owned(), variant_of(FieldValue::Number(value))))
+                    .collect();
+                (event.time_us, event.id, details)
+            })
+            .collect())
     }
 
     #[zbus(out_args("slots"))]
     async fn get_software_sensors(&self) -> Result<Vec<(u16, OwnedObjectPath)>> {
-        stub("GetSoftwareSensors")
+        Ok(self
+            .device
+            .software_slots()
+            .list()
+            .into_iter()
+            .map(|(slot, sensor)| (slot, optional_object(Kind::Sensor, sensor.as_deref())))
+            .collect())
     }
 
-    async fn set_software_sensor(&self, slot: u16, sensor: OwnedObjectPath) -> Result<()> {
-        stub("SetSoftwareSensor")
+    async fn set_software_sensor(
+        &self,
+        #[zbus(connection)] connection: &Connection,
+        #[zbus(header)] header: Header<'_>,
+        slot: u16,
+        sensor: OwnedObjectPath,
+    ) -> Result<()> {
+        self.authorize(connection, &header, "SetSoftwareSensor", None)
+            .await?;
+        let assignment = if sensor.as_str() == "/" {
+            None
+        } else {
+            let id = ids::id_from_path(Kind::Sensor, sensor.as_str()).ok_or_else(|| {
+                nicecooling_api::Error::invalid(format!("{sensor} is not a sensor"))
+            })?;
+            let view = self
+                .hub
+                .sensor(id)
+                .ok_or_else(|| nicecooling_api::Error::not_found(format!("no sensor {id}")))?;
+            Some(Assignment::new(id, &view.unit).ok_or_else(|| {
+                nicecooling_api::Error::invalid(format!(
+                    "the unit {} of {id} has no device unit code",
+                    view.unit
+                ))
+            })?)
+        };
+        self.device
+            .software_slots()
+            .assign(slot, assignment)
+            .map_err(|_| {
+                nicecooling_api::Error::invalid(format!(
+                    "slot {slot} is not between 1 and {SLOT_COUNT}"
+                ))
+            })
     }
 
     #[zbus(out_args("backups"))]
@@ -317,8 +379,14 @@ impl Leakshield {
         self.device.restore_backup(backup).await
     }
 
-    async fn factory_reset(&self) -> Result<()> {
-        stub("FactoryReset")
+    async fn factory_reset(
+        &self,
+        #[zbus(connection)] connection: &Connection,
+        #[zbus(header)] header: Header<'_>,
+    ) -> Result<()> {
+        self.authorize(connection, &header, "FactoryReset", None)
+            .await?;
+        self.device.factory_reset().await
     }
 
     #[zbus(out_args("proposals"))]

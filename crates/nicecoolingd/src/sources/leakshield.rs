@@ -10,6 +10,7 @@ use nicecooling_protocol::report1::Report1;
 use tokio::sync::oneshot;
 
 use super::hwmon::Source;
+use crate::dbus::SensorMeta;
 use crate::leakshield::Attached;
 use crate::leakshield::attached::now_unix;
 use crate::value_table::ValueTable;
@@ -22,6 +23,20 @@ pub const SENSORS: [(&str, &str, &str, &str); 2] = [
     ("pressure", "Pressure", "pressure", "mbar"),
     ("fill_level", "Fill level", "level", "%"),
 ];
+
+/// The API sensors of a Leakshield.
+pub fn sensor_metas(leakshield: &str) -> Vec<SensorMeta> {
+    SENSORS
+        .into_iter()
+        .map(|(field, name, kind, unit)| SensorMeta {
+            id: leakshield_sensor_id(leakshield, field),
+            name: name.to_owned(),
+            kind,
+            unit,
+            driver: String::new(),
+        })
+        .collect()
+}
 
 /// The values of the device sensors in report 1: the pressure in mbar (0.1 mbar per count) and
 /// the fill level in percent (0.01 % per count). A value of 32767 is no value.
