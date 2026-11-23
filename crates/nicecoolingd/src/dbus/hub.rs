@@ -20,7 +20,7 @@ use nicecooling_hwmon::sysfs::Sysfs;
 use tokio::sync::{mpsc, oneshot};
 
 use super::leakshield::LeakshieldInfo;
-use crate::snapshot::{self, BiosSnapshot, SNAPSHOT_FILE};
+use crate::snapshot::{self, BiosSnapshot};
 use crate::state::{
     CalibrationDef, ControlKind, DaemonState, PERSIST_DELAY, Persister, ProfileChannel,
     ProfileFile, STATE_FILE, StateStore, tick_config,
@@ -149,6 +149,8 @@ struct Inner {
     channels: Vec<ChannelMeta>,
     leakshields: Vec<LeakshieldInfo>,
     state_health: String,
+    /// The BIOS snapshot, read once at the start. The restore of a release uses it.
+    snapshot: Option<BiosSnapshot>,
     live: Live,
 }
 
@@ -258,6 +260,24 @@ impl Inner {
             .iter()
             .find(|c| c.id == id)
             .ok_or_else(|| Error::not_found(format!("no Channel {id}")))
+    }
+
+    /// A Channel without a BIOS snapshot entry has no state to go back to. The daemon does not
+    /// take it over. Without any snapshot the Channels are not told apart.
+    fn has_snapshot_entry(&self, meta: &ChannelMeta) -> bool {
+        self.snapshot
+            .as_ref()
+            .is_none_or(|s| s.channel(&meta.device, meta.number).is_some())
+    }
+
+    /// A Channel that a Curve or a fixed Duty can control.
+    fn require_controllable(&self, id: &str) -> Result<&ChannelMeta> {
+        let meta = self.require_channel(id)?;
+        if self.has_snapshot_entry(meta) {
+            Ok(meta)
+        } else {
+            Err(Error::read_only("no-bios-snapshot"))
+        }
     }
 
     fn loop_mut(&mut self, id: &str) -> Result<&mut Loop> {
@@ -386,7 +406,11 @@ impl Inner {
 
     fn channel_view(&self, id: &str) -> Option<ChannelView> {
         let meta = self.channels.iter().find(|c| c.id == id)?;
-        let entry = self.profile.channels.get(id);
+        let entry = self
+            .profile
+            .channels
+            .get(id)
+            .filter(|_| self.has_snapshot_entry(meta));
         let control = match entry.map(|e| e.control) {
             Some(ControlKind::Curve) => "curve",
             Some(ControlKind::Fixed) => "fixed",
@@ -495,6 +519,7 @@ impl Hub {
             channels: init.channels,
             leakshields: init.leakshields,
             state_health: init.state_health,
+            snapshot: snapshot::read_snapshot(&store),
             live: Live::default(),
         }));
         let persister = Persister::spawn(PERSIST_DELAY, {
@@ -628,33 +653,28 @@ impl Hub {
     }
 
     /// Writes the BIOS snapshot attributes of one Channel back.
-    pub fn restore_channel(&self, id: &str) -> std::result::Result<(), String> {
-        let meta = self
-            .inner()
-            .require_channel(id)
-            .map_err(|e| e.to_string())?
-            .clone();
-        let snapshot = self.store.load::<BiosSnapshot>(SNAPSHOT_FILE).value;
-        let chips: Vec<_> = snapshot
-            .chips
-            .iter()
-            .filter(|c| {
-                c.hwmon_name == meta.device.hwmon_name && c.device_path == meta.device.device_path
-            })
-            .map(|c| {
-                let mut chip = c.clone();
-                chip.channels.retain(|ch| ch.channel == meta.number);
-                chip
-            })
-            .filter(|c| !c.channels.is_empty())
-            .collect();
-        if chips.is_empty() {
+    fn restore_channel(&self, id: &str) -> std::result::Result<(), String> {
+        let (meta, snapshot) = {
+            let inner = self.inner();
+            let meta = inner
+                .require_channel(id)
+                .map_err(|e| e.to_string())?
+                .clone();
+            (meta, inner.snapshot.clone())
+        };
+        let snapshot = snapshot.ok_or_else(|| "there is no BIOS snapshot".to_owned())?;
+        let Some(channel) = snapshot.channel(&meta.device, meta.number) else {
             return Err(format!("the BIOS snapshot has no entry for {id}"));
-        }
-        let report = snapshot::restore(
-            &Sysfs::new(&self.sysfs_root),
-            &BiosSnapshot { chips, ..snapshot },
-        );
+        };
+        let one = BiosSnapshot {
+            chips: vec![snapshot::ChipSnapshot {
+                hwmon_name: meta.device.hwmon_name.clone(),
+                device_path: meta.device.device_path.clone(),
+                channels: vec![channel.clone()],
+            }],
+            ..snapshot.clone()
+        };
+        let report = snapshot::restore(&Sysfs::new(&self.sysfs_root), &one);
         if report.matched {
             Ok(())
         } else {
@@ -852,7 +872,7 @@ impl Hub {
             .and_then(|mut curve| curve.set_limits(Some(smoothing_s), Some(step_limit)))
             .map_err(|e| Error::invalid(e.to_string()))?;
         self.edit(|i| {
-            i.require_channel(id)?;
+            i.require_controllable(id)?;
             i.require_sensor(&input)?;
             i.profile.channels.insert(
                 id.to_owned(),
@@ -872,7 +892,7 @@ impl Hub {
     pub fn set_fixed_duty(&self, id: &str, duty: f64) -> Result<()> {
         check_percent("a Duty", duty)?;
         self.edit(|i| {
-            i.require_channel(id)?;
+            i.require_controllable(id)?;
             i.profile.channels.insert(
                 id.to_owned(),
                 ProfileChannel {
@@ -888,14 +908,20 @@ impl Hub {
         })
     }
 
-    /// Gives the Channel back to its Hardware curve and waits for the tick that restores its
-    /// BIOS snapshot attributes.
+    /// Gives the Channel back to its Hardware curve. The tick restores the BIOS snapshot
+    /// attributes and then commits the change of control: a failed restore leaves the control
+    /// as it was.
     pub async fn release_channel(&self, id: &str) -> Result<()> {
-        self.edit(|i| {
-            i.require_channel(id)?;
-            i.profile.channels.remove(id);
-            Ok(())
-        })?;
+        {
+            let inner = self.inner();
+            inner.require_channel(id)?;
+            if inner
+                .channel_view(id)
+                .is_some_and(|v| v.control == "hardware")
+            {
+                return Ok(());
+            }
+        }
         let (tx, rx) = oneshot::channel();
         lock(&self.releases).push((id.to_owned(), tx));
         let wait = self
@@ -908,6 +934,16 @@ impl Hub {
             ))),
             _ => Err(failed("the tick did not restore the Channel in time")),
         }
+    }
+
+    /// The tick side of `release_channel`: restores the Channel, then drops its control.
+    pub fn release_now(&self, id: &str) -> std::result::Result<(), String> {
+        self.restore_channel(id)?;
+        self.edit(|i| {
+            i.profile.channels.remove(id);
+            Ok(())
+        })
+        .map_err(|e| e.to_string())
     }
 
     pub fn create_loop(&self, name: &str) -> Result<String> {

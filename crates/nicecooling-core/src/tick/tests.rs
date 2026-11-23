@@ -17,6 +17,8 @@ struct Chip {
     writes: Vec<(String, u8, bool)>,
     releases: Vec<String>,
     fail_release: bool,
+    /// Channels that the device refuses to take over.
+    blocked: Vec<String>,
 }
 
 impl Chip {
@@ -34,6 +36,10 @@ impl Chip {
 struct SharedChip(Arc<Mutex<Chip>>);
 
 impl ChannelIo for SharedChip {
+    fn can_take_over(&self, id: &str) -> bool {
+        !self.0.lock().unwrap().blocked.iter().any(|b| b == id)
+    }
+
     fn read(&mut self, id: &str) -> io::Result<Readback> {
         let chip = self.0.lock().unwrap();
         let (actual, cached) = &chip.channels[id];
@@ -108,6 +114,7 @@ impl Harness {
             writes: Vec::new(),
             releases: Vec::new(),
             fail_release: false,
+            blocked: Vec::new(),
         }));
         for setup in &config.channels {
             chip.lock().unwrap().set(&setup.id, 200, 5);
@@ -204,6 +211,7 @@ fn stage_order() {
         writes: Vec::new(),
         releases: Vec::new(),
         fail_release: false,
+        blocked: Vec::new(),
     }));
     let standard = Pipeline::standard(Box::new(values), Box::new(SharedChip(chip)));
     assert_eq!(
@@ -482,6 +490,32 @@ fn step_stage_replaces_a_non_finite_previous_duty() {
     h.ctx.channels.get_mut("ch").unwrap().last_duty = Some(f64::NAN);
     h.tick();
     assert_eq!(h.duty("ch"), Some(40.0));
+}
+
+#[test]
+fn channel_the_device_cannot_take_over_stays_on_hardware() {
+    let config = TickConfig {
+        channels: vec![
+            setup("free", Control::Fixed(40.0)),
+            setup("blocked", Control::Fixed(40.0)),
+        ],
+        ..TickConfig::default()
+    };
+    let mut h = Harness::new(config, Duration::ZERO);
+    h.chip.lock().unwrap().blocked.push("blocked".to_owned());
+    h.ticks(3);
+    assert_eq!(h.duty("free"), Some(40.0));
+    assert_eq!(h.duty("blocked"), None);
+    let chip = h.chip.lock().unwrap();
+    assert!(chip.writes.iter().all(|(id, _, _)| id == "free"));
+    assert_eq!(
+        chip.actual("blocked"),
+        Readback {
+            raw: 200,
+            enable: 5
+        }
+    );
+    assert!(chip.releases.is_empty());
 }
 
 #[test]

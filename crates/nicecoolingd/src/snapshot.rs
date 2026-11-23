@@ -44,6 +44,16 @@ pub struct BiosSnapshot {
     pub chips: Vec<ChipSnapshot>,
 }
 
+impl BiosSnapshot {
+    /// The entry of a Channel, or `None` when the snapshot was taken without it.
+    pub fn channel(&self, device: &DeviceIdentity, number: u32) -> Option<&ChannelSnapshot> {
+        self.chips
+            .iter()
+            .find(|c| c.hwmon_name == device.hwmon_name && c.device_path == device.device_path)
+            .and_then(|c| c.channels.iter().find(|c| c.channel == number))
+    }
+}
+
 /// A Warning to raise: event id and source id (`docs/api.md`).
 pub type WarningToRaise = (String, String);
 
@@ -138,8 +148,18 @@ pub fn prepare(
 ) -> io::Result<Vec<WarningToRaise>> {
     let mut warnings = Vec::new();
     if lease.exists() {
-        if load_snapshot(store).is_none_or(|s| s.fallback) {
+        let loaded = load_snapshot(store);
+        if loaded.as_ref().is_none_or(|s| s.fallback) {
             warnings.push(("state-fallback".to_owned(), String::new()));
+        }
+        // The kept snapshot is older than a Channel that appeared after it. The daemon leaves
+        // such a Channel on its Hardware curve: it has no BIOS state to give back.
+        for channel in channels.iter().filter(|c| {
+            loaded
+                .as_ref()
+                .is_some_and(|s| s.value.channel(&c.device, c.number).is_none())
+        }) {
+            warnings.push(("no-bios-snapshot".to_owned(), channel.id.clone()));
         }
         return Ok(warnings);
     }
@@ -563,6 +583,22 @@ mod tests {
         let warnings = env.prepare();
         assert!(warnings.is_empty());
         assert_eq!(fs::read(env.state.join(SNAPSHOT_FILE)).unwrap(), first);
+    }
+
+    #[test]
+    fn restart_with_lease_warns_about_a_channel_without_an_entry() {
+        let env = Env::new("no-entry");
+        env.prepare();
+        env.lease().create("boot", 1).unwrap();
+        let mut snapshot = env.store().load::<BiosSnapshot>(SNAPSHOT_FILE).value;
+        for chip in &mut snapshot.chips {
+            chip.channels.retain(|c| c.channel != 3);
+        }
+        env.store().save(SNAPSHOT_FILE, &snapshot).unwrap();
+        assert_eq!(
+            env.prepare(),
+            [("no-bios-snapshot".to_owned(), "nct6798_pwm3".to_owned())]
+        );
     }
 
     fn disturb(env: &Env) {

@@ -46,6 +46,7 @@ Alarms and Warnings use one identifier each. The app maps an identifier to its t
 | `lost-input` | warning | Channel id |
 | `another-writer` | warning | Channel id |
 | `manual-at-snapshot` | warning | Channel id |
+| `no-bios-snapshot` | warning | Channel id: the kept BIOS snapshot has no entry for the Channel, so the daemon leaves it on its Hardware curve |
 | `state-fallback` | warning | empty: the state loaded from the last-known-good copy, or no copy loaded |
 | `leakshield.<name>` | warning or alarm | Leakshield id; one identifier for each Warning and Alarm that report 1 encodes, named in `docs/protocol/leakshield.md` |
 
@@ -109,7 +110,7 @@ Error names have the prefix `io.github.cappyt.NiceCooling1.Error.`. polkit denia
 | `NotFound` | An object or an identifier does not exist. |
 | `InUse` | A delete of a sensor, Calibration table or Profile that something else uses. A Rule group that targets a Profile uses it. |
 | `DefaultProfile` | A delete of the Default Profile. |
-| `ReadOnly` | A write to a preset or to a Leakshield that is read-only. The message holds the reason identifier. |
+| `ReadOnly` | A write to a preset, to a Leakshield that is read-only, or a `SetCurve` or `SetFixedDuty` on a Channel without a BIOS snapshot entry (`no-bios-snapshot`). The message holds the reason identifier. |
 | `NotVerified` | A Leakshield field that is not Verified for this firmware. The message holds the field id. |
 | `PumpRunning` | `StartAction("refill")` while a Pump channel of the Loop reads above 0 rpm. |
 | `Busy` | The Leakshield write worker already holds a queued write. |
@@ -191,7 +192,7 @@ Create a Calibration table with two points (raw rpm, flow in L/h). The reply hol
 busctl call io.github.cappyt.NiceCooling1 /io/github/cappyt/NiceCooling1 io.github.cappyt.NiceCooling1.Manager SetCalibrationTable 'ssa(dd)' "" "Test table" 2 100 10 200 20
 ```
 
-Give a Channel back to its Hardware curve. The daemon restores the BIOS snapshot attributes of the Channel:
+Give a Channel back to its Hardware curve. The daemon restores the BIOS snapshot attributes of the Channel, then sets `Control` to `hardware`. When the restore fails, the call returns `org.freedesktop.DBus.Error.Failed` and `Control` stays as it was. A Channel that is on its Hardware curve already returns at once:
 
 ```busctl
 busctl --allow-interactive-authorization=true call io.github.cappyt.NiceCooling1 /io/github/cappyt/NiceCooling1/channel/nct6798_pwm1 io.github.cappyt.NiceCooling1.Channel ReleaseToHardware

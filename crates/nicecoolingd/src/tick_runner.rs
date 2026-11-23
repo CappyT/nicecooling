@@ -84,6 +84,16 @@ fn parse<T: std::str::FromStr>(text: String) -> io::Result<T> {
 }
 
 impl ChannelIo for SysfsChannels {
+    /// Without a snapshot the Channels are not told apart: the `state-fallback` Warning covers it.
+    fn can_take_over(&self, id: &str) -> bool {
+        match (&self.snapshot, self.channels.get(id), self.devices.get(id)) {
+            (Some(snapshot), Some((_, number)), Some(device)) => {
+                snapshot.channel(device, *number).is_some()
+            }
+            _ => true,
+        }
+    }
+
     fn read(&mut self, id: &str) -> io::Result<Readback> {
         let (dir, n) = self.channel(id)?;
         Ok(Readback {
@@ -108,12 +118,11 @@ impl ChannelIo for SysfsChannels {
         let (dir, number) = self.channel(id)?.clone();
         let device = &self.devices[id];
         // A Channel that the snapshot does not hold has no BIOS state to go back to.
-        let Some(channel) = self.snapshot.as_ref().and_then(|s| {
-            s.chips
-                .iter()
-                .find(|c| c.hwmon_name == device.hwmon_name && c.device_path == device.device_path)
-                .and_then(|c| c.channels.iter().find(|c| c.channel == number))
-        }) else {
+        let Some(channel) = self
+            .snapshot
+            .as_ref()
+            .and_then(|s| s.channel(device, number))
+        else {
             return Ok(());
         };
         let problems = restore_channel(&dir, channel, &mut |dir, name, value| {
@@ -221,6 +230,24 @@ mod tests {
             }
         );
         std::fs::remove_dir_all(state).unwrap();
+    }
+
+    #[test]
+    fn a_channel_without_a_snapshot_entry_cannot_be_taken_over() {
+        let fake = FakeSysfs::reference_board();
+        let discovery = discover(&fake.sysfs(), None, &Default::default()).unwrap();
+        let mut snapshot =
+            crate::snapshot::take(&discovery.channels, Default::default(), 1).unwrap();
+        for chip in &mut snapshot.chips {
+            chip.channels.retain(|c| c.channel != 3);
+        }
+        let state = std::env::temp_dir().join(format!("nicecooling-take-{}", std::process::id()));
+        let io = SysfsChannels::new(&discovery.channels, Lease::new(&state), "boot".into());
+        // No snapshot at all: nothing tells the Channels apart.
+        assert!(io.can_take_over("nct6798_pwm3"));
+        let io = io.with_snapshot(Some(snapshot));
+        assert!(!io.can_take_over("nct6798_pwm3"));
+        assert!(io.can_take_over("nct6798_pwm4"));
     }
 
     #[test]

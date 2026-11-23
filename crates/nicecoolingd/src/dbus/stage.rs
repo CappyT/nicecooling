@@ -39,11 +39,14 @@ impl Stage for ApiStage {
     }
 
     fn run(&mut self, ctx: &mut TickContext) {
+        // A release commits its change of control, so the new configuration comes after it.
+        for (id, reply) in self.hub.take_releases() {
+            if !reply.is_closed() {
+                let _ = reply.send(self.hub.release_now(&id));
+            }
+        }
         if let Some(config) = self.hub.take_pending_config() {
             ctx.config = config;
-        }
-        for (id, reply) in self.hub.take_releases() {
-            let _ = reply.send(self.hub.restore_channel(&id));
         }
 
         let mut live = Live {

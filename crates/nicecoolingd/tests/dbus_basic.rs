@@ -13,6 +13,9 @@ use nicecooling_api::loops::LoopProxy;
 use nicecooling_api::manager::ManagerProxy;
 use nicecooling_api::sensor::SensorProxy;
 use nicecooling_core::tick::percent_to_raw;
+use nicecoolingd::lease::Lease;
+use nicecoolingd::snapshot::{self, BiosSnapshot};
+use nicecoolingd::state::StateStore;
 use support::{Rig, error_name, none_path, path};
 use tokio::time::timeout;
 use zbus::fdo::ObjectManagerProxy;
@@ -486,7 +489,10 @@ async fn late_chip_sensor_appears_on_the_bus() {
 
 /// Runs `n` ticks on a separate task. `true` when a tick panicked.
 async fn ticks_panic(rig: &mut Rig, n: u64) -> bool {
-    let mut daemon = rig.daemon.take().expect("the daemon ticks in the background");
+    let mut daemon = rig
+        .daemon
+        .take()
+        .expect("the daemon ticks in the background");
     match tokio::spawn(async move {
         daemon.run(Some(n)).await;
         daemon
@@ -518,7 +524,11 @@ async fn non_finite_curve_points_are_refused_and_the_fan_keeps_running() {
                     .set_curve(&input, &points, 0.0, 100.0)
                     .await
                     .unwrap_err();
-                assert_eq!(error_name(&e), format!("{ERR}.InvalidArgument"), "{points:?}");
+                assert_eq!(
+                    error_name(&e),
+                    format!("{ERR}.InvalidArgument"),
+                    "{points:?}"
+                );
             }
         }
         assert!(!ticks_panic(&mut rig, 3).await, "the tick panicked");
@@ -546,7 +556,11 @@ async fn non_finite_calibration_points_are_refused() {
                 .set_calibration_table("", "bad", &points)
                 .await
                 .unwrap_err();
-            assert_eq!(error_name(&e), format!("{ERR}.InvalidArgument"), "{points:?}");
+            assert_eq!(
+                error_name(&e),
+                format!("{ERR}.InvalidArgument"),
+                "{points:?}"
+            );
         }
     }
     assert!(!ticks_panic(&mut rig, 2).await, "the tick panicked");
@@ -734,7 +748,10 @@ async fn concurrent_loop_delete_answers_every_call() {
         };
         let (a, b) = (on().await, on().await);
         let (da, db, name, floor) = tokio::join!(a.delete(), b.delete(), a.name(), b.pump_floor());
-        for e in [da.err(), db.err(), name.err(), floor.err()].into_iter().flatten() {
+        for e in [da.err(), db.err(), name.err(), floor.err()]
+            .into_iter()
+            .flatten()
+        {
             let name = error_name(&e);
             assert!(
                 name.starts_with("org.freedesktop.DBus.Error.Unknown") || name.starts_with(ERR),
@@ -743,4 +760,115 @@ async fn concurrent_loop_delete_answers_every_call() {
         }
     }
     assert!(manager(&rig).await.version().await.is_ok());
+}
+
+/// Starts the daemon on a state directory that holds a lease and a BIOS snapshot, as after a
+/// crash. `edit` changes the snapshot that the daemon finds.
+async fn rig_with_snapshot(edit: impl FnOnce(&mut BiosSnapshot)) -> Rig {
+    Rig::start_with(|fake, state| {
+        let discovery =
+            nicecooling_hwmon::discovery::discover(&fake.sysfs(), None, &Default::default())
+                .unwrap();
+        let mut snapshot = snapshot::take(&discovery.channels, Default::default(), 1).unwrap();
+        edit(&mut snapshot);
+        StateStore::new(state)
+            .save(snapshot::SNAPSHOT_FILE, &snapshot)
+            .unwrap();
+        Lease::new(state).create("test-boot", 1).unwrap();
+    })
+    .await
+}
+
+fn attribute(rig: &Rig, name: &str) -> String {
+    std::fs::read_to_string(rig.fake.attr_path("nct6798", name))
+        .unwrap()
+        .trim()
+        .to_owned()
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_failed_restore_keeps_the_control_and_answers_failed() {
+    // The restore of pwm1 writes an attribute that the chip does not have.
+    let mut rig = rig_with_snapshot(|snapshot| {
+        for chip in &mut snapshot.chips {
+            for channel in chip.channels.iter_mut().filter(|c| c.channel == 1) {
+                channel
+                    .attributes
+                    .insert(0, ("pwm1_missing".into(), "1".into()));
+            }
+        }
+    })
+    .await;
+    rig.ticks(3).await;
+    assert_eq!(attribute(&rig, "pwm1_enable"), "1");
+    rig.tick_in_background();
+    let pwm1 = channel(&rig, "nct6798_pwm1").await;
+    let e = pwm1.release_to_hardware().await.unwrap_err();
+    assert_eq!(error_name(&e), "org.freedesktop.DBus.Error.Failed");
+    assert_eq!(pwm1.control().await.unwrap(), "curve");
+    assert_eq!(
+        pwm1.curve().await.unwrap().0,
+        path(Kind::Sensor, "k10temp_temp1")
+    );
+    // The failed restore wrote part of the snapshot. The Channel is under the Curve again once
+    // the reconcile stage sees the mode change, after its 2 s of driver cache grace.
+    let mut manual = false;
+    for _ in 0..60 {
+        if attribute(&rig, "pwm1_enable") == "1" && attribute(&rig, "pwm1") != "96" {
+            manual = true;
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    assert!(manual, "the Channel did not return to the Curve");
+    assert_eq!(pwm1.control().await.unwrap(), "curve");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_channel_without_a_snapshot_entry_stays_on_its_hardware_curve() {
+    let mut rig = rig_with_snapshot(|snapshot| {
+        for chip in &mut snapshot.chips {
+            chip.channels.retain(|c| c.channel != 1);
+        }
+    })
+    .await;
+    rig.ticks(4).await;
+    // The Default Profile holds a Curve for pwm1. The daemon does not run it.
+    assert_eq!(attribute(&rig, "pwm1_enable"), "5");
+    assert_eq!(attribute(&rig, "pwm1"), "96");
+    let context = rig.daemon.as_mut().unwrap().runner.context();
+    assert!(
+        context
+            .warnings
+            .is_active("no-bios-snapshot", "nct6798_pwm1")
+    );
+    assert!(
+        !context
+            .warnings
+            .is_active("no-bios-snapshot", "nct6798_pwm2")
+    );
+
+    rig.tick_in_background();
+    let pwm1 = channel(&rig, "nct6798_pwm1").await;
+    assert_eq!(pwm1.control().await.unwrap(), "hardware");
+    let input = path(Kind::Sensor, "k10temp_temp1");
+    let e = pwm1
+        .set_curve(&input, &[(20.0, 10.0), (40.0, 50.0)], 0.0, 100.0)
+        .await
+        .unwrap_err();
+    assert_eq!(error_name(&e), format!("{ERR}.ReadOnly"));
+    let e = pwm1.set_fixed_duty(50.0).await.unwrap_err();
+    assert_eq!(error_name(&e), format!("{ERR}.ReadOnly"));
+    // It is on its Hardware curve already: the release has nothing to restore.
+    pwm1.release_to_hardware().await.unwrap();
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert_eq!(pwm1.control().await.unwrap(), "hardware");
+    assert_eq!(attribute(&rig, "pwm1_enable"), "5");
+    assert_eq!(attribute(&rig, "pwm1"), "96");
+    // The other Channels are not affected.
+    channel(&rig, "nct6798_pwm2")
+        .await
+        .set_fixed_duty(60.0)
+        .await
+        .unwrap();
 }

@@ -110,15 +110,20 @@ impl Drop for Rig {
 
 impl Rig {
     pub async fn start() -> Self {
-        Self::build(false).await
+        Self::build(false, |_, _| {}).await
+    }
+
+    /// Runs `prepare` on the fake tree and the state directory before the daemon starts.
+    pub async fn start_with(prepare: impl FnOnce(&FakeSysfs, &std::path::Path)) -> Self {
+        Self::build(false, prepare).await
     }
 
     /// The daemon asks `PolkitAuthorizer`, and a mock `org.freedesktop.PolicyKit1` answers.
     pub async fn start_with_polkit() -> Self {
-        Self::build(true).await
+        Self::build(true, |_, _| {}).await
     }
 
-    async fn build(polkit: bool) -> Self {
+    async fn build(polkit: bool, prepare: impl FnOnce(&FakeSysfs, &std::path::Path)) -> Self {
         let with_loop = true;
         let fake = sim_tree();
         let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
@@ -133,6 +138,7 @@ impl Rig {
         if with_loop {
             fs::write(state.join("state.json"), STATE).unwrap();
         }
+        prepare(&fake, &state);
         let mut options = Options::new(Paths {
             sysfs_root: fake.root().to_owned(),
             state_dir: state.clone(),

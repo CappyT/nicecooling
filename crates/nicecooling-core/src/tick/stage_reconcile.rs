@@ -27,6 +27,11 @@ impl Readback {
 /// The device side of the reconcile stage.
 pub trait ChannelIo: Send {
     fn read(&mut self, channel: &str) -> io::Result<Readback>;
+    /// False when the device has no BIOS state to give the Channel back to. The stage then leaves
+    /// the Channel on its Hardware curve.
+    fn can_take_over(&self, _channel: &str) -> bool {
+        true
+    }
     /// Writes `pwmN`. With `set_manual` it first sets `pwmN_enable` to 1.
     fn write(&mut self, channel: &str, raw: u8, set_manual: bool) -> io::Result<()>;
     /// Gives the Channel back to its BIOS state. The stage calls it once for each Channel that
@@ -59,7 +64,8 @@ struct ChannelState {
 /// Every tick reads the Channel back and checks that it is in manual mode at a raw value that the
 /// daemon wrote in the last `CACHE_GRACE` (or the last one it wrote). A Duty that changes every tick
 /// is not a mismatch, and a mode reset during a ramp is corrected on the next tick.
-/// A Channel that is not under control any more goes back to its BIOS state.
+/// A Channel that is not under control any more goes back to its BIOS state. A Channel that the
+/// device cannot take over stays on its Hardware curve.
 pub struct ReconcileStage {
     io: Box<dyn ChannelIo>,
     state: BTreeMap<String, ChannelState>,
@@ -100,7 +106,11 @@ impl Stage for ReconcileStage {
     fn run(&mut self, ctx: &mut TickContext) {
         let now = ctx.now;
         self.release_left_channels(ctx);
-        for (id, tick) in &ctx.channels {
+        for (id, tick) in &mut ctx.channels {
+            if tick.duty.is_some() && !self.io.can_take_over(id) {
+                tick.duty = None;
+                tick.override_active = false;
+            }
             let Some(duty) = tick.duty else { continue };
             let desired = percent_to_raw(duty);
             let state = self.state.entry(id.clone()).or_default();
