@@ -51,6 +51,8 @@ Alarms and Warnings use one identifier each. The app maps an identifier to its t
 | `leakshield-unknown-firmware` | warning | Leakshield id: the field registry does not cover the firmware of the device, so the daemon sends no Feed message to it. The Warning clears when the registry covers the firmware |
 | `leakshield.<name>` | warning or alarm | Leakshield id; one identifier for each Warning and Alarm that report 1 encodes, named in `docs/protocol/leakshield.md` |
 
+An instance is one raise of an event for one source. Its identifier is `alarm_<n>`, and the counter restarts with the daemon. The alarm response of an instance is the response of its event when the instance rises. A change with `SetResponse` applies to the instances that rise after it. `CancelPoweroff` ends a pending countdown or retry, and the Alarm stays active. It returns `NoPoweroff` for an instance that has no pending poweroff and for an unknown instance. A response `poweroff` with `delay_s` 0 calls logind in the tick where the instance rises.
+
 Each active Alarm or Warning (`Alarms.Active`) and each `AlarmRaised` signal carries `details` (`a{sv}`) for the notification text: `value` (`d`) and `limit` (`d`) in `unit` (`s`) when the event compares a value with a limit, and `sensor` (`o`) when a sensor caused it. A key is absent when it does not apply.
 
 ## Read-only reasons
