@@ -68,7 +68,7 @@ Other directories:
 - `tools/nicecooling-verify`: development binary for Verification writes. It depends on the `nicecoolingd` library (device access, write path, save-settings timer and backups), on `nicecooling-protocol`, on `zbus` and on `tokio`, and enables no test feature. It is not packaged.
 - `tools/re/`: the identifier check, and the generators of the registry and of the hardware check documents. The reverse engineering notes and tools are not in the repository.
 - `data/boards/` and `data/calibration/`: Board files and Calibration table presets.
-- `packaging/`: the spec file, the unit, the drop-in, the bus policy, the polkit policy and rule, the autostart and desktop entries, the icons and the Containerfile of the packaging checks.
+- `packaging/`: the spec file, the unit, the drop-in, the bus policy, the polkit policy and rule, the autostart and desktop entries, and the Containerfiles and scripts of the packaging checks. The icons are in `docs/ui/icons/`.
 - `.github/workflows/ci.yml`: the CI workflow.
 - `docs/protocol/`, `docs/hardware-checks/`, `tests/fixtures/leakshield/fw1019/` and `fw1022/`.
 
@@ -83,6 +83,7 @@ Install paths:
 | bus policy, polkit policy, polkit rule | the three paths in `docs/api.md`, section Authorization |
 | autostart entry (runs `nicecooling --background`) | `/etc/xdg/autostart/io.github.cappyt.NiceCooling.desktop` |
 | desktop entry | `/usr/share/applications/io.github.cappyt.NiceCooling.desktop` |
+| icons from `docs/ui/icons/` | `/usr/share/icons/hicolor/scalable/apps/io.github.cappyt.NiceCooling.svg`, the symbolic icons in `/usr/share/icons/hicolor/symbolic/apps/` |
 | `data/boards/`, `data/calibration/` | `/usr/share/nicecooling/` |
 
 The RPM builds offline from a vendored crates tarball (`cargo vendor`, `cargo build --offline`) and makes one binary package `nicecooling` that holds the daemon and the app.
@@ -498,7 +499,7 @@ Rollback:
 2. If wanted, restore the first Leakshield backup of the device.
 3. Remove the RPM. The RPM owns every file it installs, the polkit rule file included, so removal deletes them.
 
-Files that remain after removal: `/var/lib/nicecooling/` and the user history in `~/.local/share/nicecooling/`.
+Files that remain after removal: `/var/lib/nicecooling/`, and for each user the history in `~/.local/share/nicecooling/`, the app settings in `~/.config/nicecooling/` and the "Start at login" override `~/.config/autostart/io.github.cappyt.NiceCooling.desktop`.
 
 ## Open Questions
 
