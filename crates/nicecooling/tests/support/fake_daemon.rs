@@ -387,6 +387,11 @@ impl Profiles {
     }
 
     #[zbus(property)]
+    fn dwell_until(&self) -> u64 {
+        0
+    }
+
+    #[zbus(property)]
     fn rule_group_state(&self) -> Vec<(String, bool, u64)> {
         self.shared
             .groups

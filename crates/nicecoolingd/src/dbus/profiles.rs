@@ -96,6 +96,11 @@ impl Profiles {
         self.hub.profiles_state().dwell_s
     }
 
+    #[zbus(property)]
+    fn dwell_until(&self) -> u64 {
+        self.hub.dwell_until()
+    }
+
     #[zbus(out_args("profile"))]
     async fn create_profile(
         &self,
@@ -231,6 +236,9 @@ pub async fn run_events(
                 let _ = iface.active_changed(emitter).await;
                 let _ = iface.activation_cause_changed(emitter).await;
                 let _ = iface.active_state_changed(emitter).await;
+            }
+            ProfileEvent::Dwell => {
+                let _ = iface.get().await.dwell_until_changed(emitter).await;
             }
             ProfileEvent::GroupStates => {
                 let _ = iface.get().await.rule_group_state_changed(emitter).await;

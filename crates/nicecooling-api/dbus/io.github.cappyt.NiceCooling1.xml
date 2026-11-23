@@ -395,6 +395,8 @@
     <property name="ImmediateSwitching" type="b" access="read"/>
     <property name="RuleDelaySeconds" type="u" access="read"/>
     <property name="DwellSeconds" type="u" access="read"/>
+    <!-- The end of the running Profile dwell in microseconds since the Unix epoch, 0 when no dwell runs. api.md gives the rule. -->
+    <property name="DwellUntil" type="t" access="read"/>
 
     <!-- copy_from / creates the Profile from the current state. The new Profile takes the Leakshield slot of the Profile it copies (of the active Profile for /). -->
     <method name="CreateProfile">

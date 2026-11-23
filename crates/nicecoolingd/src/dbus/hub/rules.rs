@@ -198,6 +198,19 @@ impl Hub {
         }
     }
 
+    /// The end of the running Profile dwell, 0 when none runs.
+    pub fn dwell_until(&self) -> u64 {
+        self.inner().dwell_until_us
+    }
+
+    fn dwell_publish(&self, until_us: u64) {
+        let changed =
+            std::mem::replace(&mut lock(&self.inner).dwell_until_us, until_us) != until_us;
+        if changed {
+            let _ = self.profile_events.send(ProfileEvent::Dwell);
+        }
+    }
+
     fn rule_publish(&self, states: &[GroupState]) {
         lock(&self.inner).rule_states = states
             .iter()
@@ -233,5 +246,9 @@ impl RuleHost for HubRules {
 
     fn publish(&mut self, states: &[GroupState]) {
         self.0.rule_publish(states);
+    }
+
+    fn publish_dwell(&mut self, until_us: u64) {
+        self.0.dwell_publish(until_us);
     }
 }

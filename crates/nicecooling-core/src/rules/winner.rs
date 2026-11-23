@@ -127,6 +127,16 @@ impl Selector {
         self.cause
     }
 
+    /// The end of the Profile dwell on the clock of `update`. `Some` only while a group's Profile
+    /// is active, Immediate switching is off and the end is after `now`.
+    pub fn dwell_end(&self, now: Duration, timing: &Timing) -> Option<Duration> {
+        if self.cause != Cause::Rule || timing.immediate {
+            return None;
+        }
+        let end = self.since + timing.dwell;
+        (end > now).then_some(end)
+    }
+
     pub fn timers_mut(&mut self) -> &mut DelayTimers {
         &mut self.timers
     }
@@ -475,5 +485,59 @@ mod tests {
             (change.profile.as_str(), change.cause),
             ("profile_2", Cause::Rule)
         );
+    }
+
+    /// A selector whose group 1 holds from `t = 0`: it switches to `profile_2` at `t = 30`.
+    fn switched() -> Selector {
+        let mut selector = selector();
+        let holds = [view("group_1", "profile_2", true)];
+        for t in 0..=30 {
+            selector.update(secs(t), &holds, &timing());
+        }
+        assert_eq!(selector.active(), "profile_2");
+        selector
+    }
+
+    #[test]
+    fn dwell_end_after_rule_switch() {
+        let switched = switched();
+        // The switch is at 30 s: the dwell of 300 s ends at 330 s.
+        assert_eq!(switched.dwell_end(secs(30), &timing()), Some(secs(330)));
+        assert_eq!(switched.dwell_end(secs(329), &timing()), Some(secs(330)));
+        assert_eq!(switched.dwell_end(secs(330), &timing()), None);
+        // The Default Profile has no dwell.
+        assert_eq!(selector().dwell_end(secs(0), &timing()), None);
+    }
+
+    #[test]
+    fn dwell_end_zero_for_manual_and_immediate() {
+        let mut selector = switched();
+        let immediate = Timing {
+            immediate: true,
+            ..timing()
+        };
+        assert_eq!(selector.dwell_end(secs(40), &immediate), None);
+        selector.manual("profile_3", secs(40));
+        assert_eq!(selector.dwell_end(secs(41), &timing()), None);
+        // The cause stays manual until a switch, so no dwell runs after the return either.
+        selector.return_to_automatic();
+        assert_eq!(selector.dwell_end(secs(42), &timing()), None);
+    }
+
+    #[test]
+    fn dwell_end_after_set_rule_timing() {
+        let selector = switched();
+        let short = Timing {
+            dwell: secs(60),
+            ..timing()
+        };
+        assert_eq!(selector.dwell_end(secs(40), &short), Some(secs(90)));
+        // A dwell that is over by now counts as ended.
+        assert_eq!(selector.dwell_end(secs(100), &short), None);
+        let long = Timing {
+            dwell: secs(600),
+            ..timing()
+        };
+        assert_eq!(selector.dwell_end(secs(400), &long), Some(secs(630)));
     }
 }

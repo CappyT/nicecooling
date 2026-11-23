@@ -181,6 +181,8 @@ struct Inner {
     rule_queue: rules::RuleQueue,
     /// (group id, holds, since in microseconds), as the last tick published them.
     rule_states: Vec<(String, bool, u64)>,
+    /// The end of the running Profile dwell in microseconds since the Unix epoch, 0 without one.
+    dwell_until_us: u64,
     presets: Vec<Preset>,
     board: BoardInfo,
     sensors: Vec<SensorMeta>,
@@ -650,6 +652,7 @@ impl Hub {
             activation: 0,
             rule_queue: rules::RuleQueue::first(),
             rule_states: Vec::new(),
+            dwell_until_us: 0,
             presets: init.presets,
             board: init.board,
             sensors: init.sensors,

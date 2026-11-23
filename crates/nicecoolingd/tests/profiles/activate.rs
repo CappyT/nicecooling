@@ -216,3 +216,138 @@ async fn curve_change_goes_into_default_when_no_group_wins() {
     assert!(read(&rig, "profiles/profile_default/profile.json").contains("\"fixed_duty\": 60"));
     assert!(!read(&rig, "profiles/profile_3/profile.json").contains("\"fixed_duty\": 60"));
 }
+
+// The end of the Profile dwell (design D18).
+
+fn tick(rig: &mut Rig) {
+    rig.clock
+        .as_ref()
+        .expect("a rig with a simulated clock")
+        .advance(Duration::from_secs(1));
+    rig.daemon.as_mut().unwrap().runner.tick();
+}
+
+fn active(rig: &Rig) -> String {
+    rig.daemon.as_ref().unwrap().hub.profiles_state().active
+}
+
+fn wall_us() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_micros() as u64
+}
+
+/// A rig whose group for `profile_2` holds all the time, with a Rule delay of 10 s.
+async fn rule_rig(dwell_s: u32) -> Rig {
+    let mut rig = Rig::start_with_clock_and(crate::automatic).await;
+    let proxy = profiles(&rig).await;
+    proxy.set_rule_timing(10, dwell_s).await.unwrap();
+    let two = path(Kind::Profile, "profile_2");
+    proxy
+        .set_rule_groups(vec![crate::rules::group(
+            "group_1",
+            &two,
+            true,
+            vec![crate::rules::always()],
+        )])
+        .await
+        .unwrap();
+    for _ in 0..40 {
+        tick(&mut rig);
+        if active(&rig) == "profile_2" {
+            return rig;
+        }
+    }
+    panic!("the group did not switch the Profile");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn dwell_until_set_and_cleared_at_end() {
+    let mut rig = rule_rig(60).await;
+    let proxy = profiles(&rig).await;
+    tick(&mut rig);
+
+    // The switch has set it: the time of the switch plus the dwell of 60 s.
+    let until = proxy.dwell_until().await.unwrap();
+    let now = wall_us();
+    assert!(
+        (now + 55_000_000..=now + 61_000_000).contains(&until),
+        "{until} against {now}"
+    );
+    // It does not move while the dwell runs.
+    for _ in 0..30 {
+        tick(&mut rig);
+    }
+    assert_eq!(proxy.dwell_until().await.unwrap(), until);
+
+    // Immediate switching removes the dwell, and the end comes back when it is off again.
+    proxy.set_immediate_switching(true).await.unwrap();
+    tick(&mut rig);
+    assert_eq!(proxy.dwell_until().await.unwrap(), 0);
+    proxy.set_immediate_switching(false).await.unwrap();
+    tick(&mut rig);
+    assert_ne!(proxy.dwell_until().await.unwrap(), 0);
+
+    // A longer dwell moves the end to the time of the switch plus the new dwell. The wall clock
+    // runs in real time and the tick clock is simulated, so only the order shows here.
+    proxy.set_rule_timing(10, 100).await.unwrap();
+    tick(&mut rig);
+    let longer = proxy.dwell_until().await.unwrap();
+    assert!(longer > until, "{longer} against {until}");
+
+    // The group goes, and the Default Profile returns when the dwell ends: the property is 0.
+    proxy.set_rule_groups(Vec::new()).await.unwrap();
+    for _ in 0..110 {
+        tick(&mut rig);
+    }
+    assert_eq!(active(&rig), "profile_default");
+    assert_eq!(proxy.dwell_until().await.unwrap(), 0);
+
+    // A manual activation has no dwell.
+    switch_manually(&rig, "profile_3").await;
+    tick(&mut rig);
+    assert_eq!(proxy.dwell_until().await.unwrap(), 0);
+}
+
+async fn switch_manually(rig: &Rig, id: &str) {
+    profiles(rig)
+        .await
+        .activate_profile(&path(Kind::Profile, id))
+        .await
+        .unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn dwell_until_counts_from_daemon_start() {
+    let mut rig = rule_rig(300).await;
+    // 200 s of the dwell pass before the restart: 100 s remain.
+    for _ in 0..200 {
+        tick(&mut rig);
+    }
+    assert_ne!(
+        rig.daemon.as_ref().unwrap().hub.dwell_until(),
+        0,
+        "the dwell runs"
+    );
+
+    rig.restart_daemon().await;
+    let hub = rig.daemon.as_ref().unwrap().hub.clone();
+    hub.set_rule_groups(Vec::new()).unwrap();
+    tick(&mut rig);
+    let until = hub.dwell_until();
+    let now = wall_us();
+    assert!(
+        (now + 295_000_000..=now + 301_000_000).contains(&until),
+        "{until} against {now}"
+    );
+    // After 250 s the old dwell would be over, and the new one still runs.
+    for _ in 0..250 {
+        tick(&mut rig);
+    }
+    assert_eq!(hub.dwell_until(), until);
+    for _ in 0..60 {
+        tick(&mut rig);
+    }
+    assert_eq!(hub.dwell_until(), 0);
+}

@@ -17,6 +17,10 @@ pub trait RuleHost: Send {
 
     /// A group started or stopped holding, or the list of groups changed.
     fn publish(&mut self, states: &[GroupState]);
+
+    /// The end of the running Profile dwell changed: its wall time in microseconds since the Unix
+    /// epoch, 0 when no dwell runs.
+    fn publish_dwell(&mut self, _until_us: u64) {}
 }
 
 /// The active Profile as the daemon state has it at the start.
@@ -54,6 +58,8 @@ pub struct RulesStage {
     timing: Timing,
     selector: Option<Selector>,
     tracker: EdgeTracker,
+    /// The end of the dwell that the host knows, on the tick clock.
+    dwell_end: Option<Duration>,
 }
 
 impl RulesStage {
@@ -153,6 +159,15 @@ impl Stage for RulesStage {
             && let Some(config) = host.activate(&change.profile, change.cause)
         {
             ctx.config = config;
+        }
+        // The wall time is fixed when the end of the dwell changes, so a tick that runs late does
+        // not move it.
+        let end = selector.dwell_end(ctx.now, &self.timing);
+        if end != self.dwell_end {
+            self.dwell_end = end;
+            host.publish_dwell(end.map_or(0, |end| {
+                input.wall_us + u64::try_from((end - ctx.now).as_micros()).unwrap_or(0)
+            }));
         }
     }
 }

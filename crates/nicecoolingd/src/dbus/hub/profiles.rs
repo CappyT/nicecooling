@@ -39,6 +39,8 @@ pub enum ProfileEvent {
     /// The Leakshield part of an activation ended. `state` is `applied` or `leakshield-failed`.
     /// `RuleGroupState` changed.
     GroupStates,
+    /// `DwellUntil` changed.
+    Dwell,
     Activated {
         profile: String,
         cause: &'static str,

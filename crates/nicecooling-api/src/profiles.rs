@@ -31,6 +31,9 @@ pub trait Profiles {
     fn rule_delay_seconds(&self) -> zbus::Result<u32>;
     #[zbus(property)]
     fn dwell_seconds(&self) -> zbus::Result<u32>;
+    /// The end of the running Profile dwell in microseconds, 0 when none runs.
+    #[zbus(property)]
+    fn dwell_until(&self) -> zbus::Result<u64>;
     /// (group id, holds, since us or 0)
     #[zbus(property)]
     fn rule_group_state(&self) -> zbus::Result<Vec<(String, bool, u64)>>;
