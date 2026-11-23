@@ -1,0 +1,284 @@
+# Fake sysfs tree of the reference Board, taken from the real /sys (read only) on 2026-11-23.
+# Kinds: dir <path> | file <path> <octal mode> <value> | link <path> <target>.
+# Paths are relative to the sysfs root. Modes are normalized to 644 (writable) or 444.
+dir bus/hid/drivers/aquacomputer_d5next
+dir bus/pci/drivers/amdgpu
+dir bus/pci/drivers/k10temp
+dir bus/platform/drivers/asus-ec-sensors
+dir bus/platform/drivers/nct6775
+dir devices/pci0000:00/0000:00:01.2/0000:02:00.0/0000:03:08.0/0000:08:00.1/usb1/1-5/1-5.1/1-5.1:1.1/0003:0C70:F014.001F
+dir devices/pci0000:00/0000:00:03.1/0000:0b:00.0/0000:0c:00.0/0000:0d:00.0
+dir devices/pci0000:00/0000:00:18.3
+dir devices/platform/asus-ec-sensors
+dir devices/platform/nct6775.656
+link class/hwmon/hwmon2 ../../devices/pci0000:00/0000:00:03.1/0000:0b:00.0/0000:0c:00.0/0000:0d:00.0/hwmon/hwmon2
+link devices/pci0000:00/0000:00:03.1/0000:0b:00.0/0000:0c:00.0/0000:0d:00.0/hwmon/hwmon2/device ../../../0000:0d:00.0
+link devices/pci0000:00/0000:00:03.1/0000:0b:00.0/0000:0c:00.0/0000:0d:00.0/driver ../../../../../../bus/pci/drivers/amdgpu
+link class/hwmon/hwmon3 ../../devices/pci0000:00/0000:00:18.3/hwmon/hwmon3
+link devices/pci0000:00/0000:00:18.3/hwmon/hwmon3/device ../../../0000:00:18.3
+link devices/pci0000:00/0000:00:18.3/driver ../../../bus/pci/drivers/k10temp
+link class/hwmon/hwmon6 ../../devices/pci0000:00/0000:00:01.2/0000:02:00.0/0000:03:08.0/0000:08:00.1/usb1/1-5/1-5.1/1-5.1:1.1/0003:0C70:F014.001F/hwmon/hwmon6
+link devices/pci0000:00/0000:00:01.2/0000:02:00.0/0000:03:08.0/0000:08:00.1/usb1/1-5/1-5.1/1-5.1:1.1/0003:0C70:F014.001F/hwmon/hwmon6/device ../../../0003:0C70:F014.001F
+link devices/pci0000:00/0000:00:01.2/0000:02:00.0/0000:03:08.0/0000:08:00.1/usb1/1-5/1-5.1/1-5.1:1.1/0003:0C70:F014.001F/driver ../../../../../../../../../../../bus/hid/drivers/aquacomputer_d5next
+link class/hwmon/hwmon7 ../../devices/platform/asus-ec-sensors/hwmon/hwmon7
+link devices/platform/asus-ec-sensors/hwmon/hwmon7/device ../../../asus-ec-sensors
+link devices/platform/asus-ec-sensors/driver ../../../bus/platform/drivers/asus-ec-sensors
+link class/hwmon/hwmon9 ../../devices/platform/nct6775.656/hwmon/hwmon9
+link devices/platform/nct6775.656/hwmon/hwmon9/device ../../../nct6775.656
+link devices/platform/nct6775.656/driver ../../../bus/platform/drivers/nct6775
+file devices/pci0000:00/0000:00:03.1/0000:0b:00.0/0000:0c:00.0/0000:0d:00.0/hwmon/hwmon2/fan1_input 444 0
+file devices/pci0000:00/0000:00:03.1/0000:0b:00.0/0000:0c:00.0/0000:0d:00.0/hwmon/hwmon2/in0_input 444 486
+file devices/pci0000:00/0000:00:03.1/0000:0b:00.0/0000:0c:00.0/0000:0d:00.0/hwmon/hwmon2/in0_label 444 vddgfx
+file devices/pci0000:00/0000:00:03.1/0000:0b:00.0/0000:0c:00.0/0000:0d:00.0/hwmon/hwmon2/name 444 amdgpu
+file devices/pci0000:00/0000:00:03.1/0000:0b:00.0/0000:0c:00.0/0000:0d:00.0/hwmon/hwmon2/power1_average 444 12000000
+file devices/pci0000:00/0000:00:03.1/0000:0b:00.0/0000:0c:00.0/0000:0d:00.0/hwmon/hwmon2/power1_label 444 PPT
+file devices/pci0000:00/0000:00:03.1/0000:0b:00.0/0000:0c:00.0/0000:0d:00.0/hwmon/hwmon2/pwm1 644 0
+file devices/pci0000:00/0000:00:03.1/0000:0b:00.0/0000:0c:00.0/0000:0d:00.0/hwmon/hwmon2/pwm1_enable 644 2
+file devices/pci0000:00/0000:00:03.1/0000:0b:00.0/0000:0c:00.0/0000:0d:00.0/hwmon/hwmon2/pwm1_max 644 255
+file devices/pci0000:00/0000:00:03.1/0000:0b:00.0/0000:0c:00.0/0000:0d:00.0/hwmon/hwmon2/pwm1_min 644 0
+file devices/pci0000:00/0000:00:03.1/0000:0b:00.0/0000:0c:00.0/0000:0d:00.0/hwmon/hwmon2/temp1_input 444 27000
+file devices/pci0000:00/0000:00:03.1/0000:0b:00.0/0000:0c:00.0/0000:0d:00.0/hwmon/hwmon2/temp1_label 444 edge
+file devices/pci0000:00/0000:00:18.3/hwmon/hwmon3/name 444 k10temp
+file devices/pci0000:00/0000:00:18.3/hwmon/hwmon3/temp1_input 444 61875
+file devices/pci0000:00/0000:00:18.3/hwmon/hwmon3/temp1_label 444 Tctl
+file devices/pci0000:00/0000:00:18.3/hwmon/hwmon3/temp3_input 444 58500
+file devices/pci0000:00/0000:00:18.3/hwmon/hwmon3/temp3_label 444 Tccd1
+file devices/pci0000:00/0000:00:18.3/hwmon/hwmon3/temp4_input 444 40000
+file devices/pci0000:00/0000:00:18.3/hwmon/hwmon3/temp4_label 444 Tccd2
+file devices/pci0000:00/0000:00:01.2/0000:02:00.0/0000:03:08.0/0000:08:00.1/usb1/1-5/1-5.1/1-5.1:1.1/0003:0C70:F014.001F/hwmon/hwmon6/fan1_input 444 13700
+file devices/pci0000:00/0000:00:01.2/0000:02:00.0/0000:03:08.0/0000:08:00.1/usb1/1-5/1-5.1/1-5.1:1.1/0003:0C70:F014.001F/hwmon/hwmon6/fan1_label 444 Pressure [ubar]
+file devices/pci0000:00/0000:00:01.2/0000:02:00.0/0000:03:08.0/0000:08:00.1/usb1/1-5/1-5.1/1-5.1:1.1/0003:0C70:F014.001F/hwmon/hwmon6/fan2_input 444 
+file devices/pci0000:00/0000:00:01.2/0000:02:00.0/0000:03:08.0/0000:08:00.1/usb1/1-5/1-5.1/1-5.1:1.1/0003:0C70:F014.001F/hwmon/hwmon6/fan2_label 444 User-Provided Pump Speed
+file devices/pci0000:00/0000:00:01.2/0000:02:00.0/0000:03:08.0/0000:08:00.1/usb1/1-5/1-5.1/1-5.1:1.1/0003:0C70:F014.001F/hwmon/hwmon6/fan3_input 444 
+file devices/pci0000:00/0000:00:01.2/0000:02:00.0/0000:03:08.0/0000:08:00.1/usb1/1-5/1-5.1/1-5.1:1.1/0003:0C70:F014.001F/hwmon/hwmon6/fan3_label 444 User-Provided Flow [dL/h]
+file devices/pci0000:00/0000:00:01.2/0000:02:00.0/0000:03:08.0/0000:08:00.1/usb1/1-5/1-5.1/1-5.1:1.1/0003:0C70:F014.001F/hwmon/hwmon6/fan4_input 444 270
+file devices/pci0000:00/0000:00:01.2/0000:02:00.0/0000:03:08.0/0000:08:00.1/usb1/1-5/1-5.1/1-5.1:1.1/0003:0C70:F014.001F/hwmon/hwmon6/fan4_label 444 Reservoir Volume [ml]
+file devices/pci0000:00/0000:00:01.2/0000:02:00.0/0000:03:08.0/0000:08:00.1/usb1/1-5/1-5.1/1-5.1:1.1/0003:0C70:F014.001F/hwmon/hwmon6/fan5_input 444 162
+file devices/pci0000:00/0000:00:01.2/0000:02:00.0/0000:03:08.0/0000:08:00.1/usb1/1-5/1-5.1/1-5.1:1.1/0003:0C70:F014.001F/hwmon/hwmon6/fan5_label 444 Reservoir Filled [ml]
+file devices/pci0000:00/0000:00:01.2/0000:02:00.0/0000:03:08.0/0000:08:00.1/usb1/1-5/1-5.1/1-5.1:1.1/0003:0C70:F014.001F/hwmon/hwmon6/name 444 leakshield
+file devices/pci0000:00/0000:00:01.2/0000:02:00.0/0000:03:08.0/0000:08:00.1/usb1/1-5/1-5.1/1-5.1:1.1/0003:0C70:F014.001F/hwmon/hwmon6/temp1_input 444 0
+file devices/pci0000:00/0000:00:01.2/0000:02:00.0/0000:03:08.0/0000:08:00.1/usb1/1-5/1-5.1/1-5.1:1.1/0003:0C70:F014.001F/hwmon/hwmon6/temp1_label 444 Temperature 1
+file devices/pci0000:00/0000:00:01.2/0000:02:00.0/0000:03:08.0/0000:08:00.1/usb1/1-5/1-5.1/1-5.1:1.1/0003:0C70:F014.001F/hwmon/hwmon6/temp2_input 444 10
+file devices/pci0000:00/0000:00:01.2/0000:02:00.0/0000:03:08.0/0000:08:00.1/usb1/1-5/1-5.1/1-5.1:1.1/0003:0C70:F014.001F/hwmon/hwmon6/temp2_label 444 Temperature 2
+file devices/platform/asus-ec-sensors/hwmon/hwmon7/curr1_input 444 74000
+file devices/platform/asus-ec-sensors/hwmon/hwmon7/curr1_label 444 CPU
+file devices/platform/asus-ec-sensors/hwmon/hwmon7/fan1_input 444 0
+file devices/platform/asus-ec-sensors/hwmon/hwmon7/fan1_label 444 CPU_Opt
+file devices/platform/asus-ec-sensors/hwmon/hwmon7/fan2_input 444 960
+file devices/platform/asus-ec-sensors/hwmon/hwmon7/fan2_label 444 Water_Flow
+file devices/platform/asus-ec-sensors/hwmon/hwmon7/in0_input 444 1351
+file devices/platform/asus-ec-sensors/hwmon/hwmon7/in0_label 444 CPU Core
+file devices/platform/asus-ec-sensors/hwmon/hwmon7/name 444 asusec
+file devices/platform/asus-ec-sensors/hwmon/hwmon7/temp1_input 444 64000
+file devices/platform/asus-ec-sensors/hwmon/hwmon7/temp1_label 444 Chipset
+file devices/platform/asus-ec-sensors/hwmon/hwmon7/temp2_input 444 50000
+file devices/platform/asus-ec-sensors/hwmon/hwmon7/temp2_label 444 CPU
+file devices/platform/asus-ec-sensors/hwmon/hwmon7/temp3_input 444 39000
+file devices/platform/asus-ec-sensors/hwmon/hwmon7/temp3_label 444 Motherboard
+file devices/platform/asus-ec-sensors/hwmon/hwmon7/temp4_input 444 29000
+file devices/platform/asus-ec-sensors/hwmon/hwmon7/temp4_label 444 T_Sensor
+file devices/platform/asus-ec-sensors/hwmon/hwmon7/temp5_input 444 52000
+file devices/platform/asus-ec-sensors/hwmon/hwmon7/temp5_label 444 VRM
+file devices/platform/asus-ec-sensors/hwmon/hwmon7/temp6_input 444 
+file devices/platform/asus-ec-sensors/hwmon/hwmon7/temp6_label 444 Water_In
+file devices/platform/asus-ec-sensors/hwmon/hwmon7/temp7_input 444 
+file devices/platform/asus-ec-sensors/hwmon/hwmon7/temp7_label 444 Water_Out
+file devices/platform/nct6775.656/hwmon/hwmon9/fan1_input 444 0
+file devices/platform/nct6775.656/hwmon/hwmon9/fan2_input 444 0
+file devices/platform/nct6775.656/hwmon/hwmon9/fan3_input 444 629
+file devices/platform/nct6775.656/hwmon/hwmon9/fan4_input 444 0
+file devices/platform/nct6775.656/hwmon/hwmon9/fan5_input 444 0
+file devices/platform/nct6775.656/hwmon/hwmon9/fan6_input 444 4821
+file devices/platform/nct6775.656/hwmon/hwmon9/fan7_input 444 0
+file devices/platform/nct6775.656/hwmon/hwmon9/in0_input 444 1360
+file devices/platform/nct6775.656/hwmon/hwmon9/name 444 nct6798
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm1 644 255
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm1_auto_point1_pwm 644 255
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm1_auto_point1_temp 644 0
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm1_auto_point2_pwm 644 255
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm1_auto_point2_temp 644 100000
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm1_auto_point3_pwm 644 255
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm1_auto_point3_temp 644 100000
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm1_auto_point4_pwm 644 255
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm1_auto_point4_temp 644 100000
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm1_auto_point5_pwm 644 255
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm1_auto_point5_temp 644 100000
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm1_crit_temp_tolerance 644 2000
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm1_enable 644 5
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm1_floor 644 1
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm1_mode 644 1
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm1_start 644 1
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm1_step_down_time 644 0
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm1_step_up_time 644 0
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm1_stop_time 644 24000
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm1_target_temp 644 0
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm1_temp_sel 644 8
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm1_temp_tolerance 644 0
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm2 644 255
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm2_auto_point1_pwm 644 255
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm2_auto_point1_temp 644 0
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm2_auto_point2_pwm 644 255
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm2_auto_point2_temp 644 100000
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm2_auto_point3_pwm 644 255
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm2_auto_point3_temp 644 100000
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm2_auto_point4_pwm 644 255
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm2_auto_point4_temp 644 100000
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm2_auto_point5_pwm 644 255
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm2_auto_point5_temp 644 100000
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm2_crit_temp_tolerance 644 2000
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm2_enable 644 5
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm2_floor 644 1
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm2_mode 644 1
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm2_start 644 1
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm2_step_down_time 644 0
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm2_step_up_time 644 0
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm2_stop_time 644 24000
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm2_target_temp 644 50000
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm2_temp_sel 644 8
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm2_temp_tolerance 644 0
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm2_weight_duty_base 644 0
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm2_weight_duty_step 644 0
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm2_weight_temp_sel 644 0
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm2_weight_temp_step 644 0
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm2_weight_temp_step_base 644 0
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm2_weight_temp_step_tol 644 0
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm3 644 96
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm3_auto_point1_pwm 644 51
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm3_auto_point1_temp 644 20000
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm3_auto_point2_pwm 644 102
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm3_auto_point2_temp 644 30000
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm3_auto_point3_pwm 644 255
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm3_auto_point3_temp 644 45000
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm3_auto_point4_pwm 644 255
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm3_auto_point4_temp 644 100000
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm3_auto_point5_pwm 644 255
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm3_auto_point5_temp 644 125000
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm3_crit_temp_tolerance 644 2000
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm3_enable 644 5
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm3_floor 644 1
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm3_mode 644 1
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm3_start 644 1
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm3_step_down_time 644 1600
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm3_step_up_time 644 800
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm3_stop_time 644 24000
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm3_target_temp 644 0
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm3_temp_sel 644 9
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm3_temp_tolerance 644 0
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm4 644 255
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm4_auto_point1_pwm 644 255
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm4_auto_point1_temp 644 0
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm4_auto_point2_pwm 644 255
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm4_auto_point2_temp 644 100000
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm4_auto_point3_pwm 644 255
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm4_auto_point3_temp 644 100000
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm4_auto_point4_pwm 644 255
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm4_auto_point4_temp 644 100000
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm4_auto_point5_pwm 644 255
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm4_auto_point5_temp 644 100000
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm4_crit_temp_tolerance 644 2000
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm4_enable 644 5
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm4_floor 644 1
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm4_mode 644 1
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm4_start 644 1
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm4_step_down_time 644 0
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm4_step_up_time 644 0
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm4_stop_time 644 24000
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm4_target_temp 644 0
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm4_temp_sel 644 8
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm4_temp_tolerance 644 0
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm5 644 255
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm5_auto_point1_pwm 644 255
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm5_auto_point1_temp 644 0
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm5_auto_point2_pwm 644 255
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm5_auto_point2_temp 644 100000
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm5_auto_point3_pwm 644 255
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm5_auto_point3_temp 644 100000
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm5_auto_point4_pwm 644 255
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm5_auto_point4_temp 644 100000
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm5_auto_point5_pwm 644 255
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm5_auto_point5_temp 644 100000
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm5_crit_temp_tolerance 644 2000
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm5_enable 644 5
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm5_floor 644 1
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm5_mode 644 1
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm5_start 644 1
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm5_step_down_time 644 0
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm5_step_up_time 644 0
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm5_stop_time 644 24000
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm5_target_temp 644 0
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm5_temp_sel 644 8
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm5_temp_tolerance 644 0
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm6 644 255
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm6_auto_point1_pwm 644 153
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm6_auto_point1_temp 644 20000
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm6_auto_point2_pwm 644 204
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm6_auto_point2_temp 644 30000
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm6_auto_point3_pwm 644 255
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm6_auto_point3_temp 644 40000
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm6_auto_point4_pwm 644 255
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm6_auto_point4_temp 644 100000
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm6_auto_point5_pwm 644 255
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm6_auto_point5_temp 644 125000
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm6_crit_temp_tolerance 644 2000
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm6_enable 644 0
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm6_floor 644 1
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm6_mode 644 1
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm6_start 644 1
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm6_step_down_time 644 0
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm6_step_up_time 644 0
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm6_stop_time 644 24000
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm6_target_temp 644 0
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm6_temp_sel 644 9
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm6_temp_tolerance 644 0
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm7 644 255
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm7_auto_point1_pwm 644 255
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm7_auto_point1_temp 644 0
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm7_auto_point2_pwm 644 255
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm7_auto_point2_temp 644 100000
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm7_auto_point3_pwm 644 255
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm7_auto_point3_temp 644 100000
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm7_auto_point4_pwm 644 255
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm7_auto_point4_temp 644 100000
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm7_auto_point5_pwm 644 255
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm7_auto_point5_temp 644 100000
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm7_crit_temp_tolerance 644 2000
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm7_enable 644 5
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm7_floor 644 1
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm7_mode 644 1
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm7_start 644 1
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm7_step_down_time 644 0
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm7_step_up_time 644 0
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm7_stop_time 644 24000
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm7_target_temp 644 0
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm7_temp_sel 644 8
+file devices/platform/nct6775.656/hwmon/hwmon9/pwm7_temp_tolerance 644 0
+file devices/platform/nct6775.656/hwmon/hwmon9/temp10_input 444 29000
+file devices/platform/nct6775.656/hwmon/hwmon9/temp10_label 444 Virtual_TEMP
+file devices/platform/nct6775.656/hwmon/hwmon9/temp11_input 444 0
+file devices/platform/nct6775.656/hwmon/hwmon9/temp11_label 444 PCH_CHIP_CPU_MAX_TEMP
+file devices/platform/nct6775.656/hwmon/hwmon9/temp12_input 444 0
+file devices/platform/nct6775.656/hwmon/hwmon9/temp12_label 444 PCH_CHIP_TEMP
+file devices/platform/nct6775.656/hwmon/hwmon9/temp13_input 444 62000
+file devices/platform/nct6775.656/hwmon/hwmon9/temp13_label 444 TSI0_TEMP
+file devices/platform/nct6775.656/hwmon/hwmon9/temp14_input 444 64500
+file devices/platform/nct6775.656/hwmon/hwmon9/temp14_label 444 TSI1_TEMP
+file devices/platform/nct6775.656/hwmon/hwmon9/temp1_input 444 39000
+file devices/platform/nct6775.656/hwmon/hwmon9/temp1_label 444 SYSTIN
+file devices/platform/nct6775.656/hwmon/hwmon9/temp2_input 444 42500
+file devices/platform/nct6775.656/hwmon/hwmon9/temp2_label 444 CPUTIN
+file devices/platform/nct6775.656/hwmon/hwmon9/temp3_input 444 26000
+file devices/platform/nct6775.656/hwmon/hwmon9/temp3_label 444 AUXTIN0
+file devices/platform/nct6775.656/hwmon/hwmon9/temp4_input 444 127000
+file devices/platform/nct6775.656/hwmon/hwmon9/temp4_label 444 AUXTIN1
+file devices/platform/nct6775.656/hwmon/hwmon9/temp5_input 444 104000
+file devices/platform/nct6775.656/hwmon/hwmon9/temp5_label 444 AUXTIN2
+file devices/platform/nct6775.656/hwmon/hwmon9/temp6_input 444 32000
+file devices/platform/nct6775.656/hwmon/hwmon9/temp6_label 444 AUXTIN3
+file devices/platform/nct6775.656/hwmon/hwmon9/temp7_input 444 50000
+file devices/platform/nct6775.656/hwmon/hwmon9/temp7_label 444 AUXTIN4
+file devices/platform/nct6775.656/hwmon/hwmon9/temp8_input 444 50000
+file devices/platform/nct6775.656/hwmon/hwmon9/temp8_label 444 PECI Agent 0 Calibration
+file devices/platform/nct6775.656/hwmon/hwmon9/temp9_input 444 29000
+file devices/platform/nct6775.656/hwmon/hwmon9/temp9_label 444 Virtual_TEMP
+file class/dmi/id/board_vendor 444 ASUSTeK COMPUTER INC.
+file class/dmi/id/board_name 444 ROG CROSSHAIR VIII DARK HERO

@@ -7,6 +7,10 @@ publish.workspace = true
 [lints]
 workspace = true
 
+[features]
+# An in-memory sysfs tree for tests. Only dev-dependencies enable it.
+fake = []
+
 [dependencies]
 serde.workspace = true
 toml.workspace = true

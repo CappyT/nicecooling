@@ -1,0 +1,135 @@
+schema_version = 1
+id = "asus_rog_crosshair_viii_dark_hero"
+
+[match]
+board_vendor = "ASUSTeK COMPUTER INC."
+board_name = "ROG CROSSHAIR VIII DARK HERO"
+
+# Channel names come from LibreHardwareMonitor.
+[[channel]]
+hwmon_name = "nct6798"
+pwm = 1
+name = "Chassis Fan 1"
+
+[[channel]]
+hwmon_name = "nct6798"
+pwm = 2
+name = "CPU Fan"
+
+[[channel]]
+hwmon_name = "nct6798"
+pwm = 3
+name = "Chassis Fan 2"
+
+[[channel]]
+hwmon_name = "nct6798"
+pwm = 4
+name = "Chassis Fan 3"
+
+[[channel]]
+hwmon_name = "nct6798"
+pwm = 5
+name = "High Amp Fan"
+
+[[channel]]
+hwmon_name = "nct6798"
+pwm = 6
+name = "Waterpump"
+pump = true
+
+[[channel]]
+hwmon_name = "nct6798"
+pwm = 7
+name = "AIO Pump"
+
+# Tachometer of each Channel: fanN of nct6798 belongs to pwmN.
+[[sensor]]
+hwmon_name = "nct6798"
+attribute = "fan1"
+name = "Chassis Fan 1 speed"
+
+[[sensor]]
+hwmon_name = "nct6798"
+attribute = "fan2"
+name = "CPU Fan speed"
+
+[[sensor]]
+hwmon_name = "nct6798"
+attribute = "fan3"
+name = "Chassis Fan 2 speed"
+
+[[sensor]]
+hwmon_name = "nct6798"
+attribute = "fan4"
+name = "Chassis Fan 3 speed"
+
+[[sensor]]
+hwmon_name = "nct6798"
+attribute = "fan5"
+name = "High Amp Fan speed"
+
+[[sensor]]
+hwmon_name = "nct6798"
+attribute = "fan6"
+name = "Waterpump speed"
+
+[[sensor]]
+hwmon_name = "nct6798"
+attribute = "fan7"
+name = "AIO Pump speed"
+
+# Sensors of the embedded controller (asus_ec_sensors).
+[[sensor]]
+hwmon_name = "asusec"
+attribute = "temp1"
+name = "Chipset"
+
+[[sensor]]
+hwmon_name = "asusec"
+attribute = "temp2"
+name = "CPU"
+
+[[sensor]]
+hwmon_name = "asusec"
+attribute = "temp3"
+name = "Motherboard"
+
+[[sensor]]
+hwmon_name = "asusec"
+attribute = "temp4"
+name = "T Sensor"
+
+[[sensor]]
+hwmon_name = "asusec"
+attribute = "temp5"
+name = "VRM"
+
+[[sensor]]
+hwmon_name = "asusec"
+attribute = "temp6"
+name = "Water in"
+
+[[sensor]]
+hwmon_name = "asusec"
+attribute = "temp7"
+name = "Water out"
+
+[[sensor]]
+hwmon_name = "asusec"
+attribute = "fan1"
+name = "CPU optional fan"
+
+[[sensor]]
+hwmon_name = "asusec"
+attribute = "fan2"
+name = "Water flow"
+
+[[sensor]]
+hwmon_name = "asusec"
+attribute = "curr1"
+name = "CPU current"
+
+[[sensor]]
+hwmon_name = "asusec"
+attribute = "in0"
+name = "CPU Core"
