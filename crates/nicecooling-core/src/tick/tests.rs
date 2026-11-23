@@ -38,6 +38,10 @@ impl Chip {
 struct SharedChip(Arc<Mutex<Chip>>);
 
 impl ChannelIo for SharedChip {
+    fn channel_ids(&self) -> Vec<String> {
+        self.0.lock().unwrap().channels.keys().cloned().collect()
+    }
+
     fn can_take_over(&self, id: &str) -> bool {
         !self.0.lock().unwrap().blocked.iter().any(|b| b == id)
     }
@@ -808,4 +812,138 @@ fn stage_decodes_and_clears_leakshield_bits() {
     set(&h, 0);
     h.tick();
     assert_eq!(h.ctx.alarms.iter().count(), 0);
+}
+
+/// A pump on `chip_pwm6` and a Channel of each kind: Hardware curve, Curve and fixed Duty.
+fn stopped_pump_harness() -> Harness {
+    Harness::new(
+        TickConfig {
+            channels: vec![
+                setup("chip_pwm6", Control::Hardware),
+                setup("ch_hw", Control::Hardware),
+                setup("ch_curve", curve("t", 0.0, 5.0)),
+                setup("ch_fixed", Control::Fixed(30.0)),
+            ],
+            loops: vec![pump_loop(&["chip_pwm6"])],
+            ..TickConfig::default()
+        },
+        Duration::ZERO,
+    )
+}
+
+const ALL: [&str; 4] = ["chip_pwm6", "ch_hw", "ch_curve", "ch_fixed"];
+
+fn tick_pump(h: &mut Harness, rpm: f64) {
+    h.set("t", 40.0);
+    h.set("chip_fan6", rpm);
+    h.set("chip_pwm6", 120.0);
+    h.tick();
+}
+
+/// Ticks with a stopped pump until the Alarm has risen, and returns the tick where it rose.
+fn stop_the_pump(h: &mut Harness) {
+    for _ in 0..5 {
+        tick_pump(h, 0.0);
+        assert!(!h.ctx.alarms.any_active("pump-stop"));
+    }
+    // A Curve and a fixed Duty hold the Duty of the Curve and of the fixed value.
+    assert_eq!(h.duty("ch_curve"), Some(40.0));
+    assert_eq!(h.duty("ch_fixed"), Some(30.0));
+    tick_pump(h, 0.0);
+}
+
+#[test]
+fn all_channels_100_in_same_tick() {
+    let mut h = stopped_pump_harness();
+    stop_the_pump(&mut h);
+    assert!(h.ctx.alarms.is_active("pump-stop", "loop_1"));
+    for id in ALL {
+        assert_eq!(h.duty(id), Some(100.0), "{id}");
+        assert!(h.ctx.channels[id].override_active, "{id}");
+        // 100% in the same tick, not after the step limit: the Curve was at 40%.
+        assert_eq!(
+            h.chip.lock().unwrap().actual(id),
+            Readback {
+                raw: 255,
+                enable: 0
+            },
+            "{id}"
+        );
+    }
+}
+
+#[test]
+fn hardware_curve_channel_set_to_100() {
+    let mut h = stopped_pump_harness();
+    for _ in 0..5 {
+        tick_pump(&mut h, 0.0);
+        // A Channel on its Hardware curve is left alone until the Alarm rises.
+        assert_eq!(h.duty("ch_hw"), None);
+        assert_eq!(h.chip.lock().unwrap().actual("ch_hw").enable, 5);
+    }
+    tick_pump(&mut h, 0.0);
+    assert_eq!(h.duty("ch_hw"), Some(100.0));
+    let chip = h.chip.lock().unwrap();
+    assert!(chip.writes.contains(&("ch_hw".to_owned(), 255, true)));
+}
+
+/// Runs the first 6 ticks, then `running` ticks with a pump at 3000 rpm.
+fn pump_restarts(h: &mut Harness, running: usize) {
+    stop_the_pump(h);
+    for _ in 0..running {
+        tick_pump(h, 3000.0);
+    }
+}
+
+#[test]
+fn closes_after_10s() {
+    let mut h = stopped_pump_harness();
+    // The first running tick starts the 10 s: nine more ticks keep the Alarm.
+    pump_restarts(&mut h, 10);
+    assert!(h.ctx.alarms.is_active("pump-stop", "loop_1"));
+    for id in ALL {
+        assert_eq!(h.duty(id), Some(100.0), "{id}");
+    }
+    tick_pump(&mut h, 3000.0);
+    assert!(!h.ctx.alarms.any_active("pump-stop"));
+    assert!(ALL.iter().all(|id| !h.ctx.channels[*id].override_active));
+}
+
+#[test]
+fn unmanaged_channels_get_snapshot_back() {
+    let mut h = stopped_pump_harness();
+    pump_restarts(&mut h, 11);
+    // `chip_pwm6` and `ch_hw` have no Curve and no fixed Duty: the BIOS state comes back once.
+    // The chip fake sets the BIOS state to raw 200 and mode 5.
+    let chip = h.chip.lock().unwrap();
+    let mut releases = chip.releases.clone();
+    releases.sort();
+    assert_eq!(releases, ["ch_hw", "chip_pwm6"]);
+    for id in ["ch_hw", "chip_pwm6"] {
+        assert_eq!(
+            chip.actual(id),
+            Readback {
+                raw: 200,
+                enable: 5
+            },
+            "{id}"
+        );
+    }
+    // The Channels with a Curve or a fixed Duty stay under control and ramp down from 100%.
+    drop(chip);
+    assert_eq!(h.duty("ch_hw"), None);
+    assert_eq!(h.duty("ch_fixed"), Some(95.0));
+    assert_eq!(h.duty("ch_curve"), Some(95.0));
+}
+
+#[test]
+fn ramp_down_from_100_after_close() {
+    let mut h = stopped_pump_harness();
+    pump_restarts(&mut h, 11);
+    // The Curve asks for 40%. The step limit takes 5% a tick from 100%.
+    assert_eq!(h.duty("ch_curve"), Some(95.0));
+    for step in 2..=4 {
+        tick_pump(&mut h, 3000.0);
+        assert_eq!(h.duty("ch_curve"), Some(100.0 - 5.0 * f64::from(step)));
+    }
 }

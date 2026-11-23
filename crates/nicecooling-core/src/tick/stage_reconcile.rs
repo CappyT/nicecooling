@@ -26,6 +26,11 @@ impl Readback {
 
 /// The device side of the reconcile stage.
 pub trait ChannelIo: Send {
+    /// Every Channel that the device has, also those without a Curve. The pump stop override
+    /// takes all of them to 100%.
+    fn channel_ids(&self) -> Vec<String> {
+        Vec::new()
+    }
     fn read(&mut self, channel: &str) -> io::Result<Readback>;
     /// False when the device has no BIOS state to give the Channel back to. The stage then leaves
     /// the Channel on its Hardware curve.

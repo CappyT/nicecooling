@@ -165,6 +165,7 @@ impl Pipeline {
     /// Stages 1 to 9. The daemon appends stage 10, the Feed message (it needs the devices), and
     /// stage 11, the watchdog ping.
     pub fn standard(source: Box<dyn ValueSource>, io: Box<dyn ChannelIo>) -> Self {
+        let channels = io.channel_ids();
         Self::new(vec![
             Box::new(stage_read::ReadStage::new(source)),
             Box::new(stage_derive::DeriveStage),
@@ -173,7 +174,7 @@ impl Pipeline {
             Box::new(stage_curve::CurveStage::default()),
             Box::new(stage_step::StepStage),
             Box::new(stage_floor::FloorStage),
-            Box::new(stage_override::OverrideStage),
+            Box::new(stage_override::OverrideStage::new(channels)),
             Box::new(stage_reconcile::ReconcileStage::new(io)),
         ])
     }

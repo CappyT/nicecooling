@@ -84,6 +84,10 @@ fn parse<T: std::str::FromStr>(text: String) -> io::Result<T> {
 }
 
 impl ChannelIo for SysfsChannels {
+    fn channel_ids(&self) -> Vec<String> {
+        self.channels.keys().cloned().collect()
+    }
+
     /// Without a snapshot the Channels are not told apart: the `state-fallback` Warning covers it.
     fn can_take_over(&self, id: &str) -> bool {
         match (&self.snapshot, self.channels.get(id), self.devices.get(id)) {

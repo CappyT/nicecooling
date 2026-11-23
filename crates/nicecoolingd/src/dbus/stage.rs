@@ -95,7 +95,9 @@ impl Stage for ApiStage {
                 ChannelLive {
                     duty,
                     raw: raw.unwrap_or(0),
-                    override_state: if ctx.warnings.is_active("lost-input", &meta.id) {
+                    override_state: if overriding && ctx.alarms.any_active("pump-stop") {
+                        "pump-stop"
+                    } else if ctx.warnings.is_active("lost-input", &meta.id) {
                         "lost-input"
                     } else {
                         "none"
