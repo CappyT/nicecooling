@@ -1,4 +1,4 @@
-# Image for the checks of the systemd unit of the daemon on Fedora.
+# Image for the checks of the systemd unit and the poweroff drop-in of the daemon on Fedora.
 # `packaging/container/check.sh` builds it from the repository root, after
 # `cargo build --release -p nicecoolingd`, and runs `systemd-analyze verify` and `systemctl show`.
 ARG FEDORA_VERSION=latest
@@ -8,6 +8,7 @@ RUN dnf -y install systemd && dnf clean all
 
 COPY target/release/nicecoolingd /usr/libexec/nicecoolingd
 COPY packaging/nicecoolingd.service /usr/lib/systemd/system/nicecoolingd.service
+COPY packaging/poweroff.target.d/50-nicecooling.conf /usr/lib/systemd/system/poweroff.target.d/50-nicecooling.conf
 
 STOPSIGNAL SIGRTMIN+3
 CMD ["/usr/lib/systemd/systemd"]

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Checks the systemd unit of the daemon in a Fedora container with systemd as PID 1.
+# Checks the systemd unit of the daemon and the drop-in of `poweroff.target` in a Fedora container with systemd as PID 1.
 # Run from the repository root after `cargo build --release -p nicecoolingd`.
 # The daemon itself never runs: a drop-in replaces ExecStart with a probe that sends READY.
 # `WatchdogUSec` reads `infinity` while the unit is inactive, so the properties are read from an active unit.
@@ -35,3 +35,16 @@ WatchdogUSec=10s
 EXPECTED
 diff /tmp/nicecooling-unit-expected.txt /tmp/nicecooling-unit-actual.txt
 echo "show: properties match"
+
+# The drop-in of poweroff.target. `show` only reads the unit: nothing powers off the container.
+# The Fedora image has no man pages, and `verify` fails on the `man:` links of poweroff.target.
+podman exec "$name" systemd-analyze verify --man=no poweroff.target
+echo "verify poweroff.target: exit 0"
+podman exec "$name" systemctl show poweroff.target -p JobTimeoutUSec -p JobTimeoutAction \
+  | sort > /tmp/nicecooling-poweroff-actual.txt
+cat > /tmp/nicecooling-poweroff-expected.txt <<'EXPECTED'
+JobTimeoutAction=poweroff-force
+JobTimeoutUSec=55s
+EXPECTED
+diff /tmp/nicecooling-poweroff-expected.txt /tmp/nicecooling-poweroff-actual.txt
+echo "show poweroff.target: properties match"
