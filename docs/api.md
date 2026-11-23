@@ -141,7 +141,7 @@ Each active Alarm or Warning (`Alarms.Active`) and each `AlarmRaised` signal car
 - No field is a flag or a text: a bit mask is an `x`. An enum code that the registry does not list reads as `unknown-<code>`, and `SetFields` refuses that name.
 - `SetFields` takes an enum as a name that the registry lists. A scaled field takes `d` or any integer type. An integer field takes any integer type, or a `d` with a whole value, because the app sends `d`. `b`, a name for a number, a number for an enum and a fraction for an integer field fail with `InvalidArgument`.
 - The Leakshield fields of `GetContent` of a Profile use the same variant types.
-- `SetFields` runs the write path of design D11 once for all fields. It returns after the read-back. The save-settings command (report 2) goes out 4 s after the last write; a failure then emits `WriteFailed`.
+- `SetFields` runs the write path of design D11 once for all fields. It returns after the read-back. The daemon stores the read-back in the stored settings of the slot that the device runs (`ActiveSlot`). After a failed switch this is not the slot of the active Profile, and that slot stays as it is. The save-settings command (report 2) goes out 4 s after the last write; a failure then emits `WriteFailed`.
 
 ## Leakshield backups
 

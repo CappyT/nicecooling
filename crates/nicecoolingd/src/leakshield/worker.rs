@@ -432,7 +432,11 @@ fn write_profile(
             } else {
                 Decision::Write(report3)
             },
-            report1,
+            // The report 1 of the decision is older than the write: the device runs the new slot.
+            report1: Report1 {
+                active_profile: request.slot.get(),
+                ..report1
+            },
         })
         .map_err(Failure::Write);
     let _ = reply.send(result);

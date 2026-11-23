@@ -11,7 +11,7 @@ use crate::firmware::frame::{CHUNK_SIZE, Chunk, REPORT32_ID, chunks};
 use crate::firmware::image::Image;
 use crate::report1::Report1;
 use crate::report2::Report2;
-use crate::report3::{REPORT3_ID, REPORT3_SIZE, Report3};
+use crate::report3::{REPORT3_ID, REPORT3_SIZE, REPORT3_STRUCT_END, Report3};
 use crate::report8::REPORT8_ID;
 
 const REPORT1: &[u8] = include_bytes!("../../../tests/fixtures/leakshield/fw1022/report1.bin");
@@ -506,7 +506,10 @@ impl HidTransport for SimDevice {
                 if let Some((offset, value)) = state.faults.tamper_next_set_feature.take() {
                     stored.set_bytes(offset, &[value]);
                 }
+                // The device runs the profile number that report 3 holds (`device_profile`).
+                let number = stored.bytes_at(REPORT3_STRUCT_END, 1)[0];
                 state.report3 = stored.encode();
+                state.edit_report1(|r| r.active_profile = number);
             }
             REPORT8_ID => state.report8 = report.to_vec(),
             _ => return Err(io_error("report is not writable")),

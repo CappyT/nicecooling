@@ -156,13 +156,21 @@ async fn write_error_gives_curves_applied_leakshield_failed() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn leakshield_change_goes_into_slot_of_active_profile() {
+    // The device runs slot 3, as the active Profile has it.
     let rig = Rig::start_with(with_profile_3).await;
+    rig.sim.edit_report1(|r| r.active_profile = 3);
     let proxy = LeakshieldProxy::builder(&rig.client)
         .path(path(Kind::Leakshield, LEAKSHIELD))
         .cache_properties(zbus::proxy::CacheProperties::No)
         .build()
         .await
         .unwrap();
+    for _ in 0..200 {
+        if proxy.active_slot().await.unwrap() == 3 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
     let slot_2 = std::fs::read(slot_file(&rig, 2)).unwrap();
 
     let fields: HashMap<&str, Variant<'static>> =

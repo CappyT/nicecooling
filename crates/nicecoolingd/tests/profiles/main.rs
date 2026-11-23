@@ -5,6 +5,7 @@ mod activate;
 mod docs;
 mod ordering;
 mod rules;
+mod set_fields_slot;
 mod slots;
 #[path = "../support/mod.rs"]
 mod support;

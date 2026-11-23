@@ -356,17 +356,15 @@ impl Hub {
         });
     }
 
-    /// A Leakshield setting that the user changed in nicecooling goes into the slot of the active
-    /// Profile, so into every Profile with that slot (ADR-0006). `report3` is the verified
-    /// read-back of the write.
+    /// A Leakshield setting that the user changed in nicecooling goes into the slot that the
+    /// device runs (`ActiveSlot`), so into every Profile with that slot (ADR-0006). After a failed
+    /// switch this is not the slot of the active Profile, and its stored settings stay as they are.
+    /// `report3` is the verified read-back of the write.
     pub fn store_user_write(&self, device: &Attached, report3: &Report3) {
-        let Some(slot) = ({
-            let inner = self.inner();
-            Slot::new(inner.profile().slot)
-        }) else {
+        let info = device.info();
+        let Some(slot) = Slot::new(u32::from(info.active_slot)) else {
             return;
         };
-        let info = device.info();
         let meta = SlotMeta::new(info.firmware, info.structure, device.serial());
         if let Err(e) = self
             .slots
