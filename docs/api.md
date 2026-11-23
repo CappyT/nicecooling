@@ -108,6 +108,7 @@ A Rule group has an identifier, a target Profile, an `enabled` flag and an order
 - A group holds when it is enabled and all its rules hold. A group without rules never holds.
 - The first group in list order that holds activates its Profile. Rule delay, Profile dwell and Immediate switching apply to the group (design D14). When no group holds, the Default Profile is active.
 - `SetRuleGroups` replaces the whole list. An empty group id creates a group. It returns the group ids in list order. A target Profile that does not exist fails with `NotFound`. An unknown kind, a missing key or a value out of range fails with `InvalidArgument`.
+- An edit of the winning group through `SetRuleGroups` keeps it active without a new Rule delay while it holds. The timer of an edited group restarts when the group stops holding.
 - Hotkeys are not a rule kind. Wayland has no standard global shortcut.
 - The property `RuleGroupState` gives, for each group, whether it holds and since when (`a(sbt)`: group id, holds, since in microseconds, 0 when it does not hold). It changes only when a group starts or stops holding.
 

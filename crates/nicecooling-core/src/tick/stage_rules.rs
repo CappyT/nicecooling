@@ -39,7 +39,8 @@ pub struct HostInput {
     /// The new list of groups: all of them, in order.
     pub groups: Option<Vec<RuleGroupDef>>,
     pub timing: Option<Timing>,
-    pub manual: Option<ManualCommand>,
+    /// The manual commands since the last tick, in arrival order. The last one wins.
+    pub manual: Vec<ManualCommand>,
     pub local: DayTime,
     /// The wall clock in microseconds since the Unix epoch.
     pub wall_us: u64,
@@ -115,10 +116,11 @@ impl Stage for RulesStage {
         let Some(selector) = self.selector.as_mut() else {
             return;
         };
-        match input.manual {
-            Some(ManualCommand::Activated(profile)) => selector.manual(&profile, ctx.now),
-            Some(ManualCommand::ReturnToAutomatic) => selector.return_to_automatic(),
-            None => {}
+        for command in input.manual {
+            match command {
+                ManualCommand::Activated(profile) => selector.manual(&profile, ctx.now),
+                ManualCommand::ReturnToAutomatic => selector.return_to_automatic(),
+            }
         }
 
         let inputs = Inputs {
@@ -182,7 +184,7 @@ mod tests {
                     immediate: true,
                     ..Timing::default()
                 }),
-                manual: None,
+                manual: Vec::new(),
                 local: DayTime {
                     weekday: 1,
                     minute: 0,
@@ -203,6 +205,144 @@ mod tests {
         fn publish(&mut self, _: &[GroupState]) {
             self.log.lock().unwrap().published += 1;
         }
+    }
+
+    /// A host that hands out the changes that a test queues, one for each tick.
+    struct ScriptHost {
+        inputs: std::collections::VecDeque<HostInput>,
+        activations: Arc<Mutex<Vec<(String, Cause)>>>,
+    }
+
+    impl RuleHost for ScriptHost {
+        fn poll(&mut self) -> HostInput {
+            self.inputs.pop_front().unwrap_or_else(idle)
+        }
+
+        fn activate(&mut self, profile: &str, cause: Cause) -> Option<TickConfig> {
+            self.activations
+                .lock()
+                .unwrap()
+                .push((profile.to_owned(), cause));
+            Some(TickConfig::default())
+        }
+
+        fn publish(&mut self, _: &[GroupState]) {}
+    }
+
+    fn idle() -> HostInput {
+        HostInput {
+            sync: None,
+            groups: None,
+            timing: None,
+            manual: Vec::new(),
+            local: DayTime {
+                weekday: 1,
+                minute: 0,
+            },
+            wall_us: 0,
+        }
+    }
+
+    fn start() -> HostInput {
+        HostInput {
+            sync: Some(ActiveSync {
+                default_profile: "profile_default".into(),
+                active: "profile_default".into(),
+                cause: Cause::Default,
+            }),
+            timing: Some(Timing::default()),
+            ..idle()
+        }
+    }
+
+    fn weekly(id: &str, profile: &str, start_minute: u16, end: u16) -> RuleGroupDef {
+        RuleGroupDef {
+            id: id.into(),
+            profile: profile.into(),
+            enabled: true,
+            rules: vec![RuleDef::Time(TimeRule {
+                days: (1..=7).collect(),
+                start: start_minute,
+                end,
+            })],
+        }
+    }
+
+    /// Runs `ticks` ticks from `from` and returns the activations that they caused.
+    fn run(
+        stage: &mut RulesStage,
+        log: &Mutex<Vec<(String, Cause)>>,
+        from: u64,
+        ticks: u64,
+    ) -> Vec<(String, Cause)> {
+        let before = log.lock().unwrap().len();
+        let mut ctx = TickContext::default();
+        for t in from..from + ticks {
+            ctx.now = Duration::from_secs(t);
+            stage.run(&mut ctx);
+        }
+        log.lock().unwrap()[before..].to_vec()
+    }
+
+    type Activations = Arc<Mutex<Vec<(String, Cause)>>>;
+
+    fn scripted(inputs: Vec<HostInput>) -> (RulesStage, Activations) {
+        let log = Arc::new(Mutex::new(Vec::new()));
+        let stage = RulesStage::new(Box::new(ScriptHost {
+            inputs: inputs.into(),
+            activations: log.clone(),
+        }));
+        (stage, log)
+    }
+
+    /// The next tick reads this list of groups, as after `SetRuleGroups`.
+    fn edit(stage: &mut RulesStage, log: &Activations, def: RuleGroupDef) {
+        stage.host = Some(Box::new(ScriptHost {
+            inputs: vec![HostInput {
+                groups: Some(vec![def]),
+                ..idle()
+            }]
+            .into(),
+            activations: log.clone(),
+        }));
+    }
+
+    #[test]
+    fn an_edit_of_the_winning_group_keeps_it_active_while_it_holds() {
+        let (mut stage, log) = scripted(vec![HostInput {
+            groups: Some(vec![weekly("group_1", "profile_2", 0, 1440)]),
+            ..start()
+        }]);
+        assert_eq!(run(&mut stage, &log, 0, 31).len(), 1);
+
+        // The dwell is over. The edited group still holds: no switch, no new Rule delay.
+        edit(&mut stage, &log, weekly("group_1", "profile_2", 0, 1439));
+
+        assert_eq!(run(&mut stage, &log, 400, 100), []);
+    }
+
+    #[test]
+    fn an_edit_that_stops_the_winning_group_restarts_its_rule_delay() {
+        let (mut stage, log) = scripted(vec![HostInput {
+            groups: Some(vec![weekly("group_1", "profile_2", 0, 1440)]),
+            ..start()
+        }]);
+        assert_eq!(run(&mut stage, &log, 0, 31).len(), 1);
+
+        // The edit makes the group stop holding (an empty range). The dwell is over.
+        edit(&mut stage, &log, weekly("group_1", "profile_2", 600, 600));
+        assert_eq!(
+            run(&mut stage, &log, 400, 5),
+            [("profile_default".to_owned(), Cause::Default)]
+        );
+
+        // A second edit makes it hold again: it needs the whole Rule delay.
+        edit(&mut stage, &log, weekly("group_1", "profile_2", 0, 1440));
+        assert_eq!(run(&mut stage, &log, 405, 29), []);
+        assert_eq!(
+            run(&mut stage, &log, 434, 2),
+            [("profile_2".to_owned(), Cause::Rule)]
+        );
     }
 
     #[test]

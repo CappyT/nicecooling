@@ -41,6 +41,8 @@ pub struct GroupView {
 #[derive(Debug, Default)]
 pub struct DelayTimers {
     since: BTreeMap<String, Duration>,
+    /// The group that `winner` chose last.
+    winning: Option<String>,
 }
 
 impl DelayTimers {
@@ -61,15 +63,25 @@ impl DelayTimers {
                 self.since.remove(&group.id);
             }
         }
-        groups.iter().position(|g| {
+        // A list with two groups of one id can reach this point. A group without a timer waits.
+        let index = groups.iter().position(|g| {
             g.holds
-                && (timing.immediate || now.saturating_sub(self.since[&g.id]) >= timing.rule_delay)
-        })
+                && (timing.immediate
+                    || self
+                        .since
+                        .get(&g.id)
+                        .is_some_and(|since| now.saturating_sub(*since) >= timing.rule_delay))
+        });
+        self.winning = index.map(|i| groups[i].id.clone());
+        index
     }
 
-    /// Forgets a group that changed: its Rule delay starts again.
+    /// Forgets a group that changed: its Rule delay starts again. The winning group keeps its
+    /// timer. It loses the timer in the tick where it stops holding.
     pub fn reset(&mut self, id: &str) {
-        self.since.remove(id);
+        if self.winning.as_deref() != Some(id) {
+            self.since.remove(id);
+        }
     }
 }
 
@@ -227,6 +239,19 @@ mod tests {
         let mut timers = DelayTimers::default();
         assert_eq!(timers.winner(secs(0), &groups, &short), None);
         assert_eq!(timers.winner(secs(10), &groups, &short), Some(0));
+    }
+
+    /// `state.json` can hold two groups with one id. The winner must not panic the tick.
+    #[test]
+    fn duplicate_group_ids_do_not_panic_the_winner() {
+        let groups = [
+            view("group_1", "profile_2", true),
+            view("group_1", "profile_3", false),
+        ];
+        let mut timers = DelayTimers::default();
+        for t in 0..40 {
+            timers.winner(secs(t), &groups, &timing());
+        }
     }
 
     #[test]

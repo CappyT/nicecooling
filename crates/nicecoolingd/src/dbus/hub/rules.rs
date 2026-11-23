@@ -23,7 +23,8 @@ pub(super) struct RuleQueue {
     sync: bool,
     groups: bool,
     timing: bool,
-    manual: Option<ManualCommand>,
+    /// In arrival order: a manual activation and a return to automatic can both wait.
+    manual: Vec<ManualCommand>,
 }
 
 impl RuleQueue {
@@ -33,7 +34,7 @@ impl RuleQueue {
             sync: true,
             groups: true,
             timing: true,
-            manual: None,
+            manual: Vec::new(),
         }
     }
 
@@ -42,7 +43,7 @@ impl RuleQueue {
             sync: false,
             groups: false,
             timing: false,
-            manual: None,
+            manual: Vec::new(),
         }
     }
 }
@@ -138,13 +139,17 @@ impl Hub {
     /// `return_to_automatic`.
     pub fn activate_manually(self: &Arc<Self>, id: &str) -> Result<()> {
         self.activate_profile(id, Cause::Manual)?;
-        self.change(|i| i.rule_queue.manual = Some(ManualCommand::Activated(id.to_owned())));
+        self.change(|i| {
+            i.rule_queue
+                .manual
+                .push(ManualCommand::Activated(id.to_owned()))
+        });
         Ok(())
     }
 
     /// The Rule groups decide again at the next tick.
     pub fn return_to_automatic(&self) {
-        self.change(|i| i.rule_queue.manual = Some(ManualCommand::ReturnToAutomatic));
+        self.change(|i| i.rule_queue.manual.push(ManualCommand::ReturnToAutomatic));
     }
 
     // The tick side.

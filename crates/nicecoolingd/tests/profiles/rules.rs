@@ -12,7 +12,7 @@ use tokio::time::timeout;
 use zbus::{OwnedObjectPath, Variant};
 
 use crate::support::{Rig, error_name, path};
-use crate::{ERR, profile, profiles, with_profile_3};
+use crate::{ERR, automatic, profile, profiles, with_profile_3};
 
 type Params = HashMap<&'static str, Variant<'static>>;
 
@@ -624,4 +624,202 @@ async fn manual_activation_lasts_until_return_to_automatic() {
     tick(&mut rig);
     assert_eq!(active(&rig), "profile_2");
     assert_eq!(profiles.activation_cause().await.unwrap(), "rule");
+}
+
+fn active_and_cause(rig: &Rig) -> (String, String) {
+    let state = rig.daemon.as_ref().unwrap().hub.profiles_state();
+    (state.active, state.cause)
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn return_to_automatic_after_a_manual_activation_in_one_tick_wins() {
+    let mut rig = Rig::start_with_clock_and(automatic).await;
+    let profiles = profiles(&rig).await;
+    tick(&mut rig);
+
+    profiles
+        .activate_profile(&path(Kind::Profile, "profile_4"))
+        .await
+        .unwrap();
+    profiles.return_to_automatic().await.unwrap();
+    for _ in 0..10 {
+        tick(&mut rig);
+    }
+
+    // No group holds and no manual activation is left: the Default Profile is active.
+    assert_eq!(
+        active_and_cause(&rig),
+        ("profile_default".to_owned(), "default".to_owned())
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_manual_activation_after_return_to_automatic_in_one_tick_wins() {
+    let mut rig = Rig::start_with_clock_and(automatic).await;
+    let profiles = profiles(&rig).await;
+    tick(&mut rig);
+
+    profiles.return_to_automatic().await.unwrap();
+    profiles
+        .activate_profile(&path(Kind::Profile, "profile_4"))
+        .await
+        .unwrap();
+    for _ in 0..10 {
+        tick(&mut rig);
+    }
+
+    assert_eq!(
+        active_and_cause(&rig),
+        ("profile_4".to_owned(), "manual".to_owned())
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn editing_the_winning_group_keeps_it_active_without_a_new_rule_delay() {
+    let mut rig = Rig::start_with_clock_and(automatic).await;
+    let profiles = profiles(&rig).await;
+    let two = path(Kind::Profile, "profile_2");
+    profiles
+        .set_rule_groups(vec![group("group_1", &two, true, vec![always()])])
+        .await
+        .unwrap();
+    for _ in 0..32 {
+        tick(&mut rig);
+    }
+    assert_eq!(active(&rig), "profile_2");
+    // The dwell ends.
+    for _ in 0..301 {
+        tick(&mut rig);
+    }
+
+    // The user adds a second rule that also holds.
+    profiles
+        .set_rule_groups(vec![group("group_1", &two, true, vec![always(), always()])])
+        .await
+        .unwrap();
+    let mut seen = Vec::new();
+    for _ in 0..40 {
+        tick(&mut rig);
+        let now = active(&rig);
+        if seen.last() != Some(&now) {
+            seen.push(now);
+        }
+    }
+
+    assert_eq!(seen, ["profile_2"]);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_profile_that_a_disabled_group_targets_or_a_group_activated_cannot_be_deleted() {
+    let mut rig = Rig::start_with_clock_and(automatic).await;
+    let profiles = profiles(&rig).await;
+    let (two, three) = (
+        path(Kind::Profile, "profile_2"),
+        path(Kind::Profile, "profile_3"),
+    );
+    profiles.set_immediate_switching(true).await.unwrap();
+    profiles
+        .set_rule_groups(vec![
+            group("group_1", &two, true, vec![always()]),
+            group("group_2", &three, false, vec![always()]),
+        ])
+        .await
+        .unwrap();
+    tick(&mut rig);
+    tick(&mut rig);
+    assert_eq!(active_and_cause(&rig), ("profile_2".into(), "rule".into()));
+
+    // The active Profile, and a Profile that a disabled group targets, stay.
+    for id in ["profile_2", "profile_3"] {
+        let error = profile(&rig, id).await.delete().await.unwrap_err();
+        assert_eq!(error_name(&error), format!("{ERR}.InUse"), "{id}");
+    }
+    assert_eq!(
+        crate::profile_objects(&rig).await,
+        ["profile_2", "profile_3", "profile_4", "profile_default"]
+    );
+
+    // The disabled group goes, and its Profile can be deleted.
+    profiles
+        .set_rule_groups(vec![group("group_1", &two, true, vec![always()])])
+        .await
+        .unwrap();
+    profile(&rig, "profile_3").await.delete().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_interval_rule_activates_its_profile_in_each_window_with_immediate_switching() {
+    let mut rig = Rig::start_with_clock_and(automatic).await;
+    let profiles = profiles(&rig).await;
+    let two = path(Kind::Profile, "profile_2");
+    profiles.set_immediate_switching(true).await.unwrap();
+    // A window of 20 s from the 10th second of each period of 100 s.
+    let interval: RuleIn = (
+        "interval",
+        Params::from([
+            ("interval_s", Variant::U32(100)),
+            ("delay_s", Variant::U32(10)),
+            ("duration_s", Variant::U32(20)),
+        ]),
+    );
+    profiles
+        .set_rule_groups(vec![group("group_1", &two, true, vec![interval])])
+        .await
+        .unwrap();
+
+    let mut on = Vec::new();
+    for _ in 0..250 {
+        tick(&mut rig);
+        on.push(active(&rig) == "profile_2");
+    }
+
+    // The period starts at the first tick that sees the group. Each window has 20 ticks.
+    let windows: Vec<(usize, usize)> = on
+        .iter()
+        .enumerate()
+        .filter(|(i, now)| **now && (*i == 0 || !on[i - 1]))
+        .map(|(start, _)| (start, on[start..].iter().take_while(|now| **now).count()))
+        .collect();
+    assert_eq!(windows.len(), 3, "{windows:?}");
+    for (n, (start, length)) in windows.into_iter().enumerate() {
+        assert!(
+            (100 * n + 10..=100 * n + 12).contains(&start) && (19..=21).contains(&length),
+            "window {n}: start {start}, length {length}"
+        );
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn rule_groups_and_the_active_profile_survive_a_restart_and_the_dwell_starts_again() {
+    let mut rig = Rig::start_with_clock_and(automatic).await;
+    let profiles = profiles(&rig).await;
+    let two = path(Kind::Profile, "profile_2");
+    profiles
+        .set_rule_groups(vec![group("group_1", &two, true, vec![always()])])
+        .await
+        .unwrap();
+    for _ in 0..32 {
+        tick(&mut rig);
+    }
+    assert_eq!(active_and_cause(&rig), ("profile_2".into(), "rule".into()));
+    // 200 s of the dwell pass before the restart.
+    for _ in 0..200 {
+        tick(&mut rig);
+    }
+
+    rig.restart_daemon().await;
+
+    let hub = rig.daemon.as_ref().unwrap().hub.clone();
+    assert_eq!(active_and_cause(&rig), ("profile_2".into(), "rule".into()));
+    assert_eq!(hub.rule_groups().len(), 1);
+    // The group is gone. The dwell of the Profile starts again with the first tick.
+    hub.set_rule_groups(Vec::new()).unwrap();
+    for _ in 0..290 {
+        tick(&mut rig);
+    }
+    assert_eq!(active(&rig), "profile_2");
+    for _ in 0..20 {
+        tick(&mut rig);
+    }
+    assert_eq!(active(&rig), "profile_default");
 }

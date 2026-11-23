@@ -1,6 +1,6 @@
 //! The daemon state in `/var/lib/nicecooling/`. `docs/storage.md` defines the files.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
@@ -216,6 +216,11 @@ pub fn load_state(store: &StateStore) -> LoadedState {
             }
         }
     }
+    // Two groups with one id would give the rules stage one timer for both.
+    let mut group_ids = BTreeSet::new();
+    let groups = state.rule_groups.len();
+    state.rule_groups.retain(|g| group_ids.insert(g.id.clone()));
+    fallback |= state.rule_groups.len() != groups;
     let first_profiles = map.is_empty() && first_start;
     let profiles = if first_profiles {
         ProfileSet::first_start()
@@ -441,6 +446,55 @@ mod tests {
         assert_eq!(loaded.value, sample_state());
         assert!(!store.save(STATE_FILE, &DaemonState::default()).unwrap());
         assert_eq!(fs::read(dir.join(STATE_FILE)).unwrap(), newer);
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    fn group(id: &str, profile: &str) -> RuleGroupDef {
+        RuleGroupDef {
+            id: id.into(),
+            profile: profile.into(),
+            enabled: true,
+            rules: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn duplicate_group_ids_load_the_first_group_and_raise_state_fallback() {
+        let dir = temp("duplicate-groups");
+        let store = StateStore::new(&dir);
+        let mut state = sample_state();
+        state.rule_groups = vec![
+            group("group_1", "profile_2"),
+            group("group_2", "profile_3"),
+            group("group_1", "profile_4"),
+        ];
+        store.save(STATE_FILE, &state).unwrap();
+
+        let loaded = load_state(&StateStore::new(&dir));
+
+        assert!(loaded.fallback);
+        assert_eq!(
+            loaded.state.rule_groups,
+            [group("group_1", "profile_2"), group("group_2", "profile_3")]
+        );
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn an_active_profile_that_has_no_files_falls_back_to_the_default_profile() {
+        let dir = temp("active-gone");
+        let store = StateStore::new(&dir);
+        let mut state = sample_state();
+        state.profiles.active = "profile_3".into();
+        state.profiles.cause = "manual".into();
+        store.save(STATE_FILE, &state).unwrap();
+
+        let loaded = load_state(&StateStore::new(&dir));
+
+        assert!(loaded.fallback);
+        assert_eq!(loaded.state.profiles.active, DEFAULT_PROFILE);
+        assert_eq!(loaded.state.profiles.cause, "default");
+        assert!(loaded.profiles.contains(DEFAULT_PROFILE));
         fs::remove_dir_all(dir).unwrap();
     }
 

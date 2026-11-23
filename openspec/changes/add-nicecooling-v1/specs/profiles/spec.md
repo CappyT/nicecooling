@@ -247,7 +247,7 @@ A Rule group SHALL activate its Profile only when it becomes the winning group. 
 - **THEN** the daemon does not write the settings of the slot over the change
 
 ### Requirement: Rule delay
-Each Rule group SHALL have its own Rule delay timer. The winning group SHALL be the first group in list order that has held for the Rule delay. The Rule delay SHALL be a setting that applies to every group. Its default SHALL be 30 seconds.
+Each Rule group SHALL have its own Rule delay timer. The winning group SHALL be the first group in list order that has held for the Rule delay. The Rule delay SHALL be a setting that applies to every group. Its default SHALL be 30 seconds. An edit of the winning group SHALL keep it active without a new Rule delay while it still holds. The timer of an edited group SHALL restart only when the group stops holding.
 
 #### Scenario: Group holds
 - **WHEN** a group holds for 30 seconds with the default Rule delay
@@ -260,6 +260,14 @@ Each Rule group SHALL have its own Rule delay timer. The winning group SHALL be 
 #### Scenario: Group stops early
 - **WHEN** the group stops holding after 10 seconds
 - **THEN** the group does not activate its Profile and its timer resets
+
+#### Scenario: Edit of the winning group
+- **WHEN** the user edits the winning group and the edited group still holds
+- **THEN** the group stays the winner, its Profile stays active and its Rule delay does not start again
+
+#### Scenario: Edit stops the winning group
+- **WHEN** the user edits the winning group so that it does not hold
+- **THEN** its timer resets and the group needs the whole Rule delay when it holds again
 
 #### Scenario: Later group is ready first
 - **WHEN** the third group has held for 30 seconds and the first group has held for 10 seconds
@@ -293,6 +301,10 @@ A Profile that the user activated by hand SHALL become active at once, also duri
 #### Scenario: Rule during manual activation
 - **WHEN** a Rule group starts to hold while the user holds a manual activation
 - **THEN** the daemon does not switch Profile
+
+#### Scenario: Last command wins
+- **WHEN** the user activates a Profile by hand and returns to automatic within one tick
+- **THEN** the Rule groups decide, and the last command in arrival order decides when the order is the other way round
 
 #### Scenario: Manual activation during the dwell
 - **WHEN** the user activates a Profile by hand 2 minutes after a group activation
