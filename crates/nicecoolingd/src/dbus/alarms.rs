@@ -104,7 +104,7 @@ impl Alarms {
     }
 
     #[zbus(out_args("responses"))]
-    async fn get_responses(&self) -> Result<Vec<(String, String, u32)>> {
+    async fn get_responses(&self) -> Result<Vec<(String, String, String, u32, bool)>> {
         Ok(self.hub.alarm_responses())
     }
 
@@ -113,13 +113,28 @@ impl Alarms {
         #[zbus(connection)] connection: &Connection,
         #[zbus(header)] header: Header<'_>,
         event: &str,
+        source: &str,
         response: &str,
         delay_s: u32,
     ) -> Result<()> {
         self.hub
             .authorize(connection, &header, "Alarms", "SetResponse", None)
             .await?;
-        self.hub.set_alarm_response(event, response, delay_s)
+        self.hub
+            .set_alarm_response(event, source, response, delay_s)
+    }
+
+    async fn reset_response(
+        &self,
+        #[zbus(connection)] connection: &Connection,
+        #[zbus(header)] header: Header<'_>,
+        event: &str,
+        source: &str,
+    ) -> Result<()> {
+        self.hub
+            .authorize(connection, &header, "Alarms", "ResetResponse", None)
+            .await?;
+        self.hub.reset_alarm_response(event, source)
     }
 
     #[zbus(out_args("rows"))]

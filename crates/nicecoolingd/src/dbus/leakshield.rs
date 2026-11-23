@@ -439,7 +439,7 @@ impl Leakshield {
     async fn get_device_response_proposals(&self) -> Result<Vec<(String, String, String, String)>> {
         Ok(proposals::rows(
             &self.device.get_fields()?,
-            &self.hub.alarm_responses(),
+            &self.hub.alarm_responses_for(&self.device.id()),
         ))
     }
 

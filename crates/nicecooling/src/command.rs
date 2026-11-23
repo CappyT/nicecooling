@@ -124,6 +124,11 @@ pub enum Command {
     SetRuleGroups {
         groups: Vec<RuleGroup>,
     },
+    /// `source` is `""` for the default of the event, or a Leakshield id for its override.
+    ResetResponse {
+        event: String,
+        source: String,
+    },
     SetAlarmResponse {
         event: String,
         response: Response,
@@ -316,6 +321,9 @@ impl Command {
             Self::SetRuleGroups { groups } => {
                 client.set_rule_groups(groups).await?;
             }
+            Self::ResetResponse { event, source } => {
+                client.reset_alarm_response(event, source).await?
+            }
             Self::SetAlarmResponse {
                 event,
                 response,
@@ -475,6 +483,7 @@ impl Command {
             Self::SetRuleTiming { .. } => "profile-timing".to_owned(),
             Self::SetRuleGroups { .. } => "rule-groups".to_owned(),
             Self::SetAlarmResponse { event, .. } => format!("alarm-response:{event}"),
+            Self::ResetResponse { event, source } => format!("alarm-response:{event}@{source}"),
             Self::RestoreBackup { leakshield, .. } => format!("restore:{leakshield}"),
             Self::SetLeakshieldFields {
                 leakshield,

@@ -888,17 +888,49 @@ impl Hub {
         self.run_alarm_effects(effects, wall_us());
     }
 
-    pub fn alarm_responses(&self) -> Vec<(String, String, u32)> {
-        response::rows(&self.inner().state.alarm_responses)
+    /// The ids of the Leakshields that the daemon knows, connected or not, in id order.
+    fn leakshield_ids(inner: &Inner) -> Vec<String> {
+        let mut ids: Vec<String> = inner.leakshields.iter().map(|d| d.id()).collect();
+        ids.sort();
+        ids
     }
 
-    /// An alarm response applies to the Alarms that rise after it.
-    pub fn set_alarm_response(&self, event: &str, response: &str, delay_s: u32) -> Result<()> {
-        let entry = response::validate(event, response, delay_s)?;
-        self.inner()
-            .state
-            .alarm_responses
-            .insert(event.to_owned(), entry);
+    /// The rows of `GetResponses`.
+    pub fn alarm_responses(&self) -> Vec<response::Row> {
+        let inner = self.inner();
+        response::rows(&inner.state.alarm_responses, &Self::leakshield_ids(&inner))
+    }
+
+    /// The response of each event for one Leakshield, as an instance of it would get it now.
+    pub fn alarm_responses_for(&self, leakshield: &str) -> Vec<(String, String, u32)> {
+        response::resolved_for(&self.inner().state.alarm_responses, leakshield)
+    }
+
+    /// An alarm response applies to the Alarms that rise after it. Source `""` sets the default of
+    /// the event.
+    pub fn set_alarm_response(
+        &self,
+        event: &str,
+        source: &str,
+        response: &str,
+        delay_s: u32,
+    ) -> Result<()> {
+        let mut inner = self.inner();
+        let known = Self::leakshield_ids(&inner);
+        let (key, entry) = response::validate(event, source, response, delay_s, |source| {
+            known.iter().any(|id| id == source)
+        })?;
+        inner.state.alarm_responses.insert(key, entry);
+        drop(inner);
+        self.persister.changed();
+        Ok(())
+    }
+
+    /// Source `""` sets the default of the event back to the built-in one. A source removes its
+    /// override, also the one of a Leakshield that no longer exists.
+    pub fn reset_alarm_response(&self, event: &str, source: &str) -> Result<()> {
+        let key = response::reset_key(event, source)?;
+        self.inner().state.alarm_responses.remove(&key);
         self.persister.changed();
         Ok(())
     }

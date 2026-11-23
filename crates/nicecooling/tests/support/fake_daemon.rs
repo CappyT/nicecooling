@@ -587,19 +587,40 @@ impl Alarms {
         self.active.clone()
     }
 
-    async fn get_responses(&self) -> Vec<(String, String, u32)> {
-        self.shared.responses.lock().expect("responses").clone()
+    async fn get_responses(&self) -> Vec<(String, String, String, u32, bool)> {
+        self.shared
+            .responses
+            .lock()
+            .expect("responses")
+            .iter()
+            .map(|(event, response, delay_s)| {
+                (
+                    event.clone(),
+                    String::new(),
+                    response.clone(),
+                    *delay_s,
+                    false,
+                )
+            })
+            .collect()
     }
 
     async fn set_response(
         &self,
         #[zbus(header)] header: zbus::message::Header<'_>,
         event: &str,
+        source: &str,
         response: &str,
         delay_s: u32,
     ) -> fdo::Result<()> {
+        // The fake keeps the default of each event only.
+        let source = if source.is_empty() {
+            String::new()
+        } else {
+            format!("@{source}")
+        };
         self.shared.record(
-            &format!("SetAlarmResponse({event},{response},{delay_s})"),
+            &format!("SetAlarmResponse({event}{source},{response},{delay_s})"),
             &header,
         )?;
         let mut responses = self.shared.responses.lock().expect("responses");
@@ -612,6 +633,16 @@ impl Alarms {
         row.1 = response.to_owned();
         row.2 = delay_s;
         Ok(())
+    }
+
+    async fn reset_response(
+        &self,
+        #[zbus(header)] header: zbus::message::Header<'_>,
+        event: &str,
+        source: &str,
+    ) -> fdo::Result<()> {
+        self.shared
+            .record(&format!("ResetResponse({event},{source})"), &header)
     }
 
     async fn get_history(

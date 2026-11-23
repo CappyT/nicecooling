@@ -83,7 +83,7 @@ async fn proposals_follow_the_device_and_the_alarm_responses() {
 
     // The user turns the alarm response of the large leak to notify: the overlap goes.
     let alarms = AlarmsProxy::new(&rig.client).await.unwrap();
-    alarms.set_response(LARGE, "notify", 30).await.unwrap();
+    alarms.set_response(LARGE, "", "notify", 30).await.unwrap();
     let rows = proxy.get_device_response_proposals().await.unwrap();
     let large = rows.iter().find(|r| r.0 == LARGE).unwrap();
     assert_eq!((large.2.as_str(), large.3.as_str()), ("signal-long", ""));
@@ -155,4 +155,37 @@ async fn accepted_proposal_on_the_bus_meets_the_verification_rule() {
         .unwrap_err();
     assert_eq!(error_name(&error), format!("{ERR}.NotVerified"));
     assert_eq!(set_feature_count(&rig.sim.requests()), 0);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn double_poweroff_uses_resolved_response() {
+    let rig = Rig::start().await;
+    let proxy = leakshield(&rig).await;
+    let alarms = AlarmsProxy::new(&rig.client).await.unwrap();
+    rig.sim.change_report3(LARGE_LEAK_OFFSET, &[SIGNAL_LONG]);
+    let overlap = async || {
+        let rows = proxy.get_device_response_proposals().await.unwrap();
+        rows.into_iter().find(|r| r.0 == LARGE).unwrap().3
+    };
+    // The large leak powers off by default: the signal overlaps with it.
+    assert_eq!(overlap().await, "double-poweroff");
+
+    // The override of this Leakshield is notify: no overlap, whatever the default says.
+    alarms
+        .set_response(LARGE, LEAKSHIELD, "notify", 30)
+        .await
+        .unwrap();
+    assert_eq!(overlap().await, "");
+
+    // The default is notify and the override is poweroff: the overlap is back.
+    alarms.set_response(LARGE, "", "notify", 30).await.unwrap();
+    alarms
+        .set_response(LARGE, LEAKSHIELD, "poweroff", 30)
+        .await
+        .unwrap();
+    assert_eq!(overlap().await, "double-poweroff");
+
+    // Without the override the default applies.
+    alarms.reset_response(LARGE, LEAKSHIELD).await.unwrap();
+    assert_eq!(overlap().await, "");
 }

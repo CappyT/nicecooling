@@ -65,7 +65,10 @@ async fn active(
 }
 
 async fn set_response(proxy: &AlarmsProxy<'_>, event: &str, response: &str, delay_s: u32) {
-    proxy.set_response(event, response, delay_s).await.unwrap();
+    proxy
+        .set_response(event, "", response, delay_s)
+        .await
+        .unwrap();
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -73,7 +76,10 @@ async fn default_responses() {
     let rig = Rig::start_with_clock().await;
     let proxy = alarms(&rig).await;
     let rows = proxy.get_responses().await.unwrap();
-    // One row for each event and group, not for each alarm bit.
+    // One row for each event and group, not for each alarm bit, and one row of the Leakshield for
+    // each event of the Leakshield.
+    assert_eq!(rows.len(), 8 + 7 + 7);
+    let rows: Vec<_> = rows.into_iter().filter(|r| r.1.is_empty()).collect();
     assert_eq!(rows.len(), 8 + 7);
     for id in [
         "leakshield.leak-alarm-small",
@@ -83,29 +89,32 @@ async fn default_responses() {
         assert!(rows.iter().any(|r| r.0 == id), "{id}");
     }
     assert!(rows.iter().all(|r| !r.0.contains("pump-stall")));
-    for (event, response, delay) in &rows {
+    for (event, _, response, delay, overridden) in &rows {
         let expected = if event == "pump-stop" || event == "leakshield.leak-alarm" {
             "poweroff"
         } else {
             "notify"
         };
         assert_eq!(response, expected, "{event}");
-        assert_eq!(*delay, 30, "{event}");
+        assert_eq!((*delay, *overridden), (30, false), "{event}");
     }
     assert!(
         rows.iter()
-            .any(|r| r.0 == "leakshield-unreachable" && r.1 == "notify")
+            .any(|r| r.0 == "leakshield-unreachable" && r.2 == "notify")
     );
     // A user response replaces the default, and a bad one is refused.
     set_response(&proxy, "pump-stop", "none", 0).await;
     let rows = proxy.get_responses().await.unwrap();
-    assert!(rows.contains(&("pump-stop".into(), "none".into(), 0)));
+    assert!(rows.contains(&("pump-stop".into(), "".into(), "none".into(), 0, false)));
     let e = proxy
-        .set_response("pump-stop", "reboot", 0)
+        .set_response("pump-stop", "", "reboot", 0)
         .await
         .unwrap_err();
     assert_eq!(error_name(&e), format!("{ERR}.InvalidArgument"));
-    let e = proxy.set_response("no-event", "none", 0).await.unwrap_err();
+    let e = proxy
+        .set_response("no-event", "", "none", 0)
+        .await
+        .unwrap_err();
     assert_eq!(error_name(&e), format!("{ERR}.NotFound"));
 }
 
@@ -555,7 +564,8 @@ async fn cancel_during_the_logind_call_fails_with_poweroff_started() {
     }));
     let rx = hub.take_alarm_receiver().unwrap();
     tokio::spawn(run_effects(rig.server.clone(), hub.clone(), rx));
-    hub.set_alarm_response(PUMP_STALL, "poweroff", 2).unwrap();
+    hub.set_alarm_response(PUMP_STALL, "", "poweroff", 2)
+        .unwrap();
     raise(&rig, PUMP_STALL_BIT);
     rig.step(1).await;
     let instance = hub.alarm_rows()[0].instance.clone();
@@ -594,7 +604,8 @@ async fn a_logind_that_never_answers_fails_the_call_and_retries() {
     hub.set_login1(Arc::new(ZbusLogin1::new(bus.connect().await)));
     let rx = hub.take_alarm_receiver().unwrap();
     tokio::spawn(run_effects(rig.server.clone(), hub.clone(), rx));
-    hub.set_alarm_response(PUMP_STALL, "poweroff", 2).unwrap();
+    hub.set_alarm_response(PUMP_STALL, "", "poweroff", 2)
+        .unwrap();
     raise(&rig, PUMP_STALL_BIT);
     rig.step(4).await;
     assert_eq!(calls.load(Ordering::SeqCst), 1);
@@ -812,7 +823,8 @@ async fn poweroff_requested_on_disk_before_logind_call() {
     }));
     let rx = hub.take_alarm_receiver().unwrap();
     tokio::spawn(run_effects(rig.server.clone(), hub.clone(), rx));
-    hub.set_alarm_response(PUMP_STALL, "poweroff", 2).unwrap();
+    hub.set_alarm_response(PUMP_STALL, "", "poweroff", 2)
+        .unwrap();
     raise(&rig, PUMP_STALL_BIT);
 
     rig.step(5).await;
@@ -894,7 +906,8 @@ async fn history_outcome_failed_then_retry() {
     hub.set_login1(Arc::new(FlakyLogin1(AtomicUsize::new(0))));
     let rx = hub.take_alarm_receiver().unwrap();
     tokio::spawn(run_effects(rig.server.clone(), hub.clone(), rx));
-    hub.set_alarm_response(PUMP_STALL, "poweroff", 2).unwrap();
+    hub.set_alarm_response(PUMP_STALL, "", "poweroff", 2)
+        .unwrap();
     raise(&rig, PUMP_STALL_BIT);
     rig.step(4).await;
     for _ in 0..100 {
@@ -939,4 +952,197 @@ async fn history_closed_row_carries_closed_by_restart() {
     // The outcome of the row does not change: the restart is not a clear of the instance.
     assert_eq!(rows[0].7, "poweroff-pending");
     assert!(bool::try_from(rows[0].8["closed_by_restart"].try_clone().unwrap()).unwrap());
+}
+
+// The alarm response per Leakshield (design D18).
+
+const LARGE: &str = "leakshield.leak-alarm";
+
+/// The `GetResponses` row of an event for a source.
+async fn response_row(proxy: &AlarmsProxy<'_>, event: &str, source: &str) -> (String, u32, bool) {
+    let rows = proxy.get_responses().await.unwrap();
+    let row = rows
+        .into_iter()
+        .find(|r| r.0 == event && r.1 == source)
+        .unwrap_or_else(|| panic!("no row for {event} of {source:?}"));
+    (row.2, row.3, row.4)
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn set_response_per_leakshield() {
+    let mut rig = Rig::start_with_clock().await;
+    let proxy = alarms(&rig).await;
+
+    proxy
+        .set_response(LARGE, support::LEAKSHIELD, "none", 0)
+        .await
+        .unwrap();
+
+    // The row of the Leakshield shows the override, and the row of the event keeps its default.
+    assert_eq!(
+        response_row(&proxy, LARGE, support::LEAKSHIELD).await,
+        ("none".to_owned(), 0, true)
+    );
+    assert_eq!(
+        response_row(&proxy, LARGE, "").await,
+        ("poweroff".to_owned(), 30, false)
+    );
+    // The state file keeps it under the key `<event>@<source>`.
+    rig.daemon.as_ref().unwrap().hub.flush_now();
+    let state = std::fs::read_to_string(rig.state.join("state.json")).unwrap();
+    assert!(
+        state.contains(&format!("\"{LARGE}@{}\"", support::LEAKSHIELD)),
+        "{state}"
+    );
+    // An instance of this Leakshield takes the override: no poweroff.
+    rig.sim.set_alarm_bits(LEAK_BIT);
+    rig.step(3).await;
+    let rows = active(&proxy).await;
+    assert_eq!((rows[0].4.as_str(), rows[0].6), ("none", 0));
+    rig.step(40).await;
+    assert_eq!(rig.logind.call_count(), 0);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn reset_response_removes_override() {
+    let rig = Rig::start_with_clock().await;
+    let proxy = alarms(&rig).await;
+    proxy
+        .set_response(LARGE, support::LEAKSHIELD, "none", 0)
+        .await
+        .unwrap();
+    proxy.set_response(LARGE, "", "notify", 10).await.unwrap();
+
+    proxy
+        .reset_response(LARGE, support::LEAKSHIELD)
+        .await
+        .unwrap();
+
+    // The Leakshield follows the default of the event again.
+    assert_eq!(
+        response_row(&proxy, LARGE, support::LEAKSHIELD).await,
+        ("notify".to_owned(), 10, false)
+    );
+    assert_eq!(
+        response_row(&proxy, LARGE, "").await,
+        ("notify".to_owned(), 10, false)
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn reset_default_restores_builtin() {
+    let rig = Rig::start_with_clock().await;
+    let proxy = alarms(&rig).await;
+    proxy.set_response(LARGE, "", "none", 5).await.unwrap();
+    assert_eq!(
+        response_row(&proxy, LARGE, support::LEAKSHIELD).await,
+        ("none".to_owned(), 5, false)
+    );
+
+    proxy.reset_response(LARGE, "").await.unwrap();
+
+    assert_eq!(
+        response_row(&proxy, LARGE, "").await,
+        ("poweroff".to_owned(), 30, false)
+    );
+    assert_eq!(
+        response_row(&proxy, LARGE, support::LEAKSHIELD).await,
+        ("poweroff".to_owned(), 30, false)
+    );
+    assert_eq!(
+        proxy
+            .reset_response("no-event", "")
+            .await
+            .map_err(|e| error_name(&e)),
+        Err(format!("{ERR}.NotFound"))
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn reset_accepts_removed_leakshield_key() {
+    // The state holds the override of a Leakshield that this start does not know.
+    let rig = Rig::start_with(|_, state| {
+        std::fs::write(
+            state.join("state.json"),
+            r#"{"schema_version": 1, "alarm_responses": {
+                "leakshield.leak-alarm@leakshield_1_1": {"response": "none", "delay_s": 0}}}"#,
+        )
+        .unwrap();
+    })
+    .await;
+    let proxy = alarms(&rig).await;
+    // No row shows it: the Leakshield is not known.
+    assert!(
+        proxy
+            .get_responses()
+            .await
+            .unwrap()
+            .iter()
+            .all(|r| r.1 != "leakshield_1_1")
+    );
+
+    proxy.reset_response(LARGE, "leakshield_1_1").await.unwrap();
+
+    rig.daemon.as_ref().unwrap().hub.flush_now();
+    let state = std::fs::read_to_string(rig.state.join("state.json")).unwrap();
+    assert!(!state.contains("leakshield_1_1"), "{state}");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn override_for_non_leakshield_event_invalid_argument() {
+    let rig = Rig::start_with_clock().await;
+    let proxy = alarms(&rig).await;
+    for event in ["pump-stop", "lost-input", "leakshield-unreachable"] {
+        let e = proxy
+            .set_response(event, "loop_1", "none", 0)
+            .await
+            .unwrap_err();
+        assert_eq!(error_name(&e), format!("{ERR}.InvalidArgument"), "{event}");
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn override_unknown_leakshield_not_found() {
+    let rig = Rig::start_with_clock().await;
+    let proxy = alarms(&rig).await;
+    let e = proxy
+        .set_response(LARGE, "leakshield_9_9", "none", 0)
+        .await
+        .unwrap_err();
+    assert_eq!(error_name(&e), format!("{ERR}.NotFound"));
+    assert!(
+        proxy
+            .get_responses()
+            .await
+            .unwrap()
+            .iter()
+            .all(|r| r.1 != "leakshield_9_9")
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn old_state_without_overrides_loads() {
+    let rig = Rig::start_with(|_, state| {
+        std::fs::write(
+            state.join("state.json"),
+            r#"{"schema_version": 1, "alarm_responses": {
+                "pump-stop": {"response": "none", "delay_s": 7},
+                "leakshield.leak-alarm": {"response": "notify", "delay_s": 11}}}"#,
+        )
+        .unwrap();
+    })
+    .await;
+    let proxy = alarms(&rig).await;
+
+    assert_eq!(
+        response_row(&proxy, "pump-stop", "").await,
+        ("none".to_owned(), 7, false)
+    );
+    // The Leakshield follows the default of the event, and nothing is an override.
+    assert_eq!(
+        response_row(&proxy, LARGE, support::LEAKSHIELD).await,
+        ("notify".to_owned(), 11, false)
+    );
+    let rows = proxy.get_responses().await.unwrap();
+    assert!(rows.iter().all(|r| !r.4));
 }

@@ -308,6 +308,7 @@ mod tests {
     #[test]
     fn alarm_responses_and_pump_floor_are_write() {
         assert_eq!(asks("Alarms", "SetResponse", None), Some(Action::Write));
+        assert_eq!(asks("Alarms", "ResetResponse", None), Some(Action::Write));
         assert_eq!(asks("Alarms", "GetResponses", None), None);
         assert_eq!(asks("Loop", "SetPumpFloor", None), Some(Action::Write));
         assert_eq!(asks("Channel", "SetFixedDuty", None), Some(Action::Write));

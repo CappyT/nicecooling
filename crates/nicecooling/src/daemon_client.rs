@@ -521,13 +521,16 @@ impl DaemonClient {
             .collect())
     }
 
-    /// `GetResponses`: the alarm response of each event type.
+    /// `GetResponses`: the alarm response of each event type. The rows of a Leakshield (source
+    /// not empty) are left out.
     pub async fn responses(&self) -> zbus::Result<Vec<ResponseRule>> {
         let proxy = self.proxy(ROOT, "Alarms").await?;
-        let rows: Vec<(String, String, u32)> = proxy.call("GetResponses", &()).await?;
+        let rows: Vec<(String, String, String, u32, bool)> =
+            proxy.call("GetResponses", &()).await?;
         Ok(rows
             .into_iter()
-            .map(|(event, response, delay_s)| ResponseRule {
+            .filter(|(_, source, ..)| source.is_empty())
+            .map(|(event, _, response, delay_s, _)| ResponseRule {
                 event,
                 response: Response::parse(&response),
                 delay_s,
@@ -836,9 +839,15 @@ impl DaemonClient {
             ROOT,
             "Alarms",
             "SetResponse",
-            &(event, response.id(), delay_s),
+            &(event, "", response.id(), delay_s),
         )
         .await
+    }
+
+    /// `ResetResponse`: source `""` is the default of the event, a Leakshield id its override.
+    pub async fn reset_alarm_response(&self, event: &str, source: &str) -> zbus::Result<()> {
+        self.write(ROOT, "Alarms", "ResetResponse", &(event, source))
+            .await
     }
 
     /// Create the first Loop and link its parts. Returns the id of the Loop.

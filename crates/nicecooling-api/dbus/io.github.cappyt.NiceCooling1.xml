@@ -480,16 +480,26 @@
     <!-- (instance id, event id, severity warning|alarm, source id, response none|notify|poweroff, raised us, poweroff at us or 0, details); api.md gives the detail keys -->
     <property name="Active" type="a(ssssstta{sv})" access="read"/>
 
-    <!-- (event id, response, delay s) -->
+    <!-- (event id, source, response, delay s, override). Source "" is the default of the event. A row with a Leakshield id as source
+         is the resolved response of that Leakshield: override is true when an override exists. api.md gives the order. -->
     <method name="GetResponses">
       <annotation name="io.github.cappyt.NiceCooling1.Authorization" value="read"/>
-      <arg name="responses" type="a(ssu)" direction="out"/>
+      <arg name="responses" type="a(sssub)" direction="out"/>
     </method>
+    <!-- Source "" sets the default of the event. A Leakshield id sets the override of an event leakshield.* (NotFound for an unknown
+         Leakshield, InvalidArgument for another event). -->
     <method name="SetResponse">
       <annotation name="io.github.cappyt.NiceCooling1.Authorization" value="write"/>
       <arg name="event" type="s" direction="in"/>
+      <arg name="source" type="s" direction="in"/>
       <arg name="response" type="s" direction="in"/>
       <arg name="delay_s" type="u" direction="in"/>
+    </method>
+    <!-- Source "" sets the default of the event back to the built-in one. A source removes its override. -->
+    <method name="ResetResponse">
+      <annotation name="io.github.cappyt.NiceCooling1.Authorization" value="write"/>
+      <arg name="event" type="s" direction="in"/>
+      <arg name="source" type="s" direction="in"/>
     </method>
     <!-- The instances that were active at or after since_us (cleared_us 0 or at least since_us), newest raise first, at most limit rows
          (0 means all). Row: (instance id, event id, severity, source id, response, raised us, cleared us or 0, outcome, details). details has the

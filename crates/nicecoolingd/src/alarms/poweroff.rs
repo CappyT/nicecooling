@@ -149,7 +149,7 @@ impl AlarmManager {
                 continue;
             }
             self.next += 1;
-            let (response, delay_s) = resolve(responses, &event.event);
+            let (response, delay_s) = resolve(responses, &event.event, &event.source, false);
             let (countdown, poweroff_at_us) = if response == Response::Poweroff {
                 (
                     Countdown::Pending {

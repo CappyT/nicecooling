@@ -38,9 +38,16 @@ pub trait Alarms {
     #[zbus(property)]
     fn active(&self) -> zbus::Result<Vec<ActiveAlarm>>;
 
-    /// (event id, response, delay s)
-    fn get_responses(&self) -> zbus::Result<Vec<(String, String, u32)>>;
-    fn set_response(&self, event: &str, response: &str, delay_s: u32) -> zbus::Result<()>;
+    /// (event id, source, response, delay s, override)
+    fn get_responses(&self) -> zbus::Result<Vec<(String, String, String, u32, bool)>>;
+    fn set_response(
+        &self,
+        event: &str,
+        source: &str,
+        response: &str,
+        delay_s: u32,
+    ) -> zbus::Result<()>;
+    fn reset_response(&self, event: &str, source: &str) -> zbus::Result<()>;
     fn get_history(&self, since_us: u64, limit: u32) -> zbus::Result<Vec<HistoryRow>>;
     fn cancel_poweroff(&self, instance: &str) -> zbus::Result<()>;
 
