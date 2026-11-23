@@ -322,6 +322,12 @@ impl ScreenView {
         if let Some((_, label)) = &card_model.limit {
             notes = notes.child(caption(label.clone(), p));
         }
+        for label in [&card_model.target, &card_model.minimum]
+            .into_iter()
+            .flatten()
+        {
+            notes = notes.child(caption(label.clone(), p));
+        }
         if let Some((_, label)) = &card_model.raised {
             notes = notes.child(caption(label.clone(), p).text_color(p.alarm));
         }

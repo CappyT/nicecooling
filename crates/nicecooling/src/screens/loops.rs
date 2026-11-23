@@ -2,7 +2,7 @@
 //! with its diagram, its Pump floor and its Calibration table.
 
 use crate::command::Command;
-use crate::model::{AppState, Link, LoopInfo, SensorSample};
+use crate::model::{AppState, FeedState, Link, LoopInfo};
 use crate::screens::format::{optional_value, value_text};
 use crate::screens::{FeedbackLine, ScreenInput};
 use crate::widgets::calibration_editor::{CalibrationEditorModel, CalibrationUi};
@@ -462,10 +462,7 @@ fn detail_of(input: &ScreenInput<'_>, ui: &LoopsUi, info: &LoopInfo) -> LoopDeta
         )
     });
 
-    let feed = info
-        .leakshield
-        .as_ref()
-        .map(|_| feed_card(input, info, sample));
+    let feed = info.leakshield.as_ref().map(|_| feed_card(input, info));
     let delete_dialog = ui.delete_dialog.then(|| DeleteDialog {
         title: locale.fmt("loops.delete.title", &[("name", &info.name)]),
         text: locale.tr("loops.delete.text"),
@@ -491,21 +488,29 @@ fn detail_of(input: &ScreenInput<'_>, ui: &LoopsUi, info: &LoopInfo) -> LoopDeta
     }
 }
 
-fn feed_card(input: &ScreenInput<'_>, info: &LoopInfo, sample: Option<&SensorSample>) -> FeedCard {
+/// The Feed card shows what the daemon reports: the time and the values of the last good send.
+/// Before the first send it shows "Not sent yet". After a send it shows "Sent N s ago", and
+/// "Last Feed N s ago" in the Warning color when the Feed is not `ok` or the send is older than 5 s.
+fn feed_card(input: &ScreenInput<'_>, info: &LoopInfo) -> FeedCard {
     let locale = input.locale;
     let state = input.state;
-    let feed_pump = info
-        .pump_channels
-        .iter()
-        .filter_map(|id| fan_sensor(id))
-        .filter_map(|fan| sample.and_then(|s| s.sensor_value(&fan)))
-        .reduce(f64::min);
-    let flow = info
-        .flow
+    let device = info
+        .leakshield
         .as_ref()
-        .and_then(|id| sample.and_then(|s| s.sensor_value(id)));
-    let age = sample.map(|s| input.now_us.saturating_sub(s.time_us) / 1_000_000);
-    let stale = !state.is_online() || age.is_some_and(|age| age > FEED_STALE_S);
+        .and_then(|id| state.snapshot.leakshields.iter().find(|d| &d.id == id));
+    let feed = device.map(|d| d.last_feed).unwrap_or_default();
+    let feed_state = device.map_or(FeedState::Off, |d| d.feed_state);
+    let sent_once = feed.time_us != 0;
+    let (feed_pump, flow) = if sent_once {
+        (Some(feed.feed_pump), Some(feed.flow_lph))
+    } else {
+        (None, None)
+    };
+    let age = sent_once.then(|| input.now_us.saturating_sub(feed.time_us) / 1_000_000);
+    let stale = sent_once
+        && (!state.is_online()
+            || !matches!(feed_state, FeedState::Ok)
+            || age.is_some_and(|age| age > FEED_STALE_S));
     FeedCard {
         title: locale.tr("loops.feed.title"),
         feed_pump: locale.fmt(

@@ -232,6 +232,8 @@ overview:
     title: Pressure
     subtitle: Leakshield, last 10 minutes
     limit: "Limit %{value}"
+    target: "Target %{value}"
+    minimum: "Minimum %{value}"
     raised: "Alarm raised %{time}"
   temp:
     cpu: CPU
@@ -402,7 +404,7 @@ loops:
     flow: "Flow %{value}"
     sent: "Sent %{seconds} s ago"
     stale: "Last Feed %{seconds} s ago"
-    never: No Feed yet
+    never: Not sent yet
     caption: The Leakshield uses the Feed to compute the pressure of the Loop.
 calibration:
   title: Calibration table

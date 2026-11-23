@@ -53,7 +53,7 @@ From the top:
 | ST caption | "Duty 62 %" / "stopped" |
 | FT caption | "calibrated" / "above table range" (flag, with the information icon) / "below 40 L/h" |
 | TT caption | "water" |
-| Pressure card | "Pressure", "Leakshield, last 10 minutes", "Target 300 mbar", "Minimum 250 mbar", "Alarm raised 21:46:51" |
+| Pressure card | "Pressure", "Leakshield, last 10 minutes", "Limit 250 mbar", "Target 300 mbar", "Minimum 250 mbar", "Alarm raised 21:46:51". The target is the sensor `<id>_pressure_setpoint`, the minimum is `<id>_pressure_low`, and the PT caption also uses `<id>_pressure_high` |
 | Active Alarms, empty | "No active Alarms" |
 | Alarm row | "Large leak" and "Leakshield, since 21:46:51. Alarm response: poweroff after 30 s." |
 | Warning row | "Input lost" and "Chassis Fan 3, since 20:58. Alarm response: notify." |

@@ -1345,6 +1345,8 @@ pub struct Options {
     pub no_reset_commands: bool,
     /// A Pump channel of the Loop runs: the Refill is refused.
     pub pump_running: bool,
+    /// The Feed is on and nothing was sent yet.
+    pub feed_waiting: bool,
 }
 
 pub struct FakeDaemon {
@@ -1558,6 +1560,7 @@ impl FakeDaemon {
                     DeviceOptions {
                         no_reset_commands: options.no_reset_commands,
                         pump_running: options.pump_running,
+                        feed_waiting: options.feed_waiting,
                     },
                     shared.clone(),
                 ),

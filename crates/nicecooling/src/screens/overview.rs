@@ -51,6 +51,10 @@ pub struct PressureCard {
     pub unit: String,
     /// The limit as a dashed line, with its label.
     pub limit: Option<(f64, String)>,
+    /// "Target 300 mbar", from the setpoint sensor of the Leakshield.
+    pub target: Option<String>,
+    /// "Minimum 250 mbar", from the low sensor of the Leakshield.
+    pub minimum: Option<String>,
     /// The time of the vertical line, in Unix microseconds, with its label.
     pub raised: Option<(u64, String)>,
 }
@@ -309,6 +313,7 @@ fn pressure_card(input: &ScreenInput<'_>) -> Option<PressureCard> {
     } else {
         alarm.details.unit.clone()
     };
+    let limits = input.state.leakshield_pressure_limits(&alarm.source);
     Some(PressureCard {
         title: locale.tr("overview.pressure.title"),
         subtitle: locale.tr("overview.pressure.subtitle"),
@@ -318,6 +323,18 @@ fn pressure_card(input: &ScreenInput<'_>) -> Option<PressureCard> {
                 &[("value", &value_text(locale, limit, &unit))],
             );
             (limit, label)
+        }),
+        target: limits.map(|limits| {
+            locale.fmt(
+                "overview.pressure.target",
+                &[("value", &value_text(locale, limits.target, "mbar"))],
+            )
+        }),
+        minimum: limits.map(|limits| {
+            locale.fmt(
+                "overview.pressure.minimum",
+                &[("value", &value_text(locale, limits.min, "mbar"))],
+            )
         }),
         raised: (alarm.raised_us != 0).then(|| {
             (

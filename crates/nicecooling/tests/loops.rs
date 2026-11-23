@@ -2,7 +2,7 @@ mod support;
 
 use nicecooling::command::Command;
 use nicecooling::i18n::{EN, IT};
-use nicecooling::model::{AppState, Link, Response};
+use nicecooling::model::{AppState, FeedState, LastFeed, Link, Response};
 use nicecooling::screens::loops::{LoopsModel, LoopsState, LoopsUi};
 use nicecooling::screens::{Feedback, ScreenInput, WriteOutcome};
 use nicecooling::widgets::calibration_editor::{CalibrationEditorModel, CalibrationUi};
@@ -121,21 +121,10 @@ fn loops_states() {
         Some("With a Pump floor of 0 %, a Curve can stop the pump.")
     );
 
-    // Feed stale: the age shows after 5 s. A flow above the table is an estimate.
+    // A flow above the table is an estimate.
     let mut late = full();
     late.sensors.as_mut().unwrap().sensors[3].1 = 800.0;
-    let detail = LoopsModel::build(
-        &ScreenInput {
-            now_us: NOW_US + 12_000_000,
-            ..input(&late, &Feedback::default())
-        },
-        &ui,
-    )
-    .detail
-    .unwrap();
-    let feed = detail.feed.unwrap();
-    assert!(feed.stale);
-    assert_eq!(feed.sent, "Last Feed 12 s ago");
+    let detail = model(&late, &ui).detail.unwrap();
     let editor = detail.calibration.unwrap();
     assert!(editor.plot.marker.as_ref().unwrap().out_of_range);
     assert_eq!(
@@ -590,4 +579,132 @@ fn loops_labels() {
         detail.calibration.unwrap().plot.marker.unwrap().label,
         "671 rpm, 114 L/h"
     );
+}
+
+fn feed_card_at(state: &AppState, now_us: u64) -> nicecooling::screens::loops::FeedCard {
+    LoopsModel::build(
+        &ScreenInput {
+            now_us,
+            ..input(state, &Feedback::default())
+        },
+        &LoopsUi::default(),
+    )
+    .detail
+    .unwrap()
+    .feed
+    .expect("the Feed card")
+}
+
+#[test]
+fn feed_card_from_last_feed() {
+    // The values and the time are the ones of `LastFeed`, not the live sensors.
+    let mut state = full();
+    state.sensors.as_mut().unwrap().sensors[2].1 = 1000.0;
+    state.sensors.as_mut().unwrap().sensors[4].1 = 50.0;
+    let feed = feed_card_at(&state, NOW_US + 2_000_000);
+    assert_eq!(feed.feed_pump, "Pump speed 2840 rpm");
+    assert_eq!(feed.flow, "Flow 115 L/h");
+    assert_eq!(feed.sent, "Sent 2 s ago");
+    assert!(!feed.stale);
+
+    // The age follows the clock.
+    assert_eq!(
+        feed_card_at(&state, NOW_US + 5_000_000).sent,
+        "Sent 5 s ago"
+    );
+
+    // Italian.
+    let italian = LoopsModel::build(
+        &ScreenInput {
+            locale: IT,
+            ..input(&state, &Feedback::default())
+        },
+        &LoopsUi::default(),
+    )
+    .detail
+    .unwrap()
+    .feed
+    .unwrap();
+    assert_eq!(italian.sent, "Inviato 2 s fa");
+}
+
+#[test]
+fn feed_card_stale_after_5_s() {
+    let state = full();
+    // 5 s old: not stale yet. 6 s old: the Warning color and "Last Feed".
+    assert!(!feed_card_at(&state, NOW_US + 5_000_000).stale);
+    let feed = feed_card_at(&state, NOW_US + 6_000_000);
+    assert!(feed.stale);
+    assert_eq!(feed.sent, "Last Feed 6 s ago");
+    assert_eq!(
+        feed_card_at(&state, NOW_US + 12_000_000).sent,
+        "Last Feed 12 s ago"
+    );
+
+    // A failing Feed is stale although the last send is recent.
+    let mut failing = full();
+    failing.snapshot.leakshields[0].feed_state = FeedState::Failing;
+    let feed = feed_card_at(&failing, NOW_US + 2_000_000);
+    assert!(feed.stale);
+    assert_eq!(feed.sent, "Last Feed 2 s ago");
+
+    // An `off` Feed keeps the age of the last send, in the Warning color.
+    let mut off = full();
+    off.snapshot.leakshields[0].feed_state = FeedState::Off;
+    let feed = feed_card_at(&off, NOW_US + 2_000_000);
+    assert!(feed.stale);
+    assert_eq!(feed.sent, "Last Feed 2 s ago");
+}
+
+#[test]
+fn feed_card_waiting() {
+    let mut state = full();
+    state.snapshot.leakshields[0].feed_state = FeedState::Waiting;
+    state.snapshot.leakshields[0].last_feed = LastFeed::default();
+    let feed = feed_card_at(&state, NOW_US);
+    assert_eq!(feed.sent, "Not sent yet");
+    assert!(!feed.stale);
+    assert_eq!(feed.feed_pump, "Pump speed --");
+    assert_eq!(feed.flow, "Flow --");
+
+    // `off` before the first send shows the same text.
+    state.snapshot.leakshields[0].feed_state = FeedState::Off;
+    assert_eq!(feed_card_at(&state, NOW_US).sent, "Not sent yet");
+
+    // Italian.
+    let italian = LoopsModel::build(
+        &ScreenInput {
+            locale: IT,
+            ..input(&state, &Feedback::default())
+        },
+        &LoopsUi::default(),
+    )
+    .detail
+    .unwrap()
+    .feed
+    .unwrap();
+    assert_eq!(italian.sent, "Non ancora inviato");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn feed_card_reads_the_properties_of_the_daemon() {
+    let bus = PrivateBus::start("loops-feed");
+    let daemon = FakeDaemon::start(
+        bus.connect().await,
+        Options {
+            feed_waiting: true,
+            ..Options::default()
+        },
+    )
+    .await;
+    let mut harness = Harness::start(&bus).await;
+    harness
+        .until("the Leakshield is read", |state| {
+            !state.snapshot.leakshields.is_empty()
+        })
+        .await;
+    let device = &harness.state.snapshot.leakshields[0];
+    assert_eq!(device.feed_state, FeedState::Waiting);
+    assert_eq!(device.last_feed, LastFeed::default());
+    drop(daemon);
 }

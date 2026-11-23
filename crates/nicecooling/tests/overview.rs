@@ -379,3 +379,49 @@ fn overview_labels() {
         "31,4"
     );
 }
+
+#[test]
+fn pressure_card_target_and_minimum_from_sensors() {
+    let mut state = full();
+    let mut leak = alarm(
+        "a1",
+        "leakshield.leak-alarm",
+        LEAKSHIELD,
+        Response::Poweroff,
+        30,
+    );
+    leak.details = AlarmDetails {
+        limit: Some(250.0),
+        unit: "mbar".into(),
+        ..Default::default()
+    };
+    state.snapshot.alarms = vec![leak];
+    let card = model(&state, EN).pressure.expect("the pressure card shows");
+    assert_eq!(card.target.as_deref(), Some("Target 300 mbar"));
+    assert_eq!(card.minimum.as_deref(), Some("Minimum 250 mbar"));
+    let italian = model(&state, IT).pressure.expect("the pressure card shows");
+    assert_eq!(italian.target.as_deref(), Some("Obiettivo 300 mbar"));
+    assert_eq!(italian.minimum.as_deref(), Some("Minimo 250 mbar"));
+
+    // The values follow the sensors, not a stored copy.
+    let sample = state.sensors.as_mut().unwrap();
+    for (id, value, _) in &mut sample.sensors {
+        if id.ends_with("_pressure_setpoint") {
+            *value = 320.0;
+        } else if id.ends_with("_pressure_low") {
+            *value = 270.0;
+        }
+    }
+    let card = model(&state, EN).pressure.unwrap();
+    assert_eq!(card.target.as_deref(), Some("Target 320 mbar"));
+    assert_eq!(card.minimum.as_deref(), Some("Minimum 270 mbar"));
+
+    // A Leakshield without the sensors shows no target and no minimum.
+    let sample = state.sensors.as_mut().unwrap();
+    sample
+        .sensors
+        .retain(|(id, _, _)| !id.contains("_pressure_"));
+    state.last_sensors = None;
+    let card = model(&state, EN).pressure.unwrap();
+    assert!(card.target.is_none() && card.minimum.is_none());
+}

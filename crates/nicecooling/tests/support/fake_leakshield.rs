@@ -60,6 +60,8 @@ pub struct DeviceOptions {
     pub no_reset_commands: bool,
     /// A Pump channel of the Loop reads above 0 rpm.
     pub pump_running: bool,
+    /// The Feed is on and nothing was sent yet: `FeedState` is `waiting`, `LastFeed` is zero.
+    pub feed_waiting: bool,
 }
 
 pub struct Leakshield {
@@ -466,12 +468,21 @@ impl Leakshield {
 
     #[zbus(property)]
     fn feed_state(&self) -> String {
-        "ok".into()
+        if self.options.feed_waiting {
+            "waiting"
+        } else {
+            "ok"
+        }
+        .into()
     }
 
     #[zbus(property)]
     fn last_feed(&self) -> (u64, f64, f64) {
-        (1_700_000_000_000_000, 2840.0, 115.2)
+        if self.options.feed_waiting {
+            (0, 0.0, 0.0)
+        } else {
+            (1_700_000_000_000_000, 2840.0, 115.2)
+        }
     }
 
     #[zbus(property)]
