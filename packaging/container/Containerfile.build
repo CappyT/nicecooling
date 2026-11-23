@@ -1,0 +1,11 @@
+# Image that builds the RPM. `packaging/container/build-rpm.sh` builds it from the repository root.
+# The BuildRequires of the spec install here, with network. The build itself runs with `--network none`.
+ARG FEDORA_VERSION=latest
+FROM registry.fedoraproject.org/fedora:${FEDORA_VERSION}
+
+RUN dnf -y install rpm-build rpmlint dnf-plugins-core cargo zstd systemd-rpm-macros && dnf clean all
+
+COPY packaging/nicecooling.spec /tmp/nicecooling.spec
+RUN dnf -y builddep /tmp/nicecooling.spec && dnf clean all
+
+WORKDIR /work
