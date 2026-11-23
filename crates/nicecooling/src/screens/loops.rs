@@ -6,7 +6,7 @@ use crate::model::{AppState, Link, LoopInfo, SensorSample};
 use crate::screens::format::{optional_value, value_text};
 use crate::screens::{FeedbackLine, ScreenInput};
 use crate::widgets::calibration_editor::{CalibrationEditorModel, CalibrationUi};
-use crate::widgets::loop_diagram::{LoopDiagram, fan_sensor};
+use crate::widgets::loop_diagram::LoopDiagram;
 
 /// After 5 s without a Feed the age shows in the Warning color.
 const FEED_STALE_S: u64 = 5;
@@ -447,7 +447,8 @@ fn detail_of(input: &ScreenInput<'_>, ui: &LoopsUi, info: &LoopInfo) -> LoopDeta
             .pump_channels
             .iter()
             .find(|id| {
-                fan_sensor(id)
+                state
+                    .fan_sensor(id)
                     .and_then(|fan| sample.and_then(|s| s.sensor_value(&fan)))
                     .is_some_and(|rpm| rpm == 0.0)
             })

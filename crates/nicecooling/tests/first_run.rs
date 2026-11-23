@@ -8,7 +8,7 @@ use nicecooling::screens::{Feedback, ScreenInput};
 use nicecooling::shell::Page;
 use support::bus::PrivateBus;
 use support::fake_daemon::{FakeDaemon, LEAKSHIELD, Options};
-use support::fixtures::{NOW_US, full};
+use support::fixtures::{BIOS_SNAPSHOT_US, NOW_US, full};
 use support::harness::Harness;
 use support::labels;
 
@@ -479,4 +479,142 @@ fn first_run_labels() {
         assert!(it.contains_key(key), "Italian text of {key}");
     }
     assert_eq!(en["nav.first_run"], "First run");
+}
+
+#[test]
+fn snapshot_step_lists_hardware_curves() {
+    let ui = FirstRunUi {
+        step: Step::Bios,
+        ..Default::default()
+    };
+    let shown = model(&fresh(), &ui);
+    assert_eq!(shown.bios.columns, ["Channel", "Hardware curve"]);
+    assert_eq!(
+        shown.bios.saved,
+        Some(format!(
+            "Saved {}",
+            nicecooling::screens::format::date_time(BIOS_SNAPSHOT_US)
+        ))
+    );
+    let rows: Vec<(&str, &str)> = shown
+        .bios
+        .rows
+        .iter()
+        .map(|row| (row.name.as_str(), row.curve.as_str()))
+        .collect();
+    assert_eq!(
+        rows,
+        [
+            (
+                "Chassis Fan 1",
+                "30.0 \u{b0}C: 20 %, 40.0 \u{b0}C: 40 %, 50.0 \u{b0}C: 60 %, 60.0 \u{b0}C: 80 %, 70.0 \u{b0}C: 100 %"
+            ),
+            ("Waterpump", "--"),
+        ]
+    );
+
+    // No snapshot: no date, and the rows show "--".
+    let mut none = fresh();
+    for channel in none.snapshot.channels.values_mut() {
+        channel.bios_snapshot = Default::default();
+    }
+    let shown = model(&none, &ui);
+    assert!(shown.bios.saved.is_none());
+    assert!(shown.bios.rows.iter().all(|row| row.curve == "--"));
+}
+
+#[test]
+fn empty_table_skips_set_flow_sensor_and_shows_note() {
+    let note = "The flow sensor has no value until its Calibration table has 2 points. Build the table on the Loops screen.";
+    let at_loop = FirstRunUi {
+        step: Step::Loop,
+        ..Default::default()
+    };
+    // A preset: no note.
+    assert!(
+        model(&fresh(), &at_loop)
+            .loop_step
+            .empty_table_note
+            .is_none()
+    );
+
+    // "Empty table" with a flow sensor: the note, in both languages.
+    let empty = FirstRunUi {
+        step: Step::Loop,
+        preset: Some(String::new()),
+        ..Default::default()
+    };
+    assert_eq!(
+        model(&fresh(), &empty)
+            .loop_step
+            .empty_table_note
+            .as_deref(),
+        Some(note)
+    );
+    let feedback = Feedback::default();
+    let italian = FirstRunModel::build(
+        &ScreenInput {
+            locale: IT,
+            ..input(&fresh(), &feedback)
+        },
+        &empty,
+    );
+    assert_eq!(
+        italian.loop_step.empty_table_note.as_deref(),
+        Some(
+            "Il sensore di portata non ha valore finch\u{e9} la sua tabella di calibrazione non ha 2 punti. Crea la tabella nella schermata Loop."
+        )
+    );
+
+    // Without a flow sensor there is no table to build: no note.
+    let no_flow = FirstRunUi {
+        step: Step::Loop,
+        preset: Some(String::new()),
+        flow: Some(String::new()),
+        ..Default::default()
+    };
+    assert!(
+        model(&fresh(), &no_flow)
+            .loop_step
+            .empty_table_note
+            .is_none()
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn empty_table_setup_does_not_call_set_flow_sensor() {
+    let bus = PrivateBus::start("first-run-empty-table");
+    let daemon = FakeDaemon::start(bus.connect().await, Options::default()).await;
+    let mut harness = Harness::start(&bus).await;
+    harness
+        .until("the Board is known", |state| {
+            state.snapshot.board.is_some() && state.snapshot.loops.len() == 1
+        })
+        .await;
+    let command = Command::SetupLoop {
+        name: "Empty table loop".into(),
+        pump_channels: vec!["nct6798_pwm2".into()],
+        flow_sensor: "asusec_fan1".into(),
+        table: String::new(),
+        water: "k10temp_tctl".into(),
+        leakshield: String::new(),
+        floor: 55.0,
+    };
+    command.run_on_daemon(&harness.client).await.expect("setup");
+    harness
+        .until("the new Loop is complete", |state| {
+            state
+                .snapshot
+                .loops
+                .iter()
+                .any(|l| l.name == "Empty table loop" && l.pump_floor == 55.0)
+        })
+        .await;
+    let calls = daemon.calls();
+    assert!(
+        !calls.iter().any(|c| c.contains("SetFlowSensor(")),
+        "{calls:?}"
+    );
+    assert!(calls.iter().any(|c| c.starts_with("SetPumpChannels(")));
+    assert!(calls.last().unwrap().contains("SetPumpFloor("));
 }

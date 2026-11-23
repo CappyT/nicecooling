@@ -5,13 +5,11 @@ use nicecooling_core::curve::{DEFAULT_SMOOTHING_S, DEFAULT_STEP_LIMIT};
 
 use crate::command::Command;
 use crate::model::{AppState, ChannelInfo, ChannelOverride, Control, Link, SensorSample};
-use crate::screens::format::{number, optional_value, value_text};
+use crate::screens::format::{date_time, number, optional_value, unit_text, value_text};
 use crate::screens::{FeedbackLine, ScreenInput, WriteOutcome};
 use crate::widgets::curve_editor::{
-    MAX_POINTS, MIN_POINTS, PlotScale, add_point_after, add_point_at, duty_at, move_point,
-    remove_point,
+    MAX_POINTS, MIN_POINTS, PlotScale, add_point_after, add_point_at, move_point, remove_point,
 };
-use crate::widgets::loop_diagram::fan_sensor;
 
 const DEFAULT_POINTS: [(f64, f64); 3] = [(30.0, 40.0), (45.0, 70.0), (60.0, 100.0)];
 
@@ -426,6 +424,12 @@ pub struct FixedDetail {
 pub struct BiosPanel {
     pub title: String,
     pub text: String,
+    /// "Saved 2026-11-20 08:14". `None` when the daemon holds no snapshot.
+    pub saved: Option<String>,
+    /// The Hardware curve of the snapshot: the two column titles. Empty without auto points.
+    pub columns: Option<(String, String)>,
+    /// One row per auto point: the temperature and the Duty.
+    pub rows: Vec<(String, String)>,
     pub open: bool,
 }
 
@@ -536,9 +540,11 @@ fn row_of(
         Control::Fixed => (locale.tr("channels.line.fixed"), false),
         Control::Hardware => (locale.tr("channels.line.hardware"), false),
     };
-    let rpm = fan_sensor(&channel.id)
-        .filter(|id| state.snapshot.sensors.contains_key(id))
-        .and_then(|id| sample.and_then(|s| s.sensor_value(&id)));
+    let rpm = channel
+        .fan_sensor
+        .as_ref()
+        .filter(|id| state.snapshot.sensors.contains_key(*id))
+        .and_then(|id| sample.and_then(|s| s.sensor_value(id)));
     let duty = if pump_stopped {
         Some(100.0)
     } else {
@@ -657,11 +663,7 @@ fn detail_of(
         fixed,
         hardware_text,
         write_line,
-        bios: BiosPanel {
-            title: locale.tr("channels.bios.title"),
-            text: locale.tr("channels.bios.text"),
-            open: ui.bios_open,
-        },
+        bios: bios_panel(input, ui, channel),
         release_dialog: ui.release_dialog.then(|| ReleaseDialog {
             title: locale.tr("channels.release.title"),
             text: locale.tr("channels.release.text"),
@@ -707,7 +709,9 @@ fn curve_detail(
         .and_then(|id| sample.and_then(|s| s.sensor_value(id)))
         .filter(|_| state.is_online() && !lost);
     let duty_now = sample.and_then(|s| s.channel_duty(&channel.id));
-    let curve_output = live_input.map(|x| duty_at(&points, x));
+    let readout = sample
+        .and_then(|s| s.channel_readout(&channel.id))
+        .filter(|_| state.is_online());
     let scale = PlotScale::for_points(&points, live_input);
     let operating = live_input.zip(duty_now).map(|(x, y)| Operating {
         x,
@@ -788,7 +792,10 @@ fn curve_detail(
         readout: Readout {
             input: locale.fmt(
                 "channels.readout.input",
-                &[("value", &optional_value(locale, live_input, unit))],
+                &[(
+                    "value",
+                    &optional_value(locale, readout.map(|(input, _)| input), unit),
+                )],
             ),
             smoothing: locale.fmt(
                 "channels.readout.smoothing",
@@ -796,7 +803,10 @@ fn curve_detail(
             ),
             curve: locale.fmt(
                 "channels.readout.curve",
-                &[("value", &optional_value(locale, curve_output, "%"))],
+                &[(
+                    "value",
+                    &optional_value(locale, readout.map(|(_, target)| target), "%"),
+                )],
             ),
             duty: locale.fmt(
                 "channels.readout.duty",
@@ -807,5 +817,37 @@ fn curve_detail(
         can_remove: points.len() > MIN_POINTS,
         points,
         plot,
+    }
+}
+
+fn bios_panel(input: &ScreenInput<'_>, ui: &ChannelsUi, channel: &ChannelInfo) -> BiosPanel {
+    let locale = input.locale;
+    let snapshot = &channel.bios_snapshot;
+    let curve = channel.hardware_curve();
+    BiosPanel {
+        title: locale.tr("channels.bios.title"),
+        text: locale.tr("channels.bios.text"),
+        saved: (snapshot.time_us != 0).then(|| {
+            locale.fmt(
+                "channels.bios.saved",
+                &[("time", &date_time(snapshot.time_us))],
+            )
+        }),
+        columns: (!curve.is_empty()).then(|| {
+            (
+                locale.fmt("channels.plot.x_title", &[("unit", unit_text("degC"))]),
+                locale.tr("channels.plot.y_title"),
+            )
+        }),
+        rows: curve
+            .iter()
+            .map(|(temp, duty)| {
+                (
+                    value_text(locale, *temp, "degC"),
+                    value_text(locale, *duty, "%"),
+                )
+            })
+            .collect(),
+        open: ui.bios_open,
     }
 }

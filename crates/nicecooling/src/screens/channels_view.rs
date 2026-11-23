@@ -417,6 +417,26 @@ impl ScreenView {
         );
         if open {
             body = body.child(card_row(p).child(caption(detail.bios.text.clone(), p)));
+            if let Some(saved) = &detail.bios.saved {
+                body = body.child(card_row(p).child(caption(saved.clone(), p)));
+            }
+            if let Some((temperature, duty)) = &detail.bios.columns {
+                body = body.child(
+                    card_row(p)
+                        .text_size(px(12.))
+                        .font_weight(FontWeight::BOLD)
+                        .text_color(p.fg_dim)
+                        .child(div().flex_1().child(temperature.clone()))
+                        .child(div().flex_1().child(duty.clone())),
+                );
+            }
+            for (temperature, duty) in &detail.bios.rows {
+                body = body.child(
+                    card_row(p)
+                        .child(div().flex_1().child(temperature.clone()))
+                        .child(div().flex_1().child(duty.clone())),
+                );
+            }
         }
 
         let mut column = card(p).flex_1().min_w_0().child(body);

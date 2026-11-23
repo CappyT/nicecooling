@@ -71,7 +71,7 @@ fn overview_states() {
     assert!(diagram.no_leakshield.is_none());
     assert_eq!(
         diagram.accessible,
-        "Main loop. Pressure 298 mbar. Fill level 68 %. Pump 2840 rpm. Flow 115 L/h. Water 31.4 °C."
+        "Main loop. Pressure 298 mbar, target 300. Fill level 68 %. Pump 2840 rpm. Flow 115 L/h. Water 31.4 °C."
     );
     assert!(normal.pressure.is_none());
     assert!(normal.alarms.is_empty());
@@ -202,13 +202,8 @@ fn overview_states() {
         "no protection"
     );
 
-    // Pressure limits give the caption of PT.
+    // The three limit sensors give the caption of PT.
     let mut state = full();
-    state.snapshot.leakshields[0].pressure = Some(nicecooling::model::PressureLimits {
-        target: 300.0,
-        min: 250.0,
-        max: 350.0,
-    });
     assert_eq!(
         model(&state, EN).loops[0]
             .diagram
@@ -243,6 +238,12 @@ fn overview_states() {
     // Two Pump channels: one symbol, the lowest speed, "2 pumps".
     let mut state = full();
     state.snapshot.loops[0].pump_channels = vec!["nct6798_pwm6".into(), "nct6798_pwm2".into()];
+    state
+        .snapshot
+        .channels
+        .get_mut("nct6798_pwm2")
+        .unwrap()
+        .fan_sensor = Some("nct6798_fan2".into());
     state.snapshot.sensors.insert(
         "nct6798_fan2".into(),
         support::fixtures::sensor("nct6798_fan2", "Fan 2", "fan", "rpm", "hwmon", "nct6798"),

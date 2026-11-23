@@ -365,6 +365,7 @@ channels:
   bios:
     title: BIOS snapshot
     text: When the daemon stops, the Board runs its Hardware curve for this Channel.
+    saved: "Saved %{time}"
   release:
     title: Give this Channel back to the Board?
     text: nicecooling stops its Curve.
@@ -754,6 +755,7 @@ first_run:
     flow: Flow sensor
     preset: Calibration table preset
     empty_table: Empty table
+    empty_table_note: The flow sensor has no value until its Calibration table has 2 points. Build the table on the Loops screen.
     live_flow: "%{rpm} = %{flow}"
     flow_name: Flow
     water: Water temperature

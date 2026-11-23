@@ -12,7 +12,7 @@ use gpui_component::{Disableable as _, h_flex, v_flex};
 use crate::screen_view::ScreenView;
 use crate::screens::controls::{Pick, act};
 use crate::screens::first_run::{
-    BoardStep, ChannelRow, DoneStep, FirstRunModel, LeakshieldStep, LoopStep, Step,
+    BiosRow, BoardStep, ChannelRow, DoneStep, FirstRunModel, LeakshieldStep, LoopStep, Step,
 };
 use crate::screens::loops::PartRow;
 use crate::screens::ui::{caption, card, card_header, card_row, notice_row, page};
@@ -187,6 +187,9 @@ impl ScreenView {
             p,
             cx,
         ));
+        if let Some(text) = &step.empty_table_note {
+            card = card.child(card_row(p).child(caption(text.clone(), p)));
+        }
         if let Some(text) = &step.no_leakshield {
             card = card.child(card_row(p).child(caption(text.clone(), p)));
         }
@@ -298,9 +301,36 @@ fn channel_table(columns: &[String], rows: &[ChannelRow], p: &Palette) -> AnyEle
     table.into_any_element()
 }
 
+fn bios_table(columns: &[String], rows: &[BiosRow], p: &Palette) -> AnyElement {
+    let mut table = v_flex().w_full().child(
+        card_row(p)
+            .text_size(px(12.))
+            .font_weight(FontWeight::BOLD)
+            .text_color(p.fg_dim)
+            .child(
+                div()
+                    .w(px(200.))
+                    .child(columns.first().cloned().unwrap_or_default()),
+            )
+            .child(
+                div()
+                    .flex_1()
+                    .child(columns.get(1).cloned().unwrap_or_default()),
+            ),
+    );
+    for row in rows {
+        table = table.child(
+            card_row(p)
+                .child(div().w(px(200.)).child(row.name.clone()))
+                .child(div().flex_1().child(row.curve.clone())),
+        );
+    }
+    table.into_any_element()
+}
+
 fn bios_card(model: &FirstRunModel, p: &Palette) -> AnyElement {
     let bios = &model.bios;
-    card(p)
+    let frame = card(p)
         .child(card_header(
             model
                 .steps
@@ -309,8 +339,13 @@ fn bios_card(model: &FirstRunModel, p: &Palette) -> AnyElement {
                 .map_or_else(String::new, |s| s.label.clone()),
             p,
         ))
-        .child(card_row(p).child(bios.text.clone()))
-        .child(channel_table(&bios.columns, &bios.rows, p))
+        .child(card_row(p).child(bios.text.clone()));
+    let frame = match &bios.saved {
+        Some(saved) => frame.child(card_row(p).child(caption(saved.clone(), p))),
+        None => frame,
+    };
+    frame
+        .child(bios_table(&bios.columns, &bios.rows, p))
         .child(card_row(p).child(caption(bios.no_curve.clone(), p)))
         .into_any_element()
 }

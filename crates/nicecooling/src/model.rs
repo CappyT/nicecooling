@@ -280,10 +280,42 @@ pub struct LeakshieldInfo {
     pub mode: String,
     /// `test`, `measure-fill-level`, `deaerate` or `refill`; empty when no Action runs.
     pub running_action: String,
-    /// The pressure limits of the Mode, when the app knows them.
-    pub pressure: Option<PressureLimits>,
+    /// The state of the Feed that the daemon sends to this Leakshield.
+    pub feed_state: FeedState,
+    /// The last good Feed send.
+    pub last_feed: LastFeed,
     /// `(fields, read-only fields)` from `GetFields`, when the daemon answered.
     pub field_counts: Option<(u32, u32)>,
+}
+
+/// `Leakshield.FeedState`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum FeedState {
+    #[default]
+    Off,
+    Waiting,
+    Ok,
+    Failing,
+}
+
+impl FeedState {
+    pub fn parse(text: &str) -> Self {
+        match text {
+            "waiting" => Self::Waiting,
+            "ok" => Self::Ok,
+            "failing" => Self::Failing,
+            _ => Self::Off,
+        }
+    }
+}
+
+/// `Leakshield.LastFeed`: the time of the last good send and the values that it carried.
+/// The time is 0 before the first good send.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct LastFeed {
+    pub time_us: u64,
+    pub feed_pump: f64,
+    pub flow_lph: f64,
 }
 
 /// The target and the limits of the Leakshield pressure in mbar.
@@ -504,6 +536,51 @@ pub struct ChannelInfo {
     pub manual_at_snapshot: bool,
     pub curve: CurveSpec,
     pub fixed_duty: f64,
+    pub bios_snapshot: BiosSnapshot,
+    /// The speed sensor of the Channel. `None` when it has none.
+    pub fan_sensor: Option<String>,
+}
+
+/// `Channel.BiosSnapshot`: the time of the snapshot, 0 when the daemon holds none, and the
+/// attributes of the Channel as sysfs text, in restore order.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct BiosSnapshot {
+    pub time_us: u64,
+    pub attributes: Vec<(String, String)>,
+}
+
+impl ChannelInfo {
+    /// The Hardware curve of the snapshot as `(temperature in degC, Duty in percent)` rows, from
+    /// `pwm<N>_auto_point<K>_temp` (millidegree) and `pwm<N>_auto_point<K>_pwm` (0 to 255). Empty
+    /// when the snapshot has no such attributes.
+    pub fn hardware_curve(&self) -> Vec<(f64, f64)> {
+        let Some((_, number)) = self.id.rsplit_once("_pwm") else {
+            return Vec::new();
+        };
+        let prefix = format!("pwm{number}_auto_point");
+        let mut points: BTreeMap<u32, (Option<f64>, Option<f64>)> = BTreeMap::new();
+        for (name, value) in &self.bios_snapshot.attributes {
+            let Some(rest) = name.strip_prefix(&prefix) else {
+                continue;
+            };
+            let Some((point, kind)) = rest.split_once('_') else {
+                continue;
+            };
+            let (Ok(point), Ok(value)) = (point.parse::<u32>(), value.trim().parse::<f64>()) else {
+                continue;
+            };
+            let entry = points.entry(point).or_default();
+            match kind {
+                "temp" => entry.0 = Some(value / 1000.0),
+                "pwm" => entry.1 = Some(value / 255.0 * 100.0),
+                _ => {}
+            }
+        }
+        points
+            .into_values()
+            .filter_map(|(temp, duty)| Some((temp?, duty?)))
+            .collect()
+    }
 }
 
 /// A Calibration table: a preset of the package or a user table.
@@ -822,6 +899,22 @@ impl AppState {
 
     pub fn is_online(&self) -> bool {
         self.link == Link::Online
+    }
+
+    /// The target, minimum and maximum pressure of a Leakshield, from its three limit sensors.
+    pub fn leakshield_pressure_limits(&self, leakshield: &str) -> Option<PressureLimits> {
+        let sample = self.sensors.as_ref().or(self.last_sensors.as_ref())?;
+        let value = |name: &str| sample.sensor_value(&format!("{leakshield}_pressure_{name}"));
+        Some(PressureLimits {
+            target: value("setpoint")?,
+            min: value("low")?,
+            max: value("high")?,
+        })
+    }
+
+    /// The speed sensor of a Channel, from `Channel.FanSensor`.
+    pub fn fan_sensor(&self, channel: &str) -> Option<String> {
+        self.snapshot.channels.get(channel)?.fan_sensor.clone()
     }
 
     pub fn alarm_count(&self) -> usize {

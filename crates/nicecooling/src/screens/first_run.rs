@@ -6,10 +6,10 @@ use nicecooling_core::calibration::CalibrationTable;
 use crate::command::Command;
 use crate::model::{AppState, ChannelInfo, LoopInfo, SensorSample};
 use crate::screens::ScreenInput;
-use crate::screens::format::{optional_value, value_text};
+use crate::screens::format::{date_time, optional_value, value_text};
 use crate::screens::loops::{Choice, PartRow};
 use crate::shell::Page;
-use crate::widgets::loop_diagram::{LoopDiagram, fan_sensor};
+use crate::widgets::loop_diagram::LoopDiagram;
 
 pub const DEFAULT_FLOOR: f64 = 40.0;
 /// The id of the Loop that the live preview draws.
@@ -244,15 +244,26 @@ pub struct LoopStep {
     pub floor: f64,
     pub floor_text: String,
     pub no_leakshield: Option<String>,
+    /// With a flow sensor and "Empty table": the sensor has no value until the table has 2 points.
+    pub empty_table_note: Option<String>,
     pub enabled: bool,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct BiosRow {
+    pub name: String,
+    /// "30 °C: 40 %, 60 °C: 100 %", or "--" when the snapshot has no auto points.
+    pub curve: String,
 }
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct BiosStep {
     pub text: String,
+    /// "Saved 2026-11-20 08:14". `None` when the daemon holds no snapshot.
+    pub saved: Option<String>,
     pub no_curve: String,
     pub columns: Vec<String>,
-    pub rows: Vec<ChannelRow>,
+    pub rows: Vec<BiosRow>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -377,7 +388,10 @@ fn channel_row(input: &ScreenInput<'_>, channel: &ChannelInfo) -> ChannelRow {
         name: channel.name.clone(),
         rpm: optional_value(
             locale,
-            fan_sensor(&channel.id).and_then(|fan| sample.and_then(|s| s.sensor_value(&fan))),
+            channel
+                .fan_sensor
+                .as_ref()
+                .and_then(|fan| sample.and_then(|s| s.sensor_value(fan))),
             "rpm",
         ),
         duty: optional_value(
@@ -638,27 +652,55 @@ fn loop_step(input: &ScreenInput<'_>, ui: &FirstRunUi, enabled: bool) -> LoopSte
         floor_text: value_text(locale, ui.floor(), "%"),
         no_leakshield: (!has_devices || leakshield_id.is_none())
             .then(|| locale.tr("first_run.loop.no_leakshield")),
+        empty_table_note: (flow_id.is_some() && table_id.is_empty())
+            .then(|| locale.tr("first_run.loop.empty_table_note")),
         enabled,
     }
 }
 
 fn bios_step(input: &ScreenInput<'_>) -> BiosStep {
     let locale = input.locale;
+    let channels = &input.state.snapshot.channels;
+    let time_us = channels
+        .values()
+        .map(|c| c.bios_snapshot.time_us)
+        .max()
+        .unwrap_or_default();
     BiosStep {
         text: locale.tr("first_run.bios.text"),
+        saved: (time_us != 0)
+            .then(|| locale.fmt("channels.bios.saved", &[("time", &date_time(time_us))])),
         no_curve: locale.tr("first_run.bios.no_curve"),
-        columns: ["channel", "rpm", "duty"]
-            .iter()
-            .map(|key| locale.tr(&format!("first_run.column.{key}")))
-            .collect(),
-        rows: input
-            .state
-            .snapshot
-            .channels
+        columns: vec![
+            locale.tr("first_run.column.channel"),
+            locale.tr("channels.control.hardware"),
+        ],
+        rows: channels
             .values()
-            .map(|c| channel_row(input, c))
+            .map(|channel| BiosRow {
+                name: channel.name.clone(),
+                curve: hardware_curve_text(locale, channel),
+            })
             .collect(),
     }
+}
+
+fn hardware_curve_text(locale: crate::i18n::Locale, channel: &ChannelInfo) -> String {
+    let points = channel.hardware_curve();
+    if points.is_empty() {
+        return "--".to_owned();
+    }
+    points
+        .iter()
+        .map(|(temp, duty)| {
+            format!(
+                "{}: {}",
+                value_text(locale, *temp, "degC"),
+                value_text(locale, *duty, "%")
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 fn leakshield_step(input: &ScreenInput<'_>, ui: &FirstRunUi) -> Option<LeakshieldStep> {

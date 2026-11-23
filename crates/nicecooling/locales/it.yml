@@ -365,6 +365,7 @@ channels:
   bios:
     title: Snapshot BIOS
     text: Quando il demone si ferma, la Scheda applica la sua Curva hardware a questo Canale.
+    saved: "Salvato %{time}"
   release:
     title: Restituire questo Canale alla Scheda?
     text: nicecooling ferma la sua Curva.
@@ -754,6 +755,7 @@ first_run:
     flow: Sensore di portata
     preset: Preset della tabella di calibrazione
     empty_table: Tabella vuota
+    empty_table_note: Il sensore di portata non ha valore finché la sua tabella di calibrazione non ha 2 punti. Crea la tabella nella schermata Loop.
     live_flow: "%{rpm} = %{flow}"
     flow_name: Portata
     water: Temperatura acqua

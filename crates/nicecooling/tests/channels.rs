@@ -6,7 +6,7 @@ use nicecooling::screens::channels::{ChannelsModel, ChannelsState, ChannelsUi};
 use nicecooling::screens::{Feedback, ScreenInput, WriteOutcome};
 use support::bus::PrivateBus;
 use support::fake_daemon::{FakeDaemon, Options};
-use support::fixtures::{NOW_US, alarm, full};
+use support::fixtures::{BIOS_SNAPSHOT_US, NOW_US, alarm, full};
 use support::harness::Harness;
 use support::labels;
 
@@ -563,4 +563,158 @@ fn channels_labels() {
     let curve = italian.detail.unwrap().curve.unwrap();
     assert_eq!(curve.readout.smoothing, "media su 5 s");
     assert_eq!(curve.plot.operating.unwrap().label, "Ora 31,4 °C, 62 %");
+}
+
+#[test]
+fn snapshot_table_and_date() {
+    let state = full();
+    let mut ui = ChannelsUi::default();
+    ui.select("nct6798_pwm2");
+    ui.bios_open = true;
+    let detail = model(&state, &ui).detail.unwrap();
+    let bios = detail.bios;
+    assert!(bios.open);
+    assert_eq!(
+        bios.text,
+        "When the daemon stops, the Board runs its Hardware curve for this Channel."
+    );
+    assert_eq!(
+        bios.saved,
+        Some(format!(
+            "Saved {}",
+            nicecooling::screens::format::date_time(BIOS_SNAPSHOT_US)
+        ))
+    );
+    assert_eq!(
+        bios.columns,
+        Some(("Input, \u{b0}C".to_owned(), "Duty, %".to_owned()))
+    );
+    let rows: Vec<(&str, &str)> = bios
+        .rows
+        .iter()
+        .map(|(temp, duty)| (temp.as_str(), duty.as_str()))
+        .collect();
+    assert_eq!(
+        rows,
+        [
+            ("30.0 \u{b0}C", "20 %"),
+            ("40.0 \u{b0}C", "40 %"),
+            ("50.0 \u{b0}C", "60 %"),
+            ("60.0 \u{b0}C", "80 %"),
+            ("70.0 \u{b0}C", "100 %"),
+        ]
+    );
+
+    // The date in Italian.
+    let feedback = Feedback::default();
+    let italian = ChannelsModel::build(
+        &ScreenInput {
+            locale: IT,
+            ..input(&state, &feedback)
+        },
+        &ui,
+    );
+    assert_eq!(
+        italian.detail.unwrap().bios.saved,
+        Some(format!(
+            "Salvato {}",
+            nicecooling::screens::format::date_time(BIOS_SNAPSHOT_US)
+        ))
+    );
+}
+
+#[test]
+fn snapshot_text_only_without_auto_points() {
+    let state = full();
+    let mut ui = ChannelsUi::default();
+    ui.select("nct6798_pwm6");
+    let bios = model(&state, &ui).detail.unwrap().bios;
+    assert!(bios.columns.is_none() && bios.rows.is_empty());
+    assert!(!bios.text.is_empty() && bios.saved.is_some());
+
+    // The daemon holds no snapshot: the text only, and no date.
+    let mut none = full();
+    none.snapshot
+        .channels
+        .get_mut("nct6798_pwm6")
+        .unwrap()
+        .bios_snapshot = Default::default();
+    let bios = model(&none, &ui).detail.unwrap().bios;
+    assert!(bios.saved.is_none() && bios.columns.is_none() && bios.rows.is_empty());
+    assert!(!bios.text.is_empty());
+
+    // A point with only one of the two attributes is not a row.
+    let mut half = full();
+    half.snapshot
+        .channels
+        .get_mut("nct6798_pwm6")
+        .unwrap()
+        .bios_snapshot
+        .attributes = vec![("pwm6_auto_point1_temp".into(), "30000".into())];
+    assert!(model(&half, &ui).detail.unwrap().bios.rows.is_empty());
+}
+
+#[test]
+fn readout_uses_smoothed_input_and_target() {
+    let mut state = full();
+    let mut ui = ChannelsUi::default();
+    ui.select("nct6798_pwm6");
+    // The raw sensor reads 31.4. The daemon reports the smoothed Input and its Curve target.
+    state.sensors.as_mut().unwrap().channels[0] = ("nct6798_pwm6".into(), 62.0, 32.6, 45.2, 4);
+    let curve = model(&state, &ui).detail.unwrap().curve.unwrap();
+    assert_eq!(curve.readout.input, "Input 32.6 \u{b0}C");
+    assert_eq!(curve.readout.curve, "Curve 45 %");
+    assert_eq!(curve.readout.duty, "Duty 62 %");
+    assert_eq!(curve.input.value, "31.4 \u{b0}C");
+
+    // Without flag bit 2 the two values are not valid.
+    state.sensors.as_mut().unwrap().channels[0] = ("nct6798_pwm6".into(), 62.0, 0.0, 0.0, 0);
+    let curve = model(&state, &ui).detail.unwrap().curve.unwrap();
+    assert_eq!(curve.readout.input, "Input --");
+    assert_eq!(curve.readout.curve, "Curve --");
+    assert_eq!(curve.readout.duty, "Duty 62 %");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn fan_sensor_from_property() {
+    let bus = PrivateBus::start("channels-fan-sensor");
+    let _daemon = FakeDaemon::start(bus.connect().await, Options::default()).await;
+    let mut harness = Harness::start(&bus).await;
+    harness
+        .until("the Channels are read", |state| {
+            state.snapshot.channels.len() == 2
+        })
+        .await;
+    let channels = &harness.state.snapshot.channels;
+    assert_eq!(
+        channels["nct6798_pwm6"].fan_sensor.as_deref(),
+        Some("nct6798_fan6")
+    );
+    assert_eq!(channels["nct6798_pwm2"].fan_sensor, None);
+    // `BiosSnapshot` arrives with the Channel.
+    assert_eq!(
+        channels["nct6798_pwm6"].hardware_curve(),
+        [(30.0, 40.0), (60.0, 100.0)]
+    );
+
+    // The speed of a row comes from the property, not from the name of the Channel.
+    let mut state = full();
+    state
+        .snapshot
+        .channels
+        .get_mut("nct6798_pwm6")
+        .unwrap()
+        .fan_sensor = Some("asusec_fan1".into());
+    let rows = model(&state, &ChannelsUi::default()).rows;
+    let pump = rows.iter().find(|row| row.id == "nct6798_pwm6").unwrap();
+    assert_eq!(pump.rpm, "671 rpm");
+    state
+        .snapshot
+        .channels
+        .get_mut("nct6798_pwm6")
+        .unwrap()
+        .fan_sensor = None;
+    let rows = model(&state, &ChannelsUi::default()).rows;
+    let pump = rows.iter().find(|row| row.id == "nct6798_pwm6").unwrap();
+    assert_eq!(pump.no_signal.as_deref(), Some("no speed signal"));
 }

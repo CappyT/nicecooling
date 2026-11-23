@@ -197,7 +197,11 @@ impl LoopDiagram {
             } else if device.mode == "release" {
                 locale.tr("diagram.caption.no_protection")
             } else {
-                pressure_caption(locale, pressure, device.pressure)
+                pressure_caption(
+                    locale,
+                    pressure,
+                    state.leakshield_pressure_limits(&device.id),
+                )
             };
             let state_text = state_text(locale, st);
             accessible.push(format!(
@@ -279,7 +283,7 @@ impl LoopDiagram {
         if has_pump {
             let speeds: Vec<Option<f64>> = pumps
                 .iter()
-                .map(|channel| fan_sensor(&channel.id).and_then(|id| value(&id)))
+                .map(|channel| channel.fan_sensor.as_ref().and_then(|id| value(id)))
                 .collect();
             let known: Vec<f64> = speeds.iter().flatten().copied().collect();
             let lowest = known.iter().copied().reduce(f64::min);
@@ -449,12 +453,6 @@ impl LoopDiagram {
             },
         }
     }
-}
-
-/// The speed sensor of a Channel: `nct6798_pwm6` pairs with `nct6798_fan6`.
-pub fn fan_sensor(channel: &str) -> Option<String> {
-    let (chip, number) = channel.rsplit_once("_pwm")?;
-    Some(format!("{chip}_fan{number}"))
 }
 
 /// The part that an event marks in the diagram.

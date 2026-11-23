@@ -10,7 +10,6 @@ use crate::model::{
 use crate::screens::format::{clock, optional_value, value_text};
 use crate::screens::{FeedbackLine, ScreenInput, WriteOutcome};
 use crate::shell::Page;
-use crate::widgets::loop_diagram::fan_sensor;
 
 /// The default alarm response of an event type: "Large leak" and "Pump stopped" power the PC off
 /// after 30 s. Every other event notifies.
@@ -213,7 +212,9 @@ fn value_of(input: &ScreenInput<'_>, alarm: &AlarmEntry) -> String {
         && let Some(info) = state.snapshot.loops.iter().find(|l| l.id == alarm.source)
         && let Some(channel) = info.pump_channels.first()
     {
-        let rpm = fan_sensor(channel).and_then(|fan| sample.and_then(|s| s.sensor_value(&fan)));
+        let rpm = state
+            .fan_sensor(channel)
+            .and_then(|fan| sample.and_then(|s| s.sensor_value(&fan)));
         let duty = sample.and_then(|s| s.channel_duty(channel));
         return locale.fmt(
             "alarms.value.pump_stop",

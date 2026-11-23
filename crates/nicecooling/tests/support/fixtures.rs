@@ -1,7 +1,8 @@
 use nicecooling::model::{
-    AlarmEntry, AppState, BackupEntry, CalibrationTableInfo, Cause, ChannelInfo, Control,
-    CurveSpec, DeviceEvent, FieldEntry, FieldRisk, FieldValue, LeakshieldData, LeakshieldInfo,
-    Link, LoopInfo, ProfileInfo, Response, ResponseProposal, SensorInfo, SensorSample, Severity,
+    AlarmEntry, AppState, BackupEntry, BiosSnapshot, CalibrationTableInfo, Cause, ChannelInfo,
+    Control, CurveSpec, DeviceEvent, FeedState, FieldEntry, FieldRisk, FieldValue, LastFeed,
+    LeakshieldData, LeakshieldInfo, Link, LoopInfo, ProfileInfo, Response, ResponseProposal,
+    SensorInfo, SensorSample, Severity,
 };
 
 pub const LEAKSHIELD: &str = "leakshield_20417_31072";
@@ -179,6 +180,18 @@ pub fn full() -> AppState {
             step_limit: 5.0,
         },
         fixed_duty: 50.0,
+        fan_sensor: (id == "nct6798_pwm6").then(|| "nct6798_fan6".to_owned()),
+        bios_snapshot: BiosSnapshot {
+            time_us: BIOS_SNAPSHOT_US,
+            attributes: if id == "nct6798_pwm2" {
+                hardware_curve_attributes("pwm2")
+            } else {
+                vec![
+                    ("pwm6".into(), "158".into()),
+                    ("pwm6_enable".into(), "5".into()),
+                ]
+            },
+        },
         ..Default::default()
     };
     state.snapshot.channels = [
@@ -209,15 +222,52 @@ pub fn full() -> AppState {
             ("loop_1_flow".into(), 115.2, 0),
             (format!("{LEAKSHIELD}_pressure"), 298.0, 0),
             (format!("{LEAKSHIELD}_fill_level"), 68.0, 0),
+            (format!("{LEAKSHIELD}_pressure_setpoint"), 300.0, 0),
+            (format!("{LEAKSHIELD}_pressure_low"), 250.0, 0),
+            (format!("{LEAKSHIELD}_pressure_high"), 350.0, 0),
         ],
         channels: vec![
-            ("nct6798_pwm6".into(), 62.0, 0.0, 0.0, 0),
+            ("nct6798_pwm6".into(), 62.0, 31.4, 42.8, 4),
             ("nct6798_pwm2".into(), 40.0, 0.0, 0.0, 2),
         ],
     });
     state.last_sensors = state.sensors.clone();
     state.snapshot.leakshields[0].mode = "shield".into();
+    state.snapshot.leakshields[0].feed_state = FeedState::Ok;
+    state.snapshot.leakshields[0].last_feed = LastFeed {
+        time_us: NOW_US,
+        feed_pump: 2840.0,
+        flow_lph: 115.2,
+    };
     state
+}
+
+/// The time of the BIOS snapshot in the fixtures: 2023-11-14 22:13 UTC.
+pub const BIOS_SNAPSHOT_US: u64 = 1_700_000_000_000_000;
+
+/// The auto points of a Hardware curve with 5 points, as the snapshot holds them.
+pub fn hardware_curve_attributes(pwm: &str) -> Vec<(String, String)> {
+    let mut attributes = Vec::new();
+    for (point, (milli_degrees, raw)) in [
+        (30_000, 51),
+        (40_000, 102),
+        (50_000, 153),
+        (60_000, 204),
+        (70_000, 255),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let point = point + 1;
+        attributes.push((
+            format!("{pwm}_auto_point{point}_temp"),
+            milli_degrees.to_string(),
+        ));
+        attributes.push((format!("{pwm}_auto_point{point}_pwm"), raw.to_string()));
+    }
+    attributes.push((pwm.to_owned(), "158".to_owned()));
+    attributes.push((format!("{pwm}_enable"), "5".to_owned()));
+    attributes
 }
 
 fn field(id: &str, risk: FieldRisk, value: FieldValue, writable: bool) -> FieldEntry {

@@ -14,11 +14,11 @@ use zbus::{Connection, MatchRule, MessageStream, Proxy};
 use zbus::{OwnedObjectPath, OwnedVariant as OwnedValue, Variant as Value};
 
 use crate::model::{
-    AlarmDetails, AlarmEntry, BackupEntry, BoardInfo, CalibrationTableInfo, Cause, ChannelInfo,
-    ChannelOverride, Control, CurveSpec, DaemonEvent, DerivedDef, DeviceEvent, FieldEntry,
-    FieldRisk, FieldValue, LeakshieldData, LeakshieldInfo, Link, LoopInfo, ProfileChannel,
-    ProfileContent, ProfileInfo, Response, ResponseProposal, ResponseRule, Rule, RuleGroup,
-    SensorInfo, SensorSample, Severity, Snapshot, UnitState,
+    AlarmDetails, AlarmEntry, BackupEntry, BiosSnapshot, BoardInfo, CalibrationTableInfo, Cause,
+    ChannelInfo, ChannelOverride, Control, CurveSpec, DaemonEvent, DerivedDef, DeviceEvent,
+    FeedState, FieldEntry, FieldRisk, FieldValue, LastFeed, LeakshieldData, LeakshieldInfo, Link,
+    LoopInfo, ProfileChannel, ProfileContent, ProfileInfo, Response, ResponseProposal,
+    ResponseRule, Rule, RuleGroup, SensorInfo, SensorSample, Severity, Snapshot, UnitState,
 };
 
 pub const BUS_NAME: &str = "io.github.cappyt.NiceCooling1";
@@ -338,7 +338,16 @@ impl DaemonClient {
                         read_only_reason: get(&props, "ReadOnlyReason").unwrap_or_default(),
                         mode: get(&props, "Mode").unwrap_or_default(),
                         running_action: get(&props, "RunningAction").unwrap_or_default(),
-                        pressure: None,
+                        feed_state: FeedState::parse(
+                            &get::<String>(&props, "FeedState").unwrap_or_default(),
+                        ),
+                        last_feed: get::<(u64, f64, f64)>(&props, "LastFeed")
+                            .map(|(time_us, feed_pump, flow_lph)| LastFeed {
+                                time_us,
+                                feed_pump,
+                                flow_lph,
+                            })
+                            .unwrap_or_default(),
                         field_counts: None,
                     }),
                     Some("Profile") => snapshot.profiles.push(ProfileInfo {
@@ -864,7 +873,8 @@ impl DaemonClient {
     ) -> zbus::Result<String> {
         let id = self.create_loop(name).await?;
         self.set_pump_channels(&id, pump_channels).await?;
-        if !flow_sensor.is_empty() {
+        // An empty table gives the sensor no value: the user builds it on the Loops screen.
+        if !flow_sensor.is_empty() && !table.is_empty() {
             self.set_flow_sensor(&id, flow_sensor, table).await?;
         }
         if !water.is_empty() {
@@ -1107,6 +1117,13 @@ fn channel_info(id: String, props: &Props) -> ChannelInfo {
         manual_at_snapshot: get(props, "ManualAtSnapshot").unwrap_or_default(),
         curve,
         fixed_duty: get(props, "FixedDuty").unwrap_or_default(),
+        bios_snapshot: get::<(u64, Vec<(String, String)>)>(props, "BiosSnapshot")
+            .map(|(time_us, attributes)| BiosSnapshot {
+                time_us,
+                attributes,
+            })
+            .unwrap_or_default(),
+        fan_sensor: object_id(props, "FanSensor"),
     }
 }
 

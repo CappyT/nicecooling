@@ -10,7 +10,6 @@ use crate::screens::format::plain;
 use crate::screens::leakshield::fields::{humanize, unit_of};
 use crate::screens::leakshield::{Device, TabState, fields_command, write_line};
 use crate::screens::{FeedbackLine, ScreenInput, WriteOutcome};
-use crate::widgets::loop_diagram::fan_sensor;
 
 const SHIELD_FLAGS: &str = "shield_flags";
 const BIT_TIMER: u32 = 2;
@@ -286,7 +285,7 @@ impl SettingsUi {
         let value = match field {
             "pump_start_speed" => loop_info
                 .and_then(|l| l.pump_channels.first())
-                .and_then(|channel| fan_sensor(channel))
+                .and_then(|channel| input.state.fan_sensor(channel))
                 .and_then(|fan| sample.and_then(|s| s.sensor_value(&fan))),
             _ => loop_info
                 .and_then(|l| l.flow.as_ref())

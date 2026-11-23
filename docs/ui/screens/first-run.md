@@ -10,7 +10,7 @@ The first-run flow opens in the window when the daemon has no Loop. The user can
 |---|---|
 | 1. Board | The detection result: Board name, the Board file in use, the count of Channels and sensors. A table of the Channels with name, rpm and Duty |
 | 2. Loop | Four pickers: "Pump channel", "Flow sensor" with "Calibration table preset", "Water temperature", "Leakshield". Under them, the Loop diagram of the choices, live. Then "Pump floor" with its default of 40% |
-| 3. BIOS snapshot | An explanation with the date of the snapshot and a table of the Hardware curves that it holds |
+| 3. BIOS snapshot | An explanation with the date of the snapshot ("Saved 2026-11-20 08:14") and a table of the Hardware curves that it holds: one row per Channel, with its auto points as "30 °C: 20 %". A Channel without auto points shows "--" |
 | 4. Leakshield | Only with a Leakshield: serial, firmware version, the count of Verified fields and read-only fields, and what to do next |
 | 5. Done | A summary and the buttons "Open the Overview" and "Open the Leakshield wizard" |
 
@@ -26,6 +26,7 @@ Footer of each step: "Skip setup" at the left, the back and next buttons at the 
 | No Channel found | Warning: "No Channel found. nicecooling needs a hwmon driver for the fan controller of this Board." The Loop step is disabled. "Skip setup" stays |
 | No flow sensor | The picker has "None". The diagram has no flow sensor part |
 | Flow preset | With a flow sensor: select "Calibration table preset": "Alphacool 17558", "Empty table". The live flow shows next to it: "671 rpm = 115 L/h" |
+| Empty table | The flow sensor is not linked to the Loop. A note under the picker: "The flow sensor has no value until its Calibration table has 2 points. Build the table on the Loops screen." |
 | No Leakshield | The picker has only "None". Step 4 is skipped. Text: "Without a Leakshield, the Loop has its Pump floor and its pump-stop Alarm." |
 | Leakshield with known firmware | "Firmware 1022: known. 96 of 112 fields are Verified fields. 16 Safety fields are read-only until a Verification write passes." Button "Open Fields" |
 | Leakshield with unknown firmware | Warning: "Firmware 1042 is unknown. nicecooling shows the Leakshield and cannot change its settings." |

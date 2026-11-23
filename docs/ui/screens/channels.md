@@ -16,7 +16,7 @@ Detail column, one card, from the top:
 4. The Curve editor, 292 px high (see `../widgets.md`).
 5. Readout row: smoothed Input, Curve output, Duty, and the write feedback at the right.
 6. The points as number inputs, then "Add point" and "Remove point" on their own row.
-7. "BIOS snapshot": a collapsed row. Open, it shows the Hardware curve of this Channel from the snapshot as a 5-row table, and the date of the snapshot.
+7. "BIOS snapshot": a collapsed row. Open, it shows the Hardware curve of this Channel from `BiosSnapshot` as a table of temperature and Duty (the columns "Input, °C" and "Duty, %"), and the date of the snapshot. A snapshot without auto points shows the text and the date only. The readout row shows the smoothed Input and the Curve output that the daemon reports in `SensorsUpdated`: "--" while it reports none.
 
 With "Fixed Duty", items 3 to 6 are one slider with a number input. With "Hardware curve", they are one text and the snapshot table.
 
