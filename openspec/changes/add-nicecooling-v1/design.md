@@ -364,6 +364,108 @@ Rejected: a history database in `/var/lib` written by the daemon (ADR-0005).
 - A simulated Leakshield device (`nicecooling-protocol/src/sim.rs`, behind the Cargo feature `sim` that only dev-dependencies enable) serves the write path and the hot-plug tests.
 - No test writes to real hardware. Hardware checks are MANUAL tasks: a person runs the check on the reference desktop with a procedure file in `docs/hardware-checks/`. A procedure file lists steps, expected results and one pass or fail line per step. Checks that a container can run are automated.
 
+### D18. Contract items for the screens (control-api, desktop-app)
+
+The screens of section 8 need data that the contract of section 4 did not carry ([issue #32](https://github.com/CappyT/nicecooling/issues/32)). The owner decided that every item goes into version 1. That decision approves the contract rewrites listed below. Task 11.1 writes the semantics into `docs/api.md` and `docs/storage.md`. The task of each item changes the XML, the daemon and the app together, so the workspace builds after each task.
+
+Every new time is in microseconds since the Unix epoch. The daemon reads the wall clock at the transition. A later change of the wall clock does not move a stored time. The timers of the daemon stay monotonic.
+
+| Item | Contract |
+|---|---|
+| BIOS snapshot of a Channel | `Channel.BiosSnapshot` (`(ta(ss))`, const): the snapshot time and the attributes of the Channel, as in `bios-snapshot.json`, in restore order. `(0, [])`: the daemon holds no snapshot. `(t, [])`: the snapshot has no entry for the Channel. |
+| Fan sensor of a Channel | `Channel.FanSensor` (`o`, const): the sensor `<chip>_fan<N>` of `<chip>_pwm<N>`, or `/` when it does not exist. It uses `tach_sensor` of `nicecooling-core/src/loops.rs`, the rule of the pump-stop Alarm. |
+| Curve readout | `SensorsUpdated` `channels` becomes `a(sdddy)`: id, Duty, smoothed Input, Curve target, flags. Flag bit 2: both values are valid. Without bit 2 both are 0. |
+| Feed | `Leakshield.FeedState` (`s`): `off`, `waiting`, `ok` or `failing`. `Leakshield.LastFeed` (`(tdd)`): the time of the last good send, and the pump speed (rpm) and the flow (L/h) that it carried; `(0, 0, 0)` before the first good send. |
+| Pressure target and limits | Leakshield sensors `<id>_pressure_setpoint`, `<id>_pressure_low` and `<id>_pressure_high` from report 1 (offsets 293, 291, 295, 0.1 mbar), kind `pressure`, unit mbar. |
+| Active slot | `Leakshield.ActiveSlot` (`y`): report 1 `active_profile`, 0 when not known. |
+| Stored slot settings | `Leakshield.GetStoredFields(slot y) -> a{sv}` (class `read`) and `Leakshield.SetStoredFields(slot y, fields a{sv})` (class `write`). |
+| Failed Profile write | `Leakshield.FailedWriteBackup` (`s`): the backup id of the last Profile write of this Leakshield that failed. Empty after a good Profile write and after `RestoreBackup`. |
+| Profile dwell | `Profiles.DwellUntil` (`t`): the end of the running Profile dwell, 0 when no dwell runs. |
+| Alarm history | `Alarms.GetHistory(since_us t, limit u) -> a(sssssttsa{sv})`: instance, event, severity, source, response, raised_us, cleared_us (0 while active), outcome, details. Class `read`. |
+| Alarm response per Leakshield | `SetResponse(event s, source s, response s, delay_s u)`, `ResetResponse(event s, source s)` (class `write`), `GetResponses() -> a(sssub)`: event, source, response, delay, override. Source `""` is the default of the event. |
+
+Every new property emits `PropertiesChanged` when its value changes, except the const ones.
+
+#### Curve readout
+
+- The Curve stage keeps the mean of the window and the target in `ChannelTick` (`input: Option<f64>`, `target: Option<f64>`), set again in every tick.
+- Bit 2 is set when the Control is `curve`, no override runs, and this tick added a sample to the window.
+- The Curve stage clears the window of a Channel on Lost Input and when `SetCurve` changes the Input sensor. Thus the readout never shows a mean of stale samples or of two sensors.
+
+#### Feed
+
+- `off`: no Loop links the Leakshield, the registry does not cover its firmware, the device is disconnected, or a firmware update runs. `waiting`: the Feed is on and no send result exists yet. `ok`: the last send succeeded. `failing`: the last send failed.
+- `LastFeed` carries the values of the Feed message from `leakshield/feed.rs`, so the app does not compute them again. It changes with each good send, about once a second.
+- A change to `off` resets the failing time of the value table (`feed_failing_since`).
+- The `Info` watch of `leakshield/attached.rs` carries both values to the D-Bus object.
+
+#### Stored slot settings
+
+- Both methods run as a job of the write worker of the Leakshield. Thus they are serialized with Profile writes and `SetFields`, and the active slot check runs inside the job.
+- The errors, in this order: a slot outside 1 to 4 (`InvalidArgument`); a slot with no stored report 3 (`NotFound`); a stored firmware that the registry does not cover (`NotSupported`); for `SetStoredFields` only: the slot of report 1 `active_profile` (`InvalidArgument`, use `SetFields`), then per field the rules of `SetFields` (`InvalidArgument`, `NotVerified`), and the field `device_profile` (`InvalidArgument`).
+- The checks use the firmware and the structure of the slot `meta.json`, not report 1. The methods work while the device is disconnected. They send nothing to the device.
+- `SetStoredFields` decodes the stored report 3, changes the fields, encodes it, computes the CRC again, writes `report3.bin` atomically, and sets `edited: true` in `meta.json`.
+- Owner decision: the next activation of an edited slot runs the verified write path of D11 (backup, write, read-back), not the stored write of D14. A good read-back clears the mark. A failed read-back keeps the mark and reports `leakshield-failed`. The D14 rule "the device produced these bytes" does not hold for an edited slot.
+
+#### Failed Profile write
+
+- An activation writes every Leakshield and takes one backup per device. Thus the backup id is a property of each Leakshield, not an argument of `ProfileActivated`.
+- The app builds the restore offer from it. An app that starts after the failure still finds it.
+
+#### Profile dwell
+
+- `DwellUntil` is the time of the last switch to the active Profile plus the Profile dwell, while the cause is `rule`, Immediate switching is off and that time is in the future. Otherwise it is 0. A daemon restart restarts the dwell, so the time then counts from the daemon start.
+- The daemon computes it again on an activation, a change of the cause, `SetRuleTiming`, `SetImmediateSwitching` and `ReturnToAutomatic`, and sets it to 0 when the dwell ends.
+
+#### Alarm history
+
+- The file is `/var/lib/nicecooling/alarm-history.json`: `{"schema_version": 1, "rows": [...]}`. A row holds `instance`, `event`, `severity`, `source`, `response`, `raised_us`, `cleared_us`, `outcome`, `closed_by_restart` and `details`. `details` maps a key to `{"<signature>": value}`, with the signature `d`, `u`, `s` or `o`.
+- It follows the common file rules of `storage.md`: atomic write and a `.lkg` copy. A damaged file loads the `.lkg` copy, else an empty history. The daemon logs it. `StateHealth` does not change, because the history does not control anything.
+- The history has its own writer. A row change marks it dirty, and the writer saves at most once per second. A change to `poweroff-requested` saves at once, before the call to logind. The daemon saves the history at stop.
+- It keeps the last 1000 Alarm rows and the last 1000 Warning rows. Each group drops its oldest row. Thus a Warning that flaps does not push Alarms out.
+- Outcomes:
+  - At the raise: response `none` gives `none`, `notify` gives `notified`, `poweroff` gives `poweroff-pending`.
+  - From `poweroff-pending`: `CancelPoweroff` gives `poweroff-cancelled`, a clear before the call gives `poweroff-stopped`, the call to logind gives `poweroff-requested`.
+  - From `poweroff-requested`: `PoweroffFailed` gives `poweroff-failed`.
+  - From `poweroff-failed`: the retry gives `poweroff-requested`, a cancel in the retry wait gives `poweroff-cancelled`, a clear gives `poweroff-stopped`.
+  - `none`, `notified`, `poweroff-cancelled` and `poweroff-stopped` are final. The app shows `poweroff-requested` as "PC powered off".
+- At start, the daemon closes every row of an earlier start that has `cleared_us` 0: `cleared_us` becomes the start time of this daemon and `closed_by_restart` becomes true. An instance that is still active rises again as a new instance.
+- `GetHistory` returns the rows that were active at or after `since_us` (`cleared_us` 0 or at least `since_us`), newest raise first, at most `limit` rows. `limit` 0 means no limit.
+
+#### Alarm response per Leakshield
+
+- An override exists only for an event `leakshield.*` and a Leakshield id. The other events keep one row each. A Leakshield id comes from the serial, so a new device never takes the id of an old one.
+- Resolution when an instance rises: the forced `notify` of a firmware update (change `add-leakshield-firmware-update`), then the override of (event, Leakshield), then the default of the event, then the built-in default.
+- `SetResponse` with source `""` sets the default of the event. With a source: an event that is not `leakshield.*` fails with `InvalidArgument`, and a source that is not a known Leakshield id (the identity map of the state, connected or not) fails with `NotFound`.
+- `ResetResponse(event, "")` sets the default of the event back to the built-in default. `ResetResponse(event, source)` removes the override. It accepts any stored key, also the key of a Leakshield that no longer exists.
+- `GetResponses` returns, in the event order of `api.md`: one row per event with source `""` and override false, then, for each `leakshield.*` event, one resolved row per known Leakshield, with override true when an override exists.
+- `state.json` stores an override under the key `<event>@<source>`. A state file without overrides loads as before.
+- `GetDeviceResponseProposals` uses the resolved response of each Leakshield for its `double-poweroff` overlap.
+
+#### Contract rewrites
+
+- `api.md`, Values and units: the flag bit 2 of `channels`.
+- `api.md`, Event identifiers: the response table has rows per Leakshield for the `leakshield.*` events, and an instance takes the resolved response, not the response of its event.
+- `storage.md`: the `<event>@<source>` key of `alarm_responses`, the file `alarm-history.json`, and `edited` in the slot `meta.json`.
+- XML: the signatures of `SetResponse`, `GetResponses` and `SensorsUpdated`.
+
+#### App-only items
+
+- The diff table before an activation compares `GetStoredFields` of the target slot with `GetFields`, when the target slot differs from `ActiveSlot`.
+- "Differs from other slots" compares the alarm thresholds of the slot with `GetStoredFields` of every other slot that has stored settings. "Apply to all slots" calls `SetStoredFields` for each other slot and shows one result row per slot that failed.
+- The overlap icon of the Alarms screen uses the `overlap` of `GetDeviceResponseProposals`.
+- Overview shows the pressure target and limits from the three new sensors. The active Profile card shows its Rule group from `GetRuleGroups`.
+- First run with "Empty table" does not call `SetFlowSensor`, and a note says to build the table on the Loops screen.
+- The snapshot table: the app reads `pwm<N>_auto_point<K>_temp` (millidegree Celsius) and `pwm<N>_auto_point<K>_pwm` (0-255) as rows of temperature and Duty. Without these attributes it shows the text only. The daemon restores the attributes as raw text and has no rule for them, so this is a view, not a copy of a daemon rule.
+- The owner approved the new texts (history outcomes, "Not sent yet", the First run note, the slot error). `docs/ui/screens/` holds them.
+
+Rejected:
+
+- A diff method in the daemon. The app has both inputs, and the diff is a view.
+- The backup id as an argument of `ProfileActivated`. One activation writes every Leakshield, and an app that starts later misses the signal.
+- Overrides for Loop and Channel sources. Their ids come back after a delete (`nicecooling-api/src/ids.rs`, `next_number`), so an old override would apply to a new Loop. The Alarms screen groups the responses per Leakshield only.
+- A decoded snapshot property. The daemon would get a driver rule that it does not use.
+
 ## Risks / Trade-offs
 
 - [The rebuild of the fan-control stack costs work] -> ADR-0008 records the reason. Code may come from CoolerControl. `THIRD_PARTY.md` records each taken file. The GPL-3.0 license must be compatible before any distribution.

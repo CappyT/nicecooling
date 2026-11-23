@@ -331,3 +331,44 @@ Saving a Profile that contains Mode RELEASE SHALL NOT need admin authorization.
 #### Scenario: Save with RELEASE
 - **WHEN** a user with write authorization saves a Profile with Mode RELEASE
 - **THEN** the daemon saves it without an admin password
+
+### Requirement: Profile dwell end
+The daemon SHALL expose the end time of the running Profile dwell, and 0 when no dwell runs, and SHALL update it when the dwell, the cause or the switching options change.
+
+#### Scenario: Dwell runs
+- **WHEN** a Rule group activates a Profile with a dwell of 300 s
+- **THEN** `DwellUntil` is the time of the switch plus 300 s, and 0 after the dwell ends
+
+#### Scenario: No dwell
+- **WHEN** Immediate switching is on, or the activation is manual
+- **THEN** `DwellUntil` is 0
+
+#### Scenario: Daemon restart
+- **WHEN** the daemon restarts while a Rule group holds
+- **THEN** `DwellUntil` counts from the daemon start
+
+### Requirement: Stored settings of another slot
+The daemon SHALL read and write the stored Leakshield settings of a slot, in the write worker of the Leakshield, with the validation of `SetFields` against the firmware of the slot, and without device traffic. A write SHALL refuse the active slot.
+
+#### Scenario: Apply to another slot
+- **WHEN** the user calls `SetStoredFields` for slot 3 while slot 1 is active
+- **THEN** the stored report 3 of slot 3 holds the new values with a valid CRC, and the device gets no write
+
+#### Scenario: Active slot
+- **WHEN** the user calls `SetStoredFields` for the slot of report 1 `active_profile`
+- **THEN** the daemon returns `InvalidArgument`
+
+#### Scenario: Slot without stored settings
+- **WHEN** the slot has no stored report 3
+- **THEN** `GetStoredFields` and `SetStoredFields` return `NotFound`
+
+### Requirement: Verified write of an edited slot
+The first Profile activation of a slot that `SetStoredFields` changed SHALL use the verified write path (backup, write, read-back). A good read-back SHALL clear the mark.
+
+#### Scenario: Activation of an edited slot
+- **WHEN** a Profile with an edited slot becomes active
+- **THEN** the daemon reads report 3 back after the write and compares it with the stored report outside the volatile mask
+
+#### Scenario: Read-back differs
+- **WHEN** the read-back differs
+- **THEN** the activation reports `leakshield-failed`, `FailedWriteBackup` holds the backup id, and the slot stays marked

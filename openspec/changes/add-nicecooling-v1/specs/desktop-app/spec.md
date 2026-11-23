@@ -113,3 +113,18 @@ When an action needs authentication, the app SHALL show the polkit prompt and SH
 #### Scenario: Denied
 - **WHEN** the user cancels the prompt of a critical action
 - **THEN** the action does not run and the app says it was denied
+
+### Requirement: Screen data from the contract
+The app SHALL take the BIOS snapshot, the fan sensor of a Channel, the Curve readout, the Feed state and values, the Alarm history, the Profile dwell, the failed write backup and the resolved alarm responses from the daemon, and SHALL NOT compute again what the daemon decides.
+
+#### Scenario: Alarm history after an app restart
+- **WHEN** the app starts after an Alarm rose and cleared while it was closed
+- **THEN** the Alarms history table and the History markers show that instance
+
+#### Scenario: Restore offer after an app restart
+- **WHEN** the app starts after a failed Profile write
+- **THEN** the Profiles screen offers the restore of the backup of `FailedWriteBackup`
+
+#### Scenario: Diff before an activation
+- **WHEN** the user activates a Profile whose slot differs from `ActiveSlot`
+- **THEN** the app shows the fields that differ between the stored settings of that slot and the device before it activates

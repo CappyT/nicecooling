@@ -181,3 +181,37 @@ The daemon alarm responses SHALL handle leak Alarms. The device signal output SH
 #### Scenario: Linux hung
 - **WHEN** Linux hangs and the daemon cannot act
 - **THEN** the device signal output of the system Alarm is the only remaining protection
+
+### Requirement: Alarm history
+The daemon SHALL keep the last 1000 Alarm rows and the last 1000 Warning rows across restarts, each with its raise time, clear time and outcome, and SHALL return the rows that were active in a time range, newest first, with `GetHistory`.
+
+#### Scenario: History after a restart
+- **WHEN** an instance rose and cleared, and the daemon restarts
+- **THEN** `GetHistory` returns the instance with its raise time, clear time and outcome
+
+#### Scenario: Open row at a restart
+- **WHEN** the daemon stops while an instance is active
+- **THEN** the next start closes its row with the start time and `closed_by_restart`, and a new instance rises when the cause holds
+
+#### Scenario: Poweroff outcome
+- **WHEN** a poweroff countdown ends and the daemon calls logind
+- **THEN** the row has the outcome `poweroff-requested` on disk before the call
+
+#### Scenario: Flapping Warning
+- **WHEN** 1001 Warning instances rise
+- **THEN** the history drops the oldest Warning row and keeps every Alarm row
+
+### Requirement: Alarm response per Leakshield
+The daemon SHALL accept an alarm response for one Leakshield for a `leakshield.*` event, as an override of the default of the event. At a raise it SHALL use the override first, then the default of the event, then the built-in default.
+
+#### Scenario: Override for one Leakshield
+- **WHEN** the large leak Alarm has the default poweroff and `leakshield_20417_31072` has the override notify
+- **THEN** a large leak of `leakshield_20417_31072` notifies and a large leak of another Leakshield powers off
+
+#### Scenario: Reset an override
+- **WHEN** the user calls `ResetResponse` for the event and the Leakshield
+- **THEN** the Leakshield uses the default of the event again
+
+#### Scenario: Wrong source
+- **WHEN** `SetResponse` names `pump-stop` with a source, or a Leakshield id that the daemon does not know
+- **THEN** the daemon returns `InvalidArgument` for the first and `NotFound` for the second
