@@ -237,7 +237,7 @@ All numbers in a Curve or a Calibration table are finite. A Duty is a percent fr
 
 ## Errors
 
-Error names have the prefix `io.github.cappyt.NiceCooling1.Error.`. polkit denials use `org.freedesktop.DBus.Error.AccessDenied`.
+Error names have the prefix `io.github.cappyt.NiceCooling1.Error.`, except two standard names: polkit denials use `org.freedesktop.DBus.Error.AccessDenied`, and `NotSupported` is `org.freedesktop.DBus.Error.NotSupported`.
 
 | Error | When |
 |---|---|
