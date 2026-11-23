@@ -24,6 +24,7 @@ use super::action::{self, Action};
 use super::backup::{BackupEntry, BackupSet, Backups, ImportError, Reason};
 use super::events::{Event, decode_events};
 use super::external::{ExternalDetector, LastKnown};
+use super::feed::FeedSent;
 use super::fields::{self, EditError, FieldRow, FieldValue};
 use super::mode::{self, COMMAND_DELAY, Mode};
 use super::software_sensors::SoftwareSlots;
@@ -33,6 +34,7 @@ use super::{DeviceEvent, DeviceIo, blocking, clock, counters, reset_alarm};
 use crate::profiles::activate::{Decision, Failure};
 use crate::state::slots::SlotMeta;
 use crate::state::{SlotStore, StateStore};
+use crate::value_table::ValueTable;
 
 /// The automatic clock sync runs at most this often, so a device that ignores it is not flooded.
 const AUTO_CLOCK_GAP: Duration = Duration::from_secs(60);
@@ -47,7 +49,7 @@ pub struct AttachParams {
 }
 
 /// What the properties of the interface show. A change of it emits `PropertiesChanged`.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Info {
     pub firmware: u16,
     pub structure: u16,
@@ -58,6 +60,24 @@ pub struct Info {
     pub mode: String,
     /// `test`, `measure-fill-level`, `deaerate`, `refill`, or empty.
     pub running_action: String,
+    /// `off`, `waiting`, `ok` or `failing` (`docs/api.md`, Feed state).
+    pub feed_state: &'static str,
+    /// The time of the last good send in microseconds, the pump speed and the flow it carried.
+    pub last_feed: (u64, f64, f64),
+    /// `active_profile` of report 1.
+    pub active_slot: u8,
+    /// The backup id of the last Profile write that failed, or empty. The worker sets it.
+    pub failed_write_backup: String,
+}
+
+/// What the Feed message of one Leakshield did.
+#[derive(Default)]
+struct FeedStatus {
+    /// A Loop links the Leakshield.
+    linked: bool,
+    /// `None` until the first send result after the Feed went on. `Some(true)`: the send worked.
+    result: Option<bool>,
+    last: (u64, f64, f64),
 }
 
 struct State {
@@ -66,6 +86,7 @@ struct State {
     mode: Option<Mode>,
     running: Option<Action>,
     clock_offset: i64,
+    feed: FeedStatus,
 }
 
 pub struct Attached {
@@ -77,7 +98,7 @@ pub struct Attached {
     last_known: Arc<LastKnown>,
     worker: WriteWorker,
     state: Mutex<State>,
-    info: watch::Sender<Info>,
+    info: Arc<watch::Sender<Info>>,
     events: mpsc::UnboundedSender<DeviceEvent>,
     events_rx: Mutex<Option<mpsc::UnboundedReceiver<DeviceEvent>>>,
     last_auto_clock: Mutex<Option<Instant>>,
@@ -160,7 +181,25 @@ fn info_of(registry: &Registry, state: &State) -> Info {
             .device_reason()
             .map_or("", |r| r.as_str())
     };
+    let feed_state = if !state.connected
+        || !state.feed.linked
+        || Access::new(registry, &state.report1)
+            .device_reason()
+            .is_some()
+    {
+        "off"
+    } else {
+        match state.feed.result {
+            None => "waiting",
+            Some(true) => "ok",
+            Some(false) => "failing",
+        }
+    };
     Info {
+        feed_state,
+        last_feed: state.feed.last,
+        active_slot: state.report1.active_profile,
+        failed_write_backup: String::new(),
         firmware: state.report1.firmware_version,
         structure: state.report1.structure_number,
         connected: state.connected,
@@ -168,6 +207,17 @@ fn info_of(registry: &Registry, state: &State) -> Info {
         mode: state.mode.map_or("", Mode::as_str).to_owned(),
         running_action: state.running.map_or("", Action::as_str).to_owned(),
     }
+}
+
+/// Shows `next` on the watch. The worker owns `failed_write_backup`, so it stays as it is.
+fn publish(sender: &watch::Sender<Info>, mut next: Info) {
+    sender.send_if_modified(|current| {
+        next.failed_write_backup
+            .clone_from(&current.failed_write_backup);
+        let changed = *current != next;
+        *current = next;
+        changed
+    });
 }
 
 /// The first read of a Leakshield: a device that the registry covers gets its report 3 copied
@@ -205,14 +255,6 @@ impl Attached {
         init_slots(&io, params, &id, &serial, &report1);
         let (events, events_rx) = mpsc::unbounded_channel();
         let last_known = Arc::new(LastKnown::open(&params.state_dir, &id));
-        let worker = WriteWorker::spawn(WorkerParts {
-            io: io.clone(),
-            registry: Arc::clone(&params.registry),
-            backups: Backups::new(&params.state_dir, &serial),
-            last_known: Arc::clone(&last_known),
-            events: events.clone(),
-            save_delay: params.save_delay,
-        });
         let (mode, running) = action::interpret(report1.mode, None);
         let state = State {
             clock_offset: clock::offset(&report1, now_unix()),
@@ -220,8 +262,29 @@ impl Attached {
             connected: true,
             mode,
             running,
+            feed: FeedStatus::default(),
         };
         let (info, _) = watch::channel(info_of(&params.registry, &state));
+        let info = Arc::new(info);
+        let failed_backup: Arc<dyn Fn(&str) + Send + Sync> = {
+            let info = Arc::clone(&info);
+            Arc::new(move |backup| {
+                info.send_if_modified(|current| {
+                    let changed = current.failed_write_backup != backup;
+                    backup.clone_into(&mut current.failed_write_backup);
+                    changed
+                });
+            })
+        };
+        let worker = WriteWorker::spawn(WorkerParts {
+            io: io.clone(),
+            registry: Arc::clone(&params.registry),
+            backups: Backups::new(&params.state_dir, &serial),
+            last_known: Arc::clone(&last_known),
+            events: events.clone(),
+            save_delay: params.save_delay,
+            failed_backup,
+        });
         Ok(Arc::new(Self {
             backups: Backups::new(&params.state_dir, &serial),
             id,
@@ -301,38 +364,64 @@ impl Attached {
         tokio::spawn(detector.run(period, self.events.clone()))
     }
 
-    fn apply(&self, report1: Report1, now: i64) {
+    /// Changes the state and shows the new `Info`. A Feed that is off forgets its send result, so
+    /// it waits for a new one when it goes on.
+    fn refresh(&self, change: impl FnOnce(&mut State)) {
         let mut state = self.state.lock().unwrap();
-        (state.mode, state.running) = action::interpret(report1.mode, state.mode);
-        state.clock_offset = clock::offset(&report1, now);
-        state.report1 = report1;
-        state.connected = true;
+        change(&mut state);
         let info = info_of(&self.registry, &state);
+        if info.feed_state == "off" {
+            state.feed.result = None;
+        }
         drop(state);
-        self.info.send_if_modified(|current| {
-            let changed = *current != info;
-            *current = info;
-            changed
+        publish(&self.info, info);
+    }
+
+    fn apply(&self, report1: Report1, now: i64) {
+        self.refresh(|state| {
+            (state.mode, state.running) = action::interpret(report1.mode, state.mode);
+            state.clock_offset = clock::offset(&report1, now);
+            state.report1 = report1;
+            state.connected = true;
         });
     }
 
     fn mark_disconnected(&self) {
-        let mut state = self.state.lock().unwrap();
-        state.connected = false;
-        let info = info_of(&self.registry, &state);
-        drop(state);
-        self.info.send_if_modified(|current| {
-            let changed = *current != info;
-            *current = info;
-            changed
-        });
+        self.refresh(|state| state.connected = false);
     }
 
     /// The result of a Feed message send. A vanished device shows at once.
-    pub fn feed_result(&self, result: &std::result::Result<(), DeviceError>) {
-        if matches!(result, Err(DeviceError::Disconnected)) {
-            self.mark_disconnected();
+    pub fn feed_result(&self, result: &std::result::Result<FeedSent, DeviceError>) {
+        match result {
+            Err(DeviceError::Disconnected) => self.mark_disconnected(),
+            Err(_) => self.refresh(|state| state.feed.result = Some(false)),
+            Ok(sent) => self.refresh(|state| {
+                state.feed.result = Some(true);
+                state.feed.last = (now_us(), sent.pump_speed_rpm, sent.flow_lph);
+            }),
         }
+    }
+
+    /// A Loop links the Leakshield, or no Loop does. Without a Loop the Feed is off.
+    pub fn set_feed_linked(&self, linked: bool) {
+        if self.state.lock().unwrap().feed.linked != linked {
+            self.refresh(|state| state.feed.linked = linked);
+        }
+    }
+
+    /// Resets the failing time of the value table whenever the Feed goes off.
+    pub fn spawn_feed_reset(&self, table: ValueTable) -> JoinHandle<()> {
+        let (mut info, id) = (self.info.subscribe(), self.id.clone());
+        tokio::spawn(async move {
+            loop {
+                if info.borrow_and_update().feed_state == "off" {
+                    table.feed_off(&id);
+                }
+                if info.changed().await.is_err() {
+                    return;
+                }
+            }
+        })
     }
 
     /// Reads report 1, updates the state and runs the automatic clock sync. Blocks on the device.

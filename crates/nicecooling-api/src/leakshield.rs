@@ -31,6 +31,16 @@ pub trait Leakshield {
     fn clock_offset(&self) -> zbus::Result<i64>;
     #[zbus(property)]
     fn software_sensor_slots(&self) -> zbus::Result<u16>;
+    /// off | waiting | ok | failing
+    #[zbus(property)]
+    fn feed_state(&self) -> zbus::Result<String>;
+    /// (time of the last good send in microseconds, pump speed in rpm, flow in L/h)
+    #[zbus(property)]
+    fn last_feed(&self) -> zbus::Result<(u64, f64, f64)>;
+    #[zbus(property)]
+    fn active_slot(&self) -> zbus::Result<u8>;
+    #[zbus(property)]
+    fn failed_write_backup(&self) -> zbus::Result<String>;
 
     /// (field id, risk class safety|low, value, writable, reason)
     fn get_fields(&self) -> zbus::Result<Vec<(String, String, OwnedValue, bool, String)>>;

@@ -247,3 +247,55 @@ async fn profile_write_emits_no_external_change() {
         );
     }
 }
+
+#[tokio::test(start_paused = true)]
+async fn failed_write_backup_per_leakshield() {
+    let failing = Rig::new("failed-backup-a");
+    let working = Rig::new("failed-backup-b");
+    let (device_a, device_b) = (failing.attached(), working.attached());
+    assert_eq!(device_a.info().failed_write_backup, "");
+    failing.sim.fail_feature_writes(true);
+
+    assert!(
+        apply_slot(&device_a, &slots(&failing), slot(2))
+            .await
+            .is_err()
+    );
+    apply_slot(&device_b, &slots(&working), slot(2))
+        .await
+        .unwrap();
+
+    let backups = failing.backups().list().unwrap();
+    assert_eq!(backups.len(), 1);
+    assert_eq!(device_a.info().failed_write_backup, backups[0].id);
+    assert_eq!(device_b.info().failed_write_backup, "");
+}
+
+#[tokio::test(start_paused = true)]
+async fn failed_write_backup_cleared_by_good_write() {
+    let rig = Rig::new("failed-backup-good");
+    let device = rig.attached();
+    rig.sim.fail_feature_writes(true);
+    assert!(apply_slot(&device, &slots(&rig), slot(2)).await.is_err());
+    assert_ne!(device.info().failed_write_backup, "");
+
+    rig.sim.fail_feature_writes(false);
+    apply_slot(&device, &slots(&rig), slot(2)).await.unwrap();
+
+    assert_eq!(device.info().failed_write_backup, "");
+}
+
+#[tokio::test(start_paused = true)]
+async fn failed_write_backup_cleared_by_restore() {
+    let rig = Rig::new("failed-backup-restore");
+    let device = rig.attached();
+    rig.sim.fail_feature_writes(true);
+    assert!(apply_slot(&device, &slots(&rig), slot(2)).await.is_err());
+    let backup = device.info().failed_write_backup;
+    assert_ne!(backup, "");
+
+    rig.sim.fail_feature_writes(false);
+    device.restore_backup(&backup).await.unwrap();
+
+    assert_eq!(device.info().failed_write_backup, "");
+}

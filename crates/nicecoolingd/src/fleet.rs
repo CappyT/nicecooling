@@ -13,7 +13,7 @@ use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 
 use crate::dbus::Hub;
-use crate::leakshield::feed::{CoveredLookup, SoftwareLookup};
+use crate::leakshield::feed::{CoveredLookup, LinkedSink, SoftwareLookup};
 use crate::leakshield::{AttachParams, Attached, DeviceIo};
 use crate::sources::hotplug::{UsbDevice, UsbEvent, UsbPath};
 use crate::sources::leakshield as leakshield_source;
@@ -79,6 +79,16 @@ impl Fleet {
     pub fn covered_lookup(self: &Arc<Self>) -> CoveredLookup {
         let fleet = Arc::clone(self);
         Arc::new(move |id| fleet.get(id).map(|d| d.feed_covered()))
+    }
+
+    /// Tells each device whether a Loop links it.
+    pub fn linked_sink(self: &Arc<Self>) -> LinkedSink {
+        let fleet = Arc::clone(self);
+        Arc::new(move |linked| {
+            for device in fleet.all() {
+                device.set_feed_linked(linked.contains(&device.id()));
+            }
+        })
     }
 
     fn keep(&self, tasks: impl IntoIterator<Item = JoinHandle<()>>) {
@@ -247,7 +257,8 @@ impl Attacher {
             self.source_period,
         );
         let detection = device.spawn_external_detection(self.external_period);
-        self.fleet.keep([source.task, detection]);
+        let feed_reset = device.spawn_feed_reset(self.values.clone());
+        self.fleet.keep([source.task, detection, feed_reset]);
         self.hub.add_leakshield(device);
     }
 }

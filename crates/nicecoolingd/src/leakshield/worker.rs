@@ -88,6 +88,9 @@ pub struct WorkerParts {
     pub events: mpsc::UnboundedSender<DeviceEvent>,
     /// `SAVE_SETTINGS_DELAY` in the daemon.
     pub save_delay: Duration,
+    /// Gets the backup id of a Profile write that failed, and an empty text when a good Profile
+    /// write or a restore ends it.
+    pub failed_backup: Arc<dyn Fn(&str) + Send + Sync>,
 }
 
 /// Handle of the worker task. The task ends when the last handle is dropped.
@@ -214,7 +217,11 @@ fn run_job(
 ) -> Result<Written, WriteError> {
     // The factory reset takes the settings from the device: no save-settings command follows.
     let saves = !matches!(job, Job::FactoryReset { .. });
+    let restores = matches!(job, Job::Restore { .. });
     let result = blocking(|| execute(parts, job));
+    if restores && result.is_ok() {
+        (parts.failed_backup)("");
+    }
     // A write that failed its read-back still changed report 3 on the device.
     let backup = match &result {
         Ok(written) => Some(&written.backup),
@@ -273,7 +280,16 @@ fn write_profile(
         report1: report1.clone(),
         report3: (*report3).clone(),
     };
-    let result = run_job(parts, job, save)
+    let result = run_job(parts, job, save);
+    match &result {
+        Ok(_) => (parts.failed_backup)(""),
+        Err(error) => {
+            if let Some(backup) = error.backup_id() {
+                (parts.failed_backup)(backup);
+            }
+        }
+    }
+    let result = result
         .map(|_| ProfileDone {
             decision: Decision::Write(report3),
             report1,

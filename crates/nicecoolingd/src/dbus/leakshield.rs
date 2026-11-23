@@ -109,6 +109,26 @@ impl Leakshield {
         SLOT_COUNT as u16
     }
 
+    #[zbus(property)]
+    fn feed_state(&self) -> String {
+        self.device.info().feed_state.to_owned()
+    }
+
+    #[zbus(property)]
+    fn last_feed(&self) -> (u64, f64, f64) {
+        self.device.info().last_feed
+    }
+
+    #[zbus(property)]
+    fn active_slot(&self) -> u8 {
+        self.device.info().active_slot
+    }
+
+    #[zbus(property)]
+    fn failed_write_backup(&self) -> String {
+        self.device.info().failed_write_backup
+    }
+
     #[zbus(out_args("fields"))]
     async fn get_fields(&self) -> Result<Vec<(String, String, OwnedVariant, bool, String)>> {
         Ok(self
@@ -467,6 +487,18 @@ async fn emit(
                 }
                 if now.running_action != last.running_action {
                     let _ = this.running_action_changed(emitter).await;
+                }
+                if now.feed_state != last.feed_state {
+                    let _ = this.feed_state_changed(emitter).await;
+                }
+                if now.last_feed != last.last_feed {
+                    let _ = this.last_feed_changed(emitter).await;
+                }
+                if now.active_slot != last.active_slot {
+                    let _ = this.active_slot_changed(emitter).await;
+                }
+                if now.failed_write_backup != last.failed_write_backup {
+                    let _ = this.failed_write_backup_changed(emitter).await;
                 }
                 last = now;
             }

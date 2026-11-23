@@ -56,6 +56,15 @@ impl ValueTable {
     }
 }
 
+impl ValueTable {
+    /// The Feed of a Leakshield is off: a failing run ends with it.
+    pub fn feed_off(&self, leakshield: &str) {
+        if let Some(status) = self.leakshields.lock().unwrap().get_mut(leakshield) {
+            status.feed_failing_since = None;
+        }
+    }
+}
+
 impl ValueSource for ValueTable {
     fn snapshot(&self) -> BTreeMap<String, Reading> {
         self.values.lock().unwrap().clone()

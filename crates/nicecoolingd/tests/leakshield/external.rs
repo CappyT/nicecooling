@@ -67,6 +67,7 @@ async fn own_write_emits_no_signal() {
         last_known: Arc::clone(&rig.last_known),
         events,
         save_delay: SAVE_SETTINGS_DELAY,
+        failed_backup: Arc::new(|_| {}),
     });
 
     worker

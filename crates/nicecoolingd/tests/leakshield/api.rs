@@ -468,3 +468,71 @@ async fn wired_methods_do_not_reply_not_supported() {
         assert_ne!(error.as_deref(), Some(not_supported), "{name}");
     }
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn active_slot_follows_report1() {
+    let mut rig = Rig::start().await;
+    rig.sim.edit_report1(|r| r.active_profile = 2);
+    rig.tick_in_background();
+    let cached = LeakshieldProxy::builder(&rig.client)
+        .path(path(Kind::Leakshield, LEAKSHIELD))
+        .build()
+        .await
+        .unwrap();
+    let mut slots = cached.receive_active_slot_changed().await;
+    let proxy = leakshield(&rig).await;
+    until(async || (proxy.active_slot().await.unwrap() == 2).then_some(())).await;
+
+    // The device button switches to slot 4.
+    rig.sim.edit_report1(|r| r.active_profile = 4);
+
+    until(async || (proxy.active_slot().await.unwrap() == 4).then_some(())).await;
+    let changed = timeout(Duration::from_secs(5), async {
+        while let Some(change) = slots.next().await {
+            if change.get().await.unwrap() == 4 {
+                return;
+            }
+        }
+    })
+    .await;
+    assert!(changed.is_ok(), "no PropertiesChanged for ActiveSlot");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn pressure_limit_sensors_from_report1() {
+    let mut rig = Rig::start().await;
+    rig.sim.edit_report1(|r| {
+        r.pressure_setpoint = 3000;
+        r.pressure_low = 2500;
+        r.pressure_high = 3500;
+    });
+    rig.tick_in_background();
+    let sensor = async |id: &str| {
+        SensorProxy::builder(&rig.client)
+            .path(path(Kind::Sensor, &format!("{LEAKSHIELD}_{id}")))
+            .cache_properties(zbus::proxy::CacheProperties::No)
+            .build()
+            .await
+            .unwrap()
+    };
+    let setpoint = sensor("pressure_setpoint").await;
+    let low = sensor("pressure_low").await;
+    let high = sensor("pressure_high").await;
+
+    // The first poll can run before the edit: wait for the new values.
+    until(async || {
+        let (a, b, c) = (
+            setpoint.value().await.unwrap(),
+            low.value().await.unwrap(),
+            high.value().await.unwrap(),
+        );
+        let near = |value: f64, want: f64| (value - want).abs() < 1e-9;
+        (near(a, 300.0) && near(b, 250.0) && near(c, 350.0)).then_some(())
+    })
+    .await;
+    for proxy in [&setpoint, &low, &high] {
+        assert_eq!(proxy.unit().await.unwrap(), "mbar");
+        assert_eq!(proxy.kind().await.unwrap(), "pressure");
+        assert_eq!(proxy.origin().await.unwrap(), "leakshield");
+    }
+}

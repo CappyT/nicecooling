@@ -79,6 +79,17 @@ impl fmt::Display for WriteError {
     }
 }
 
+impl WriteError {
+    /// The backup that a restore can use after this error, when one exists.
+    pub fn backup_id(&self) -> Option<&str> {
+        match self {
+            Self::VerifyFailed { backup, .. } => Some(backup),
+            Self::Disconnected { backup } | Self::Device { backup, .. } => backup.as_deref(),
+            _ => None,
+        }
+    }
+}
+
 impl std::error::Error for WriteError {}
 
 /// What a successful write leaves behind.

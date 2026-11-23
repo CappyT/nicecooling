@@ -28,6 +28,7 @@ fn start(rig: &Rig) -> (WriteWorker, mpsc::UnboundedReceiver<DeviceEvent>) {
         last_known: Arc::clone(&rig.last_known),
         events,
         save_delay: SAVE_SETTINGS_DELAY,
+        failed_backup: Arc::new(|_| {}),
     });
     (worker, rx)
 }

@@ -253,6 +253,14 @@
       <annotation name="org.freedesktop.DBus.Property.EmitsChangedSignal" value="false"/>
     </property>
     <property name="SoftwareSensorSlots" type="q" access="read"/>
+    <!-- off | waiting | ok | failing: the state of the Feed message. api.md defines it. -->
+    <property name="FeedState" type="s" access="read"/>
+    <!-- (time of the last good send in microseconds, pump speed in rpm, flow in L/h); (0, 0, 0) before the first one -->
+    <property name="LastFeed" type="(tdd)" access="read"/>
+    <!-- active_profile of report 1, 0 when not known -->
+    <property name="ActiveSlot" type="y" access="read"/>
+    <!-- The backup id of the last Profile write that failed. Empty after a good Profile write and after RestoreBackup. -->
+    <property name="FailedWriteBackup" type="s" access="read"/>
 
     <!-- (field id, risk class safety|low, value, writable, reason) -->
     <method name="GetFields">

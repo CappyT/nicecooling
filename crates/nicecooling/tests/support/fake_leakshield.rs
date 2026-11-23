@@ -464,6 +464,26 @@ impl Leakshield {
         12
     }
 
+    #[zbus(property)]
+    fn feed_state(&self) -> String {
+        "ok".into()
+    }
+
+    #[zbus(property)]
+    fn last_feed(&self) -> (u64, f64, f64) {
+        (1_700_000_000_000_000, 2840.0, 115.2)
+    }
+
+    #[zbus(property)]
+    fn active_slot(&self) -> u8 {
+        1
+    }
+
+    #[zbus(property)]
+    fn failed_write_backup(&self) -> String {
+        String::new()
+    }
+
     /// (field id, risk class, value, writable, reason)
     async fn get_fields(&self) -> Vec<(String, String, OwnedValue, bool, String)> {
         let device = self.device.lock().expect("device");

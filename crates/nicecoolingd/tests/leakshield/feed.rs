@@ -1,13 +1,17 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use nicecooling_core::loops::Loop;
-use nicecooling_core::tick::{LoopSetup, Stage, TickConfig, TickContext};
+use nicecooling_core::tick::{LoopSetup, Stage, TickConfig, TickContext, ValueSource};
 use nicecooling_protocol::feed::{FEED_SIZE, FeedMessage, NO_VALUE};
+use nicecoolingd::leakshield::Attached;
 use nicecoolingd::leakshield::feed::{
-    CoveredLookup, SoftwareLookup, feed_channel, feed_channel_checked, feed_for_loop,
+    CoveredLookup, FeedLink, FeedStage, LinkedSink, SoftwareLookup, feed_channel,
+    feed_channel_checked, feed_for_loop,
 };
+use nicecoolingd::value_table::ValueTable;
 
 use crate::{LEAKSHIELD_ID, Rig};
 
@@ -154,4 +158,162 @@ async fn the_registry_covers_the_firmware_of_the_device_it_was_made_for() {
     rig.sim.edit_report1(|r| r.firmware_version = 1019);
     let other = rig.attached();
     assert!(!other.feed_covered());
+}
+
+fn linked_to(device: &Arc<Attached>) -> LinkedSink {
+    let device = Arc::clone(device);
+    Arc::new(move |ids| device.set_feed_linked(ids.contains(&device.id())))
+}
+
+/// One tick and one send of the Feed of `device`, and its result for the device.
+fn tick_and_send(
+    stage: &mut FeedStage,
+    link: &mut FeedLink,
+    ctx: &mut TickContext,
+    rig: &Rig,
+    device: &Attached,
+) {
+    stage.run(ctx);
+    let devices = BTreeMap::from([(LEAKSHIELD_ID.to_owned(), rig.io.clone())]);
+    link.flush(&devices, &mut |_, result| device.feed_result(&result));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn feed_state_ok_failing_ok() {
+    let rig = Rig::new("feed-state-cycle");
+    let device = rig.attached();
+    let (stage, mut link) = feed_channel();
+    let mut stage = stage.with_linked(linked_to(&device));
+    let mut ctx = context(loop_with(Some(LEAKSHIELD_ID)));
+
+    tick_and_send(&mut stage, &mut link, &mut ctx, &rig, &device);
+    assert_eq!(device.info().feed_state, "ok");
+    rig.sim.fail_bulk(true);
+    tick_and_send(&mut stage, &mut link, &mut ctx, &rig, &device);
+    assert_eq!(device.info().feed_state, "failing");
+    rig.sim.fail_bulk(false);
+    tick_and_send(&mut stage, &mut link, &mut ctx, &rig, &device);
+    assert_eq!(device.info().feed_state, "ok");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn feed_state_waiting_before_first_send() {
+    let rig = Rig::new("feed-state-waiting");
+    let device = rig.attached();
+    assert_eq!(device.info().feed_state, "off");
+    let (stage, _link) = feed_channel();
+    let mut stage = stage.with_linked(linked_to(&device));
+
+    stage.run(&mut context(loop_with(Some(LEAKSHIELD_ID))));
+
+    let info = device.info();
+    assert_eq!(info.feed_state, "waiting");
+    assert_eq!(info.last_feed, (0, 0.0, 0.0));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn feed_state_off_without_loop() {
+    let rig = Rig::new("feed-state-no-loop");
+    let device = rig.attached();
+    let (stage, mut link) = feed_channel();
+    let mut stage = stage.with_linked(linked_to(&device));
+    let mut ctx = context(loop_with(Some(LEAKSHIELD_ID)));
+    tick_and_send(&mut stage, &mut link, &mut ctx, &rig, &device);
+    assert_eq!(device.info().feed_state, "ok");
+
+    // A Loop without a Leakshield, then no Loop at all.
+    stage.run(&mut context(loop_with(None)));
+    assert_eq!(device.info().feed_state, "off");
+    tick_and_send(&mut stage, &mut link, &mut ctx, &rig, &device);
+    stage.run(&mut TickContext::new(TickConfig::default()));
+    assert_eq!(device.info().feed_state, "off");
+
+    // The Feed goes on again and waits for its first result.
+    stage.run(&mut ctx);
+    assert_eq!(device.info().feed_state, "waiting");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn feed_state_off_for_unknown_firmware() {
+    let rig = Rig::new("feed-state-firmware");
+    rig.sim.edit_report1(|r| r.firmware_version = 1019);
+    let device = rig.attached();
+    let (stage, _link) = feed_channel();
+    let mut stage = stage.with_linked(linked_to(&device));
+
+    stage.run(&mut context(loop_with(Some(LEAKSHIELD_ID))));
+
+    assert_eq!(device.info().feed_state, "off");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn feed_state_off_when_disconnected() {
+    let rig = Rig::new("feed-state-disconnected");
+    let device = rig.attached();
+    let (stage, mut link) = feed_channel();
+    let mut stage = stage.with_linked(linked_to(&device));
+    let mut ctx = context(loop_with(Some(LEAKSHIELD_ID)));
+    tick_and_send(&mut stage, &mut link, &mut ctx, &rig, &device);
+    assert_eq!(device.info().feed_state, "ok");
+
+    device.detach();
+
+    assert_eq!(device.info().feed_state, "off");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn feed_off_resets_failing_time() {
+    let rig = Rig::new("feed-off-reset");
+    let device = rig.attached();
+    let table = ValueTable::default();
+    let _task = device.spawn_feed_reset(table.clone());
+    let (stage, _link) = feed_channel();
+    let mut stage = stage.with_linked(linked_to(&device));
+    stage.run(&mut context(loop_with(Some(LEAKSHIELD_ID))));
+    table.publish_feed(LEAKSHIELD_ID, false, Duration::from_secs(5));
+    assert!(
+        table.leakshields()[LEAKSHIELD_ID]
+            .feed_failing_since
+            .is_some()
+    );
+
+    // The user removes the Leakshield from its Loop while the sends fail.
+    stage.run(&mut TickContext::new(TickConfig::default()));
+
+    for _ in 0..100 {
+        if table.leakshields()[LEAKSHIELD_ID]
+            .feed_failing_since
+            .is_none()
+        {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    panic!("the failing time stayed");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn last_feed_holds_time_and_values() {
+    let rig = Rig::new("feed-last");
+    let device = rig.attached();
+    let (stage, mut link) = feed_channel();
+    let mut stage = stage.with_linked(linked_to(&device));
+    let mut ctx = context(loop_with(Some(LEAKSHIELD_ID)));
+    let before = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_micros() as u64;
+
+    tick_and_send(&mut stage, &mut link, &mut ctx, &rig, &device);
+
+    let (time_us, rpm, lph) = device.info().last_feed;
+    assert!(
+        time_us >= before && time_us <= before + 5_000_000,
+        "{time_us}"
+    );
+    assert_eq!((rpm, lph), (2000.0, 115.0));
+    // A failed send keeps the last good values.
+    rig.sim.fail_bulk(true);
+    tick_and_send(&mut stage, &mut link, &mut ctx, &rig, &device);
+    assert_eq!(device.info().last_feed, (time_us, 2000.0, 115.0));
 }

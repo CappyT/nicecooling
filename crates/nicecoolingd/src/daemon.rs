@@ -329,7 +329,7 @@ pub async fn start<N: Notifier + 'static>(
     );
     let (feed_stage, feed_link) =
         feed_channel_checked(fleet.software_lookup(), fleet.covered_lookup());
-    pipeline.push(Box::new(feed_stage));
+    pipeline.push(Box::new(feed_stage.with_linked(fleet.linked_sink())));
     pipeline.push(Box::new(ApiStage::new(hub.clone())));
     pipeline.push(Box::new(WatchdogStage::new(notifier)));
     let mut runner = TickRunner::new(pipeline, config, clock.clone(), options.tick_period);
@@ -360,6 +360,11 @@ pub async fn start<N: Notifier + 'static>(
         leakshields
             .iter()
             .map(|d| d.spawn_external_detection(options.external_period)),
+    );
+    leakshield_tasks.extend(
+        leakshields
+            .iter()
+            .map(|d| d.spawn_feed_reset(values.clone())),
     );
     if let Some(usb) = usb {
         leakshield_tasks.push(

@@ -19,8 +19,11 @@ use crate::value_table::ValueTable;
 const NO_VALUE: i16 = 0x7FFF;
 
 /// A device sensor: field id, default name, kind and unit of `docs/api.md`.
-pub const SENSORS: [(&str, &str, &str, &str); 2] = [
+pub const SENSORS: [(&str, &str, &str, &str); 5] = [
     ("pressure", "Pressure", "pressure", "mbar"),
+    ("pressure_setpoint", "Pressure target", "pressure", "mbar"),
+    ("pressure_low", "Pressure minimum", "pressure", "mbar"),
+    ("pressure_high", "Pressure maximum", "pressure", "mbar"),
     ("fill_level", "Fill level", "level", "%"),
 ];
 
@@ -38,11 +41,15 @@ pub fn sensor_metas(leakshield: &str) -> Vec<SensorMeta> {
         .collect()
 }
 
-/// The values of the device sensors in report 1: the pressure in mbar (0.1 mbar per count) and
-/// the fill level in percent (0.01 % per count). A value of 32767 is no value.
+/// The values of the device sensors in report 1: the pressure, its target and its limits in mbar
+/// (0.1 mbar per count) and the fill level in percent (0.01 % per count). A value of 32767 is no
+/// value.
 pub fn sensor_values(report1: &Report1) -> Vec<(&'static str, f64)> {
     [
         ("pressure", report1.pressure, 0.1),
+        ("pressure_setpoint", report1.pressure_setpoint, 0.1),
+        ("pressure_low", report1.pressure_low, 0.1),
+        ("pressure_high", report1.pressure_high, 0.1),
         ("fill_level", report1.fill_level, 0.01),
     ]
     .into_iter()

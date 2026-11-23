@@ -20,6 +20,35 @@ pub const UNCOVERED_WARNING: &str = "leakshield-unknown-firmware";
 
 type Messages = BTreeMap<String, FeedMessage>;
 
+/// The values of a Feed message that the device accepted, in the units of `docs/api.md`.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct FeedSent {
+    pub pump_speed_rpm: f64,
+    pub flow_lph: f64,
+}
+
+impl FeedSent {
+    fn of(message: &FeedMessage) -> Self {
+        let value = |slot: usize, scale: f64| {
+            let raw = message.value(slot);
+            if raw == NO_VALUE {
+                0.0
+            } else {
+                f64::from(raw) / scale
+            }
+        };
+        Self {
+            pump_speed_rpm: value(SLOT_PUMP_SPEED, 1.0),
+            flow_lph: value(SLOT_FLOW, 10.0),
+        }
+    }
+}
+
+/// Gets the ids of the Leakshields that a Loop links, once in each tick.
+pub type LinkedSink = Arc<dyn Fn(&BTreeSet<String>) + Send + Sync>;
+
+type SendResult = Result<FeedSent, DeviceError>;
+
 /// Sensor id of the tachometer of a Pump channel: `nct6798_pwm6` -> `nct6798_fan6`.
 pub(crate) fn tach_sensor(channel: &str) -> Option<String> {
     let (chip, number) = channel.rsplit_once("_pwm")?;
@@ -71,6 +100,7 @@ pub struct FeedStage {
     out: watch::Sender<Messages>,
     software: Option<SoftwareLookup>,
     covered: Option<CoveredLookup>,
+    linked: Option<LinkedSink>,
     /// The Leakshields that hold the `UNCOVERED_WARNING` now.
     warned: BTreeSet<String>,
 }
@@ -109,10 +139,20 @@ fn channel(
             out,
             software,
             covered,
+            linked: None,
             warned: BTreeSet::new(),
         },
         FeedLink { rx },
     )
+}
+
+impl FeedStage {
+    /// Tells `sink` in each tick which Leakshields a Loop links, so that the others show their Feed
+    /// as off.
+    pub fn with_linked(mut self, sink: LinkedSink) -> Self {
+        self.linked = Some(sink);
+        self
+    }
 }
 
 impl Stage for FeedStage {
@@ -122,6 +162,15 @@ impl Stage for FeedStage {
 
     fn run(&mut self, ctx: &mut TickContext) {
         let mut uncovered = BTreeSet::new();
+        if let Some(sink) = &self.linked {
+            let linked: BTreeSet<String> = ctx
+                .config
+                .loops
+                .iter()
+                .filter_map(|l| l.config.leakshield.clone())
+                .collect();
+            sink(&linked);
+        }
         let messages: Messages = ctx
             .config
             .loops
@@ -160,11 +209,12 @@ impl Stage for FeedStage {
 fn send_all(
     messages: &Messages,
     devices: &BTreeMap<String, DeviceIo>,
-    report: &mut impl FnMut(&str, Result<(), DeviceError>),
+    report: &mut impl FnMut(&str, SendResult),
 ) {
     for (id, message) in messages {
         if let Some(io) = devices.get(id) {
-            report(id, blocking(|| io.send_feed(message)));
+            let result = blocking(|| io.send_feed(message));
+            report(id, result.map(|()| FeedSent::of(message)));
         }
     }
 }
@@ -174,7 +224,7 @@ impl FeedLink {
     pub fn flush(
         &mut self,
         devices: &BTreeMap<String, DeviceIo>,
-        report: &mut impl FnMut(&str, Result<(), DeviceError>),
+        report: &mut impl FnMut(&str, SendResult),
     ) {
         if self.rx.has_changed().unwrap_or(false) {
             let messages = self.rx.borrow_and_update().clone();
@@ -187,7 +237,7 @@ impl FeedLink {
     pub async fn run(
         mut self,
         devices: impl Fn() -> BTreeMap<String, DeviceIo>,
-        mut report: impl FnMut(&str, Result<(), DeviceError>),
+        mut report: impl FnMut(&str, SendResult),
     ) {
         while self.rx.changed().await.is_ok() {
             let messages = self.rx.borrow_and_update().clone();
