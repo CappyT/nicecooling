@@ -311,6 +311,61 @@ async fn set_rule_groups_rejects_unknown_kind_and_bad_keys() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn set_rule_groups_enforces_the_size_limits() {
+    let rig = Rig::start_with(with_profile_3).await;
+    let profiles = profiles(&rig).await;
+    let two = path(Kind::Profile, "profile_2");
+    let process = |names: Vec<String>| -> RuleIn<'static> {
+        (
+            "process",
+            Params::from([
+                ("names", Variant::from(names)),
+                ("match", Variant::from("any")),
+            ]),
+        )
+    };
+    let names = |count: usize, chars: usize| vec!["g".repeat(chars); count];
+    let groups = |count: usize, rules: usize| -> Vec<GroupIn<'_>> {
+        (0..count)
+            .map(|_| group("", &two, true, (0..rules).map(|_| always()).collect()))
+            .collect()
+    };
+    let limit = [
+        ("32 groups", groups(32, 1)),
+        ("16 rules", groups(1, 16)),
+        (
+            "32 names of 255 characters",
+            vec![group("", &two, true, vec![process(names(32, 255))])],
+        ),
+    ];
+    for (name, list) in limit {
+        profiles.set_rule_groups(list).await.expect(name);
+    }
+    let over = [
+        ("33 groups", groups(33, 1)),
+        ("17 rules", groups(1, 17)),
+        (
+            "33 names",
+            vec![group("", &two, true, vec![process(names(33, 4))])],
+        ),
+        (
+            "a name of 256 characters",
+            vec![group("", &two, true, vec![process(names(1, 256))])],
+        ),
+    ];
+    for (name, list) in over {
+        let error = profiles.set_rule_groups(list).await.expect_err(name);
+        assert_eq!(
+            error_name(&error),
+            format!("{ERR}.InvalidArgument"),
+            "{name}"
+        );
+    }
+    // The last list at the limit stays.
+    assert_eq!(profiles.get_rule_groups().await.unwrap().len(), 1);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn set_rule_groups_unknown_profile_returns_not_found() {
     let rig = Rig::start_with(with_profile_3).await;
     let profiles = profiles(&rig).await;

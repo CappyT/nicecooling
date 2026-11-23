@@ -48,6 +48,8 @@ pub const MAX_NAME_CHARS: usize = 64;
 pub const MAX_DERIVED_SENSORS: usize = 64;
 pub const MAX_LOOPS: usize = 16;
 pub const MAX_CALIBRATION_TABLES: usize = 32;
+pub const MAX_RULE_GROUPS: usize = 32;
+pub const MAX_RULES_PER_GROUP: usize = 16;
 
 #[derive(Clone, Debug, Default)]
 pub struct BoardInfo {
@@ -167,10 +169,10 @@ struct Inner {
     deleted: BTreeSet<String>,
     /// `applied` or `leakshield-failed`: how the last activation ended.
     active_state: &'static str,
-    /// What the rules stage of the tick has not read yet.
-    rule_queue: rules::RuleQueue,
     /// The number of the newest activation. Only the newest one reports its end.
     activation: u64,
+    /// What the rules stage of the tick has not read yet.
+    rule_queue: rules::RuleQueue,
     /// (group id, holds, since in microseconds), as the last tick published them.
     rule_states: Vec<(String, bool, u64)>,
     presets: Vec<Preset>,
@@ -629,9 +631,9 @@ impl Hub {
             profiles: init.profiles,
             deleted: BTreeSet::new(),
             active_state: "applied",
+            activation: 0,
             rule_queue: rules::RuleQueue::first(),
             rule_states: Vec::new(),
-            activation: 0,
             presets: init.presets,
             board: init.board,
             sensors: init.sensors,

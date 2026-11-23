@@ -94,10 +94,27 @@ pub struct ProcessRule {
     pub match_on: MatchOn,
 }
 
+/// The limits of a process rule (`docs/api.md`, Limits).
+pub const MAX_PROCESS_NAMES: usize = 32;
+/// `NAME_MAX` of Linux.
+pub const MAX_PROCESS_NAME_CHARS: usize = 255;
+
 impl ProcessRule {
     pub fn validate(&self) -> Result<(), String> {
         if self.names.is_empty() || self.names.iter().any(|n| n.trim().is_empty()) {
             return Err("names needs at least one name, and no name is empty".into());
+        }
+        if self.names.len() > MAX_PROCESS_NAMES {
+            return Err(format!("names has at most {MAX_PROCESS_NAMES} names"));
+        }
+        if self
+            .names
+            .iter()
+            .any(|n| n.chars().count() > MAX_PROCESS_NAME_CHARS)
+        {
+            return Err(format!(
+                "a process name has at most {MAX_PROCESS_NAME_CHARS} characters"
+            ));
         }
         Ok(())
     }

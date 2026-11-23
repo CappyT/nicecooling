@@ -13,7 +13,7 @@ use nicecooling_core::rules::winner::Timing;
 use nicecooling_core::tick::TickConfig;
 use nicecooling_core::tick::stage_rules::{ActiveSync, HostInput, ManualCommand, RuleHost};
 
-use super::{Hub, ProfileEvent, lock};
+use super::{Hub, MAX_RULE_GROUPS, MAX_RULES_PER_GROUP, ProfileEvent, lock};
 use crate::rules::local;
 use crate::state::profiles::DEFAULT_PROFILE;
 
@@ -68,6 +68,21 @@ impl Hub {
 
     /// Replaces the whole list. An empty id creates a group. Returns the ids in list order.
     pub fn set_rule_groups(&self, mut groups: Vec<RuleGroupDef>) -> Result<Vec<String>> {
+        if groups.len() > MAX_RULE_GROUPS {
+            return Err(Error::invalid(format!(
+                "the list has at most {MAX_RULE_GROUPS} Rule groups"
+            )));
+        }
+        if let Some(group) = groups.iter().find(|g| g.rules.len() > MAX_RULES_PER_GROUP) {
+            return Err(Error::invalid(format!(
+                "{} has more than {MAX_RULES_PER_GROUP} rules",
+                if group.id.is_empty() {
+                    "a new group"
+                } else {
+                    &group.id
+                }
+            )));
+        }
         {
             let inner = self.inner();
             let mut used: Vec<String> = inner
