@@ -13,6 +13,7 @@ use futures_util::StreamExt;
 use nicecooling_api::alarms::AlarmsProxy;
 use nicecooling_api::channel::ChannelProxy;
 use nicecooling_api::manager::ManagerProxy;
+use nicecooling_api::profiles::ProfilesProxy;
 use nicecooling_core::clock::SimClock;
 use nicecooling_core::tick::percent_to_raw;
 use nicecooling_hwmon::fake::FakeSysfs;
@@ -293,4 +294,130 @@ async fn smoke_pump_stop_alarm_is_raised_and_cancelled() {
     assert!(pump_stops(alarms.active().await.unwrap()).is_empty());
     assert_eq!(logind.call_count(), 0);
     fs::remove_dir_all(state).unwrap();
+}
+
+/// A process rule on a fake `/proc` tree activates a Profile, and the Default Profile comes back
+/// when the process ends. Immediate switching removes the Rule delay of 30 s.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn smoke_rule_activates_a_profile() {
+    let fake = FakeSysfs::reference_board();
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let base = std::env::temp_dir().join(format!("nicecooling-smoke-rule-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&base);
+    let (state, proc) = (base.join("state"), base.join("proc"));
+    fs::create_dir_all(&proc).unwrap();
+    for (id, profile) in [
+        ("profile_default", PROFILE.to_owned()),
+        (
+            "profile_2",
+            r#"{"schema_version": 1, "id": "profile_2", "name": "Gaming", "slot": 2,
+                "channels": {"nct6798_pwm3": {"control": "fixed", "input": null, "points": [],
+                "smoothing_s": null, "step_limit_pct_per_s": null, "fixed_duty": 60}}}"#
+                .to_owned(),
+        ),
+    ] {
+        fs::create_dir_all(state.join("profiles").join(id)).unwrap();
+        fs::write(
+            state.join("profiles").join(id).join("profile.json"),
+            profile,
+        )
+        .unwrap();
+    }
+    fs::write(
+        state.join("state.json"),
+        r#"{"schema_version": 1,
+            "rule_groups": [{"id": "group_1", "profile": "profile_2", "enabled": true,
+              "rules": [{"kind": "process", "params": {"names": ["game"], "match": "any",
+                         "match_on": "name"}}]}],
+            "profiles": {"default": "profile_default", "active": "profile_default",
+              "cause": "default", "immediate_switching": true, "rule_delay_s": 30,
+              "dwell_s": 300}}"#,
+    )
+    .unwrap();
+    let mut options = Options::new(Paths {
+        sysfs_root: fake.root().to_owned(),
+        state_dir: state.clone(),
+        boards_dir: root.join("data/boards"),
+        calibration_dir: root.join("data/calibration"),
+    });
+    options.tick_period = Duration::from_millis(50);
+    options.source_period = Duration::from_millis(50);
+    options.boot_id = "test-boot".into();
+    options.proc_root = Some(proc.clone());
+    let mut daemon = daemon::start(&options, Arc::new(TokioClock::new()), Pings(Arc::default()))
+        .await
+        .unwrap();
+    let bus = support::bus::PrivateBus::start();
+    let server = bus.connect().await;
+    let client = bus.connect().await;
+    let _served = dbus::serve(&daemon.hub, &server, TestAuthorizer::allow_all())
+        .await
+        .unwrap();
+    let profiles = ProfilesProxy::builder(&client)
+        .cache_properties(zbus::proxy::CacheProperties::No)
+        .build()
+        .await
+        .unwrap();
+    let default =
+        nicecooling_api::ids::object_path(nicecooling_api::ids::Kind::Profile, "profile_default");
+    let gaming =
+        nicecooling_api::ids::object_path(nicecooling_api::ids::Kind::Profile, "profile_2");
+    let pwm3 = || {
+        fs::read_to_string(fake.attr_path("nct6798", "pwm3"))
+            .unwrap()
+            .trim()
+            .to_owned()
+    };
+
+    // No process: the Default Profile holds a fixed Duty of 50% on Channel 3.
+    daemon.run(Some(5)).await;
+    assert_eq!(profiles.active().await.unwrap().as_str(), default);
+    assert_eq!(pwm3(), percent_to_raw(50.0).to_string());
+
+    // The process starts. The scan runs once per second, so the rule holds within 2 s.
+    let dir = proc.join("4242");
+    fs::create_dir_all(&dir).unwrap();
+    fs::write(dir.join("comm"), "game\n").unwrap();
+    fs::write(dir.join("cmdline"), "/opt/x/game\0--window\0").unwrap();
+    std::os::unix::fs::symlink("/opt/x/game", dir.join("exe")).unwrap();
+    for _ in 0..80 {
+        // A new `run` ticks at once, so the pause gives the scan its time.
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        daemon.run(Some(1)).await;
+        if profiles.active().await.unwrap().as_str() == gaming {
+            break;
+        }
+    }
+    assert_eq!(profiles.active().await.unwrap().as_str(), gaming);
+    assert_eq!(profiles.activation_cause().await.unwrap(), "rule");
+    // The Duty step limit ramps from 50% to 60% at 5% per second.
+    for _ in 0..200 {
+        daemon.run(Some(1)).await;
+        if pwm3() == percent_to_raw(60.0).to_string() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    assert_eq!(pwm3(), percent_to_raw(60.0).to_string());
+
+    // The process ends: the Default Profile comes back.
+    fs::remove_dir_all(&dir).unwrap();
+    for _ in 0..80 {
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        daemon.run(Some(1)).await;
+        if profiles.active().await.unwrap().as_str() == default {
+            break;
+        }
+    }
+    assert_eq!(profiles.active().await.unwrap().as_str(), default);
+    assert_eq!(profiles.activation_cause().await.unwrap(), "default");
+    for _ in 0..200 {
+        daemon.run(Some(1)).await;
+        if pwm3() == percent_to_raw(50.0).to_string() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    assert_eq!(pwm3(), percent_to_raw(50.0).to_string());
+    fs::remove_dir_all(base).unwrap();
 }

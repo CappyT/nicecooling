@@ -1,10 +1,8 @@
 //! The D-Bus API `io.github.cappyt.NiceCooling1` (`docs/api.md`). One file for each interface of
-//! the XML contract. `Profiles`, `Profile` and some methods of `Leakshield` answer
-//! `org.freedesktop.DBus.Error.NotSupported` until the tasks that own them fill them in.
+//! the XML contract.
 
 use std::sync::Arc;
 
-use nicecooling_api::Error;
 use nicecooling_api::ids::{self, BOARD_PATH, Kind, ROOT_PATH};
 use tokio::task::JoinHandle;
 use zbus::object_server::ObjectServer;
@@ -29,11 +27,6 @@ pub mod stage;
 
 pub use hub::{BoardInfo, ChannelMeta, Hub, HubInit, HubRules, SensorMeta};
 pub use leakshield::LeakshieldInfo;
-
-/// The reply of a method that a later task fills in.
-pub fn not_supported_stub(interface: &str, method: &str) -> Error {
-    Error::not_supported(format!("{interface}.{method} is not implemented yet"))
-}
 
 /// The API view of an hwmon sensor.
 pub fn sensor_meta(sensor: &nicecooling_hwmon::discovery::Sensor) -> SensorMeta {

@@ -128,7 +128,7 @@ Do not start this section before the gate 2.14 passes.
 - [x] 7.5 Implement the Leakshield write spacing of a Profile switch. Crate: `nicecoolingd`. File: `src/leakshield/worker.rs` (the worker of task 5.4) and `src/profiles/spacing.rs`. A request writes at once when no write waits and the last profile write is older than 2 s. Otherwise the worker keeps only the newest request and writes it 1.5 s after the last profile write, and it drops the older ones. The save-settings timer of 4 s is the one of task 5.4. Verify: tests `write_at_once_when_idle`, `request_within_2s_waits_until_1500ms_after_last_write`, `only_newest_waiting_request_is_written` and `save_settings_4s_after_last_profile_write` pass, with a controlled clock.
 - [x] 7.6 Check that saving a Profile with RELEASE needs no admin password. Crate: `nicecoolingd`. Files: `src/dbus/profiles.rs`, `tests/profile_release_authz.rs`. Verify: test `save_profile_with_release_asks_write_only` passes with the `TestAuthorizer`.
 - [ ] 7.7 Write `docs/profiles.md` with example states. Verify: test `profiles_md_examples_load` loads every fenced `json` block of the file with the state loader.
-- [ ] 7.8 Checkpoint. Remove the helper `not_supported_stub` of `crates/nicecoolingd/src/dbus/mod.rs`, which no interface uses any more. Verify: `cargo test --workspace` exits 0, `rg -q 'not_supported_stub' crates/nicecoolingd/src` exits 1, and `smoke` activates a Profile by a rule on the fake tree.
+- [x] 7.8 Checkpoint. Remove the helper `not_supported_stub` of `crates/nicecoolingd/src/dbus/mod.rs`, which no interface uses any more. Verify: `cargo test --workspace` exits 0, `rg -q 'not_supported_stub' crates/nicecoolingd/src` exits 1, and `smoke` activates a Profile by a rule on the fake tree.
 
 ## 8. Desktop app
 
