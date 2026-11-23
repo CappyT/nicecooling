@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
+<!-- Install path: /usr/share/polkit-1/actions/io.github.cappyt.NiceCooling1.policy -->
+<policyconfig>
+  <vendor>NiceCooling</vendor>
+
+  <action id="io.github.cappyt.NiceCooling1.write">
+    <description>Change fan, Loop, Profile and Leakshield settings</description>
+    <message>Authentication is required to change cooling settings</message>
+    <defaults>
+      <allow_any>auth_admin_keep</allow_any>
+      <allow_inactive>auth_admin_keep</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+  </action>
+
+  <action id="io.github.cappyt.NiceCooling1.cancel-poweroff">
+    <description>Cancel a poweroff that an Alarm started</description>
+    <message>Authentication is required to cancel the poweroff of an Alarm</message>
+    <defaults>
+      <allow_any>auth_admin_keep</allow_any>
+      <allow_inactive>auth_admin_keep</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+  </action>
+
+  <action id="io.github.cappyt.NiceCooling1.critical">
+    <description>Reset or restore the Leakshield, or release it</description>
+    <message>Authentication is required to reset, restore or release the Leakshield</message>
+    <defaults>
+      <allow_any>auth_admin_keep</allow_any>
+      <allow_inactive>auth_admin_keep</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+  </action>
+</policyconfig>

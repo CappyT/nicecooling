@@ -1,6 +1,8 @@
 //! The NiceCooling daemon as a library. The binary and the tests share it.
 
+pub mod authz;
 pub mod daemon;
+pub mod dbus;
 pub mod lease;
 pub mod snapshot;
 pub mod sources;

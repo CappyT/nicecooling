@@ -136,3 +136,69 @@ Error names have the prefix `io.github.cappyt.NiceCooling1.Error.`. polkit denia
 ## Daemon state seen from the app
 
 When the daemon is not on the bus, the app reads the systemd unit `nicecoolingd.service` through `org.freedesktop.systemd1`. `ActiveState` `failed` with `Result` `start-limit-hit` means the restart limit is reached: the app shows "daemon down, Board on BIOS curves".
+
+## Examples with busctl
+
+The examples use the Channel `nct6798_pwm1` and the sensors `k10temp_temp1` and `nct6798_temp1` of the test installation. `busctl tree io.github.cappyt.NiceCooling1` lists the ids of your installation. A write on the system bus asks polkit. Add `--allow-interactive-authorization=true` to let polkit show its prompt. The test `crates/nicecoolingd/tests/busctl_examples.rs` runs each block that is fenced as `busctl` against a test daemon on a private bus.
+
+List the objects of the daemon:
+
+```busctl
+busctl tree io.github.cappyt.NiceCooling1
+```
+
+Read the version and the state health:
+
+```busctl
+busctl get-property io.github.cappyt.NiceCooling1 /io/github/cappyt/NiceCooling1 io.github.cappyt.NiceCooling1.Manager Version
+busctl get-property io.github.cappyt.NiceCooling1 /io/github/cappyt/NiceCooling1 io.github.cappyt.NiceCooling1.Manager StateHealth
+```
+
+Read the Duty of a Channel and the value of a sensor:
+
+```busctl
+busctl get-property io.github.cappyt.NiceCooling1 /io/github/cappyt/NiceCooling1/channel/nct6798_pwm1 io.github.cappyt.NiceCooling1.Channel Duty
+busctl get-property io.github.cappyt.NiceCooling1 /io/github/cappyt/NiceCooling1/sensor/k10temp_temp1 io.github.cappyt.NiceCooling1.Sensor Value
+```
+
+Show every property and method of a Channel:
+
+```busctl
+busctl introspect io.github.cappyt.NiceCooling1 /io/github/cappyt/NiceCooling1/channel/nct6798_pwm1 io.github.cappyt.NiceCooling1.Channel
+```
+
+Set a fixed Duty of 50%. The argument is a `d`:
+
+```busctl
+busctl --allow-interactive-authorization=true call io.github.cappyt.NiceCooling1 /io/github/cappyt/NiceCooling1/channel/nct6798_pwm1 io.github.cappyt.NiceCooling1.Channel SetFixedDuty d 50
+```
+
+Write a Curve. The signature `oa(dd)dd` holds the Input sensor, the number of points followed by the (input, duty) pairs, the smoothing in seconds and the step limit in percent per second. This Curve gives 20% at 40 degrees and 100% at 80 degrees:
+
+```busctl
+busctl --allow-interactive-authorization=true call io.github.cappyt.NiceCooling1 /io/github/cappyt/NiceCooling1/channel/nct6798_pwm1 io.github.cappyt.NiceCooling1.Channel SetCurve 'oa(dd)dd' /io/github/cappyt/NiceCooling1/sensor/k10temp_temp1 2 40 20 80 100 5 5
+```
+
+Create a Derived sensor, the maximum of two sensors. The reply holds its object path:
+
+```busctl
+busctl call io.github.cappyt.NiceCooling1 /io/github/cappyt/NiceCooling1 io.github.cappyt.NiceCooling1.Manager CreateDerivedSensor 'ssao' "Hottest" maximum 2 /io/github/cappyt/NiceCooling1/sensor/k10temp_temp1 /io/github/cappyt/NiceCooling1/sensor/nct6798_temp1
+```
+
+Create a Calibration table with two points (raw rpm, flow in L/h). The reply holds its id:
+
+```busctl
+busctl call io.github.cappyt.NiceCooling1 /io/github/cappyt/NiceCooling1 io.github.cappyt.NiceCooling1.Manager SetCalibrationTable 'ssa(dd)' "" "Test table" 2 100 10 200 20
+```
+
+Give a Channel back to its Hardware curve. The daemon restores the BIOS snapshot attributes of the Channel:
+
+```busctl
+busctl --allow-interactive-authorization=true call io.github.cappyt.NiceCooling1 /io/github/cappyt/NiceCooling1/channel/nct6798_pwm1 io.github.cappyt.NiceCooling1.Channel ReleaseToHardware
+```
+
+Watch the `SensorsUpdated` signal. This command runs until you stop it, so the test does not run it:
+
+```text
+busctl monitor --match "type='signal',interface='io.github.cappyt.NiceCooling1.Manager',member='SensorsUpdated'"
+```

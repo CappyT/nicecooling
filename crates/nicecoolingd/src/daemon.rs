@@ -1,5 +1,6 @@
 //! Startup of the daemon: discovery, state, BIOS snapshot, sources and the tick.
 
+use std::collections::BTreeMap;
 use std::io;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -12,6 +13,8 @@ use nicecooling_hwmon::board::select_board_for;
 use nicecooling_hwmon::discovery::discover_with;
 use nicecooling_hwmon::sysfs::Sysfs;
 
+use crate::dbus::stage::ApiStage;
+use crate::dbus::{BoardInfo, ChannelMeta, Hub, HubInit, LeakshieldInfo, SensorMeta, sensor_meta};
 use crate::lease::Lease;
 use crate::snapshot::{self, SnapshotBoard};
 use crate::sources::hwmon::{Source, chip_readers, spawn_source};
@@ -53,6 +56,8 @@ pub struct Options {
     pub source_period: Duration,
     /// From `/proc/sys/kernel/random/boot_id`.
     pub boot_id: String,
+    /// The Leakshield objects of the API, until the device access fills them in (tasks 5.x).
+    pub leakshields: Vec<LeakshieldInfo>,
 }
 
 impl Options {
@@ -65,6 +70,7 @@ impl Options {
             tick_period: Duration::from_secs(1),
             source_period: Duration::from_secs(1),
             boot_id,
+            leakshields: Vec::new(),
         }
     }
 }
@@ -72,6 +78,8 @@ impl Options {
 pub struct Daemon {
     pub runner: TickRunner,
     pub values: ValueTable,
+    /// The model behind the D-Bus API. `dbus::serve` puts it on a bus.
+    pub hub: Arc<Hub>,
     sources: Vec<Source>,
 }
 
@@ -100,6 +108,7 @@ pub async fn start<N: Notifier + 'static>(
     let mut loaded = state::load_state(&store);
     let known = state::known_prefixes(&loaded.state.identities);
     let discovery = discover_with(&sysfs, board.as_ref(), &loaded.state.names, &known)?;
+    let defaults = discover_with(&sysfs, board.as_ref(), &BTreeMap::new(), &known)?;
     // The ids of a chip stay the same when a chip with the same hwmon name appears later.
     let identities = state::identities_of(&discovery);
     if identities
@@ -156,9 +165,48 @@ pub async fn start<N: Notifier + 'static>(
         let _ = tokio::time::timeout(Duration::from_secs(1), &mut source.primed).await;
     }
 
+    let state_health = if !loaded.fallback {
+        "ok"
+    } else if loaded.state == state::DaemonState::default() && loaded.profile.channels.is_empty() {
+        "empty"
+    } else {
+        "last-known-good"
+    };
+    let hub = Hub::new(HubInit {
+        store: StateStore::new(&paths.state_dir),
+        sysfs_root: paths.sysfs_root.clone(),
+        state: loaded.state,
+        profile: loaded.profile,
+        presets,
+        board: BoardInfo {
+            vendor: sysfs.dmi("board_vendor"),
+            model: sysfs.dmi("board_name"),
+            board_file: board.as_ref().map(|b| b.id.clone()).unwrap_or_default(),
+        },
+        sensors: defaults
+            .sensors
+            .iter()
+            .map(sensor_meta)
+            .collect::<Vec<SensorMeta>>(),
+        channels: defaults
+            .channels
+            .iter()
+            .map(|c| ChannelMeta {
+                id: c.id.clone(),
+                default_name: c.name.clone(),
+                device: c.device.clone(),
+                number: c.number,
+                dir: c.dir.clone(),
+            })
+            .collect(),
+        leakshields: options.leakshields.clone(),
+        state_health: state_health.to_owned(),
+    });
+
     let io = SysfsChannels::new(&discovery.channels, lease, options.boot_id.clone())
         .with_snapshot(snapshot::read_snapshot(&store));
     let mut pipeline = Pipeline::standard(Box::new(values.clone()), Box::new(io));
+    pipeline.push(Box::new(ApiStage::new(hub.clone())));
     pipeline.push(Box::new(WatchdogStage::new(notifier)));
     let mut runner = TickRunner::new(pipeline, config, clock, options.tick_period);
     for (event, source) in warnings {
@@ -167,6 +215,7 @@ pub async fn start<N: Notifier + 'static>(
     Ok(Daemon {
         runner,
         values,
+        hub,
         sources,
     })
 }

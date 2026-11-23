@@ -4096,6 +4096,7 @@ dependencies = [
  "serde-saphyr",
  "serde_json",
  "tokio",
+ "toml 1.2.2+spec-1.1.0",
  "zbus 6.5.0",
 ]
 
@@ -4103,6 +4104,7 @@ dependencies = [
 name = "nicecooling-api"
 version = "0.1.0"
 dependencies = [
+ "roxmltree 0.21.2",
  "serde",
  "zbus 6.5.0",
 ]
@@ -4146,11 +4148,14 @@ dependencies = [
 name = "nicecoolingd"
 version = "0.1.0"
 dependencies = [
+ "futures-util",
  "nicecooling-api",
  "nicecooling-core",
  "nicecooling-hwmon",
  "nicecooling-protocol",
+ "nicecoolingd",
  "nusb",
+ "roxmltree 0.21.2",
  "rustix",
  "sd-notify",
  "serde",

@@ -2,7 +2,9 @@ use std::process::ExitCode;
 use std::sync::Arc;
 use std::time::Duration;
 
+use nicecoolingd::authz::PolkitAuthorizer;
 use nicecoolingd::daemon::{self, Options, Paths};
+use nicecoolingd::dbus;
 use nicecoolingd::snapshot::{RestoreOutcome, restore_bios};
 use nicecoolingd::tick_runner::TokioClock;
 use nicecoolingd::watchdog::SystemdNotifier;
@@ -66,6 +68,13 @@ fn restore(paths: &Paths) -> ExitCode {
     }
 }
 
+async fn start_api(daemon: &daemon::Daemon) -> zbus::Result<(zbus::Connection, dbus::Served)> {
+    let connection = zbus::connection::Builder::system().build().await?;
+    let authorizer = PolkitAuthorizer::new(&connection).await?;
+    let served = dbus::serve(&daemon.hub, &connection, Arc::new(authorizer)).await?;
+    Ok((connection, served))
+}
+
 fn main() -> ExitCode {
     let args = match parse_args() {
         Ok(args) => args,
@@ -104,6 +113,14 @@ async fn serve(args: Args) -> ExitCode {
                 return ExitCode::FAILURE;
             }
         };
+    // A bus that fails does not stop the fan control: the Channels keep their Curves.
+    let _api = match start_api(&daemon).await {
+        Ok(api) => Some(api),
+        Err(e) => {
+            eprintln!("nicecoolingd: the D-Bus API did not start: {e}");
+            None
+        }
+    };
     let _ = sd_notify::notify(&[sd_notify::NotifyState::Ready]);
     let mut term = match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
         Ok(term) => term,
@@ -117,6 +134,7 @@ async fn serve(args: Args) -> ExitCode {
         _ = term.recv() => {}
         _ = tokio::signal::ctrl_c() => {}
     }
+    daemon.hub.flush_now();
     // `ExecStopPost` restores the BIOS snapshot.
     ExitCode::SUCCESS
 }

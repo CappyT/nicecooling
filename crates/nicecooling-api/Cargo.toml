@@ -8,5 +8,6 @@ publish.workspace = true
 workspace = true
 
 [dependencies]
+roxmltree = "0.21"
 serde.workspace = true
 zbus.workspace = true

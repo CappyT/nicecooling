@@ -7,6 +7,10 @@ publish.workspace = true
 [lints]
 workspace = true
 
+[features]
+# The test implementation of `Authorizer`. No release profile enables it.
+test-support = []
+
 [dependencies]
 nicecooling-api.workspace = true
 nicecooling-core.workspace = true
@@ -24,5 +28,8 @@ zbus.workspace = true
 zbus_polkit.workspace = true
 
 [dev-dependencies]
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
 nicecooling-hwmon = { workspace = true, features = ["fake"] }
+nicecoolingd = { path = ".", features = ["test-support"] }
+roxmltree = "0.21"
 tokio = { workspace = true, features = ["test-util"] }

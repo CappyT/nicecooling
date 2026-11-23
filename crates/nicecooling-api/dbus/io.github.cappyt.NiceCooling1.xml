@@ -28,6 +28,7 @@
       <arg name="sources" type="ao" direction="in"/>
       <arg name="sensor" type="o" direction="out"/>
     </method>
+    <!-- The new Loop has no links and a Pump floor of 40%, the value of the UI design. -->
     <method name="CreateLoop">
       <annotation name="io.github.cappyt.NiceCooling1.Authorization" value="write"/>
       <arg name="name" type="s" direction="in"/>

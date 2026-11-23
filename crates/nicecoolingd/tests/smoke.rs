@@ -1,4 +1,7 @@
-//! The daemon library on the fake tree of the reference Board, for 5 ticks.
+//! The daemon library on the fake tree of the reference Board, for 5 ticks, with the D-Bus API on
+//! a private bus.
+
+mod support;
 
 use std::fs;
 use std::path::PathBuf;
@@ -6,9 +9,14 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
+use futures_util::StreamExt;
+use nicecooling_api::channel::ChannelProxy;
+use nicecooling_api::manager::ManagerProxy;
 use nicecooling_core::tick::percent_to_raw;
 use nicecooling_hwmon::fake::FakeSysfs;
+use nicecoolingd::authz::TestAuthorizer;
 use nicecoolingd::daemon::{self, Options, Paths};
+use nicecoolingd::dbus;
 use nicecoolingd::tick_runner::TokioClock;
 use nicecoolingd::watchdog::Notifier;
 
@@ -31,7 +39,7 @@ const PROFILE: &str = r#"{
   "pump_floors": {}, "slot": 1
 }"#;
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn smoke() {
     let fake = FakeSysfs::reference_board();
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
@@ -63,7 +71,33 @@ async fn smoke() {
         "96"
     );
 
+    let bus = support::bus::PrivateBus::start();
+    let server = bus.connect().await;
+    let client = bus.connect().await;
+    let _served = dbus::serve(&daemon.hub, &server, TestAuthorizer::allow_all())
+        .await
+        .unwrap();
+    let manager = ManagerProxy::new(&client).await.unwrap();
+    let mut signals = manager.receive_sensors_updated().await.unwrap();
+
     daemon.run(Some(5)).await;
+
+    // The API sees the 5 ticks and the state of the Channels.
+    for _ in 0..5 {
+        tokio::time::timeout(Duration::from_secs(5), signals.next())
+            .await
+            .expect("one SensorsUpdated for each tick")
+            .unwrap();
+    }
+    assert_eq!(manager.version().await.unwrap(), env!("CARGO_PKG_VERSION"));
+    let pwm3 = ChannelProxy::builder(&client)
+        .path("/io/github/cappyt/NiceCooling1/channel/nct6798_pwm3")
+        .cache_properties(zbus::proxy::CacheProperties::No)
+        .build()
+        .await
+        .unwrap();
+    assert_eq!(pwm3.raw().await.unwrap(), 128);
+    assert_eq!(pwm3.control().await.unwrap(), "fixed");
 
     let read = |chip: &str, attribute: &str| {
         fs::read_to_string(fake.attr_path(chip, attribute))
