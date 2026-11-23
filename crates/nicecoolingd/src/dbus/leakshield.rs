@@ -16,7 +16,7 @@ use super::hub::{Hub, LoopView};
 use super::{not_supported_stub, object, optional_object};
 use crate::leakshield::DeviceEvent;
 use crate::leakshield::action::{self, LoopPumps};
-use crate::leakshield::attached::{Attached, Info, now_unix};
+use crate::leakshield::attached::{Attached, Info};
 use crate::leakshield::backup::BackupSet;
 use crate::leakshield::fields::FieldValue;
 use crate::leakshield::software_sensors::{Assignment, SLOT_COUNT};
@@ -236,7 +236,7 @@ impl Leakshield {
     ) -> Result<()> {
         self.authorize(connection, &header, "SyncClock", None)
             .await?;
-        self.device.sync_clock(now_unix())
+        self.device.sync_clock()
     }
 
     async fn reset_refill_history(
@@ -313,6 +313,7 @@ impl Leakshield {
                 ))
             })?)
         };
+        let sensor_id = assignment.as_ref().map(|a| a.sensor.clone());
         self.device
             .software_slots()
             .assign(slot, assignment)
@@ -320,7 +321,10 @@ impl Leakshield {
                 nicecooling_api::Error::invalid(format!(
                     "slot {slot} is not between 1 and {SLOT_COUNT}"
                 ))
-            })
+            })?;
+        self.hub
+            .remember_software_sensor(&self.device.id(), slot, sensor_id.as_deref());
+        Ok(())
     }
 
     #[zbus(out_args("backups"))]

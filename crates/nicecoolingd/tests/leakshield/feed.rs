@@ -1,9 +1,13 @@
 use std::collections::BTreeMap;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use nicecooling_core::loops::Loop;
 use nicecooling_core::tick::{LoopSetup, Stage, TickConfig, TickContext};
 use nicecooling_protocol::feed::{FEED_SIZE, FeedMessage, NO_VALUE};
-use nicecoolingd::leakshield::feed::feed_channel;
+use nicecoolingd::leakshield::feed::{
+    CoveredLookup, SoftwareLookup, feed_channel, feed_channel_checked, feed_for_loop,
+};
 
 use crate::{LEAKSHIELD_ID, Rig};
 
@@ -91,4 +95,63 @@ fn missing_values_send_no_value() {
     link.flush(&devices, &mut |_, r| assert!(r.is_ok()));
     let message = FeedMessage::decode(&rig.sim.bulk_messages()[0]).unwrap();
     assert_eq!(message, FeedMessage::default());
+}
+
+#[test]
+fn feed_value_above_the_i16_range_is_not_the_no_value_code() {
+    let mut values = BTreeMap::new();
+    values.insert("nct6798_fan6".to_owned(), 40_000.0);
+    // 3300.0 L/h is 33000 in tenths: above the i16 range as well.
+    values.insert("loop_1_flow".to_owned(), 3_300.0);
+
+    let message = feed_for_loop(&loop_with(Some(LEAKSHIELD_ID)), &values);
+
+    assert_eq!((message.value(0), message.unit(0)), (32766, 3));
+    assert_eq!((message.value(1), message.unit(1)), (32766, 12));
+    // A reading of exactly 32767 does not become the no-value code either.
+    values.insert("nct6798_fan6".to_owned(), 32_767.0);
+    let message = feed_for_loop(&loop_with(Some(LEAKSHIELD_ID)), &values);
+    assert_eq!(message.value(0), 32766);
+}
+
+#[test]
+fn feed_is_not_sent_and_a_warning_stays_while_the_firmware_is_not_covered() {
+    let rig = Rig::new("feed-uncovered");
+    let covered = Arc::new(AtomicBool::new(false));
+    let lookup: CoveredLookup = {
+        let covered = Arc::clone(&covered);
+        Arc::new(move |_| Some(covered.load(Ordering::SeqCst)))
+    };
+    let software: SoftwareLookup = Arc::new(|_| None);
+    let (mut stage, mut link) = feed_channel_checked(software, lookup);
+    let devices = BTreeMap::from([(LEAKSHIELD_ID.to_owned(), rig.io.clone())]);
+    let mut ctx = context(loop_with(Some(LEAKSHIELD_ID)));
+
+    stage.run(&mut ctx);
+    link.flush(&devices, &mut |_, _| panic!("a Feed message went out"));
+    assert!(rig.sim.bulk_messages().is_empty());
+    assert!(
+        ctx.warnings
+            .is_active("leakshield-unknown-firmware", LEAKSHIELD_ID)
+    );
+
+    // The firmware is covered now: the Feed starts and the Warning clears.
+    covered.store(true, Ordering::SeqCst);
+    stage.run(&mut ctx);
+    link.flush(&devices, &mut |_, r| assert!(r.is_ok()));
+    assert_eq!(rig.sim.bulk_messages().len(), 1);
+    assert!(
+        !ctx.warnings
+            .is_active("leakshield-unknown-firmware", LEAKSHIELD_ID)
+    );
+}
+
+#[tokio::test]
+async fn the_registry_covers_the_firmware_of_the_device_it_was_made_for() {
+    let rig = Rig::new("feed-covered");
+    assert!(rig.attached().feed_covered());
+
+    rig.sim.edit_report1(|r| r.firmware_version = 1019);
+    let other = rig.attached();
+    assert!(!other.feed_covered());
 }

@@ -13,7 +13,7 @@ use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 
 use crate::dbus::Hub;
-use crate::leakshield::feed::SoftwareLookup;
+use crate::leakshield::feed::{CoveredLookup, SoftwareLookup};
 use crate::leakshield::{AttachParams, Attached, DeviceIo};
 use crate::sources::hotplug::{UsbDevice, UsbEvent, UsbPath};
 use crate::sources::leakshield as leakshield_source;
@@ -74,6 +74,11 @@ impl Fleet {
     pub fn software_lookup(self: &Arc<Self>) -> SoftwareLookup {
         let fleet = Arc::clone(self);
         Arc::new(move |id| fleet.get(id).map(|d| d.software_slots()))
+    }
+
+    pub fn covered_lookup(self: &Arc<Self>) -> CoveredLookup {
+        let fleet = Arc::clone(self);
+        Arc::new(move |id| fleet.get(id).map(|d| d.feed_covered()))
     }
 
     fn keep(&self, tasks: impl IntoIterator<Item = JoinHandle<()>>) {

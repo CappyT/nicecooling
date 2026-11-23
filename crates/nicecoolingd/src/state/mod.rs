@@ -81,6 +81,8 @@ pub struct DaemonState {
     pub alarm_responses: BTreeMap<String, AlarmResponse>,
     /// Typed by tasks 7.x.
     pub rule_groups: Vec<serde_json::Value>,
+    /// Leakshield id -> Software sensor slot (1 to 12) -> sensor id.
+    pub software_sensors: BTreeMap<String, BTreeMap<u16, String>>,
     pub profiles: ProfilesState,
 }
 
@@ -95,6 +97,7 @@ impl Default for DaemonState {
             loops: Vec::new(),
             alarm_responses: BTreeMap::new(),
             rule_groups: Vec::new(),
+            software_sensors: BTreeMap::new(),
             profiles: ProfilesState::default(),
         }
     }

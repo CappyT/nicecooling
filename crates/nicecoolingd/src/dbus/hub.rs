@@ -20,6 +20,7 @@ use nicecooling_hwmon::sysfs::Sysfs;
 use tokio::sync::{mpsc, oneshot};
 
 use super::leakshield::LeakshieldInfo;
+use crate::leakshield::software_sensors::Assignment;
 use crate::snapshot::{self, BiosSnapshot};
 use crate::state::{
     CalibrationDef, ControlKind, DaemonState, PERSIST_DELAY, Persister, ProfileChannel,
@@ -373,6 +374,23 @@ impl Inner {
         ("flow".into(), "l/h".into())
     }
 
+    /// Puts the stored Software sensors into the slots of a Leakshield. A sensor that does not
+    /// exist (now) or has a unit without a device unit code leaves its slot empty.
+    fn restore_software_sensors(&self, device: &LeakshieldInfo) {
+        let Some(stored) = self.state.software_sensors.get(&device.id()) else {
+            return;
+        };
+        let slots = device.software_slots();
+        for (slot, sensor) in stored {
+            let assignment = self
+                .sensor_view(sensor)
+                .and_then(|view| Assignment::new(sensor, &view.unit));
+            if assignment.is_some() {
+                let _ = slots.assign(*slot, assignment);
+            }
+        }
+    }
+
     fn sensor_view(&self, id: &str) -> Option<SensorView> {
         let value = self.live.values.get(id).copied();
         if let Some(meta) = self.sensors.iter().find(|s| s.id == id) {
@@ -559,6 +577,12 @@ impl Hub {
             snapshot: snapshot::read_snapshot(&store),
             live: Live::default(),
         }));
+        {
+            let inner = lock(&inner);
+            for device in &inner.leakshields {
+                inner.restore_software_sensors(device);
+            }
+        }
         let persister = Persister::spawn(PERSIST_DELAY, {
             let (inner, store) = (inner.clone(), store.clone());
             move || flush(&inner, &store)
@@ -636,6 +660,7 @@ impl Hub {
             let mut inner = self.inner();
             inner.sensors.extend(sensors);
             inner.leakshields.push(device.clone());
+            inner.restore_software_sensors(&device);
         }
         if let Some(connection) = self.connection.get() {
             let (hub, connection) = (self.clone(), connection.clone());
@@ -655,6 +680,26 @@ impl Hub {
                 }
             });
         }
+    }
+
+    /// Records a Software sensor slot in `state.json`. `None` clears the slot.
+    pub fn remember_software_sensor(&self, leakshield: &str, slot: u16, sensor: Option<&str>) {
+        {
+            let mut inner = self.inner();
+            let slots = inner
+                .state
+                .software_sensors
+                .entry(leakshield.to_owned())
+                .or_default();
+            match sensor {
+                Some(sensor) => slots.insert(slot, sensor.to_owned()),
+                None => slots.remove(&slot),
+            };
+            if slots.is_empty() {
+                inner.state.software_sensors.remove(leakshield);
+            }
+        }
+        self.persister.changed();
     }
 
     pub fn set_connection(&self, connection: zbus::Connection) {

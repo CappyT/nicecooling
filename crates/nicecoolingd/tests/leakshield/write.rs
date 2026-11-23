@@ -1,11 +1,12 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use nicecooling_protocol::access::WriteRefusal;
+use nicecooling_protocol::access::{ReadOnlyReason, WriteRefusal};
 use nicecooling_protocol::registry::Registry;
 use nicecooling_protocol::report3::Report3;
 use nicecooling_protocol::sim::Request;
 use nicecoolingd::leakshield::DeviceEvent;
+use nicecoolingd::leakshield::fields::FieldValue;
 use nicecoolingd::leakshield::save_settings::SAVE_SETTINGS_DELAY;
 use nicecoolingd::leakshield::worker::{Job, WorkerParts, WriteWorker};
 use nicecoolingd::leakshield::write::{FieldEdit, WriteError};
@@ -248,4 +249,107 @@ async fn disconnect_during_write_offers_restore() {
     };
     worker.submit(restore).await.unwrap();
     assert_eq!(rig.sim.report3(), original);
+}
+
+#[tokio::test(start_paused = true)]
+async fn save_settings_waits_4s_after_a_failed_write() {
+    let rig = Rig::new("save-after-failed");
+    seed_last_known(&rig);
+    let (worker, _events) = start(&rig);
+
+    worker.submit(write_job(&rig, 150)).await.unwrap();
+    tokio::time::sleep(Duration::from_secs(3)).await;
+    // The device stores another byte at 65: the read-back fails, and report 3 on the device changed.
+    rig.sim.tamper_next_set_feature(65, 3);
+    let error = worker.submit(write_job(&rig, 160)).await.unwrap_err();
+    assert!(
+        matches!(error, WriteError::VerifyFailed { .. }),
+        "{error:?}"
+    );
+
+    // 1.5 s after the last report 3 write: the command of the first write is not due.
+    tokio::time::sleep(Duration::from_millis(1500)).await;
+    assert!(rig.sim.commands().is_empty(), "{:?}", rig.sim.commands());
+    tokio::time::sleep(Duration::from_millis(2600)).await;
+    assert_eq!(rig.sim.commands().len(), 1);
+}
+
+#[tokio::test(start_paused = true)]
+async fn pending_save_settings_is_sent_when_the_last_handle_drops() {
+    let rig = Rig::new("save-on-drop");
+    seed_last_known(&rig);
+    let (worker, _events) = start(&rig);
+
+    worker.submit(write_job(&rig, 150)).await.unwrap();
+    drop(worker);
+    // Not before its time: the device needs 4 s after the last write.
+    tokio::time::sleep(Duration::from_secs(3)).await;
+    assert!(rig.sim.commands().is_empty());
+    tokio::time::sleep(Duration::from_secs(2)).await;
+
+    assert_eq!(rig.sim.commands().len(), 1);
+}
+
+#[tokio::test(start_paused = true)]
+async fn write_refuses_report3_of_another_structure() {
+    let rig = Rig::new("structure");
+    rig.sim.change_report3(1, &101u16.to_be_bytes());
+    seed_last_known(&rig);
+    let (worker, _events) = start(&rig);
+    let original = rig.sim.report3();
+
+    let error = worker.submit(write_job(&rig, 150)).await.unwrap_err();
+
+    assert!(
+        matches!(
+            error,
+            WriteError::Refused(WriteRefusal::ReadOnly(ReadOnlyReason::UnknownStructure))
+        ),
+        "{error:?}"
+    );
+    assert_eq!(rig.sim.report3(), original);
+}
+
+#[tokio::test(start_paused = true)]
+async fn set_fields_refuses_sensor_unit_and_device_profile() {
+    let rig = Rig::new("safety-units");
+    seed_last_known(&rig);
+    let (worker, _events) = start(&rig);
+    let original = rig.sim.report3();
+
+    for edit in [
+        FieldEdit {
+            field: "sensor_unit".into(),
+            raw: vec![3; 20],
+        },
+        FieldEdit::scalar("device_profile", 4),
+    ] {
+        let id = edit.field.clone();
+        let job = Job::Write {
+            report1: rig.io.read_report1().unwrap(),
+            edits: vec![edit],
+        };
+        let error = worker.submit(job).await.unwrap_err();
+        assert!(
+            matches!(&error, WriteError::Refused(WriteRefusal::NotVerified(f)) if *f == id),
+            "{id}: {error:?}"
+        );
+    }
+    assert_eq!(rig.sim.report3(), original);
+}
+
+#[tokio::test]
+async fn set_fields_allowed_while_action_runs() {
+    let rig = Rig::new("action-write");
+    // The fixture was dumped during a deaeration.
+    let device = rig.attached();
+    assert_eq!(device.info().running_action, "deaerate");
+    assert_eq!(device.info().read_only_reason, "");
+
+    device
+        .set_fields(vec![(WRITABLE.into(), FieldValue::Number(30.0))])
+        .await
+        .unwrap();
+
+    assert_eq!(&rig.sim.report3()[63..65], &300u16.to_be_bytes());
 }

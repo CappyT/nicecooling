@@ -1,7 +1,7 @@
 mod common;
 
 use common::{fw1019, fw1022};
-use nicecooling_protocol::registry::{Registry, RegistryError, VerificationState};
+use nicecooling_protocol::registry::{Registry, RegistryError, RiskClass, VerificationState};
 use nicecooling_protocol::report3::Report3;
 
 #[test]
@@ -110,4 +110,14 @@ fn registry_keys_are_firmware_1022_structure_100() {
     let registry = Registry::leakshield();
     assert_eq!((registry.firmware, registry.structure), (1022, 100));
     assert_eq!(registry.command("save_settings").map(|c| c.code), Some(2));
+}
+
+#[test]
+fn sensor_unit_and_device_profile_are_safety_fields_that_no_write_reaches() {
+    let registry = Registry::leakshield();
+    for id in ["sensor_unit", "device_profile"] {
+        let field = registry.field(id).unwrap();
+        assert_eq!(field.risk_class, RiskClass::Safety, "{id}");
+        assert!(!field.is_writable(), "{id}");
+    }
 }

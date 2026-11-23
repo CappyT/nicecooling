@@ -15,6 +15,7 @@ use nicecooling_protocol::device::DeviceError;
 use nicecooling_protocol::registry::Registry;
 use nicecooling_protocol::report1::Report1;
 use nicecooling_protocol::report2::Report2;
+use nicecooling_protocol::report3::Report3;
 use tokio::sync::{mpsc, watch};
 use tokio::task::JoinHandle;
 
@@ -26,7 +27,7 @@ use super::fields::{self, EditError, FieldRow, FieldValue};
 use super::mode::{self, COMMAND_DELAY, Mode};
 use super::software_sensors::SoftwareSlots;
 use super::worker::{Job, WorkerParts, WriteWorker};
-use super::write::{WriteEnv, WriteError, take_backup};
+use super::write::{WriteEnv, WriteError, out_of_range_field, take_backup};
 use super::{DeviceEvent, DeviceIo, blocking, clock, counters};
 
 /// The automatic clock sync runs at most this often, so a device that ignores it is not flooded.
@@ -364,16 +365,34 @@ impl Attached {
 
     /// Sends one report 2 command. A registry without it gives `NotSupported`.
     fn send(&self, command: Option<Report2>, delay: Duration) -> Result<()> {
-        let command = command.ok_or_else(|| {
-            Error::not_supported("the registry of this firmware lacks the command")
-        })?;
+        self.send_late(command.is_some(), delay, || command)
+    }
+
+    /// Like `send`, but `build` makes the command at the send, after the report 1 read and the
+    /// delay. `supported` is the answer for a registry without the command, before any I/O.
+    fn send_late(
+        &self,
+        supported: bool,
+        delay: Duration,
+        build: impl FnOnce() -> Option<Report2>,
+    ) -> Result<()> {
+        if !supported {
+            return Err(Error::not_supported(
+                "the registry of this firmware lacks the command",
+            ));
+        }
         let report1 = self.fresh_report1()?;
         self.require_writable(&report1)?;
         blocking(|| {
             std::thread::sleep(delay);
-            self.io.send_command(command)
+            match build() {
+                Some(command) => self.io.send_command(command).map(|()| true),
+                None => Ok(false),
+            }
         })
-        .map_err(device_error)?;
+        .map_err(device_error)?
+        .then_some(())
+        .ok_or_else(|| Error::not_supported("the device clock is out of range"))?;
         // The device shows the result in its next report 1.
         let _ = self.fresh_report1();
         Ok(())
@@ -398,7 +417,7 @@ impl Attached {
         })?;
         if action == Action::Refill && refill_blocked() {
             return Err(Error::PumpRunning(
-                "a Pump channel of the Loop reads above 0 rpm: start the Refill with the device button while the PC is in standby"
+                "a Pump channel of the Loop reads above 0 rpm or has no tach value: start the Refill with the device button while the PC is in standby"
                     .into(),
             ));
         }
@@ -413,8 +432,20 @@ impl Attached {
     }
 
     /// Sets the device clock from the PC clock, whatever the offset.
-    pub fn sync_clock(&self, now: i64) -> Result<()> {
-        self.send(clock::command(&self.registry, now), Duration::ZERO)
+    pub fn sync_clock(&self) -> Result<()> {
+        let supported = self.registry.command("set_clock").is_some();
+        self.send_late(supported, Duration::ZERO, || {
+            clock::command(&self.registry, now_unix())
+        })
+    }
+
+    /// True when the registry covers the firmware and the structure of the device. The Feed goes
+    /// out only then.
+    pub fn feed_covered(&self) -> bool {
+        let state = self.state.lock().unwrap();
+        Access::new(&self.registry, &state.report1)
+            .device_reason()
+            .is_none()
     }
 
     pub fn reset_refill_history(&self) -> Result<()> {
@@ -514,6 +545,13 @@ impl Attached {
                 state.report1.firmware_version,
             )
         };
+        if let Ok(report3) = Report3::decode(&set.report3)
+            && let Some(field) = out_of_range_field(&self.registry, &report3)
+        {
+            return Err(Error::invalid(format!(
+                "the value of {field} in report 3 is out of its range"
+            )));
+        }
         self.backups
             .import(set, structure, firmware, now_us())
             .map(|saved| saved.id)

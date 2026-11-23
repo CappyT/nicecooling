@@ -181,7 +181,11 @@ impl Backups {
                 written: false,
             });
         }
-        let reason = if existing.is_empty() {
+        // The first backup that comes from the device. An import never holds the place.
+        let has_first = existing
+            .iter()
+            .any(|(_, m)| m.reason == Reason::First.as_str());
+        let reason = if reason != Reason::Import && !has_first {
             Reason::First
         } else {
             reason
@@ -204,7 +208,7 @@ impl Backups {
         let json = serde_json::to_vec(&meta).map_err(io::Error::other)?;
         // The meta file comes last: a directory without it is an unfinished backup.
         write_atomic(&dir.join("meta.json"), &json)?;
-        self.apply_retention()?;
+        self.apply_retention(&id)?;
         Ok(Saved { id, written: true })
     }
 
@@ -304,12 +308,17 @@ impl Backups {
         Ok(backups)
     }
 
-    fn apply_retention(&self) -> io::Result<()> {
-        let backups = self.list_all()?;
-        if backups.len() <= 1 + KEEP_NEWEST {
-            return Ok(());
-        }
-        for (id, _) in &backups[1..backups.len() - KEEP_NEWEST] {
+    /// Keeps the first backup and the 20 newest. `keep` is the backup that was just saved: a PC
+    /// clock that went back makes it look old, and a write result points at it.
+    fn apply_retention(&self, keep: &str) -> io::Result<()> {
+        let rest: Vec<String> = self
+            .list_all()?
+            .into_iter()
+            .filter(|(_, meta)| meta.reason != Reason::First.as_str())
+            .map(|(id, _)| id)
+            .collect();
+        let old = rest.len().saturating_sub(KEEP_NEWEST);
+        for id in rest[..old].iter().filter(|id| *id != keep) {
             fs::remove_dir_all(self.dir.join(id))?;
         }
         Ok(())

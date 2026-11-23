@@ -93,6 +93,8 @@ pub struct Rig {
     /// The simulated Leakshield behind the object `LEAKSHIELD`.
     pub sim: SimDevice,
     pub state: PathBuf,
+    /// The options of the running daemon, for a second start on the same state directory.
+    pub options: Options,
     pub daemon: Option<Daemon>,
     /// The mock polkit, when the rig asks it instead of the test authorizer.
     pub polkit: Option<polkit_mock::PolkitHandles>,
@@ -202,6 +204,7 @@ impl Rig {
             fake,
             sim,
             state,
+            options,
             daemon: Some(daemon),
             polkit,
             _served: served,

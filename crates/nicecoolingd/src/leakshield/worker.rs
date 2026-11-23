@@ -151,15 +151,26 @@ async fn run(parts: WorkerParts, mut queue: mpsc::UnboundedReceiver<Message>) {
             None => queue.recv().await,
         };
         let Some(Message { job, reply, permit }) = message else {
+            // The last handle is gone (daemon stop, detach). The command is still due.
+            if let Some((deadline, backup)) = pending.take() {
+                tokio::time::sleep_until(deadline).await;
+                blocking(|| send_save_settings(&parts, &backup));
+            }
             return;
         };
         // The factory reset takes the settings from the device: no save-settings command follows.
         let saves = !matches!(job, Job::FactoryReset { .. });
         let result = blocking(|| execute(&parts, job));
-        if let Ok(written) = &result
+        // A write that failed its read-back still changed report 3 on the device.
+        let backup = match &result {
+            Ok(written) => Some(&written.backup),
+            Err(WriteError::VerifyFailed { backup, .. }) => Some(backup),
+            Err(_) => None,
+        };
+        if let Some(backup) = backup
             && saves
         {
-            pending = Some((Instant::now() + parts.save_delay, written.backup.clone()));
+            pending = Some((Instant::now() + parts.save_delay, backup.clone()));
         }
         // The queue is free before the caller sees the result.
         drop(permit);

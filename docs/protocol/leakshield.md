@@ -216,7 +216,7 @@ aquasuite reads the struct, changes the fields of the user, and writes back ever
 | `pump_start_speed` | 19 | i16 |  |  | 0 to 32767 rpm | 4800 | 2500 | Pump speed that the device assumes without a Feed value ("start speed"). aquasuite keeps it at or below `pump_max_speed`. |
 | `pump_start_flow` | 21 | i16 |  | 0.1 | 0 to 3276.7 l/h | 100.0 | 1300 | Flow that the device assumes without a Feed value ("start flow"). |
 | `sensor_log_interval` | 23 | u8 | 20 x 2 |  | codes 0-7 |  | [1, 1, 1, 1, 1, 1, ...] | Log interval of each device sensor: 0 0.5 s, 1 1 s, 2 5 s, 3 10 s, 4 30 s, 5 1 min, 6 5 min, 7 10 min. |
-| `sensor_unit` | 24 | u8 | 20 x 2 |  | codes 0-47 |  | [0, 0, 0, 0, 3, 12, ...] | Unit code of each device sensor (unit code table). |
+| `sensor_unit` | 24 | u8 | 20 x 2 |  | codes 0-47 |  | [0, 0, 0, 0, 3, 12, ...] | Unit code of each device sensor (unit code table). The Feed pump speed and flow use sensors 4 and 5, so the unit sets their scale. |
 | `display_page_time` | 63 | u16 |  | 0.1 | 0 to 6553.5 s |  | 100 | Time that each display page shows. |
 | `display_brightness_active` | 65 | u8 |  |  | codes 0-3 |  | 2 | 0 maximum, 1 mid, 2 low, 3 off. |
 | `display_brightness_idle` | 66 | u8 |  |  | codes 0-3 |  | 2 | 0 maximum, 1 mid, 2 low, 3 off. |
@@ -296,7 +296,7 @@ aquasuite reads the struct, changes the fields of the user, and writes back ever
 | `monitor_pressure_low_standby` | 741 | i16 |  | 0.1 | 30 to 430 mbar | 100.0 | 500 | Lower pressure limit in MONITOR while the PC is in standby. aquasuite keeps it at or below the lower limit. |
 | `monitor_pressure_working_range` | 743 | i16 |  | 0.1 | 0 to 420 mbar | 50.0 | 300 | Setpoint minus lower limit. |
 | `monitor_pressure_max_range` | 745 | i16 |  | 0.1 | 0 to 450 mbar | 50.0 | 200 | Upper limit minus setpoint. |
-| `device_profile` | 747 | u8 |  |  | codes 1-4 |  | 1 | Number of the device profile: 1-4, one fixed slot each. aquasuite writes the slot number before it stores the report of a slot. |
+| `device_profile` | 747 | u8 |  |  | codes 1-4 |  | 1 | Number of the device profile: 1-4, one fixed slot each. aquasuite writes the slot number before it stores the report of a slot. Only a Profile activation sets it. |
 <!-- report3-table:end -->
 
 ### Unit codes

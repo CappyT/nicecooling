@@ -8,8 +8,6 @@ pub enum ReadOnlyReason {
     UnknownStructure,
     NotVerified,
     Disconnected,
-    ActionRunning,
-    MaintenancePause,
 }
 
 impl ReadOnlyReason {
@@ -19,8 +17,6 @@ impl ReadOnlyReason {
             Self::UnknownStructure => "unknown-structure",
             Self::NotVerified => "not-verified",
             Self::Disconnected => "disconnected",
-            Self::ActionRunning => "action-running",
-            Self::MaintenancePause => "maintenance-pause",
         }
     }
 }

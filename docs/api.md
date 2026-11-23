@@ -48,13 +48,14 @@ Alarms and Warnings use one identifier each. The app maps an identifier to its t
 | `manual-at-snapshot` | warning | Channel id |
 | `no-bios-snapshot` | warning | Channel id: the kept BIOS snapshot has no entry for the Channel, so the daemon leaves it on its Hardware curve |
 | `state-fallback` | warning | empty: the state loaded from the last-known-good copy, or no copy loaded |
+| `leakshield-unknown-firmware` | warning | Leakshield id: the field registry does not cover the firmware of the device, so the daemon sends no Feed message to it. The Warning clears when the registry covers the firmware |
 | `leakshield.<name>` | warning or alarm | Leakshield id; one identifier for each Warning and Alarm that report 1 encodes, named in `docs/protocol/leakshield.md` |
 
 Each active Alarm or Warning (`Alarms.Active`) and each `AlarmRaised` signal carries `details` (`a{sv}`) for the notification text: `value` (`d`) and `limit` (`d`) in `unit` (`s`) when the event compares a value with a limit, and `sensor` (`o`) when a sensor caused it. A key is absent when it does not apply.
 
 ## Read-only reasons
 
-`ReadOnlyReason` and the reason of `GetFields` use these identifiers: `unknown-firmware`, `unknown-structure`, `not-verified`, `disconnected`, `action-running`.
+`ReadOnlyReason` and the reason of `GetFields` use these identifiers: `unknown-firmware`, `unknown-structure`, `not-verified`, `disconnected`. An Action that runs does not make the Leakshield read-only: `SetFields`, `RestoreBackup` and a Profile activation write while it runs.
 
 ## Leakshield fields
 
@@ -65,7 +66,7 @@ Each active Alarm or Warning (`Alarms.Active`) and each `AlarmRaised` signal car
 ## Leakshield events and Software sensors
 
 - `GetEvents` returns the event list of report 1, oldest first. The identifier is `leakshield.<name>`, with the names of `docs/protocol/leakshield.md` (section Event list). A code that the document does not name gives `leakshield.event-<code>`. The time is the device time in microseconds since the Unix epoch: the clock offset is not applied. `details` holds `entry_id`, `mode`, `procedure_state`, `pressure` (mbar), `pressure_leak_rate`, `volume_leak_rate`, `value_1` and `value_2`, all as `d`. A value that the device marks as "no value" is absent.
-- A Software sensor slot is a number from 1 to 12 and maps to Feed message slot 3 + n. `GetSoftwareSensors` returns all 12 slots, with `/` for an empty one. `SetSoftwareSensor` fills a slot with a sensor, or clears it with `/`. A slot outside 1 to 12 and a sensor whose unit has no device unit code fail with `InvalidArgument`. An unknown sensor fails with `NotFound`. The assignment is kept in the daemon memory only. The Feed message of a Loop carries the slots of its Leakshield.
+- A Software sensor slot is a number from 1 to 12 and maps to Feed message slot 3 + n. `GetSoftwareSensors` returns all 12 slots, with `/` for an empty one. `SetSoftwareSensor` fills a slot with a sensor, or clears it with `/`. A slot outside 1 to 12 and a sensor whose unit has no device unit code fail with `InvalidArgument`. An unknown sensor fails with `NotFound`. The daemon keeps the assignment in `state.json` (`storage.md`), so a restart restores it. A stored sensor that no longer exists leaves its slot empty and stays in `state.json` until the slot is set again. The Feed message of a Loop carries the slots of its Leakshield.
 
 ## Leakshield slots
 
@@ -132,7 +133,7 @@ Error names have the prefix `io.github.cappyt.NiceCooling1.Error.`. polkit denia
 | `DefaultProfile` | A delete of the Default Profile. |
 | `ReadOnly` | A write to a preset, to a Leakshield that is read-only, or a `SetCurve` or `SetFixedDuty` on a Channel without a BIOS snapshot entry (`no-bios-snapshot`). The message holds the reason identifier. |
 | `NotVerified` | A Leakshield field that is not Verified for this firmware. The message holds the field id. |
-| `PumpRunning` | `StartAction("refill")` while a Pump channel of the Loop reads above 0 rpm. |
+| `PumpRunning` | `StartAction("refill")` while a Pump channel of the Loop reads above 0 rpm or has no tach value. |
 | `Busy` | The Leakshield write worker already holds a queued write. |
 | `DeviceChanged` | Report 3 changed outside the volatile mask between the first read and the write. |
 | `VerifyFailed` | The read-back differs outside the volatile mask. The message holds the backup id. |

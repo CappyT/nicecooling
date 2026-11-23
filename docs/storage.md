@@ -42,6 +42,7 @@ The daemon creates the files of the four slots of a Leakshield when it first rea
 | `loops` | array | `{"id", "name", "pump_channels": [id], "flow_sensor", "calibration_table", "water_temperature", "leakshield", "pump_floor"}`. An absent link is `null`. |
 | `alarm_responses` | object | Map from event id to `{"response", "delay_s"}`. An event without an entry uses its default. |
 | `rule_groups` | array | Ordered, the first group has the highest priority: `{"id", "profile", "enabled", "rules": [{"kind", "params"}]}` with the kinds and keys of `api.md`. |
+| `software_sensors` | object | Map from Leakshield id to a map from slot number ("1" to "12") to the sensor id in that slot. An empty slot has no entry. |
 | `profiles` | object | `{"default": "profile_default", "active": <profile id>, "cause": "default"|"rule"|"manual", "immediate_switching": false, "rule_delay_s": 30, "dwell_s": 300}`. |
 
 ### `profiles/<id>/profile.json`
@@ -71,7 +72,7 @@ The first start creates the Default Profile `profile_default` with slot 1 and th
 
 ### Backup `meta.json`
 
-`{"schema_version":1, "created_us", "leakshield", "serial", "firmware", "reason": "first"|"before-write"|"manual"|"import", "sha256": <hex of report3.bin || report5.bin || report8.bin>}`. Retention keeps the oldest backup of a serial and the 20 newest; a backup with the same `sha256` as an existing one is not written.
+`{"schema_version":1, "created_us", "leakshield", "serial", "firmware", "reason": "first"|"before-write"|"manual"|"import", "sha256": <hex of report3.bin || report5.bin || report8.bin>}`. The first backup that comes from the device has the reason `first`, whatever the caller asked for. An import never has it. Retention keeps the `first` backup of a serial, the 20 newest and the backup that was just saved; a backup with the same `sha256` as an existing one is not written.
 
 ## Shipped data: `/usr/share/nicecooling/`
 

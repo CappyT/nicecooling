@@ -7,12 +7,15 @@ use nicecooling_api::leakshield::LeakshieldProxy;
 use nicecooling_core::loops::Loop;
 use nicecooling_core::tick::{LoopSetup, Stage, TickConfig, TickContext};
 use nicecooling_protocol::feed::{FEED_SLOTS, FeedMessage, NO_VALUE};
+use nicecoolingd::daemon;
 use nicecoolingd::leakshield::feed::feed_channel_with;
 use nicecoolingd::leakshield::software_sensors::{
     Assignment, FIRST_FEED_SLOT, SLOT_COUNT, SoftwareSlots,
 };
 
-use crate::support::{LEAKSHIELD, Rig, error_name, none_path, path};
+use nicecoolingd::tick_runner::TokioClock;
+
+use crate::support::{LEAKSHIELD, NoPing, Rig, error_name, none_path, path};
 use crate::{LEAKSHIELD_ID, Rig as DeviceRig};
 
 const ERR: &str = "io.github.cappyt.NiceCooling1.Error";
@@ -185,4 +188,43 @@ async fn software_sensor_errors() {
         .await
         .unwrap_err();
     assert_eq!(error_name(&error), format!("{ERR}.InvalidArgument"));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn software_sensor_assignment_survives_a_daemon_restart() {
+    let rig = Rig::start().await;
+    let proxy = leakshield(&rig).await;
+    for (slot, id) in [
+        (3, "k10temp_temp1"),
+        (12, "nct6798_temp1"),
+        (5, "nct6798_fan1"),
+    ] {
+        proxy
+            .set_software_sensor(slot, &path(Kind::Sensor, id))
+            .await
+            .unwrap();
+    }
+    // Clearing a slot persists too.
+    proxy.set_software_sensor(5, &none_path()).await.unwrap();
+    // The daemon flushes its state before it exits.
+    rig.daemon.as_ref().unwrap().hub.flush_now();
+
+    let restarted = daemon::start(&rig.options, Arc::new(TokioClock::new()), NoPing)
+        .await
+        .unwrap();
+
+    let devices = restarted.fleet.all();
+    let assigned: Vec<(u16, String)> = devices[0]
+        .software_slots()
+        .list()
+        .into_iter()
+        .filter_map(|(slot, sensor)| Some((slot, sensor?)))
+        .collect();
+    assert_eq!(
+        assigned,
+        [
+            (3, "k10temp_temp1".to_owned()),
+            (12, "nct6798_temp1".to_owned())
+        ]
+    );
 }

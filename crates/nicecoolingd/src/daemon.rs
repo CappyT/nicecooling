@@ -19,7 +19,7 @@ use tokio::task::JoinHandle;
 use crate::dbus::stage::ApiStage;
 use crate::dbus::{BoardInfo, ChannelMeta, Hub, HubInit, SensorMeta, sensor_meta};
 use crate::fleet::{Attacher, Fleet, OPEN_RETRY_DELAY, UsbAttach};
-use crate::leakshield::feed::feed_channel_with;
+use crate::leakshield::feed::feed_channel_checked;
 use crate::leakshield::save_settings::SAVE_SETTINGS_DELAY;
 use crate::leakshield::{AttachParams, Attached, DeviceIo, external};
 use crate::lease::Lease;
@@ -309,7 +309,8 @@ pub async fn start<N: Notifier + 'static>(
     let io = SysfsChannels::new(&discovery.channels, lease, options.boot_id.clone())
         .with_snapshot(snapshot::read_snapshot(&store));
     let mut pipeline = Pipeline::standard(Box::new(values.clone()), Box::new(io));
-    let (feed_stage, feed_link) = feed_channel_with(fleet.software_lookup());
+    let (feed_stage, feed_link) =
+        feed_channel_checked(fleet.software_lookup(), fleet.covered_lookup());
     pipeline.push(Box::new(feed_stage));
     pipeline.push(Box::new(ApiStage::new(hub.clone())));
     pipeline.push(Box::new(WatchdogStage::new(notifier)));

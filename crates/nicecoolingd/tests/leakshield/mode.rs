@@ -150,7 +150,7 @@ async fn unknown_firmware_refuses_mode_and_action() {
         device.set_mode("monitor").unwrap_err(),
         device.start_action("test", never).unwrap_err(),
         device.cancel_action().unwrap_err(),
-        device.sync_clock(now_unix()).unwrap_err(),
+        device.sync_clock().unwrap_err(),
     ] {
         assert_eq!(
             error.dbus_name(),

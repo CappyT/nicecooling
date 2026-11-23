@@ -167,3 +167,14 @@ fn fixtures_report_their_firmware() {
         1022
     );
 }
+
+#[test]
+fn report1_active_profile_reads_offset_50() {
+    let mut bytes = fw1022().report1.to_vec();
+    // `feature_bits` sits at offset 19, `active_profile` at offset 50.
+    bytes[19] = 1;
+    bytes[50] = 3;
+    let report = Report1::decode(&bytes).unwrap();
+    assert_eq!(report.active_profile, 3);
+    assert_eq!(report.feature_bits, 1);
+}

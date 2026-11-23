@@ -61,9 +61,9 @@ pub struct LoopPumps<'a> {
     pub pump_channels: &'a [String],
 }
 
-/// True while a Pump channel of a Loop of this Leakshield reads above 0 rpm. A Pump channel
-/// `<chip>_pwmN` reads as the sensor `<chip>_fanN`. `value_of` gives the value of a sensor, or
-/// `None` when it has no value. Pumps of other Loops do not count.
+/// True while a Pump channel of a Loop of this Leakshield reads above 0 rpm or has no tach value
+/// (fail closed). A Pump channel `<chip>_pwmN` reads as the sensor `<chip>_fanN`. `value_of`
+/// gives the value of a sensor, or `None` when it has no value. Pumps of other Loops do not count.
 pub fn refill_blocked<'a>(
     leakshield: &str,
     loops: impl IntoIterator<Item = LoopPumps<'a>>,
@@ -73,8 +73,11 @@ pub fn refill_blocked<'a>(
         .into_iter()
         .filter(|l| l.leakshield == Some(leakshield))
         .flat_map(|l| l.pump_channels)
-        .filter_map(|channel| super::feed::tach_sensor(channel))
-        .any(|tach| value_of(&tach).is_some_and(|rpm| rpm > 0.0))
+        .any(|channel| {
+            super::feed::tach_sensor(channel)
+                .and_then(|tach| value_of(&tach))
+                .is_none_or(|rpm| rpm > 0.0)
+        })
 }
 
 #[cfg(test)]

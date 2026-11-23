@@ -151,10 +151,24 @@ fn reason_identifiers_match_the_api_document() {
         (ReadOnlyReason::UnknownStructure, "unknown-structure"),
         (ReadOnlyReason::NotVerified, "not-verified"),
         (ReadOnlyReason::Disconnected, "disconnected"),
-        (ReadOnlyReason::ActionRunning, "action-running"),
-        (ReadOnlyReason::MaintenancePause, "maintenance-pause"),
     ];
     for (reason, text) in reasons {
         assert_eq!(reason.as_str(), text);
     }
+
+    // The document lists exactly these identifiers.
+    let api =
+        std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../docs/api.md")).unwrap();
+    let section = api
+        .split("## Read-only reasons")
+        .nth(1)
+        .and_then(|rest| rest.split("\n## ").next())
+        .unwrap();
+    let documented: Vec<&str> = section
+        .split('`')
+        .skip(1)
+        .step_by(2)
+        .filter(|id| id.chars().all(|c| c.is_ascii_lowercase() || c == '-'))
+        .collect();
+    assert_eq!(documented, reasons.map(|(_, text)| text));
 }

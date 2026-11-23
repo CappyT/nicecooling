@@ -1,6 +1,7 @@
 use std::fs;
 
 use nicecooling_protocol::ReportError;
+use nicecooling_protocol::registry::Registry;
 use nicecooling_protocol::report3::Report3;
 use nicecooling_protocol::sim::Request;
 use nicecoolingd::leakshield::backup::{BackupSet, ImportError, Reason, Saved};
@@ -207,7 +208,6 @@ fn import_rejects_other_structure() {
     ));
     assert!(backups.list().unwrap().is_empty());
 
-    // The device's own reports import with the reason `import`, or `first` for the first backup.
     let own = device_set(&rig);
     let saved = backups.import(&own, 100, 1022, NOV_14_2023_US).unwrap();
     assert!(saved.written);
@@ -224,4 +224,150 @@ fn get_backup_returns_three_reports() {
     assert_eq!(backups.get(&saved.id).unwrap(), set);
     // An id that is not a backup name never reaches the file system.
     assert!(backups.get("../../etc").is_err());
+}
+
+#[test]
+fn retention_keeps_the_first_saved_backup_when_the_clock_goes_back() {
+    let rig = Rig::new("retention-clock");
+    let backups = rig.backups();
+    let mut set = device_set(&rig);
+    let mut ids = Vec::new();
+    for n in 0..21u64 {
+        set.report5[10] = n as u8;
+        let saved = backups
+            .save(
+                &set,
+                1022,
+                Reason::BeforeWrite,
+                NOV_14_2023_US + n * 1_000_000,
+            )
+            .unwrap();
+        ids.push(saved.id);
+    }
+    // The PC clock is one day behind for the 22nd backup, so it looks older than all others.
+    set.report5[10] = 99;
+    let latest = backups
+        .save(
+            &set,
+            1022,
+            Reason::BeforeWrite,
+            NOV_14_2023_US - 86_400_000_000,
+        )
+        .unwrap();
+
+    let kept: Vec<String> = backups.list().unwrap().into_iter().map(|b| b.id).collect();
+    assert!(kept.contains(&ids[0]), "the first backup is gone: {kept:?}");
+    // The backup that a write result points at stays.
+    assert!(
+        kept.contains(&latest.id),
+        "the new backup is gone: {kept:?}"
+    );
+}
+
+#[test]
+fn an_import_is_never_the_first_backup() {
+    let rig = Rig::new("retention-import-first");
+    let backups = rig.backups();
+    let mut set = device_set(&rig);
+    set.report5[10] = 1;
+    let imported = backups.import(&set, 100, 1022, NOV_14_2023_US).unwrap();
+    let mut device = device_set(&rig);
+    device.report5[10] = 2;
+    let first = backups
+        .save(
+            &device,
+            1022,
+            Reason::BeforeWrite,
+            NOV_14_2023_US + 1_000_000,
+        )
+        .unwrap();
+    for n in 0..21u64 {
+        device.report5[10] = 10 + n as u8;
+        backups
+            .save(
+                &device,
+                1022,
+                Reason::BeforeWrite,
+                NOV_14_2023_US + (2 + n) * 1_000_000,
+            )
+            .unwrap();
+    }
+
+    let list = backups.list().unwrap();
+    let reasons: Vec<(&str, &str)> = list
+        .iter()
+        .filter(|b| b.id == imported.id || b.id == first.id)
+        .map(|b| (b.id.as_str(), b.reason.as_str()))
+        .collect();
+    assert_eq!(reasons, [(first.id.as_str(), "first")], "{list:?}");
+}
+
+/// Report 3 of the device with `shield_pressure_low` 0 mbar (range 30-430), `default_mode` 0
+/// (codes 1-3) and `test_pressure` 0.
+fn out_of_range_set(rig: &Rig) -> BackupSet {
+    let registry = Registry::leakshield();
+    let mut set = device_set(rig);
+    let mut report3 = Report3::decode(&set.report3).unwrap();
+    report3.set_bytes(731, &0i16.to_be_bytes());
+    report3.set_bytes(724, &[0]);
+    report3.set_bytes(725, &0i16.to_be_bytes());
+    set.report3 = report3.encode();
+    let out_of_range: Vec<&str> = registry
+        .field
+        .iter()
+        .filter(|f| !f.in_range_in(&report3))
+        .map(|f| f.id.as_str())
+        .collect();
+    assert_eq!(
+        out_of_range,
+        ["default_mode", "test_pressure", "shield_pressure_low"]
+    );
+    set
+}
+
+#[tokio::test]
+async fn import_refuses_report3_with_a_field_out_of_its_range() {
+    let rig = Rig::new("import-range");
+    let device = rig.attached();
+
+    let error = device.import_backup(&out_of_range_set(&rig)).unwrap_err();
+
+    assert_eq!(
+        error.dbus_name(),
+        "io.github.cappyt.NiceCooling1.Error.InvalidArgument"
+    );
+    assert!(rig.backups().list().unwrap().is_empty());
+}
+
+#[test]
+fn restore_refuses_report3_with_a_field_out_of_its_range() {
+    let rig = Rig::new("restore-range");
+    let backups = rig.backups();
+    let env = WriteEnv {
+        io: &rig.io,
+        registry: &rig.registry,
+        backups: &backups,
+    };
+    let report1 = rig.io.read_report1().unwrap();
+    let original = rig.sim.report3();
+    // A backup file that holds out-of-range values, however it got there.
+    let saved = backups
+        .save(
+            &out_of_range_set(&rig),
+            1022,
+            Reason::Manual,
+            NOV_14_2023_US,
+        )
+        .unwrap();
+
+    let error = restore(&env, &report1, &saved.id, NOV_14_2023_US + 1).unwrap_err();
+
+    assert!(
+        matches!(
+            error,
+            nicecoolingd::leakshield::write::WriteError::BackupMismatch(_)
+        ),
+        "{error:?}"
+    );
+    assert_eq!(rig.sim.report3(), original);
 }

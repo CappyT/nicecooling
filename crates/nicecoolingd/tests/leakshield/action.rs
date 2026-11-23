@@ -36,9 +36,27 @@ fn blocked(loops: &[LoopSetup], rpm: &[(&str, f64)]) -> bool {
 fn refill_refused_while_loop_pump_runs() {
     let loops = [loop_of("loop_1", THIS, "nct6798_pwm6")];
     assert!(blocked(&loops, &[("nct6798_fan6", 2000.0)]));
-    // A pump at 0 rpm, or without a reading, does not block.
+    // A pump at 0 rpm does not block.
     assert!(!blocked(&loops, &[("nct6798_fan6", 0.0)]));
-    assert!(!blocked(&loops, &[]));
+}
+
+#[test]
+fn refill_refused_when_a_loop_pump_has_no_tach_value() {
+    let loops = [loop_of("loop_1", THIS, "nct6798_pwm6")];
+    assert!(blocked(&loops, &[]));
+    // One pump of two without a value is enough.
+    let loops = [LoopSetup {
+        config: Loop {
+            pump_channels: vec!["nct6798_pwm6".to_owned(), "nct6798_pwm2".to_owned()],
+            ..loop_of("loop_1", THIS, "nct6798_pwm6").config
+        },
+        table: None,
+    }];
+    assert!(blocked(&loops, &[("nct6798_fan6", 0.0)]));
+    assert!(!blocked(
+        &loops,
+        &[("nct6798_fan6", 0.0), ("nct6798_fan2", 0.0)]
+    ));
 }
 
 #[test]

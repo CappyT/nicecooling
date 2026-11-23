@@ -59,7 +59,7 @@ pub struct Report1 {
     pub bootloader_version: u16,
     pub firmware_version: u16,
     pub status_bits: u32,
-    pub active_profile: u8,
+    pub feature_bits: u8,
     pub uptime: u32,
     pub power_up_count: u32,
     pub total_runtime: u32,
@@ -68,7 +68,8 @@ pub struct Report1 {
     pub device_clock: u32,
     pub local_time: ClockTime,
     pub settings_dirty: u8,
-    pub profile_number: u8,
+    /// The device profile number, 1 to 4.
+    pub active_profile: u8,
     pub raw_adc_values: [u16; 4],
     pub sensors: [SensorSlot; 20],
     pub supply_voltage: i16,
@@ -126,7 +127,7 @@ impl Report1 {
         let bootloader_version = r.u16();
         let firmware_version = r.u16();
         let status_bits = r.u32();
-        let active_profile = r.u8();
+        let feature_bits = r.u8();
         let uptime = r.u32();
         let power_up_count = r.u32();
         let total_runtime = r.u32();
@@ -144,7 +145,7 @@ impl Report1 {
             weekday: r.u8(),
         };
         let settings_dirty = r.u8();
-        let profile_number = r.u8();
+        let active_profile = r.u8();
         let raw_adc_values = r.array(Reader::u16);
         let sensors = r.array(|r| SensorSlot {
             unit_code: r.u8(),
@@ -162,7 +163,7 @@ impl Report1 {
             bootloader_version,
             firmware_version,
             status_bits,
-            active_profile,
+            feature_bits,
             uptime,
             power_up_count,
             total_runtime,
@@ -171,7 +172,7 @@ impl Report1 {
             device_clock,
             local_time,
             settings_dirty,
-            profile_number,
+            active_profile,
             raw_adc_values,
             sensors,
             supply_voltage: r.i16(),
@@ -244,7 +245,7 @@ impl Report1 {
         w.u16(self.bootloader_version);
         w.u16(self.firmware_version);
         w.u32(self.status_bits);
-        w.u8(self.active_profile);
+        w.u8(self.feature_bits);
         w.u32(self.uptime);
         w.u32(self.power_up_count);
         w.u32(self.total_runtime);
@@ -259,7 +260,7 @@ impl Report1 {
         w.u16(t.day_of_year);
         w.u8(t.weekday);
         w.u8(self.settings_dirty);
-        w.u8(self.profile_number);
+        w.u8(self.active_profile);
         self.raw_adc_values.iter().for_each(|&v| w.u16(v));
         for s in &self.sensors {
             w.u8(s.unit_code);

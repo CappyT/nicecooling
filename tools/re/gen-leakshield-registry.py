@@ -36,7 +36,7 @@ f("pump_max_pressure", 17, "i16", L(0, 3276.7), "safety", "Pump pressure at full
 f("pump_start_speed", 19, "i16", L(0, 32767), "safety", "Pump speed that the device assumes without a Feed value (\"start speed\"). aquasuite keeps it at or below `pump_max_speed`.", unit="rpm", default=4800)
 f("pump_start_flow", 21, "i16", L(0, 3276.7), "safety", "Flow that the device assumes without a Feed value (\"start flow\").", scale=0.1, unit="l/h", default=100.0)
 f("sensor_log_interval", 23, "u8", E(*range(8)), "low", "Log interval of each device sensor: 0 0.5 s, 1 1 s, 2 5 s, 3 10 s, 4 30 s, 5 1 min, 6 5 min, 7 10 min.", count=20, stride=2)
-f("sensor_unit", 24, "u8", E(*range(48)), "low", "Unit code of each device sensor (unit code table).", count=20, stride=2)
+f("sensor_unit", 24, "u8", E(*range(48)), "safety", "Unit code of each device sensor (unit code table). The Feed pump speed and flow use sensors 4 and 5, so the unit sets their scale.", count=20, stride=2)
 f("display_page_time", 63, "u16", L(0, 6553.5), "low", "Time that each display page shows.", scale=0.1, unit="s")
 f("display_brightness_active", 65, "u8", E(0, 1, 2, 3), "low", "0 maximum, 1 mid, 2 low, 3 off.")
 f("display_brightness_idle", 66, "u8", E(0, 1, 2, 3), "low", "0 maximum, 1 mid, 2 low, 3 off.")
@@ -98,7 +98,7 @@ for mode, off in (("shield", 731), ("monitor", 739)):
     f(f"{mode}_pressure_low_standby", off + 2, "i16", L(30, 430), "safety", f"Lower pressure limit in {mode.upper()} while the PC is in standby. aquasuite keeps it at or below the lower limit.", scale=0.1, unit="mbar", default=100.0)
     f(f"{mode}_pressure_working_range", off + 4, "i16", L(0, 420), "safety", "Setpoint minus lower limit.", scale=0.1, unit="mbar", default=50.0)
     f(f"{mode}_pressure_max_range", off + 6, "i16", L(0, 450), "safety", "Upper limit minus setpoint.", scale=0.1, unit="mbar", default=50.0)
-f("device_profile", 747, "u8", E(1, 2, 3, 4), "low", "Number of the device profile: 1-4, one fixed slot each. aquasuite writes the slot number before it stores the report of a slot.")
+f("device_profile", 747, "u8", E(1, 2, 3, 4), "safety", "Number of the device profile: 1-4, one fixed slot each. aquasuite writes the slot number before it stores the report of a slot. Only a Profile activation sets it.")
 
 SIZES = {"u8": (1, "B"), "u16": (2, "H"), "i16": (2, "h")}
 

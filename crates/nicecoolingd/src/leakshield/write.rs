@@ -3,7 +3,7 @@
 use std::fmt;
 use std::io;
 
-use nicecooling_protocol::access::{Access, WriteRefusal};
+use nicecooling_protocol::access::{Access, ReadOnlyReason, WriteRefusal};
 use nicecooling_protocol::device::DeviceError;
 use nicecooling_protocol::registry::{Field, Registry, Scalar};
 use nicecooling_protocol::report1::Report1;
@@ -147,6 +147,15 @@ fn plan<'a>(
     Ok(planned)
 }
 
+/// The first field of the registry that holds a value outside its range in `report`.
+pub fn out_of_range_field<'a>(registry: &'a Registry, report: &Report3) -> Option<&'a str> {
+    registry
+        .field
+        .iter()
+        .find(|field| !field.in_range_in(report))
+        .map(|field| field.id.as_str())
+}
+
 /// Reads reports 3, 5 and 8 and saves them. Returns the backup id.
 pub fn take_backup(
     env: &WriteEnv<'_>,
@@ -217,6 +226,11 @@ pub fn write_fields(
         .io
         .read_report3()
         .map_err(|e| device_error(e, Some(&backup)))?;
+    if report3.structure_number() != env.registry.structure {
+        return Err(WriteError::Refused(WriteRefusal::ReadOnly(
+            ReadOnlyReason::UnknownStructure,
+        )));
+    }
     if !report3.differing_offsets(base, mask).is_empty() {
         return Err(WriteError::DeviceChanged);
     }
@@ -253,6 +267,9 @@ pub fn restore(
         .map_err(|_| WriteError::BackupMismatch("report 3 of the backup is invalid"))?;
     if stored.structure_number() != env.registry.structure {
         return Err(WriteError::BackupMismatch("structure"));
+    }
+    if out_of_range_field(env.registry, &stored).is_some() {
+        return Err(WriteError::BackupMismatch("a field is out of its range"));
     }
     if firmware != report1.firmware_version {
         return Err(WriteError::BackupMismatch("firmware"));

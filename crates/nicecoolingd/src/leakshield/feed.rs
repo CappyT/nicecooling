@@ -1,12 +1,12 @@
 //! The Feed message: stage 10 of the tick computes the message of each Loop with a Leakshield,
 //! and a task sends it. The tick never waits on the device (design D6).
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use nicecooling_core::tick::{LoopSetup, Stage, TickContext};
 use nicecooling_protocol::device::DeviceError;
-use nicecooling_protocol::feed::{FeedMessage, UNIT_LITERS_PER_HOUR, UNIT_SPEED_RPM};
+use nicecooling_protocol::feed::{FeedMessage, NO_VALUE, UNIT_LITERS_PER_HOUR, UNIT_SPEED_RPM};
 use tokio::sync::watch;
 
 use super::software_sensors::SoftwareSlots;
@@ -15,12 +15,21 @@ use super::{DeviceIo, blocking};
 pub const SLOT_PUMP_SPEED: usize = 0;
 pub const SLOT_FLOW: usize = 1;
 
+/// Warning of a Leakshield whose firmware the registry does not cover. It gets no Feed.
+pub const UNCOVERED_WARNING: &str = "leakshield-unknown-firmware";
+
 type Messages = BTreeMap<String, FeedMessage>;
 
 /// Sensor id of the tachometer of a Pump channel: `nct6798_pwm6` -> `nct6798_fan6`.
 pub(crate) fn tach_sensor(channel: &str) -> Option<String> {
     let (chip, number) = channel.rsplit_once("_pwm")?;
     Some(format!("{chip}_fan{number}"))
+}
+
+/// A reading in slot units. A value above the range stops at the highest real value: the cast
+/// alone would reach 32767, the no-value code.
+fn slot_value(raw: f64) -> i16 {
+    (raw.round() as i16).min(NO_VALUE - 1)
 }
 
 /// Pump speed in rpm and flow in L/h of a Loop. The pump speed is the highest tachometer value of
@@ -39,13 +48,13 @@ pub fn feed_for_loop(setup: &LoopSetup, values: &BTreeMap<String, f64>) -> FeedM
             Some(best.map_or(v, |b| b.max(v)))
         });
     if let Some(rpm) = speed {
-        message.set(SLOT_PUMP_SPEED, rpm.round() as i16, UNIT_SPEED_RPM);
+        message.set(SLOT_PUMP_SPEED, slot_value(rpm), UNIT_SPEED_RPM);
     }
     let flow = values
         .get(&setup.config.flow_id())
         .filter(|v| v.is_finite());
     if let Some(lph) = flow {
-        message.set(SLOT_FLOW, (lph * 10.0).round() as i16, UNIT_LITERS_PER_HOUR);
+        message.set(SLOT_FLOW, slot_value(lph * 10.0), UNIT_LITERS_PER_HOUR);
     }
     message
 }
@@ -53,10 +62,17 @@ pub fn feed_for_loop(setup: &LoopSetup, values: &BTreeMap<String, f64>) -> FeedM
 /// Finds the Software sensor slots of a Leakshield by its id.
 pub type SoftwareLookup = Arc<dyn Fn(&str) -> Option<Arc<SoftwareSlots>> + Send + Sync>;
 
+/// Tells whether the registry covers the firmware of a Leakshield. `None`: the Leakshield is not
+/// attached.
+pub type CoveredLookup = Arc<dyn Fn(&str) -> Option<bool> + Send + Sync>;
+
 /// Stage 10. It runs for each Loop that has a Leakshield and leaves the other Loops alone.
 pub struct FeedStage {
     out: watch::Sender<Messages>,
     software: Option<SoftwareLookup>,
+    covered: Option<CoveredLookup>,
+    /// The Leakshields that hold the `UNCOVERED_WARNING` now.
+    warned: BTreeSet<String>,
 }
 
 /// The receiving end of the stage, held by the sender task.
@@ -66,17 +82,37 @@ pub struct FeedLink {
 
 /// A Feed stage that carries the pump speed and the flow only.
 pub fn feed_channel() -> (FeedStage, FeedLink) {
-    channel(None)
+    channel(None, None)
 }
 
 /// A Feed stage that also carries the Software sensors of each Leakshield.
 pub fn feed_channel_with(software: SoftwareLookup) -> (FeedStage, FeedLink) {
-    channel(Some(software))
+    channel(Some(software), None)
 }
 
-fn channel(software: Option<SoftwareLookup>) -> (FeedStage, FeedLink) {
+/// A Feed stage with the Software sensors that sends no Feed to a Leakshield whose firmware the
+/// registry does not cover.
+pub fn feed_channel_checked(
+    software: SoftwareLookup,
+    covered: CoveredLookup,
+) -> (FeedStage, FeedLink) {
+    channel(Some(software), Some(covered))
+}
+
+fn channel(
+    software: Option<SoftwareLookup>,
+    covered: Option<CoveredLookup>,
+) -> (FeedStage, FeedLink) {
     let (out, rx) = watch::channel(Messages::new());
-    (FeedStage { out, software }, FeedLink { rx })
+    (
+        FeedStage {
+            out,
+            software,
+            covered,
+            warned: BTreeSet::new(),
+        },
+        FeedLink { rx },
+    )
 }
 
 impl Stage for FeedStage {
@@ -85,12 +121,22 @@ impl Stage for FeedStage {
     }
 
     fn run(&mut self, ctx: &mut TickContext) {
+        let mut uncovered = BTreeSet::new();
         let messages: Messages = ctx
             .config
             .loops
             .iter()
             .filter_map(|l| {
                 let id = l.config.leakshield.clone()?;
+                if self
+                    .covered
+                    .as_ref()
+                    .and_then(|covered| covered(&id))
+                    .is_some_and(|covered| !covered)
+                {
+                    uncovered.insert(id);
+                    return None;
+                }
                 let mut message = feed_for_loop(l, &ctx.values);
                 if let Some(slots) = self.software.as_ref().and_then(|find| find(&id)) {
                     slots.fill(&mut message, &ctx.values);
@@ -98,6 +144,13 @@ impl Stage for FeedStage {
                 Some((id, message))
             })
             .collect();
+        for id in &uncovered {
+            ctx.warnings.raise(UNCOVERED_WARNING, id);
+        }
+        for id in self.warned.difference(&uncovered) {
+            ctx.warnings.clear(UNCOVERED_WARNING, id);
+        }
+        self.warned = uncovered;
         if !messages.is_empty() {
             self.out.send_replace(messages);
         }
