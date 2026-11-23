@@ -826,7 +826,8 @@ pub struct ProfileDetail {
     /// "Mode", "Display", "Lighting" and "Alarm thresholds" of the slot, as (label, value).
     pub leakshield_rows: Vec<(String, String)>,
     pub notices: Vec<Notice>,
-    pub restore: Option<RestoreOffer>,
+    /// One offer for each Leakshield that holds a `FailedWriteBackup`.
+    pub restore: Vec<RestoreOffer>,
     /// "Group 2: time window 22:00 to 07:00." while a group holds the active Profile.
     pub rule_group: Option<String>,
     pub diff_dialog: Option<DiffDialog>,
@@ -1317,20 +1318,28 @@ fn detail_of(input: &ScreenInput<'_>, ui: &ProfilesUi, profile: &ProfileInfo) ->
     }
 
     // The daemon keeps the backup of a failed write: an app that starts later still finds it.
-    let failed = snapshot
+    let restore: Vec<RestoreOffer> = snapshot
         .leakshields
         .iter()
-        .find(|device| !device.failed_write_backup.is_empty());
-    let restore = failed.filter(|_| active).map(|device| RestoreOffer {
-        text: locale.tr("profiles.restore.text"),
-        button: locale.tr("profiles.restore.button"),
-        locked: true,
-        command: Some(Command::RestoreBackup {
-            leakshield: device.id.clone(),
-            backup: device.failed_write_backup.clone(),
-        }),
-        write_line: write_line(input, format!("restore:{}", device.id)),
-    });
+        .filter(|device| active && !device.failed_write_backup.is_empty())
+        .map(|device| {
+            let prefix = if snapshot.leakshields.len() > 1 {
+                format!("{}: ", leakshield_label(locale, snapshot, device))
+            } else {
+                String::new()
+            };
+            RestoreOffer {
+                text: format!("{prefix}{}", locale.tr("profiles.restore.text")),
+                button: locale.tr("profiles.restore.button"),
+                locked: true,
+                command: Some(Command::RestoreBackup {
+                    leakshield: device.id.clone(),
+                    backup: device.failed_write_backup.clone(),
+                }),
+                write_line: write_line(input, format!("restore:{}", device.id)),
+            }
+        })
+        .collect();
 
     let diff_dialog = (ui.diff_dialog.as_deref() == Some(profile.id.as_str())).then(|| {
         let rows = slot_diff(state, profile.slot)

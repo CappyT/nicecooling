@@ -53,7 +53,7 @@ The editor has no hotkey condition. Wayland has no standard global shortcut.
 | Slot change | A dialog before the change of the slot of the active Profile: "Slot 3 has other Leakshield settings. They are written to the Leakshield now." Buttons: "Cancel", "Change slot". The change of the slot of another Profile needs no dialog |
 | External change | Information row: "Display brightness changed outside nicecooling. Activating a Profile with another slot overwrites it." |
 | Activating | Write status. When the slot of the Profile differs from `ActiveSlot` and the stored slot differs from the device, a dialog first shows the diff table (the columns "Field", "Leakshield now" and "Slot 2") and the buttons "Cancel" and "Activate". The table compares `GetStoredFields` of the slot with `GetFields` |
-| Activation failed | The diff table row has the failure. "Restore the backup" with the padlock: the button shows while a Leakshield holds a `FailedWriteBackup`, also after an app restart. The Curves stay active |
+| Activation failed | The diff table row has the failure. "Restore the backup" with the padlock: the app shows one offer for each Leakshield that holds a `FailedWriteBackup`, also after an app restart. With more than one Leakshield, each offer starts with the device label ("Leakshield 31072: "). The Curves stay active |
 | Rule group of the active Profile | A row under the header: "Group 2: time window 22:00 to 07:00." It shows while a group activated the Profile |
 | Alarm | Not used. The poweroff banner shows above |
 | Locked | Only "Restore the backup" after a failed write has the padlock |

@@ -1033,7 +1033,11 @@ fn curves_applied_leakshield_failed_shows_restore_offer() {
     let mut state = base();
     state.snapshot.leakshields[0].failed_write_backup = "20261123T010000Z-abc123".into();
     let detail = model(&state, &ProfilesUi::default()).detail.unwrap();
-    let offer = detail.restore.expect("the restore offer");
+    let offer = detail
+        .restore
+        .into_iter()
+        .next()
+        .expect("the restore offer");
     assert_eq!(
         offer.text,
         "The Curves are active. The Leakshield write failed."
@@ -1053,7 +1057,7 @@ fn curves_applied_leakshield_failed_shows_restore_offer() {
             .detail
             .unwrap()
             .restore
-            .is_none()
+            .is_empty()
     );
     state.snapshot.leakshields[0].failed_write_backup.clear();
     assert!(
@@ -1061,7 +1065,7 @@ fn curves_applied_leakshield_failed_shows_restore_offer() {
             .detail
             .unwrap()
             .restore
-            .is_none()
+            .is_empty()
     );
 }
 
@@ -1086,6 +1090,8 @@ async fn restore_offer_from_failed_write_backup() {
         .detail
         .unwrap()
         .restore
+        .into_iter()
+        .next()
         .expect("the offer");
     offer
         .command
@@ -1109,7 +1115,7 @@ async fn restore_offer_from_failed_write_backup() {
             .detail
             .unwrap()
             .restore
-            .is_none()
+            .is_empty()
     );
 }
 
@@ -1822,4 +1828,44 @@ fn one_failed_slot_row_for_each_leakshield() {
     assert_eq!(rows.len(), 2, "{rows:?}");
     assert!(rows[0].starts_with("Leakshield 31072: Slot 2: not changed."));
     assert!(rows[1].starts_with("Leakshield 30000: Slot 2: not changed."));
+}
+
+#[test]
+fn review_restore_offer_for_each_failed_leakshield() {
+    let mut state = two_devices();
+    state.snapshot.active_profile = Some(state.snapshot.profiles[0].clone());
+    state.snapshot.leakshields[0].failed_write_backup = "backup_a".into();
+    state.snapshot.leakshields[1].failed_write_backup = "backup_b".into();
+    let detail = model(&state, &ProfilesUi::default()).detail.unwrap();
+    // Both devices hold a backup of the failed activation: the user reaches both.
+    let commands: Vec<_> = detail.restore.iter().map(|o| o.command.clone()).collect();
+    assert_eq!(
+        commands,
+        [
+            Some(Command::RestoreBackup {
+                leakshield: LEAKSHIELD.into(),
+                backup: "backup_a".into()
+            }),
+            Some(Command::RestoreBackup {
+                leakshield: SECOND.into(),
+                backup: "backup_b".into()
+            }),
+        ]
+    );
+    // With two Leakshields each offer names its device.
+    assert!(
+        detail.restore[0]
+            .text
+            .starts_with("Leakshield 31072: The Curves are active.")
+    );
+    assert!(detail.restore[1].text.starts_with("Leakshield 30000: "));
+    // With one failed device and one Leakshield, the text has no device name.
+    let mut one = base();
+    one.snapshot.leakshields[0].failed_write_backup = "backup_a".into();
+    let offer = model(&one, &ProfilesUi::default()).detail.unwrap().restore;
+    assert_eq!(offer.len(), 1);
+    assert_eq!(
+        offer[0].text,
+        "The Curves are active. The Leakshield write failed."
+    );
 }

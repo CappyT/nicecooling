@@ -649,13 +649,13 @@ impl ScreenView {
             }
             card = card.child(row);
         }
-        if let Some(offer) = &detail.restore {
+        for (index, offer) in detail.restore.iter().enumerate() {
             let mut row = card_row(p)
                 .bg(p.alarm_tint)
                 .child(div().flex_1().child(offer.text.clone()));
             if let Some(command) = offer.command.clone() {
                 row = row.child(
-                    Button::new("profile-restore")
+                    Button::new(("profile-restore", index))
                         .small()
                         .danger()
                         .label(format!("\u{1F512} {}", offer.button))
