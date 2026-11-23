@@ -398,7 +398,6 @@ Files that remain after removal: `/var/lib/nicecooling/` and the user history in
 
 ## Open Questions
 
-- The commands that clear the pump runtime and cancel a running Action. The aquasuite code does not define them. Candidates for the pump runtime: `reset_statistics` (13) and `service_reset` (25000).
+- The command that clears the pump runtime. The aquasuite code does not define it. Candidates: `reset_refill_history` (13) and `reset_service_counter` (25000). The cancel command is `cancel_action` (command 12, code 0).
 - The behavior of the Leakshield when the Feed stops. The aquasuite code does not define it. Task 5.11 measures it.
-- The valid range of the device profile number. The aquasuite code gives the type only (u8).
 - The license of nicecooling and its compatibility with CoolerControl (GPL-3.0), before any distribution.

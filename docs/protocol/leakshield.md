@@ -57,7 +57,7 @@ The device sends report 1 by itself. Offsets are absolute.
 | 11 | u16 | `bootloader_version` | |
 | 13 | u16 | `firmware_version` | Firmware version (Conventions) |
 | 15 | u32 | `status_bits` | Bit 2: device clock valid |
-| 19 | u8 | `active_profile` | Current device profile |
+| 19 | u8 | `feature_bits` | aquasuite does not read it. Both dumps read 1 |
 | 20 | u32 | `uptime` | Not decoded. The fw1022 dump reads 1278 |
 | 24 | u32 | `power_up_count` | |
 | 28 | u32 | `total_runtime` | |
@@ -71,7 +71,7 @@ The device sends report 1 by itself. Offsets are absolute.
 |---|---|---|---|
 | 39 | u8 x 5, u16, u16, u8 | `local_time` | Second, minute, hour, day, month, year, day of year, weekday. In the fw1022 dump it equals `device_clock` plus `clock_timezone` |
 | 49 | u8 | `settings_dirty` | |
-| 50 | u8 | `profile_number` | |
+| 50 | u8 | `active_profile` | Current device profile, 1-4 (section Device profile numbers) |
 | 51 | u16 x 4 | `raw_adc_values` | |
 | 59 | 20 x 10 bytes | `sensor[0..19]` | Section Device sensors |
 | 259 | i16 | `supply_voltage` | 0.01 V |
@@ -296,7 +296,7 @@ aquasuite reads the struct, changes the fields of the user, and writes back ever
 | `monitor_pressure_low_standby` | 741 | i16 |  | 0.1 | 30 to 430 mbar | 100.0 | 500 | Lower pressure limit in MONITOR while the PC is in standby. aquasuite keeps it at or below the lower limit. |
 | `monitor_pressure_working_range` | 743 | i16 |  | 0.1 | 0 to 420 mbar | 50.0 | 300 | Setpoint minus lower limit. |
 | `monitor_pressure_max_range` | 745 | i16 |  | 0.1 | 0 to 450 mbar | 50.0 | 200 | Upper limit minus setpoint. |
-| `device_profile` | 747 | u8 |  |  | type only |  | 1 | Number of the device profile. |
+| `device_profile` | 747 | u8 |  |  | codes 1-4 |  | 1 | Number of the device profile: 1-4, one fixed slot each. aquasuite writes the slot number before it stores the report of a slot. |
 <!-- report3-table:end -->
 
 ### Unit codes
@@ -368,6 +368,10 @@ Differences between aquasuite and nicecooling. The owner decided on 2026-11-23 (
 5. Triggers: not adopted. aquasuite has rule groups (all rules of a group must hold), sensor rules with a hold time, process rules, time rules, interval rules, hotkeys and a switch at service start. nicecooling has single process, time and threshold rules with one Rule delay and one Profile dwell, and no interval rules and no hotkeys.
 6. Firmware and device: adopted for the serial. nicecooling checks the serial of the device before a write and writes the stored report 3 only to the Leakshield with that serial. An unknown firmware stays read-only, and a Profile with a report 3 of another firmware than the device runs is not written.
 7. Read-back: adopted. A Profile write has no read-back. A write error gives "Curves applied, Leakshield failed". A write that the user starts in nicecooling keeps its read-back (design D11).
+
+## Device profile numbers
+
+The device profile number is 1, 2, 3 or 4 (P9). aquasuite keeps four fixed slots for each Leakshield, one per number, and 0 means no slot. It has no other numbers and no "next free" rule. To store slot N, aquasuite sets `device_profile` (report 3 offset 747) to N and stores the whole report 3. When a profile becomes active, the device reports the number in `active_profile` (report 1 offset 50) and in byte 9 of the bulk device-info reply. aquasuite reads `active_profile` for the profile page, and the service reads the bulk reply before a profile write. The code does not show what the device does with a number above 4.
 
 ## Device clock
 

@@ -98,7 +98,7 @@ for mode, off in (("shield", 731), ("monitor", 739)):
     f(f"{mode}_pressure_low_standby", off + 2, "i16", L(30, 430), "safety", f"Lower pressure limit in {mode.upper()} while the PC is in standby. aquasuite keeps it at or below the lower limit.", scale=0.1, unit="mbar", default=100.0)
     f(f"{mode}_pressure_working_range", off + 4, "i16", L(0, 420), "safety", "Setpoint minus lower limit.", scale=0.1, unit="mbar", default=50.0)
     f(f"{mode}_pressure_max_range", off + 6, "i16", L(0, 450), "safety", "Upper limit minus setpoint.", scale=0.1, unit="mbar", default=50.0)
-f("device_profile", 747, "u8", T, "low", "Number of the device profile.")
+f("device_profile", 747, "u8", E(1, 2, 3, 4), "low", "Number of the device profile: 1-4, one fixed slot each. aquasuite writes the slot number before it stores the report of a slot.")
 
 SIZES = {"u8": (1, "B"), "u16": (2, "H"), "i16": (2, "h")}
 

@@ -1090,5 +1090,6 @@ id = "device_profile"
 report = 3
 offset = 747
 type = "u8"
+values = [1, 2, 3, 4]
 risk_class = "low"
-verification_state = "code-defined"
+verification_state = "plausible-read"
