@@ -19,7 +19,7 @@ volatile_mask = []
 [[command]]
 id = "restart"
 code = 1
-parameter = "0 or 1; the code does not define the difference"
+parameter = "1: restart into the bootloader, 0: plain restart (docs/re/firmware-update.md)"
 
 [[command]]
 id = "save_settings"
