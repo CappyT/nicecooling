@@ -128,7 +128,7 @@ Error names have the prefix `io.github.cappyt.NiceCooling1.Error.`. polkit denia
 | `cancel-poweroff` | `io.github.cappyt.NiceCooling1.cancel-poweroff` | `auth_admin_keep` x3 | YES for a `wheel` member, `subject.local`, active or not |
 | `critical` | `io.github.cappyt.NiceCooling1.critical` | `auth_admin_keep` x3 | none |
 
-- `write-or-critical` (`SetMode`): `critical` for `release`, `write` for the other Modes.
+- `write-or-critical` (`SetMode`): `critical` for `release`, `write` for the other Modes. The Mode arguments are lowercase: `shield`, `monitor`, `release`. The check asks `critical` for `release` in any case and with surrounding whitespace.
 - A caller with uid 0 needs no polkit check.
 - The daemon passes `AllowUserInteraction` to polkit only when the method call carries the D-Bus flag `ALLOW_INTERACTIVE_AUTHORIZATION`. The app sets this flag, so polkit can show its prompt.
 - Files: policy `/usr/share/polkit-1/actions/io.github.cappyt.NiceCooling1.policy`, rule `/usr/share/polkit-1/rules.d/50-nicecooling.rules`, bus policy `/usr/share/dbus-1/system.d/io.github.cappyt.NiceCooling1.conf`. The bus policy lets root own the name and lets every user call every method; polkit decides.

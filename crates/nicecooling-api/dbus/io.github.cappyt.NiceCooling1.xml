@@ -7,7 +7,7 @@
     write            action io.github.cappyt.NiceCooling1.write
     critical         action io.github.cappyt.NiceCooling1.critical
     cancel-poweroff  action io.github.cappyt.NiceCooling1.cancel-poweroff
-    write-or-critical: critical when the argument is RELEASE, else write
+    write-or-critical: critical when the argument is release, else write
   Properties with EmitsChangedSignal=false change on every tick; SensorsUpdated carries their values.
 -->
 <node>

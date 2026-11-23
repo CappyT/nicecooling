@@ -58,7 +58,13 @@ impl Authorization {
             Self::Write => Some(Action::Write),
             Self::Critical => Some(Action::Critical),
             Self::CancelPoweroff => Some(Action::CancelPoweroff),
-            Self::WriteOrCritical if mode == Some("release") => Some(Action::Critical),
+            // The Mode arguments are lowercase. Any other spelling of `release` still asks
+            // `critical`, so a lenient parser behind this check cannot lower the class.
+            Self::WriteOrCritical
+                if mode.is_some_and(|m| m.trim().eq_ignore_ascii_case("release")) =>
+            {
+                Some(Action::Critical)
+            }
             Self::WriteOrCritical => Some(Action::Write),
         }
     }
@@ -242,6 +248,21 @@ mod tests {
             Some(Action::Write)
         );
         assert_eq!(asks("Leakshield", "SetMode", None), Some(Action::Write));
+    }
+
+    #[test]
+    fn set_mode_release_is_critical_in_any_case_or_with_whitespace() {
+        for mode in ["RELEASE", "Release", " release", "release\n", "\trelease "] {
+            assert_eq!(
+                asks("Leakshield", "SetMode", Some(mode)),
+                Some(Action::Critical),
+                "{mode:?}"
+            );
+        }
+        assert_eq!(
+            asks("Leakshield", "SetMode", Some("releases")),
+            Some(Action::Write)
+        );
     }
 
     #[test]
