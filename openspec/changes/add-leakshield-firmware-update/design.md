@@ -301,14 +301,14 @@ The panel is a new card of the Leakshield system screen. `docs/ui/screens/leaksh
 `sim.rs` gets a mode: `Application` or `Bootloader`. A test builds it with `SimDevice::fw1022().with_bootloader(BootloaderConfig { enter, leave, chunks, image, new_firmware })`:
 
 - `enter` and `leave`: the time to enter and to leave the bootloader.
-- `chunks`: a `ChunkBehavior` for each chunk index: `Accept`, `FailFast`, `Slow(Duration)` (the call sleeps in real time, then succeeds) or `Drop` (the call succeeds and the chunk is lost). The default is `Accept`.
+- `chunks`: a `ChunkBehavior` for each chunk index: `Accept`, `FailFast`, `Slow(Duration)` (the call sleeps in real time, then succeeds when the device is still in the bootloader) or `Drop` (the call succeeds and the chunk is lost). The default is `Accept`.
 - `image`: the chunks that it expects. `new_firmware`: the version it reports after a complete image.
 
 Behavior:
 
 - Report 2 command 1 with parameter 1 in `Application` moves the device to `Bootloader` after `enter`. The test support (`tests/support/sim_usb.rs`) then sends a disconnect and a connect. The bootloader report 1 is a placeholder of 64 bytes until gate 1.6: byte 0 is the report ID 0x01, byte 2 is 0x01, bytes 13-14 are 0x0001, all other bytes are 0.
 - A feature write of report 32 with a wrong length or CRC fails. A good frame is stored at its address.
-- Command 1 with parameter 0 moves the device to `Application` with `new_firmware` when the stored chunks equal the expected image. Otherwise the device stays in the bootloader (inferred behavior).
+- Command 1 with parameter 0 moves the device to `Application` with `new_firmware` when the stored chunks equal the expected image: the same addresses and the same bytes, with no other chunk. Otherwise the device stays in the bootloader (inferred behavior).
 - Tests use the paused tokio clock, so the 4 s and 8 s waits cost no time.
 
 Hard rule: no test and no tool of this change opens the real device. Tasks 2.5 and 8.1 check it with `rg`. The tool `tools/nicecooling-verify` never calls the firmware module.

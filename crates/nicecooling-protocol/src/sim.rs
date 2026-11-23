@@ -86,10 +86,14 @@ struct Bootloader {
 }
 
 impl Bootloader {
+    /// The flash holds the image and nothing else: the stored addresses are the expected ones, and
+    /// each chunk has the expected bytes.
     fn complete(&self) -> bool {
-        self.expected
-            .iter()
-            .all(|c| self.received.get(&c.address) == Some(&c.data))
+        self.received.len() == self.expected.len()
+            && self
+                .expected
+                .iter()
+                .all(|c| self.received.get(&c.address) == Some(&c.data))
     }
 
     /// The report 1 that the bootloader sends by itself: 64 bytes, byte 2 = 1 and firmware 1,
@@ -268,7 +272,8 @@ impl SimDevice {
         }
     }
 
-    /// The write of a feature report 32 in the bootloader. A slow chunk sleeps without the lock.
+    /// The write of a feature report 32 in the bootloader. A slow chunk sleeps without the lock,
+    /// and the device must still be there when the sleep ends.
     fn bootloader_set_feature(&self, report: &[u8]) -> Result<(), DeviceError> {
         let chunk = Chunk::parse_frame(report).map_err(|e| io_error(&e.to_string()))?;
         let behavior = {
@@ -286,15 +291,25 @@ impl SimDevice {
                 .cloned()
                 .unwrap_or(ChunkBehavior::Accept)
         };
-        match behavior {
+        let store = match behavior {
             ChunkBehavior::FailFast => return Err(io_error("chunk write failed")),
-            ChunkBehavior::Drop => return Ok(()),
-            ChunkBehavior::Slow(delay) => std::thread::sleep(delay),
-            ChunkBehavior::Accept => {}
-        }
+            ChunkBehavior::Drop => false,
+            ChunkBehavior::Slow(delay) => {
+                std::thread::sleep(delay);
+                true
+            }
+            ChunkBehavior::Accept => true,
+        };
         let mut state = self.state();
-        if let Some(bootloader) = &mut state.bootloader {
+        Self::connected(&state)?;
+        if !state.in_bootloader() {
+            return Err(io_error("the device left the bootloader"));
+        }
+        if store && let Some(bootloader) = &mut state.bootloader {
             bootloader.received.insert(chunk.address, chunk.data);
+        }
+        if std::mem::take(&mut state.faults.disconnect_after_set_feature) {
+            state.connected = false;
         }
         Ok(())
     }
@@ -676,5 +691,90 @@ mod tests {
         sim.write_output(&restart_plain()).unwrap();
         assert!(!sim.in_bootloader());
         assert_eq!(sim.report1().firmware_version, NEW_FIRMWARE);
+    }
+
+    #[test]
+    fn sim_extra_chunk_at_0x0000_blocks_completion() {
+        let sim = device(&[]);
+        enter(&sim);
+        send(&sim, 0..3);
+        let rogue = Chunk {
+            address: 0,
+            data: [0xAA; CHUNK_SIZE],
+        };
+        sim.set_feature(&rogue.frame()).unwrap();
+        sim.write_output(&restart_plain()).unwrap();
+        assert!(sim.in_bootloader());
+    }
+
+    #[test]
+    fn sim_overlapping_chunk_blocks_completion() {
+        let sim = device(&[]);
+        enter(&sim);
+        send(&sim, 0..3);
+        let overlap = Chunk {
+            address: 0x4200,
+            data: [0; CHUNK_SIZE],
+        };
+        sim.set_feature(&overlap.frame()).unwrap();
+        sim.write_output(&restart_plain()).unwrap();
+        assert!(sim.in_bootloader());
+    }
+
+    #[test]
+    fn sim_wrong_data_blocks_completion_and_a_rewrite_recovers() {
+        let sim = device(&[]);
+        enter(&sim);
+        let all = chunks(&image());
+        let mut bad = all[2].clone();
+        bad.data[0] ^= 0xFF;
+        send(&sim, 0..2);
+        sim.set_feature(&bad.frame()).unwrap();
+        sim.write_output(&restart_plain()).unwrap();
+        assert!(sim.in_bootloader());
+        send(&sim, 2..3);
+        sim.write_output(&restart_plain()).unwrap();
+        assert!(!sim.in_bootloader());
+    }
+
+    #[test]
+    fn sim_slow_chunk_honors_the_disconnect_fault() {
+        let sim = device(&[(0, ChunkBehavior::Slow(Duration::from_millis(20)))]);
+        enter(&sim);
+        sim.disconnect_after_set_feature();
+        send(&sim, [0]);
+        assert_eq!(sim.received_chunks().len(), 1);
+        assert!(matches!(
+            sim.read_input(Duration::ZERO),
+            Err(DeviceError::Disconnected)
+        ));
+    }
+
+    #[test]
+    fn sim_slow_chunk_is_lost_when_the_device_goes_during_the_sleep() {
+        let sim = device(&[(0, ChunkBehavior::Slow(Duration::from_millis(300)))]);
+        enter(&sim);
+        let other = sim.clone();
+        let unplug = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(50));
+            other.disconnect();
+        });
+        let frame = chunks(&image())[0].frame();
+        assert!(matches!(
+            sim.set_feature(&frame),
+            Err(DeviceError::Disconnected)
+        ));
+        unplug.join().unwrap();
+        assert!(sim.received_chunks().is_empty());
+    }
+
+    #[test]
+    fn sim_dropped_chunk_honors_the_disconnect_fault() {
+        let sim = device(&[(0, ChunkBehavior::Drop)]);
+        enter(&sim);
+        sim.disconnect_after_set_feature();
+        send(&sim, [0]);
+        assert!(sim.received_chunks().is_empty());
+        assert!(sim.read_input(Duration::ZERO).is_err());
     }
 }
