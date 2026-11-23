@@ -415,3 +415,71 @@ async fn names_can_be_set_and_restored() {
     assert_eq!(sensor.unit().await.unwrap(), "degC");
     assert_eq!(sensor.driver().await.unwrap(), "k10temp");
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn set_curve_refuses_limits_that_panic_or_freeze() {
+    let mut rig = Rig::start().await;
+    rig.ticks(2).await;
+    let pwm1 = channel(&rig, "nct6798_pwm1").await;
+    let input = path(Kind::Sensor, "nct6798_temp1");
+    let points = [(20.0, 10.0), (40.0, 50.0)];
+    for (smoothing, step) in [
+        (601.0, 5.0),
+        (-1.0, 5.0),
+        (5.0, 0.0),
+        (5.0, -1.0),
+        (f64::NAN, 5.0),
+    ] {
+        let e = pwm1
+            .set_curve(&input, &points, smoothing, step)
+            .await
+            .unwrap_err();
+        assert_eq!(
+            error_name(&e),
+            format!("{ERR}.InvalidArgument"),
+            "{smoothing} {step}"
+        );
+    }
+    pwm1.set_curve(&input, &points, 600.0, 0.5).await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn late_chip_sensor_appears_on_the_bus() {
+    let mut rig = Rig::start().await;
+    rig.tick_in_background();
+    let objects = ObjectManagerProxy::builder(&rig.client)
+        .destination(nicecooling_api::BUS_NAME)
+        .path(nicecooling_api::ROOT_PATH)
+        .cache_properties(zbus::proxy::CacheProperties::No)
+        .build()
+        .await
+        .unwrap();
+    let mut added = objects.receive_interfaces_added().await.unwrap();
+
+    rig.fake.add_hwmon(
+        20,
+        "asusec_late",
+        "devices/platform/asus_ec_sensors_late",
+        None,
+        &[("name", "asusec_late"), ("temp1_input", "50000")],
+    );
+    let late = path(Kind::Sensor, "asusec_late_temp1");
+    let signal = timeout(Duration::from_secs(5), async {
+        loop {
+            let signal = added.next().await.unwrap();
+            if signal.args().unwrap().object_path == late.as_ref() {
+                break signal;
+            }
+        }
+    })
+    .await
+    .expect("InterfacesAdded for the late sensor");
+    drop(signal);
+    let sensor = SensorProxy::builder(&rig.client)
+        .path(late)
+        .cache_properties(zbus::proxy::CacheProperties::No)
+        .build()
+        .await
+        .unwrap();
+    assert_eq!(sensor.id().await.unwrap(), "asusec_late_temp1");
+}

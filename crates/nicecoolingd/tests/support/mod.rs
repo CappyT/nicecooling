@@ -135,6 +135,7 @@ impl Rig {
         });
         options.tick_period = Duration::from_millis(50);
         options.source_period = Duration::from_millis(50);
+        options.rescan_period = Duration::from_millis(50);
         options.boot_id = "test-boot".into();
         options.leakshields = vec![LeakshieldInfo {
             serial: "20417-31072".into(),

@@ -160,6 +160,8 @@ pub struct Hub {
     sysfs_root: PathBuf,
     persister: Persister,
     authz: OnceLock<crate::authz::Authz>,
+    /// The bus connection that `dbus::serve` set, to register the objects of late sensors.
+    connection: OnceLock<zbus::Connection>,
     pending: Mutex<Option<TickConfig>>,
     releases: Mutex<Vec<Release>>,
     reports: mpsc::Sender<TickReport>,
@@ -502,6 +504,7 @@ impl Hub {
             sysfs_root: init.sysfs_root,
             persister,
             authz: OnceLock::new(),
+            connection: OnceLock::new(),
             pending: Mutex::new(None),
             releases: Mutex::new(Vec::new()),
             reports,
@@ -530,19 +533,36 @@ impl Hub {
         Ok(result)
     }
 
-    /// Adds the sensors of a chip that appeared after the start, and remembers the ids of the
-    /// chip. The D-Bus objects of the new sensors are not registered by this call.
+    /// Adds the sensors of a chip that appeared after the start, remembers the ids of the chip,
+    /// and registers their D-Bus objects when the API is on a bus.
     pub fn add_sensors(
-        &self,
+        self: &Arc<Self>,
         sensors: Vec<SensorMeta>,
         identities: std::collections::BTreeMap<String, crate::state::Identity>,
     ) {
+        let ids: Vec<String> = sensors.iter().map(|s| s.id.clone()).collect();
         {
             let mut inner = self.inner();
             inner.sensors.extend(sensors);
             inner.state.identities.extend(identities);
         }
         self.persister.changed();
+        if let Some(connection) = self.connection.get() {
+            let (hub, connection) = (self.clone(), connection.clone());
+            self.runtime.spawn(async move {
+                for id in ids {
+                    if let Err(e) =
+                        super::register_sensor(connection.object_server(), &hub, &id).await
+                    {
+                        eprintln!("nicecoolingd: cannot register the sensor {id}: {e}");
+                    }
+                }
+            });
+        }
+    }
+
+    pub fn set_connection(&self, connection: zbus::Connection) {
+        let _ = self.connection.set(connection);
     }
 
     /// Writes the state files now. The daemon calls it before it exits.
@@ -824,15 +844,9 @@ impl Hub {
         step_limit: f64,
     ) -> Result<()> {
         let input = sensor_id_of(input)?;
-        Curve::new(input.clone(), points.clone()).map_err(|e| Error::invalid(e.to_string()))?;
-        if !smoothing_s.is_finite() || smoothing_s < 0.0 {
-            return Err(Error::invalid("the smoothing time is 0 s or more"));
-        }
-        if !step_limit.is_finite() || step_limit <= 0.0 {
-            return Err(Error::invalid(
-                "the step limit is more than 0 percent per second",
-            ));
-        }
+        Curve::new(input.clone(), points.clone())
+            .and_then(|mut curve| curve.set_limits(Some(smoothing_s), Some(step_limit)))
+            .map_err(|e| Error::invalid(e.to_string()))?;
         self.edit(|i| {
             i.require_channel(id)?;
             i.require_sensor(&input)?;

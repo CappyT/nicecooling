@@ -170,6 +170,7 @@ pub async fn serve(
     authorizer: Arc<dyn Authorizer>,
 ) -> zbus::Result<Served> {
     hub.set_authz(Authz::new(authorizer));
+    hub.set_connection(connection.clone());
     let server = connection.object_server();
     server.at(ROOT_PATH, fdo::ObjectManager).await?;
     server
