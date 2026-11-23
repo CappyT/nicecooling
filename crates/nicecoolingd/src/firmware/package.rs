@@ -158,10 +158,11 @@ fn row_of(row: &rusqlite::Row<'_>) -> rusqlite::Result<Result<ImageRow, PackageE
             .and_then(|v| u16::try_from(v).ok()))
     };
     let device: String = row.get(4)?;
-    let language = if device == DEVICES[0] {
-        Language::English
-    } else {
-        Language::German
+    // The query compares the bytes, and so does this match: no other value names a Leakshield.
+    let language = match device.as_str() {
+        d if d == DEVICES[0] => Language::English,
+        d if d == DEVICES[1] => Language::German,
+        _ => return Ok(Err(PackageError::NotFound)),
     };
     Ok(match (number(1)?, number(2)?, number(3)?) {
         (Some(version), Some(bootloader), Some(hardware)) => Ok(ImageRow {
@@ -175,8 +176,9 @@ fn row_of(row: &rusqlite::Row<'_>) -> rusqlite::Result<Result<ImageRow, PackageE
     })
 }
 
+/// The comparison ignores the collation that the file gives to the column `device`.
 const COLUMNS: &str = "SELECT id, version, bootloader, hardware, device FROM firmware \
-                       WHERE device IN (?1, ?2)";
+                       WHERE device COLLATE BINARY IN (?1, ?2)";
 
 fn rows(conn: &Connection) -> Result<Vec<ImageRow>, PackageError> {
     let mut statement = conn
@@ -187,7 +189,9 @@ fn rows(conn: &Connection) -> Result<Vec<ImageRow>, PackageError> {
         .map_err(sql)?
         .collect::<rusqlite::Result<Vec<_>>>()
         .map_err(sql)?;
-    rows.into_iter().collect()
+    rows.into_iter()
+        .filter(|row| !matches!(row, Err(PackageError::NotFound)))
+        .collect()
 }
 
 /// The row `id` and its data, as the bytes of a BLOB or a TEXT value. The identity, the size and
@@ -197,7 +201,7 @@ fn read_row(conn: &Connection, id: i64) -> Result<(ImageRow, Vec<u8>), PackageEr
     let params = rusqlite::params![DEVICES[0], DEVICES[1], id];
     let matching: i64 = conn
         .query_row(
-            "SELECT count(*) FROM firmware WHERE device IN (?1, ?2) AND id = ?3",
+            "SELECT count(*) FROM firmware WHERE device COLLATE BINARY IN (?1, ?2) AND id = ?3",
             params,
             |r| r.get(0),
         )
@@ -209,7 +213,7 @@ fn read_row(conn: &Connection, id: i64) -> Result<(ImageRow, Vec<u8>), PackageEr
     }
     conn.query_row(
         "SELECT id, version, bootloader, hardware, device, octet_length(data), data FROM firmware \
-         WHERE device IN (?1, ?2) AND id = ?3",
+         WHERE device COLLATE BINARY IN (?1, ?2) AND id = ?3",
         params,
         |row| {
             let image = match row_of(row)? {
@@ -815,6 +819,25 @@ mod tests {
             matches!(&opened, Err(PackageError::InvalidArgument(why)) if why.contains("plain table")),
             "the refusal comes from the table check: {:?}",
             opened.err()
+        );
+    }
+
+    #[tokio::test]
+    async fn column_collation_does_not_change_the_device_match() {
+        let dir = dir("nocase");
+        let path = plain(
+            &dir,
+            "CREATE TABLE firmware (id INTEGER PRIMARY KEY, version INTEGER, bootloader INTEGER, \
+             hardware INTEGER, device TEXT COLLATE NOCASE, data BLOB);\
+             INSERT INTO firmware VALUES (26, 1022, 100, 1000, 'LEAKSHIELD_EN', x'00');\
+             INSERT INTO firmware VALUES (27, 1022, 100, 1000, 'leakshield_DE', x'01');",
+        );
+        let reader = PackageReader::default();
+        let rows = reader.list(open_file(&path)).await.unwrap();
+        assert_eq!(rows.iter().map(|r| r.id).collect::<Vec<_>>(), [27]);
+        assert_eq!(
+            reader.read(open_file(&path), 26).await,
+            Err(PackageError::NotFound)
         );
     }
 }
