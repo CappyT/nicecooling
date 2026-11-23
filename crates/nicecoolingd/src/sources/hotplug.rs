@@ -20,9 +20,12 @@ const BOOTLOADER_INTERFACES: usize = 2;
 pub struct UsbPath(pub String);
 
 impl UsbPath {
+    /// nusb gives the bus as `001` on Linux; sysfs names the device `1-...`.
     pub fn new(bus_id: &str, port_chain: &[u8]) -> Self {
+        let bus = bus_id.trim_start_matches('0');
+        let bus = if bus.is_empty() { "0" } else { bus };
         let ports: Vec<String> = port_chain.iter().map(u8::to_string).collect();
-        Self(format!("{bus_id}-{}", ports.join(".")))
+        Self(format!("{bus}-{}", ports.join(".")))
     }
 }
 
@@ -140,6 +143,8 @@ mod tests {
     fn path_of_bus_and_ports() {
         assert_eq!(UsbPath::new("1", &[2, 3]).0, "1-2.3");
         assert_eq!(UsbPath::new("3", &[4]).0, "3-4");
+        assert_eq!(UsbPath::new("001", &[5, 1]).0, "1-5.1");
+        assert_eq!(UsbPath::new("010", &[2]).0, "10-2");
     }
 
     #[test]

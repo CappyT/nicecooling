@@ -28,14 +28,17 @@ const fn feature_opcode(number: u32, len: usize) -> Opcode {
 
 /// The name of the hidraw node of the Leakshield at `usb_path`, from sysfs: `hidraw3`. Both roots
 /// are parameters, so tests use a fake tree.
+/// sysfs puts the node under the HID device of the interface:
+/// `<path>/<path>:1.1/0003:0C70:F014.001F/hidraw/hidraw1`.
 pub fn find_hidraw(sysfs_root: &Path, usb_path: &str) -> Option<String> {
-    let dir = sysfs_root
+    let interface = sysfs_root
         .join("bus/usb/devices")
         .join(usb_path)
-        .join(format!("{usb_path}:1.{HID_INTERFACE}"))
-        .join("hidraw");
-    let mut names: Vec<String> = std::fs::read_dir(dir)
+        .join(format!("{usb_path}:1.{HID_INTERFACE}"));
+    let mut names: Vec<String> = std::fs::read_dir(interface)
         .ok()?
+        .filter_map(|e| std::fs::read_dir(e.ok()?.path().join("hidraw")).ok())
+        .flatten()
         .filter_map(|e| e.ok()?.file_name().into_string().ok())
         .filter(|n| n.starts_with("hidraw"))
         .collect();
@@ -172,9 +175,12 @@ mod tests {
     fn hidraw_name_from_a_fake_sysfs() {
         let root = std::env::temp_dir().join(format!("nicecooling-hid-{}", std::process::id()));
         let _ = fs::remove_dir_all(&root);
-        let hid = root.join("bus/usb/devices/1-2.3/1-2.3:1.1/hidraw/hidraw7");
+        let hid = root.join("bus/usb/devices/1-2.3/1-2.3:1.1/0003:0C70:F014.001F/hidraw/hidraw7");
         fs::create_dir_all(&hid).unwrap();
-        fs::create_dir_all(root.join("bus/usb/devices/1-2.3/1-2.3:1.2/hidraw/hidraw8")).unwrap();
+        fs::create_dir_all(
+            root.join("bus/usb/devices/1-2.3/1-2.3:1.2/0003:0C70:F014.0020/hidraw/hidraw8"),
+        )
+        .unwrap();
         assert_eq!(find_hidraw(&root, "1-2.3").as_deref(), Some("hidraw7"));
         assert_eq!(find_hidraw(&root, "1-4"), None);
         assert_eq!(
