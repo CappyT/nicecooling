@@ -193,6 +193,7 @@ impl AlarmsUi {
         let delay_s = delay_s.unwrap_or_else(|| current_delay(input, event));
         Command::SetAlarmResponse {
             event: event.to_owned(),
+            source: String::new(),
             response,
             delay_s,
         }
@@ -202,10 +203,7 @@ impl AlarmsUi {
 fn current_response(input: &ScreenInput<'_>, event: &str) -> (Response, u32) {
     input
         .state
-        .snapshot
-        .responses
-        .iter()
-        .find(|rule| rule.event == event)
+        .default_response(event)
         .map_or((default_response(event), DEFAULT_DELAY_S), |rule| {
             (rule.response, rule.delay_s)
         })

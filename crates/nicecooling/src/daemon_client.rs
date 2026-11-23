@@ -14,12 +14,27 @@ use zbus::{Connection, MatchRule, MessageStream, Proxy};
 use zbus::{OwnedObjectPath, OwnedVariant as OwnedValue, Variant as Value};
 
 use crate::model::{
-    AlarmDetails, AlarmEntry, BackupEntry, BiosSnapshot, BoardInfo, CalibrationTableInfo, Cause,
-    ChannelInfo, ChannelOverride, Control, CurveSpec, DaemonEvent, DerivedDef, DeviceEvent,
-    FeedState, FieldEntry, FieldRisk, FieldValue, LastFeed, LeakshieldData, LeakshieldInfo, Link,
-    LoopInfo, ProfileChannel, ProfileContent, ProfileInfo, Response, ResponseProposal,
-    ResponseRule, Rule, RuleGroup, SensorInfo, SensorSample, Severity, Snapshot, UnitState,
+    AlarmDetails, AlarmEntry, AlarmRecord, BackupEntry, BiosSnapshot, BoardInfo,
+    CalibrationTableInfo, Cause, ChannelInfo, ChannelOverride, Control, CurveSpec, DaemonEvent,
+    DerivedDef, DeviceEvent, FeedState, FieldEntry, FieldRisk, FieldValue, LastFeed,
+    LeakshieldData, LeakshieldInfo, Link, LoopInfo, Outcome, ProfileChannel, ProfileContent,
+    ProfileInfo, Response, ResponseProposal, ResponseRule, Rule, RuleGroup, SensorInfo,
+    SensorSample, Severity, Snapshot, UnitState,
 };
+
+/// A row of `GetHistory`: instance, event, severity, source, response, raised, cleared, outcome,
+/// details.
+type HistoryWire = (
+    String,
+    String,
+    String,
+    String,
+    String,
+    u64,
+    u64,
+    String,
+    HashMap<String, OwnedValue>,
+);
 
 pub const BUS_NAME: &str = "io.github.cappyt.NiceCooling1";
 pub const ROOT: &str = "/io/github/cappyt/NiceCooling1";
@@ -244,7 +259,18 @@ impl DaemonClient {
             }
             _ => return Ok(None),
         };
-        Ok(Some(vec![event]))
+        let mut events = vec![event];
+        // The outcome of a row changes with these signals: read the history again.
+        if interface == format!("{IFACE}.Alarms")
+            && matches!(
+                member,
+                "AlarmRaised" | "AlarmCleared" | "PoweroffCancelled" | "PoweroffFailed"
+            )
+            && let Ok(rows) = self.alarm_history().await
+        {
+            events.push(DaemonEvent::History(rows));
+        }
+        Ok(Some(events))
     }
 
     /// Read the objects of the daemon in one pass.
@@ -393,6 +419,7 @@ impl DaemonClient {
             }
         }
         snapshot.responses = self.responses().await.unwrap_or_default();
+        snapshot.alarm_history = self.alarm_history().await.unwrap_or_default();
         for profile in &snapshot.profiles {
             if let Ok(content) = self.profile_content(&profile.id).await {
                 snapshot
@@ -530,20 +557,61 @@ impl DaemonClient {
             .collect())
     }
 
-    /// `GetResponses`: the alarm response of each event type. The rows of a Leakshield (source
-    /// not empty) are left out.
+    /// `GetResponses`: the default of each event and the resolved row of each Leakshield.
     pub async fn responses(&self) -> zbus::Result<Vec<ResponseRule>> {
         let proxy = self.proxy(ROOT, "Alarms").await?;
         let rows: Vec<(String, String, String, u32, bool)> =
             proxy.call("GetResponses", &()).await?;
         Ok(rows
             .into_iter()
-            .filter(|(_, source, ..)| source.is_empty())
-            .map(|(event, _, response, delay_s, _)| ResponseRule {
-                event,
-                response: Response::parse(&response),
-                delay_s,
-            })
+            .map(
+                |(event, source, response, delay_s, overridden)| ResponseRule {
+                    event,
+                    source,
+                    response: Response::parse(&response),
+                    delay_s,
+                    overridden,
+                },
+            )
+            .collect())
+    }
+
+    /// `GetHistory` without a time limit and a row limit: the daemon keeps at most 2000 rows.
+    pub async fn alarm_history(&self) -> zbus::Result<Vec<AlarmRecord>> {
+        let proxy = self.proxy(ROOT, "Alarms").await?;
+        let rows: Vec<HistoryWire> = proxy.call("GetHistory", &(0u64, 0u32)).await?;
+        Ok(rows
+            .into_iter()
+            .map(
+                |(
+                    instance,
+                    event,
+                    severity,
+                    source,
+                    response,
+                    raised_us,
+                    cleared_us,
+                    outcome,
+                    details,
+                )| {
+                    let details: Props = details
+                        .iter()
+                        .filter_map(|(key, value)| Some((key.clone(), value.try_clone().ok()?)))
+                        .collect();
+                    AlarmRecord {
+                        instance,
+                        event,
+                        severity: Severity::parse(&severity),
+                        source,
+                        response: Response::parse(&response),
+                        raised_us,
+                        cleared_us: (cleared_us != 0).then_some(cleared_us),
+                        outcome: Outcome::parse(&outcome),
+                        closed_by_restart: get(&details, "closed_by_restart").unwrap_or_default(),
+                        details: details_of(&details),
+                    }
+                },
+            )
             .collect())
     }
 
@@ -838,9 +906,11 @@ impl DaemonClient {
             .await
     }
 
+    /// `SetResponse`: source `""` is the default of the event, a Leakshield id its override.
     pub async fn set_alarm_response(
         &self,
         event: &str,
+        source: &str,
         response: Response,
         delay_s: u32,
     ) -> zbus::Result<()> {
@@ -848,7 +918,7 @@ impl DaemonClient {
             ROOT,
             "Alarms",
             "SetResponse",
-            &(event, "", response.id(), delay_s),
+            &(event, source, response.id(), delay_s),
         )
         .await
     }

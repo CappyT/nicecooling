@@ -129,8 +129,10 @@ pub enum Command {
         event: String,
         source: String,
     },
+    /// `source` is `""` for the default of the event, or a Leakshield id for its override.
     SetAlarmResponse {
         event: String,
+        source: String,
         response: Response,
         delay_s: u32,
     },
@@ -326,11 +328,12 @@ impl Command {
             }
             Self::SetAlarmResponse {
                 event,
+                source,
                 response,
                 delay_s,
             } => {
                 client
-                    .set_alarm_response(event, *response, *delay_s)
+                    .set_alarm_response(event, source, *response, *delay_s)
                     .await?
             }
             Self::RestoreBackup { leakshield, backup } => {
@@ -482,8 +485,8 @@ impl Command {
             Self::SetImmediateSwitching { .. } => "profile-immediate".to_owned(),
             Self::SetRuleTiming { .. } => "profile-timing".to_owned(),
             Self::SetRuleGroups { .. } => "rule-groups".to_owned(),
-            Self::SetAlarmResponse { event, .. } => format!("alarm-response:{event}"),
-            Self::ResetResponse { event, source } => format!("alarm-response:{event}@{source}"),
+            Self::SetAlarmResponse { event, source, .. }
+            | Self::ResetResponse { event, source } => response_feedback_key(event, source),
             Self::RestoreBackup { leakshield, .. } => format!("restore:{leakshield}"),
             Self::SetLeakshieldFields {
                 leakshield,
@@ -507,5 +510,14 @@ impl Command {
             Self::CancelPoweroff { instance } => format!("poweroff:{instance}"),
             Self::OpenWindow(_) | Self::Quit => return None,
         })
+    }
+}
+
+/// The feedback key of a response row: `alarm-response:<event>` or `alarm-response:<event>@<id>`.
+pub fn response_feedback_key(event: &str, source: &str) -> String {
+    if source.is_empty() {
+        format!("alarm-response:{event}")
+    } else {
+        format!("alarm-response:{event}@{source}")
     }
 }

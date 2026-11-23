@@ -91,12 +91,18 @@ impl ScreenView {
             InputKey::ResponseDelay(event) if commits => {
                 if let Some(seconds) = parse(&value).filter(|n| *n >= 0.0) {
                     let state = self.state(cx);
-                    let current = state.snapshot.responses.iter().find(|r| &r.event == event);
+                    let (event, source) = event.split_once('@').unwrap_or((event, ""));
+                    let current = state
+                        .snapshot
+                        .responses
+                        .iter()
+                        .find(|r| r.event == event && r.source == source);
                     if let Some(rule) = current
                         && rule.delay_s != seconds.round() as u32
                     {
                         self.send(Command::SetAlarmResponse {
-                            event: event.clone(),
+                            event: event.to_owned(),
+                            source: source.to_owned(),
                             response: rule.response,
                             delay_s: seconds.round() as u32,
                         });

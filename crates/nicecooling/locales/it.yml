@@ -627,6 +627,11 @@ alarms:
     notified: Notificato
     cancelled: Spegnimento annullato dall'utente
     none: Nessuna
+    poweroff_pending: Spegnimento in attesa
+    poweroff_requested: PC spento
+    poweroff_stopped: "Spegnimento fermato: l'allarme si è chiuso"
+    poweroff_failed: Spegnimento non riuscito
+    closed_by_restart: Chiuso da un riavvio del daemon
     column:
       time: Ora
       event: Evento
@@ -660,6 +665,7 @@ alarms:
   cancelled: "Spegnimento annullato alle %{time}. L'Allarme è ancora attivo."
   poweroff_started: Il PC si sta già spegnendo. L'annullamento è arrivato troppo tardi.
   delay_zero: Con 0 s non puoi annullare lo spegnimento.
+  overlap: Il Leakshield reagisce anche a questo allarme. Vedi la sua scheda Allarmi.
   caption:
     pump_stop: Ogni Canale è al 100 %. L'Allarme si chiude quando la pompa gira per 10 s.
   value:

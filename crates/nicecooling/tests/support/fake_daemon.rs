@@ -87,6 +87,8 @@ pub struct Shared {
     slots: Mutex<HashMap<String, u8>>,
     groups: Mutex<Vec<Group>>,
     responses: Mutex<Vec<(String, String, u32)>>,
+    /// The overrides per Leakshield: event, Leakshield id, response, delay.
+    overrides: Mutex<Vec<(String, String, String, u32)>>,
     /// The rows of `GetHistory`, newest raise first.
     pub history: Mutex<Vec<nicecooling_api::alarms::HistoryRow>>,
 }
@@ -105,6 +107,7 @@ impl Default for Shared {
             ])),
             groups: Mutex::default(),
             history: Mutex::default(),
+            overrides: Mutex::default(),
             responses: Mutex::new(
                 [
                     ("leakshield.leak-warning", "notify"),
@@ -593,10 +596,9 @@ impl Alarms {
     }
 
     async fn get_responses(&self) -> Vec<(String, String, String, u32, bool)> {
-        self.shared
-            .responses
-            .lock()
-            .expect("responses")
+        let defaults = self.shared.responses.lock().expect("responses").clone();
+        let overrides = self.shared.overrides.lock().expect("overrides").clone();
+        let mut rows: Vec<_> = defaults
             .iter()
             .map(|(event, response, delay_s)| {
                 (
@@ -607,7 +609,32 @@ impl Alarms {
                     false,
                 )
             })
-            .collect()
+            .collect();
+        for (event, response, delay_s) in defaults
+            .iter()
+            .filter(|(event, ..)| event.starts_with("leakshield."))
+        {
+            let found = overrides
+                .iter()
+                .find(|row| &row.0 == event && row.1 == LEAKSHIELD);
+            rows.push(match found {
+                Some((_, _, response, delay_s)) => (
+                    event.clone(),
+                    LEAKSHIELD.to_owned(),
+                    response.clone(),
+                    *delay_s,
+                    true,
+                ),
+                None => (
+                    event.clone(),
+                    LEAKSHIELD.to_owned(),
+                    response.clone(),
+                    *delay_s,
+                    false,
+                ),
+            });
+        }
+        rows
     }
 
     async fn set_response(
@@ -618,23 +645,41 @@ impl Alarms {
         response: &str,
         delay_s: u32,
     ) -> fdo::Result<()> {
-        // The fake keeps the default of each event only.
-        let source = if source.is_empty() {
+        let at = if source.is_empty() {
             String::new()
         } else {
             format!("@{source}")
         };
         self.shared.record(
-            &format!("SetAlarmResponse({event}{source},{response},{delay_s})"),
+            &format!("SetAlarmResponse({event}{at},{response},{delay_s})"),
             &header,
         )?;
+        let not_found =
+            || fdo::Error::Failed("io.github.cappyt.NiceCooling1.Error.NotFound".into());
+        if !source.is_empty() {
+            if !event.starts_with("leakshield.") {
+                return Err(fdo::Error::Failed(
+                    "io.github.cappyt.NiceCooling1.Error.InvalidArgument".into(),
+                ));
+            }
+            if source != LEAKSHIELD {
+                return Err(not_found());
+            }
+            let mut overrides = self.shared.overrides.lock().expect("overrides");
+            overrides.retain(|row| !(row.0 == event && row.1 == source));
+            overrides.push((
+                event.to_owned(),
+                source.to_owned(),
+                response.to_owned(),
+                delay_s,
+            ));
+            return Ok(());
+        }
         let mut responses = self.shared.responses.lock().expect("responses");
         let row = responses
             .iter_mut()
             .find(|row| row.0 == event)
-            .ok_or_else(|| {
-                fdo::Error::Failed("io.github.cappyt.NiceCooling1.Error.NotFound".into())
-            })?;
+            .ok_or_else(not_found)?;
         row.1 = response.to_owned();
         row.2 = delay_s;
         Ok(())
@@ -647,7 +692,26 @@ impl Alarms {
         source: &str,
     ) -> fdo::Result<()> {
         self.shared
-            .record(&format!("ResetResponse({event},{source})"), &header)
+            .record(&format!("ResetResponse({event},{source})"), &header)?;
+        if source.is_empty() {
+            let builtin = if matches!(event, "leakshield.leak-alarm" | "pump-stop") {
+                "poweroff"
+            } else {
+                "notify"
+            };
+            let mut responses = self.shared.responses.lock().expect("responses");
+            if let Some(row) = responses.iter_mut().find(|row| row.0 == event) {
+                row.1 = builtin.to_owned();
+                row.2 = 30;
+            }
+        } else {
+            self.shared
+                .overrides
+                .lock()
+                .expect("overrides")
+                .retain(|row| !(row.0 == event && row.1 == source));
+        }
+        Ok(())
     }
 
     async fn get_history(
@@ -683,6 +747,11 @@ impl Alarms {
                 fdo::Error::Failed("io.github.cappyt.NiceCooling1.Error.NoPoweroff".into())
             })?;
         pending.6 = 0;
+        for row in self.shared.history.lock().expect("history").iter_mut() {
+            if row.0 == instance {
+                row.7 = "poweroff-cancelled".into();
+            }
+        }
         self.active_changed(&emitter).await?;
         Self::poweroff_cancelled(&emitter, instance).await?;
         Ok(())
@@ -1629,6 +1698,32 @@ impl FakeDaemon {
             .interface::<_, Alarms>(ROOT)
             .await
             .expect("alarms");
+        iface
+            .get()
+            .await
+            .shared
+            .history
+            .lock()
+            .expect("history")
+            .insert(
+                0,
+                (
+                    instance.into(),
+                    event.into(),
+                    severity.into(),
+                    source.into(),
+                    response.into(),
+                    1,
+                    0,
+                    match response {
+                        "none" => "none",
+                        "poweroff" => "poweroff-pending",
+                        _ => "notified",
+                    }
+                    .into(),
+                    details.to_map(),
+                ),
+            );
         iface.get_mut().await.active.push((
             instance.into(),
             event.into(),
@@ -1666,6 +1761,22 @@ impl FakeDaemon {
             .interface::<_, Alarms>(ROOT)
             .await
             .expect("alarms");
+        for row in iface
+            .get()
+            .await
+            .shared
+            .history
+            .lock()
+            .expect("history")
+            .iter_mut()
+        {
+            if row.0 == instance && row.6 == 0 {
+                row.6 = 2;
+                if row.7 == "poweroff-pending" {
+                    row.7 = "poweroff-stopped".into();
+                }
+            }
+        }
         iface.get_mut().await.active.retain(|row| row.0 != instance);
         iface
             .get()

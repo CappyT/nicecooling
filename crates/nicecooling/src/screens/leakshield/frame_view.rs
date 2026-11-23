@@ -210,18 +210,13 @@ impl ScreenView {
             if let Some(seconds) = parse_number(value).filter(|n| *n >= 0.0) {
                 let seconds = seconds.round() as u32;
                 let command = self.with_input(cx, |input| {
-                    let (response, delay) = input
-                        .state
-                        .snapshot
-                        .responses
-                        .iter()
-                        .find(|rule| rule.event == event)
-                        .map_or(
-                            (crate::screens::alarms::default_response(event), 30),
-                            |rule| (rule.response, rule.delay_s),
-                        );
+                    let (response, delay) = input.state.default_response(event).map_or(
+                        (crate::screens::alarms::default_response(event), 30),
+                        |rule| (rule.response, rule.delay_s),
+                    );
                     (delay != seconds).then(|| crate::command::Command::SetAlarmResponse {
                         event: event.to_owned(),
+                        source: String::new(),
                         response,
                         delay_s: seconds,
                     })

@@ -3,9 +3,11 @@
 //! built here too: it shows over every page.
 
 use crate::command::Command;
+use crate::command::response_feedback_key;
 use crate::i18n::Locale;
 use crate::model::{
-    AlarmEntry, AppState, Link, Outcome, Response, ResponseRule, Severity, format_countdown,
+    AlarmEntry, AlarmRecord, AppState, Link, Outcome, Response, ResponseRule, Severity,
+    format_countdown,
 };
 use crate::screens::format::{clock, optional_value, value_text};
 use crate::screens::{FeedbackLine, ScreenInput, WriteOutcome};
@@ -104,6 +106,10 @@ pub struct ResponseOption {
 #[derive(Clone, Debug, PartialEq)]
 pub struct ResponseRow {
     pub event: String,
+    /// `""` for the default of the event, or the Leakshield id of an override row.
+    pub source: String,
+    /// `event` or `event@source`: the key of the delay input.
+    pub key: String,
     pub title: String,
     pub severity: Severity,
     pub response: Response,
@@ -113,6 +119,8 @@ pub struct ResponseRow {
     pub delay_enabled: bool,
     pub differs: bool,
     pub reset: Option<Command>,
+    /// The warning icon: the Leakshield also reacts to this Alarm.
+    pub overlap: Option<String>,
     pub delay_warning: Option<String>,
     pub write_line: Option<FeedbackLine>,
 }
@@ -253,13 +261,15 @@ pub fn response_text(locale: Locale, response: Response, delay_s: u32) -> String
     }
 }
 
-/// The delay of the response of an event type.
-fn delay_of(state: &AppState, event: &str) -> u32 {
+/// The delay of the response of an event for a source: the row of the Leakshield, else the
+/// default of the event.
+fn delay_of(state: &AppState, event: &str, source: &str) -> u32 {
     state
         .snapshot
         .responses
         .iter()
-        .find(|r| r.event == event)
+        .find(|r| r.event == event && r.source == source)
+        .or_else(|| state.default_response(event))
         .map_or(DEFAULT_DELAY_S, |r| r.delay_s)
 }
 
@@ -296,7 +306,11 @@ fn active_card(input: &ScreenInput<'_>) -> ActiveCard {
                 source: source_text(state, locale, alarm),
                 since: clock(alarm.raised_us),
                 value: value_of(input, alarm),
-                response: response_text(locale, alarm.response, delay_of(state, &alarm.event)),
+                response: response_text(
+                    locale,
+                    alarm.response,
+                    delay_of(state, &alarm.event, &alarm.source),
+                ),
                 countdown: remaining.map(|seconds| {
                     locale.fmt("alarms.countdown", &[("time", &format_countdown(seconds))])
                 }),
@@ -365,11 +379,31 @@ fn open_page(state: &AppState, alarm: &AlarmEntry) -> Option<Page> {
 fn response_row(input: &ScreenInput<'_>, rule: &ResponseRule, enabled: bool) -> ResponseRow {
     let locale = input.locale;
     let default = default_response(&rule.event);
-    let differs = rule.response != default
-        || (rule.response == Response::Poweroff && rule.delay_s != DEFAULT_DELAY_S);
-    let key = format!("alarm-response:{}", rule.event);
+    let differs = if rule.source.is_empty() {
+        rule.response != default
+            || (rule.response == Response::Poweroff && rule.delay_s != DEFAULT_DELAY_S)
+    } else {
+        rule.overridden
+    };
+    let key = response_feedback_key(&rule.event, &rule.source);
+    // A Leakshield row has the overlap of its device. A default row has the overlap of any device.
+    let overlap = input
+        .state
+        .snapshot
+        .leakshield_data
+        .iter()
+        .filter(|(id, _)| rule.source.is_empty() || **id == rule.source)
+        .flat_map(|(_, data)| &data.proposals)
+        .any(|proposal| proposal.alarm == rule.event && !proposal.overlap.is_empty())
+        .then(|| locale.tr("alarms.overlap"));
     ResponseRow {
         event: rule.event.clone(),
+        source: rule.source.clone(),
+        key: if rule.source.is_empty() {
+            rule.event.clone()
+        } else {
+            format!("{}@{}", rule.event, rule.source)
+        },
         title: locale.event_title(&rule.event),
         severity: event_severity(&rule.event),
         response: rule.response,
@@ -388,11 +422,11 @@ fn response_row(input: &ScreenInput<'_>, rule: &ResponseRule, enabled: bool) -> 
             .collect(),
         delay_enabled: enabled && rule.response == Response::Poweroff,
         differs,
-        reset: (differs && enabled).then(|| Command::SetAlarmResponse {
+        reset: (differs && enabled).then(|| Command::ResetResponse {
             event: rule.event.clone(),
-            response: default,
-            delay_s: DEFAULT_DELAY_S,
+            source: rule.source.clone(),
         }),
+        overlap,
         delay_warning: (rule.response == Response::Poweroff && rule.delay_s == 0)
             .then(|| locale.tr("alarms.delay_zero")),
         write_line: input.feedback.get(&key).map(|outcome| {
@@ -405,28 +439,41 @@ fn responses_card(input: &ScreenInput<'_>) -> ResponsesCard {
     let locale = input.locale;
     let state = input.state;
     let enabled = input.writes().enabled;
-    let (devices, own): (Vec<&ResponseRule>, Vec<&ResponseRule>) = state
-        .snapshot
-        .responses
-        .iter()
-        .partition(|rule| !is_nicecooling_event(&rule.event));
+    let rules = &state.snapshot.responses;
+    let defaults = || rules.iter().filter(|rule| rule.source.is_empty());
     let mut groups = Vec::new();
-    if !devices.is_empty() {
+    // The default of each Leakshield event, then the rows of each known Leakshield.
+    let device_defaults: Vec<ResponseRow> = defaults()
+        .filter(|rule| !is_nicecooling_event(&rule.event))
+        .map(|rule| response_row(input, rule, enabled))
+        .collect();
+    if !device_defaults.is_empty() {
         groups.push(ResponseGroup {
             title: locale.tr("nav.leakshield"),
-            rows: devices
-                .into_iter()
-                .map(|rule| response_row(input, rule, enabled))
-                .collect(),
+            rows: device_defaults,
         });
     }
+    for device in &state.snapshot.leakshields {
+        let rows: Vec<ResponseRow> = rules
+            .iter()
+            .filter(|rule| rule.source == device.id)
+            .map(|rule| response_row(input, rule, enabled))
+            .collect();
+        if !rows.is_empty() {
+            groups.push(ResponseGroup {
+                title: format!("{} {}", locale.tr("nav.leakshield"), device.serial),
+                rows,
+            });
+        }
+    }
+    let own: Vec<ResponseRow> = defaults()
+        .filter(|rule| is_nicecooling_event(&rule.event))
+        .map(|rule| response_row(input, rule, enabled))
+        .collect();
     if !own.is_empty() {
         groups.push(ResponseGroup {
             title: locale.tr("alarms.group.nicecooling"),
-            rows: own
-                .into_iter()
-                .map(|rule| response_row(input, rule, enabled))
-                .collect(),
+            rows: own,
         });
     }
     ResponsesCard {
@@ -460,13 +507,29 @@ fn duration_text(locale: Locale, from_us: u64, to_us: Option<u64>) -> String {
     }
 }
 
+fn outcome_key(record: &AlarmRecord) -> &'static str {
+    if record.closed_by_restart {
+        return "alarms.history.closed_by_restart";
+    }
+    match record.outcome {
+        Outcome::None => "alarms.history.none",
+        Outcome::Notified => "alarms.history.notified",
+        Outcome::PoweroffPending => "alarms.history.poweroff_pending",
+        Outcome::PoweroffCancelled => "alarms.history.cancelled",
+        Outcome::PoweroffStopped => "alarms.history.poweroff_stopped",
+        Outcome::PoweroffRequested => "alarms.history.poweroff_requested",
+        Outcome::PoweroffFailed => "alarms.history.poweroff_failed",
+    }
+}
+
 fn history_card(input: &ScreenInput<'_>, ui: &AlarmsUi) -> HistoryCard {
     let locale = input.locale;
     let state = input.state;
+    // The daemon returns the newest raise first.
     let rows: Vec<HistoryRow> = state
+        .snapshot
         .alarm_history
         .iter()
-        .rev()
         .filter(|record| match ui.filter {
             HistoryFilter::All => true,
             HistoryFilter::Alarms => record.severity == Severity::Alarm,
@@ -478,27 +541,13 @@ fn history_card(input: &ScreenInput<'_>, ui: &AlarmsUi) -> HistoryCard {
             severity: record.severity,
             source: state.source_with_loop(&record.source, &locale.tr("nav.leakshield")),
             duration: duration_text(locale, record.raised_us, record.cleared_us),
-            response: locale.tr(match record.outcome {
-                Outcome::Active | Outcome::Notified => match record.response {
-                    Response::None => "alarms.history.none",
-                    _ => "alarms.history.notified",
-                },
-                Outcome::PoweroffCancelled => "alarms.history.cancelled",
-                Outcome::None => "alarms.history.none",
-            }),
+            response: locale.tr(outcome_key(record)),
             sensor: state
                 .snapshot
                 .sensors
                 .contains_key(&record.source)
                 .then(|| record.source.clone())
-                .or_else(|| {
-                    state
-                        .snapshot
-                        .alarms
-                        .iter()
-                        .find(|a| a.instance == record.instance)
-                        .and_then(|a| a.details.sensor.clone())
-                }),
+                .or_else(|| record.details.sensor.clone()),
             at_s: (record.raised_us / 1_000_000) as i64,
         })
         .collect();
@@ -565,7 +614,9 @@ impl CountdownDialog {
         let state = input.state;
         let alarm = state.next_poweroff()?;
         let seconds = alarm.poweroff_in_s(input.now_us).unwrap_or(0);
-        let total = u64::from(delay_of(state, &alarm.event)).max(seconds).max(1);
+        let total = u64::from(delay_of(state, &alarm.event, &alarm.source))
+            .max(seconds)
+            .max(1);
         let pending = state
             .snapshot
             .alarms
@@ -593,7 +644,11 @@ impl CountdownDialog {
                 (locale.tr("alarms.dialog.value"), value_of(input, alarm)),
                 (
                     locale.tr("alarms.dialog.response"),
-                    response_text(locale, alarm.response, delay_of(state, &alarm.event)),
+                    response_text(
+                        locale,
+                        alarm.response,
+                        delay_of(state, &alarm.event, &alarm.source),
+                    ),
                 ),
             ],
             more: (pending > 1).then(|| locale.plural("status.alarms", pending)),

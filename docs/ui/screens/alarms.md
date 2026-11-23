@@ -9,8 +9,8 @@ The screen lists the active Warnings and Alarms, their history, and the alarm re
 Three cards.
 
 1. "Active": a table with the severity icon, "Event", "Source", "Since", "Value" (the value and its limit), "Alarm response". An event with a running countdown shows "Poweroff in 0:21" and the button "Cancel poweroff" in its row.
-2. "Alarm responses": one row per Warning and Alarm type of every source. Columns: "Event", "Source", "Alarm response" (select: "None", "Notify", "Poweroff after a delay"), "Delay" (seconds). Groups: one per Leakshield, then "nicecooling" with "Pump stopped" (Alarm), "Leakshield unreachable" (Alarm) and "Input lost" (Warning). A row that differs from the default has the link "Reset".
-3. "History": a table with "Time", "Event", "Source", "Duration", "Response", newest first, with a filter select ("All", "Alarms", "Warnings").
+2. "Alarm responses": one row per Warning and Alarm type of every source. Columns: "Event", "Source", "Alarm response" (select: "None", "Notify", "Poweroff after a delay"), "Delay" (seconds). Groups: "Leakshield" with the default of each Leakshield event (source `""` of `GetResponses`), then one group per known Leakshield ("Leakshield 20417-31072") with its resolved rows, then "nicecooling" with "Pump stopped" (Alarm), "Leakshield unreachable" (Alarm) and "Input lost" (Warning). A change in a Leakshield row is an override for that Leakshield. The link "Reset" shows on a Leakshield row with an override, and on a default row that differs from the built-in default.
+3. "History": a table with "Time", "Event", "Source", "Duration", "Response", newest first, with a filter select ("All", "Alarms", "Warnings"). The rows come from `GetHistory`: the daemon keeps them across app and daemon restarts. The app reads them again on `AlarmRaised`, `AlarmCleared`, `PoweroffCancelled` and `PoweroffFailed`.
 
 ## Poweroff countdown dialog
 
@@ -50,5 +50,5 @@ See "Countdown dialog" in `../widgets.md`. It opens with the window when an Alar
 | Events, Leakshield | "Leak Warning", "Small leak", "Large leak", "Fill level Warning", "Fill level Alarm", "System Alarm" |
 | Events, nicecooling | "Pump stopped", "Leakshield unreachable", "Input lost" |
 | Alarm response values | "None", "Notify", "Poweroff after a delay" |
-| Response, history | "Notified", "Poweroff cancelled by the user", "PC powered off", "None" |
+| Response, history | "None", "Notified", "Poweroff pending", "Poweroff cancelled by the user", "Poweroff stopped: the Alarm closed", "PC powered off" (`poweroff-requested`), "Poweroff failed", "Closed by a daemon restart" (a row with `closed_by_restart`) |
 | Dialog | "Large leak Alarm", "The PC powers off when the countdown ends.", "seconds left of 30", "Cancel poweroff", "Hide", "The countdown continues in the banner." |

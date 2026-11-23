@@ -3,7 +3,7 @@ mod support;
 use nicecooling::history::query::{Resolution, load_series};
 use nicecooling::history::{HistoryDb, HistoryWriter};
 use nicecooling::i18n::{EN, IT};
-use nicecooling::model::{AppState, Response};
+use nicecooling::model::{AlarmRecord, AppState, Outcome, Response, Severity};
 use nicecooling::screens::history::{
     ChartData, HistoryModel, HistoryState, HistoryUi, Range, Side, picker_rows,
 };
@@ -199,32 +199,6 @@ fn history_states() {
     );
     assert_eq!(model.state, HistoryState::Ready);
 
-    // Alarm markers: a vertical line at the raise time, with its title.
-    let mut alarmed = full();
-    let mut leak = alarm(
-        "a1",
-        "leakshield.leak-alarm",
-        LEAKSHIELD,
-        Response::Notify,
-        0,
-    );
-    leak.raised_us = (T0 as u64 + 200) * 1_000_000;
-    alarmed.snapshot.alarms = vec![leak];
-    let markers = HistoryModel::build(
-        &input(&alarmed, &feedback),
-        &ui,
-        &loaded(&ui, now),
-        now,
-        800,
-    )
-    .markers;
-    assert_eq!(markers.len(), 1);
-    assert_eq!(
-        (markers[0].t, markers[0].title.as_str()),
-        (T0 + 200, "Large leak Alarm")
-    );
-    assert_eq!(markers[0].instance, "a1");
-
     // The aggregates after 48 hours: the hint shows.
     let mut old = HistoryUi::default();
     old.toggle_sensor("nct6798_temp1");
@@ -388,5 +362,85 @@ fn history_labels() {
     assert_eq!(
         italian.series[0].legend.text,
         "Water temperature 30,5 °C, min 30,0, max 34,0"
+    );
+}
+
+#[test]
+fn markers_from_daemon_history() {
+    let feedback = Feedback::default();
+    let now = T0 + 400;
+    let mut ui = HistoryUi::default();
+    ui.toggle_sensor("nct6798_temp1");
+    let record =
+        |instance: &str, event: &str, severity, raised: i64, cleared: Option<i64>| AlarmRecord {
+            instance: instance.into(),
+            event: event.into(),
+            severity,
+            source: LEAKSHIELD.into(),
+            response: Response::Notify,
+            raised_us: raised as u64 * 1_000_000,
+            cleared_us: cleared.map(|t| t as u64 * 1_000_000),
+            outcome: Outcome::Notified,
+            closed_by_restart: false,
+            details: Default::default(),
+        };
+    // A closed row and an active row are markers. The App was not running at the first raise.
+    let mut state = full();
+    state.snapshot.alarm_history = vec![
+        record(
+            "a2",
+            "leakshield.leak-alarm",
+            Severity::Alarm,
+            T0 + 300,
+            None,
+        ),
+        record(
+            "w1",
+            "leakshield.leak-warning",
+            Severity::Warning,
+            T0 + 200,
+            Some(T0 + 250),
+        ),
+        record(
+            "old",
+            "leakshield.leak-alarm",
+            Severity::Alarm,
+            T0 - 5000,
+            Some(T0 - 4900),
+        ),
+    ];
+    let markers =
+        HistoryModel::build(&input(&state, &feedback), &ui, &loaded(&ui, now), now, 800).markers;
+    let shown: Vec<(i64, &str, &str)> = markers
+        .iter()
+        .map(|m| (m.t, m.title.as_str(), m.instance.as_str()))
+        .collect();
+    assert_eq!(
+        shown,
+        [
+            (T0 + 300, "Large leak Alarm", "a2"),
+            (T0 + 200, "Leak Warning", "w1"),
+        ]
+    );
+
+    // The active Alarms of the snapshot alone are no markers: the history rows are.
+    let mut active_only = full();
+    active_only.snapshot.alarms = vec![alarm(
+        "a1",
+        "leakshield.leak-alarm",
+        LEAKSHIELD,
+        Response::Notify,
+        0,
+    )];
+    assert!(
+        HistoryModel::build(
+            &input(&active_only, &feedback),
+            &ui,
+            &loaded(&ui, now),
+            now,
+            800
+        )
+        .markers
+        .is_empty()
     );
 }

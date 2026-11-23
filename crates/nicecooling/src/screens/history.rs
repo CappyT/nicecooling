@@ -518,14 +518,14 @@ impl HistoryModel {
         model.markers = input
             .state
             .snapshot
-            .alarms
+            .alarm_history
             .iter()
-            .filter(|alarm| alarm.raised_us != 0)
-            .map(|alarm| AlarmMarker {
-                t: (alarm.raised_us / 1_000_000) as i64,
-                severity: alarm.severity,
-                title: locale.event_title(&alarm.event),
-                instance: alarm.instance.clone(),
+            .filter(|row| row.raised_us != 0)
+            .map(|row| AlarmMarker {
+                t: (row.raised_us / 1_000_000) as i64,
+                severity: row.severity,
+                title: locale.event_title(&row.event),
+                instance: row.instance.clone(),
             })
             .filter(|marker| marker.t >= window.0 && marker.t <= window.1)
             .collect();

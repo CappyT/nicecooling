@@ -3,7 +3,8 @@ mod support;
 use nicecooling::command::Command;
 use nicecooling::i18n::{EN, IT};
 use nicecooling::model::{
-    AlarmDetails, AppState, DaemonEvent, Link, Outcome, Response, ResponseRule, Severity,
+    AlarmDetails, AlarmRecord, AppState, DaemonEvent, Link, Outcome, Response, ResponseRule,
+    Severity,
 };
 use nicecooling::screens::alarms::{
     AlarmsModel, AlarmsState, AlarmsUi, CountdownDialog, DialogButton, HistoryFilter,
@@ -38,8 +39,10 @@ fn model_at(state: &AppState, now_us: u64) -> AlarmsModel {
 fn rule(event: &str, response: Response, delay_s: u32) -> ResponseRule {
     ResponseRule {
         event: event.into(),
+        source: String::new(),
         response,
         delay_s,
+        overridden: false,
     }
 }
 
@@ -218,10 +221,9 @@ fn alarms_states() {
     );
     assert_eq!(
         leak_row.reset,
-        Some(Command::SetAlarmResponse {
+        Some(Command::ResetResponse {
             event: "leakshield.leak-alarm".into(),
-            response: Response::Poweroff,
-            delay_s: 30
+            source: String::new(),
         })
     );
     let unreachable = table.groups[1]
@@ -233,55 +235,57 @@ fn alarms_states() {
     assert_eq!(unreachable.options.len(), 3);
 }
 
-#[test]
-fn history_keeps_what_the_app_saw() {
-    let mut state = with_responses();
-    let raise = |instance: &str, event: &str, severity: Severity, response: Response, at: u64| {
-        let mut entry = alarm(instance, event, LEAKSHIELD, response, 30);
-        entry.severity = severity;
-        entry.raised_us = at;
-        DaemonEvent::AlarmRaised(entry)
-    };
-    state.apply(&raise(
-        "w1",
-        "leakshield.leak-warning",
-        Severity::Warning,
-        Response::Notify,
-        NOW_US,
-    ));
-    state.apply(&raise(
-        "a1",
-        "leakshield.leak-alarm",
-        Severity::Alarm,
-        Response::Poweroff,
-        NOW_US,
-    ));
-    state.apply(&DaemonEvent::PoweroffCancelled {
-        instance: "a1".into(),
-    });
-    state.apply(&DaemonEvent::AlarmCleared {
-        instance: "w1".into(),
-    });
-    state.apply(&DaemonEvent::AlarmCleared {
-        instance: "a1".into(),
-    });
-    assert_eq!(state.alarm_history.len(), 2);
-    assert!(state.alarm_history.iter().all(|r| r.cleared_us.is_some()));
-    assert_eq!(state.alarm_history[0].outcome, Outcome::Notified);
-    assert_eq!(state.alarm_history[1].outcome, Outcome::PoweroffCancelled);
+fn record(
+    instance: &str,
+    event: &str,
+    severity: Severity,
+    outcome: Outcome,
+    raised_us: u64,
+    cleared_us: Option<u64>,
+) -> AlarmRecord {
+    AlarmRecord {
+        instance: instance.into(),
+        event: event.into(),
+        severity,
+        source: LEAKSHIELD.into(),
+        response: Response::Notify,
+        raised_us,
+        cleared_us,
+        outcome,
+        closed_by_restart: false,
+        details: AlarmDetails::default(),
+    }
+}
 
+#[test]
+fn history_table_from_daemon() {
+    let mut state = with_responses();
+    state.snapshot.alarm_history = vec![
+        record(
+            "a2",
+            "leakshield.leak-alarm",
+            Severity::Alarm,
+            Outcome::PoweroffCancelled,
+            NOW_US + 60_000_000,
+            Some(NOW_US + 90_000_000),
+        ),
+        record(
+            "w1",
+            "leakshield.leak-warning",
+            Severity::Warning,
+            Outcome::Notified,
+            NOW_US,
+            None,
+        ),
+    ];
     let feedback = Feedback::default();
     let all = AlarmsModel::build(&input(&state, &feedback, NOW_US), &AlarmsUi::default());
     assert!(all.history.empty.is_none());
-    assert_eq!(
-        all.history.rows[0].event, "Large leak Alarm",
-        "newest first"
-    );
-    assert_eq!(
-        all.history.rows[0].response,
-        "Poweroff cancelled by the user"
-    );
-    assert_eq!(all.history.rows[1].response, "Notified");
+    // The order of the daemon is kept: newest raise first.
+    assert_eq!(all.history.rows[0].event, "Large leak Alarm");
+    assert_eq!(all.history.rows[0].duration, "30 s");
+    assert_eq!(all.history.rows[1].event, "Leak Warning");
+    assert_eq!(all.history.rows[1].duration, "active");
     assert_eq!(all.history.rows[1].source, "Leakshield, Main loop");
 
     let mut ui = AlarmsUi::default();
@@ -298,6 +302,143 @@ fn history_keeps_what_the_app_saw() {
             .len(),
         1
     );
+
+    // The signals raise and clear do not keep rows in the app: only the daemon does.
+    let mut live = with_responses();
+    live.apply(&DaemonEvent::AlarmRaised(alarm(
+        "a1",
+        "leakshield.leak-alarm",
+        LEAKSHIELD,
+        Response::Poweroff,
+        30,
+    )));
+    assert!(live.snapshot.alarm_history.is_empty());
+    live.apply(&DaemonEvent::History(state.snapshot.alarm_history.clone()));
+    assert_eq!(live.snapshot.alarm_history.len(), 2);
+}
+
+#[test]
+fn history_outcome_texts() {
+    let texts = |locale| {
+        let mut state = with_responses();
+        state.snapshot.alarm_history = [
+            Outcome::None,
+            Outcome::Notified,
+            Outcome::PoweroffPending,
+            Outcome::PoweroffCancelled,
+            Outcome::PoweroffStopped,
+            Outcome::PoweroffRequested,
+            Outcome::PoweroffFailed,
+        ]
+        .into_iter()
+        .enumerate()
+        .map(|(n, outcome)| {
+            record(
+                &format!("i{n}"),
+                "leakshield.leak-alarm",
+                Severity::Alarm,
+                outcome,
+                NOW_US + n as u64,
+                None,
+            )
+        })
+        .collect();
+        let feedback = Feedback::default();
+        AlarmsModel::build(
+            &ScreenInput {
+                locale,
+                ..input(&state, &feedback, NOW_US)
+            },
+            &AlarmsUi::default(),
+        )
+        .history
+        .rows
+        .into_iter()
+        .map(|row| row.response)
+        .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        texts(EN),
+        [
+            "None",
+            "Notified",
+            "Poweroff pending",
+            "Poweroff cancelled by the user",
+            "Poweroff stopped: the Alarm closed",
+            "PC powered off",
+            "Poweroff failed",
+        ]
+    );
+    assert_eq!(
+        texts(IT),
+        [
+            "Nessuna",
+            "Notificato",
+            "Spegnimento in attesa",
+            "Spegnimento annullato dall'utente",
+            "Spegnimento fermato: l'allarme si \u{e8} chiuso",
+            "PC spento",
+            "Spegnimento non riuscito",
+        ]
+    );
+}
+
+#[test]
+fn history_closed_by_restart_text() {
+    let mut state = with_responses();
+    let mut row = record(
+        "w1",
+        "leakshield.leak-warning",
+        Severity::Warning,
+        Outcome::Notified,
+        NOW_US,
+        Some(NOW_US + 5_000_000),
+    );
+    row.closed_by_restart = true;
+    state.snapshot.alarm_history = vec![row];
+    let feedback = Feedback::default();
+    let shown = AlarmsModel::build(&input(&state, &feedback, NOW_US), &AlarmsUi::default());
+    assert_eq!(shown.history.rows[0].response, "Closed by a daemon restart");
+    let italian = AlarmsModel::build(
+        &ScreenInput {
+            locale: IT,
+            ..input(&state, &feedback, NOW_US)
+        },
+        &AlarmsUi::default(),
+    );
+    assert_eq!(
+        italian.history.rows[0].response,
+        "Chiuso da un riavvio del daemon"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn history_rows_read_closed_by_restart_from_the_daemon() {
+    let bus = PrivateBus::start("alarms-history-restart");
+    let daemon = FakeDaemon::start(bus.connect().await, Options::default()).await;
+    daemon.shared.history.lock().expect("history").push((
+        "alarm_1_1".into(),
+        "lost-input".into(),
+        "warning".into(),
+        "nct6798_pwm6".into(),
+        "notify".into(),
+        1_000_000,
+        2_000_000,
+        "notified".into(),
+        std::collections::HashMap::from([(
+            "closed_by_restart".to_owned(),
+            zbus::OwnedVariant::try_from(zbus::Variant::Bool(true)).expect("value"),
+        )]),
+    ));
+    let mut harness = Harness::start(&bus).await;
+    harness
+        .until("the history is read", |state| {
+            !state.snapshot.alarm_history.is_empty()
+        })
+        .await;
+    let row = &harness.state.snapshot.alarm_history[0];
+    assert!(row.closed_by_restart);
+    assert_eq!(row.cleared_us, Some(2_000_000));
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -316,8 +457,8 @@ async fn response_table_calls_set_response() {
         &AlarmsUi::default(),
     )
     .responses;
-    assert_eq!(table.groups.len(), 2);
-    let pump = table.groups[1]
+    assert_eq!(table.groups.len(), 3);
+    let pump = table.groups[2]
         .rows
         .iter()
         .find(|row| row.event == "pump-stop")
@@ -335,6 +476,7 @@ async fn response_table_calls_set_response() {
     // Notify only: the row changes at once.
     Command::SetAlarmResponse {
         event: "pump-stop".into(),
+        source: String::new(),
         response: Response::Notify,
         delay_s: 30,
     }
@@ -344,6 +486,7 @@ async fn response_table_calls_set_response() {
     // A delay of 0 s.
     Command::SetAlarmResponse {
         event: "leakshield.leak-alarm".into(),
+        source: String::new(),
         response: Response::Poweroff,
         delay_s: 0,
     }
@@ -366,7 +509,7 @@ async fn response_table_calls_set_response() {
     };
     let table =
         AlarmsModel::build(&input(&state, &feedback, NOW_US), &AlarmsUi::default()).responses;
-    let pump = table.groups[1]
+    let pump = table.groups[2]
         .rows
         .iter()
         .find(|r| r.event == "pump-stop")
@@ -391,7 +534,7 @@ async fn response_table_calls_set_response() {
         WriteOutcome::Applied { at_us: NOW_US },
     );
     let table = AlarmsModel::build(&input(&state, &done, NOW_US), &AlarmsUi::default()).responses;
-    let pump = table.groups[1]
+    let pump = table.groups[2]
         .rows
         .iter()
         .find(|r| r.event == "pump-stop")
@@ -406,6 +549,7 @@ async fn response_table_calls_set_response() {
     assert_eq!(
         Command::SetAlarmResponse {
             event: "pump-stop".into(),
+            source: String::new(),
             response: Response::None,
             delay_s: 30
         }
@@ -417,6 +561,7 @@ async fn response_table_calls_set_response() {
     // The daemon refuses an unknown event.
     let refused = Command::SetAlarmResponse {
         event: "mystery".into(),
+        source: String::new(),
         response: Response::Notify,
         delay_s: 30,
     }
@@ -435,23 +580,24 @@ async fn alarms_reach_the_history_from_the_daemon() {
             !state.snapshot.profiles.is_empty()
         })
         .await;
+    assert!(harness.state.snapshot.alarm_history.is_empty());
     daemon
         .raise_alarm("a1", "pump-stop", "alarm", "loop_1", "notify", 0)
         .await;
     harness
         .until("the Alarm is in the history", |state| {
-            state.alarm_history.len() == 1
+            state.snapshot.alarm_history.len() == 1
         })
         .await;
-    assert_eq!(harness.state.alarm_history[0].event, "pump-stop");
-    assert_eq!(harness.state.alarm_history[0].outcome, Outcome::Active);
+    let row = &harness.state.snapshot.alarm_history[0];
+    assert_eq!((row.event.as_str(), row.cleared_us), ("pump-stop", None));
+    assert_eq!(row.outcome, Outcome::Notified);
     daemon.clear_alarm("a1").await;
     harness
         .until("the Alarm closes", |state| {
-            state.alarm_history[0].cleared_us.is_some()
+            state.snapshot.alarm_history[0].cleared_us.is_some()
         })
         .await;
-    assert_eq!(harness.state.alarm_history[0].outcome, Outcome::Notified);
 }
 
 #[test]
@@ -659,4 +805,235 @@ fn a_cancel_that_came_too_late_says_the_poweroff_started() {
         let model = AlarmsModel::build(&input, &AlarmsUi::default());
         assert_eq!(model.active.rows[0].cancelled.as_deref(), Some(text));
     }
+}
+
+fn leakshield_rule(
+    event: &str,
+    response: Response,
+    delay_s: u32,
+    overridden: bool,
+) -> ResponseRule {
+    ResponseRule {
+        source: LEAKSHIELD.into(),
+        overridden,
+        ..rule(event, response, delay_s)
+    }
+}
+
+/// The defaults, then one resolved row per Leakshield event, as `GetResponses` returns them.
+fn with_leakshield_rows() -> AppState {
+    let mut state = with_responses();
+    state.snapshot.responses.extend([
+        leakshield_rule("leakshield.leak-warning", Response::Notify, 30, false),
+        leakshield_rule("leakshield.leak-alarm", Response::Poweroff, 30, false),
+    ]);
+    state
+}
+
+#[test]
+fn response_rows_per_leakshield() {
+    let state = with_leakshield_rows();
+    let table = model_at(&state, NOW_US).responses;
+    let titles: Vec<&str> = table.groups.iter().map(|g| g.title.as_str()).collect();
+    assert_eq!(
+        titles,
+        ["Leakshield", "Leakshield 20417-31072", "nicecooling"]
+    );
+    // The defaults keep source "", the rows of the device carry its id.
+    assert!(table.groups[0].rows.iter().all(|r| r.source.is_empty()));
+    let device = &table.groups[1].rows;
+    assert_eq!(device.len(), 2);
+    assert!(device.iter().all(|r| r.source == LEAKSHIELD));
+    assert_eq!(
+        device[0].key,
+        format!("leakshield.leak-warning@{LEAKSHIELD}")
+    );
+
+    // An override row of the device is changed with its source.
+    let mut state = with_leakshield_rows();
+    state.snapshot.responses[6] =
+        leakshield_rule("leakshield.leak-alarm", Response::Notify, 30, true);
+    let table = model_at(&state, NOW_US).responses;
+    let row = &table.groups[1].rows[1];
+    assert_eq!(row.response, Response::Notify);
+    assert_eq!(
+        Command::SetAlarmResponse {
+            event: row.event.clone(),
+            source: row.source.clone(),
+            response: Response::Poweroff,
+            delay_s: 30,
+        }
+        .feedback_key()
+        .as_deref(),
+        Some("alarm-response:leakshield.leak-alarm@leakshield_20417_31072")
+    );
+
+    // The delay of an alarm that rises uses the row of its Leakshield.
+    let mut leak = alarm(
+        "a1",
+        "leakshield.leak-alarm",
+        LEAKSHIELD,
+        Response::Poweroff,
+        30,
+    );
+    leak.poweroff_at_us = NOW_US + 30_000_000;
+    state.snapshot.responses[6] =
+        leakshield_rule("leakshield.leak-alarm", Response::Poweroff, 45, true);
+    state.snapshot.alarms = vec![leak];
+    assert_eq!(
+        model_at(&state, NOW_US).active.rows[0].response,
+        "Poweroff after 45 s"
+    );
+}
+
+#[test]
+fn reset_link_on_override_and_changed_default() {
+    // Nothing differs: no link.
+    let table = model_at(&with_leakshield_rows(), NOW_US).responses;
+    assert!(
+        table
+            .groups
+            .iter()
+            .flat_map(|g| &g.rows)
+            .all(|r| r.reset.is_none())
+    );
+
+    // A Leakshield row with an override: "Reset" removes the override.
+    let mut state = with_leakshield_rows();
+    state.snapshot.responses[6] =
+        leakshield_rule("leakshield.leak-alarm", Response::Notify, 30, true);
+    let table = model_at(&state, NOW_US).responses;
+    assert_eq!(
+        table.groups[1].rows[1].reset,
+        Some(Command::ResetResponse {
+            event: "leakshield.leak-alarm".into(),
+            source: LEAKSHIELD.into(),
+        })
+    );
+    assert!(table.groups[1].rows[0].reset.is_none());
+
+    // A default row that differs from the built-in default: "Reset" with source "".
+    let mut state = with_leakshield_rows();
+    state.snapshot.responses[0] = rule("leakshield.leak-warning", Response::None, 30);
+    let table = model_at(&state, NOW_US).responses;
+    assert_eq!(
+        table.groups[0].rows[0].reset,
+        Some(Command::ResetResponse {
+            event: "leakshield.leak-warning".into(),
+            source: String::new(),
+        })
+    );
+}
+
+#[test]
+fn overlap_icon_from_proposals() {
+    let mut state = with_leakshield_rows();
+    let table = model_at(&state, NOW_US).responses;
+    assert!(
+        table
+            .groups
+            .iter()
+            .flat_map(|g| &g.rows)
+            .all(|r| r.overlap.is_none())
+    );
+
+    let mut data = support::fixtures::leakshield_data();
+    data.proposals = vec![nicecooling::model::ResponseProposal {
+        alarm: "leakshield.leak-alarm".into(),
+        current: "signal-long".into(),
+        proposed: "none".into(),
+        overlap: "double-poweroff".into(),
+    }];
+    state
+        .snapshot
+        .leakshield_data
+        .insert(LEAKSHIELD.into(), data);
+    let table = model_at(&state, NOW_US).responses;
+    let text = "The Leakshield also reacts to this Alarm. See its Alarms tab.";
+    let with_icon: Vec<(&str, &str)> = table
+        .groups
+        .iter()
+        .flat_map(|g| &g.rows)
+        .filter(|r| r.overlap.is_some())
+        .map(|r| (r.event.as_str(), r.source.as_str()))
+        .collect();
+    assert_eq!(
+        with_icon,
+        [
+            ("leakshield.leak-alarm", ""),
+            ("leakshield.leak-alarm", LEAKSHIELD)
+        ]
+    );
+    assert_eq!(table.groups[1].rows[1].overlap.as_deref(), Some(text));
+
+    // A proposal without an overlap shows no icon.
+    state
+        .snapshot
+        .leakshield_data
+        .get_mut(LEAKSHIELD)
+        .unwrap()
+        .proposals[0]
+        .overlap = String::new();
+    let table = model_at(&state, NOW_US).responses;
+    assert!(
+        table
+            .groups
+            .iter()
+            .flat_map(|g| &g.rows)
+            .all(|r| r.overlap.is_none())
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn responses_of_a_leakshield_go_through_the_daemon() {
+    let bus = PrivateBus::start("alarms-per-leakshield");
+    let daemon = FakeDaemon::start(bus.connect().await, Options::default()).await;
+    let mut harness = Harness::start(&bus).await;
+    harness
+        .until("the responses are known", |state| {
+            state
+                .snapshot
+                .responses
+                .iter()
+                .any(|r| r.source == LEAKSHIELD)
+        })
+        .await;
+    Command::SetAlarmResponse {
+        event: "leakshield.leak-alarm".into(),
+        source: LEAKSHIELD.into(),
+        response: Response::Notify,
+        delay_s: 30,
+    }
+    .run_on_daemon(&harness.client)
+    .await
+    .expect("override");
+    let rows = harness.client.responses().await.expect("responses");
+    let row = rows
+        .iter()
+        .find(|r| r.event == "leakshield.leak-alarm" && r.source == LEAKSHIELD)
+        .unwrap();
+    assert!(row.overridden && row.response == Response::Notify);
+    let default = rows
+        .iter()
+        .find(|r| r.event == "leakshield.leak-alarm" && r.source.is_empty())
+        .unwrap();
+    assert_eq!(default.response, Response::Poweroff);
+    Command::ResetResponse {
+        event: "leakshield.leak-alarm".into(),
+        source: LEAKSHIELD.into(),
+    }
+    .run_on_daemon(&harness.client)
+    .await
+    .expect("reset");
+    let rows = harness.client.responses().await.expect("responses");
+    assert!(rows.iter().all(|r| !r.overridden));
+    assert_eq!(
+        daemon.calls(),
+        [
+            format!(
+                "SetAlarmResponse(leakshield.leak-alarm@{LEAKSHIELD},notify,30) interactive=true"
+            ),
+            format!("ResetResponse(leakshield.leak-alarm,{LEAKSHIELD}) interactive=true"),
+        ]
+    );
 }

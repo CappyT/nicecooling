@@ -214,25 +214,45 @@ pub struct RuleGroup {
     pub since_us: u64,
 }
 
-/// The alarm response of one event type: `GetResponses`.
+/// One row of `GetResponses`. An empty `source` is the default of the event. A Leakshield id is
+/// the resolved response of that Leakshield, and `overridden` tells that an override exists.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ResponseRule {
     pub event: String,
+    pub source: String,
     pub response: Response,
     pub delay_s: u32,
+    pub overridden: bool,
 }
 
-/// What happened to an Alarm or a Warning, for the History card of the Alarms screen.
+/// What happened to an Alarm or a Warning: the `outcome` of `GetHistory`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Outcome {
-    /// The Alarm is still active.
-    Active,
-    Notified,
-    PoweroffCancelled,
     None,
+    Notified,
+    PoweroffPending,
+    PoweroffCancelled,
+    /// The Alarm closed before the call to logind.
+    PoweroffStopped,
+    PoweroffRequested,
+    PoweroffFailed,
 }
 
-/// One row of the history that the app keeps while it runs.
+impl Outcome {
+    pub fn parse(text: &str) -> Self {
+        match text {
+            "notified" => Self::Notified,
+            "poweroff-pending" => Self::PoweroffPending,
+            "poweroff-cancelled" => Self::PoweroffCancelled,
+            "poweroff-stopped" => Self::PoweroffStopped,
+            "poweroff-requested" => Self::PoweroffRequested,
+            "poweroff-failed" => Self::PoweroffFailed,
+            _ => Self::None,
+        }
+    }
+}
+
+/// One row of `GetHistory`.
 #[derive(Clone, Debug, PartialEq)]
 pub struct AlarmRecord {
     pub instance: String,
@@ -241,8 +261,12 @@ pub struct AlarmRecord {
     pub source: String,
     pub response: Response,
     pub raised_us: u64,
+    /// `None` while the instance is active.
     pub cleared_us: Option<u64>,
     pub outcome: Outcome,
+    /// A daemon restart closed the row.
+    pub closed_by_restart: bool,
+    pub details: AlarmDetails,
 }
 
 /// A failed Leakshield write after a Profile activation: the backup that the restore uses.
@@ -620,7 +644,10 @@ pub struct Snapshot {
     pub rule_delay_s: u32,
     pub dwell_s: u32,
     pub rule_groups: Vec<RuleGroup>,
+    /// Every row of `GetResponses`.
     pub responses: Vec<ResponseRule>,
+    /// `GetHistory`, newest raise first.
+    pub alarm_history: Vec<AlarmRecord>,
     /// `GetContent` of each Profile, by Profile id.
     pub profile_contents: BTreeMap<String, ProfileContent>,
     /// What the app reads from each connected Leakshield, by Leakshield id.
@@ -693,6 +720,8 @@ pub enum DaemonEvent {
     /// A full read. It implies `Link::Online`.
     Snapshot(Box<Snapshot>),
     Sensors(SensorSample),
+    /// `GetHistory` was read again.
+    History(Vec<AlarmRecord>),
     AlarmRaised(AlarmEntry),
     AlarmCleared {
         instance: String,
@@ -728,18 +757,12 @@ pub struct AppState {
     pub sensors: Option<SensorSample>,
     /// The last values that arrived. They stay while the daemon is away.
     pub last_sensors: Option<SensorSample>,
-    /// The Alarms and Warnings that the app saw since it started, newest last. The daemon keeps
-    /// no history of them.
-    pub alarm_history: Vec<AlarmRecord>,
     /// Alarm instance -> the time of its cancelled poweroff.
     pub cancelled: BTreeMap<String, u64>,
     pub write_failure: Option<WriteFailure>,
     /// The fields of the last `ExternalChange`: a Leakshield change that nicecooling did not make.
     pub external_change: Option<Vec<String>>,
 }
-
-/// The history keeps this many rows.
-const HISTORY_LIMIT: usize = 200;
 
 impl AppState {
     pub fn apply(&mut self, event: &DaemonEvent) {
@@ -753,23 +776,8 @@ impl AppState {
             DaemonEvent::Snapshot(snapshot) => {
                 self.link = Link::Online;
                 self.snapshot = (**snapshot).clone();
-                // An Alarm that was active before the app started has no row yet.
-                let active = self.snapshot.alarms.clone();
-                for alarm in &active {
-                    self.record_raised(alarm);
-                }
-                // An Alarm that closed while the app was away.
-                for record in &mut self.alarm_history {
-                    if record.cleared_us.is_none()
-                        && !active.iter().any(|a| a.instance == record.instance)
-                    {
-                        record.cleared_us = Some(crate::app::now_us().max(record.raised_us));
-                        if record.outcome == Outcome::Active {
-                            record.outcome = Outcome::Notified;
-                        }
-                    }
-                }
             }
+            DaemonEvent::History(rows) => self.snapshot.alarm_history = rows.clone(),
             DaemonEvent::Sensors(sample) => {
                 self.sensors = Some(sample.clone());
                 self.last_sensors = Some(sample.clone());
@@ -793,7 +801,6 @@ impl AppState {
                     raised_us,
                     ..entry.clone()
                 };
-                self.record_raised(&entry);
                 self.snapshot.alarms.push(entry);
             }
             DaemonEvent::AlarmCleared { instance } => {
@@ -801,32 +808,10 @@ impl AppState {
                     .alarms
                     .retain(|alarm| &alarm.instance != instance);
                 self.cancelled.remove(instance);
-                if let Some(record) = self
-                    .alarm_history
-                    .iter_mut()
-                    .rev()
-                    .find(|r| &r.instance == instance && r.cleared_us.is_none())
-                {
-                    record.cleared_us = Some(crate::app::now_us().max(record.raised_us));
-                    if record.outcome == Outcome::Active {
-                        record.outcome = match record.response {
-                            Response::None => Outcome::None,
-                            _ => Outcome::Notified,
-                        };
-                    }
-                }
             }
             DaemonEvent::PoweroffCancelled { instance } => {
                 self.cancelled
                     .insert(instance.clone(), crate::app::now_us());
-                if let Some(record) = self
-                    .alarm_history
-                    .iter_mut()
-                    .rev()
-                    .find(|r| &r.instance == instance)
-                {
-                    record.outcome = Outcome::PoweroffCancelled;
-                }
                 if let Some(alarm) = self
                     .snapshot
                     .alarms
@@ -870,33 +855,6 @@ impl AppState {
         }
     }
 
-    fn record_raised(&mut self, alarm: &AlarmEntry) {
-        if self
-            .alarm_history
-            .iter()
-            .any(|r| r.instance == alarm.instance && r.cleared_us.is_none())
-        {
-            return;
-        }
-        self.alarm_history.push(AlarmRecord {
-            instance: alarm.instance.clone(),
-            event: alarm.event.clone(),
-            severity: alarm.severity,
-            source: alarm.source.clone(),
-            response: alarm.response,
-            raised_us: if alarm.raised_us == 0 {
-                crate::app::now_us()
-            } else {
-                alarm.raised_us
-            },
-            cleared_us: None,
-            outcome: Outcome::Active,
-        });
-        if self.alarm_history.len() > HISTORY_LIMIT {
-            self.alarm_history.remove(0);
-        }
-    }
-
     pub fn is_online(&self) -> bool {
         self.link == Link::Online
     }
@@ -910,6 +868,14 @@ impl AppState {
             min: value("low")?,
             max: value("high")?,
         })
+    }
+
+    /// The row of an event that holds its default: source `""` in `GetResponses`.
+    pub fn default_response(&self, event: &str) -> Option<&ResponseRule> {
+        self.snapshot
+            .responses
+            .iter()
+            .find(|rule| rule.event == event && rule.source.is_empty())
     }
 
     /// The speed sensor of a Channel, from `Channel.FanSensor`.

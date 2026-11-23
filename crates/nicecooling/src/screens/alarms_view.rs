@@ -6,6 +6,7 @@ use gpui::prelude::*;
 use gpui::{AnyElement, Context, FocusHandle, FontWeight, SharedString, Window, div, px};
 use gpui_component::button::{Button, ButtonVariants as _};
 use gpui_component::input::Input;
+use gpui_component::tooltip::Tooltip;
 use gpui_component::{Sizable as _, h_flex, v_flex};
 
 use crate::command::Command;
@@ -235,11 +236,13 @@ impl ScreenView {
         let locale = self.model.read(cx).locale;
         let view = cx.entity();
         let event = row.event.clone();
+        let source = row.source.clone();
         let delay_s = row.delay_s;
         let pick: Pick = Rc::new(move |this, id, _, _| {
             let response = Response::parse(&id);
             this.send(Command::SetAlarmResponse {
                 event: event.clone(),
+                source: source.clone(),
                 response,
                 delay_s,
             });
@@ -251,7 +254,7 @@ impl ScreenView {
             .map(|o| o.label.clone())
             .unwrap_or_default();
         let select = self.select(
-            &format!("response-{}", row.event),
+            &format!("response-{}", row.key),
             &shown,
             row.options
                 .iter()
@@ -264,7 +267,7 @@ impl ScreenView {
             cx,
         );
         let delay = self.input(
-            InputKey::ResponseDelay(row.event.clone()),
+            InputKey::ResponseDelay(row.key.clone()),
             &row.delay_s.to_string(),
             "",
             window,
@@ -285,10 +288,18 @@ impl ScreenView {
                     .w(px(100.))
                     .child(Input::new(&delay).disabled(!row.delay_enabled)),
             );
+        if let Some(text) = row.overlap.clone() {
+            line = line.child(
+                div()
+                    .id(SharedString::from(format!("response-overlap-{}", row.key)))
+                    .tooltip(move |window, cx| Tooltip::new(text.clone()).build(window, cx))
+                    .child(severity_icon(Severity::Warning, p)),
+            );
+        }
         if let Some(command) = row.reset.clone() {
             line = line.child(
                 Self::link_button(
-                    SharedString::from(format!("response-reset-{}", row.event)),
+                    SharedString::from(format!("response-reset-{}", row.key)),
                     locale.tr("alarms.reset"),
                 )
                 .on_click(act(&view, move |this, _, _| this.send(command.clone()))),

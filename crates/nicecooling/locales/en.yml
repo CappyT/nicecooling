@@ -627,6 +627,11 @@ alarms:
     notified: Notified
     cancelled: Poweroff cancelled by the user
     none: None
+    poweroff_pending: Poweroff pending
+    poweroff_requested: PC powered off
+    poweroff_stopped: "Poweroff stopped: the Alarm closed"
+    poweroff_failed: Poweroff failed
+    closed_by_restart: Closed by a daemon restart
     column:
       time: Time
       event: Event
@@ -660,6 +665,7 @@ alarms:
   cancelled: "Poweroff cancelled %{time}. The Alarm is still active."
   poweroff_started: The PC already powers off. The cancel came too late.
   delay_zero: With 0 s you cannot cancel the poweroff.
+  overlap: The Leakshield also reacts to this Alarm. See its Alarms tab.
   caption:
     pump_stop: Every Channel is at 100 %. The Alarm closes when the pump runs for 10 s.
   value:

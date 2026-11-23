@@ -1014,8 +1014,10 @@ fn leakshield_alarms_states() {
     let mut zero = state.clone();
     zero.snapshot.responses = vec![ResponseRule {
         event: "leakshield.leak-alarm".into(),
+        source: String::new(),
         response: Response::Poweroff,
         delay_s: 0,
+        overridden: false,
     }];
     let zero_model = alarms(&zero, &feedback);
     assert_eq!(
@@ -1308,6 +1310,7 @@ fn leakshield_alarms_commands() {
         ),
         Command::SetAlarmResponse {
             event: "leakshield.leak-alarm".into(),
+            source: String::new(),
             response: Response::Notify,
             delay_s: 30
         }
