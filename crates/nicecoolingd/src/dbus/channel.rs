@@ -4,10 +4,13 @@ use nicecooling_api::errors::Result;
 use nicecooling_api::ids::Kind;
 use zbus::message::Header;
 use zbus::object_server::SignalEmitter;
-use zbus::{Connection, OwnedObjectPath, interface};
+use zbus::{Connection, OwnedObjectPath, fdo, interface};
 
 use super::hub::ChannelView;
 use super::{Hub, none, object};
+
+/// `Curve`: Input sensor, points, smoothing and step limit.
+type CurveProperty = (OwnedObjectPath, Vec<(f64, f64)>, f64, f64);
 
 pub struct Channel {
     hub: Arc<Hub>,
@@ -19,10 +22,11 @@ impl Channel {
         Self { hub, id }
     }
 
-    fn view(&self) -> ChannelView {
+    /// A gone Channel is an unknown object.
+    fn view(&self) -> fdo::Result<ChannelView> {
         self.hub
             .channel(&self.id)
-            .expect("a Channel object has a Channel")
+            .ok_or_else(|| fdo::Error::UnknownObject(format!("no Channel {}", self.id)))
     }
 }
 
@@ -34,59 +38,59 @@ impl Channel {
     }
 
     #[zbus(property)]
-    fn name(&self) -> String {
-        self.view().name
+    fn name(&self) -> fdo::Result<String> {
+        Ok(self.view()?.name)
     }
 
     #[zbus(property(emits_changed_signal = "const"))]
-    fn default_name(&self) -> String {
-        self.view().default_name
+    fn default_name(&self) -> fdo::Result<String> {
+        Ok(self.view()?.default_name)
     }
 
     #[zbus(property(emits_changed_signal = "false"))]
-    fn duty(&self) -> f64 {
-        self.view().duty
+    fn duty(&self) -> fdo::Result<f64> {
+        Ok(self.view()?.duty)
     }
 
     #[zbus(property(emits_changed_signal = "false"))]
-    fn raw(&self) -> u8 {
-        self.view().raw
+    fn raw(&self) -> fdo::Result<u8> {
+        Ok(self.view()?.raw)
     }
 
     #[zbus(property)]
-    fn control(&self) -> String {
-        self.view().control.to_owned()
+    fn control(&self) -> fdo::Result<String> {
+        Ok(self.view()?.control.to_owned())
     }
 
     #[zbus(property, name = "Override")]
-    fn override_state(&self) -> String {
-        self.view().override_state.to_owned()
+    fn override_state(&self) -> fdo::Result<String> {
+        Ok(self.view()?.override_state.to_owned())
     }
 
     #[zbus(property)]
-    fn is_pump(&self) -> bool {
-        self.view().is_pump
+    fn is_pump(&self) -> fdo::Result<bool> {
+        Ok(self.view()?.is_pump)
     }
 
     #[zbus(property)]
-    fn manual_at_snapshot(&self) -> bool {
-        self.view().manual_at_snapshot
+    fn manual_at_snapshot(&self) -> fdo::Result<bool> {
+        Ok(self.view()?.manual_at_snapshot)
     }
 
     #[zbus(property)]
-    fn curve(&self) -> (OwnedObjectPath, Vec<(f64, f64)>, f64, f64) {
-        let v = self.view();
+    fn curve(&self) -> fdo::Result<CurveProperty> {
+        let v = self.view()?;
         let input = if v.curve_input.is_empty() {
             none()
         } else {
             object(Kind::Sensor, &v.curve_input)
         };
-        (input, v.curve_points, v.smoothing_s, v.step_limit)
+        Ok((input, v.curve_points, v.smoothing_s, v.step_limit))
     }
 
     #[zbus(property)]
-    fn fixed_duty(&self) -> f64 {
-        self.view().fixed_duty
+    fn fixed_duty(&self) -> fdo::Result<f64> {
+        Ok(self.view()?.fixed_duty)
     }
 
     async fn set_name(

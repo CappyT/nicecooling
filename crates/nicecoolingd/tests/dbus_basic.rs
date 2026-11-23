@@ -560,3 +560,187 @@ async fn non_finite_calibration_points_are_refused() {
         "a user table was stored"
     );
 }
+
+const UNKNOWN_OBJECT: &str = "org.freedesktop.DBus.Error.UnknownObject";
+
+/// The Sensor object of a calibrated flow, or an error name when it is not on the bus.
+async fn sensor_name(rig: &Rig, id: &str) -> Result<String, String> {
+    SensorProxy::builder(&rig.client)
+        .path(path(Kind::Sensor, id))
+        .cache_properties(zbus::proxy::CacheProperties::No)
+        .build()
+        .await
+        .unwrap()
+        .name()
+        .await
+        .map_err(|e| error_name(&e))
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn flow_sensor_read_by_a_curve_cannot_change_or_go() {
+    let mut rig = Rig::start().await;
+    rig.ticks(2).await;
+    let pwm1 = channel(&rig, "nct6798_pwm1").await;
+    let flow = path(Kind::Sensor, "loop_1_flow");
+    pwm1.set_curve(&flow, &[(0.0, 30.0), (300.0, 100.0)], 0.0, 100.0)
+        .await
+        .unwrap();
+    let loop_1 = loop_proxy(&rig, "loop_1").await;
+    let in_use = Err(format!("{ERR}.InUse"));
+
+    let delete = loop_1.delete().await.map_err(|e| error_name(&e));
+    assert_eq!(delete, in_use);
+    let remove = loop_1
+        .set_flow_sensor(&none_path(), "")
+        .await
+        .map_err(|e| error_name(&e));
+    assert_eq!(remove, in_use);
+    let change = loop_1
+        .set_flow_sensor(&path(Kind::Sensor, "nct6798_temp1"), "alphacool_17558")
+        .await
+        .map_err(|e| error_name(&e));
+    assert_eq!(change, in_use);
+    // Nothing changed, and the Curve still reads the flow.
+    assert_eq!(loop_1.flow().await.unwrap(), flow);
+    assert_eq!(
+        loop_1.flow_sensor().await.unwrap(),
+        path(Kind::Sensor, "nct6798_fan1")
+    );
+    assert_eq!(pwm1.curve().await.unwrap().0, flow);
+    assert!(sensor_name(&rig, "loop_1_flow").await.is_ok());
+    rig.ticks(3).await;
+    assert_eq!(pwm1.r#override().await.unwrap(), "none");
+
+    // The same Sensor and table are not a change.
+    loop_1
+        .set_flow_sensor(&path(Kind::Sensor, "nct6798_fan1"), "alphacool_17558")
+        .await
+        .unwrap();
+
+    // Without the Curve, the Loop gives up its flow sensor and the object leaves the bus.
+    pwm1.set_fixed_duty(50.0).await.unwrap();
+    loop_1.set_flow_sensor(&none_path(), "").await.unwrap();
+    assert_eq!(loop_1.flow().await.unwrap(), none_path());
+    assert_eq!(loop_1.flow_sensor().await.unwrap(), none_path());
+    assert_eq!(
+        sensor_name(&rig, "loop_1_flow").await,
+        Err(UNKNOWN_OBJECT.to_owned())
+    );
+    // A new flow sensor registers the object again.
+    loop_1
+        .set_flow_sensor(&path(Kind::Sensor, "nct6798_fan1"), "alphacool_17558")
+        .await
+        .unwrap();
+    assert!(sensor_name(&rig, "loop_1_flow").await.is_ok());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn loop_delete_removes_the_flow_sensor_object() {
+    let mut rig = Rig::start().await;
+    rig.tick_in_background();
+    assert!(sensor_name(&rig, "loop_1_flow").await.is_ok());
+    loop_proxy(&rig, "loop_1").await.delete().await.unwrap();
+    let mut gone = false;
+    for _ in 0..40 {
+        if sensor_name(&rig, "loop_1_flow").await == Err(UNKNOWN_OBJECT.to_owned()) {
+            gone = true;
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    assert!(gone, "the flow Sensor object stayed on the bus");
+}
+
+/// An object whose model is gone answers an error. The handler never panics.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_vanished_loop_or_channel_object_answers_an_error() {
+    let rig = Rig::start().await;
+    let hub = rig.daemon.as_ref().unwrap().hub.clone();
+    let server = rig.server.object_server();
+    let ghost_loop = path(Kind::Loop, "loop_99");
+    let ghost_channel = path(Kind::Channel, "ghost_pwm9");
+    server
+        .at(
+            ghost_loop.clone(),
+            nicecoolingd::dbus::loops::Loop::new(hub.clone(), "loop_99".into()),
+        )
+        .await
+        .unwrap();
+    server
+        .at(
+            ghost_channel.clone(),
+            nicecoolingd::dbus::channel::Channel::new(hub, "ghost_pwm9".into()),
+        )
+        .await
+        .unwrap();
+    let quick = zbus::connection::Builder::address(rig.bus.address.as_str())
+        .method_timeout(Duration::from_secs(3))
+        .build()
+        .await
+        .unwrap();
+    let vanished = |e: &zbus::Error| {
+        let name = error_name(e);
+        name == UNKNOWN_OBJECT || name == format!("{ERR}.NotFound")
+    };
+    let l = LoopProxy::builder(&quick)
+        .path(ghost_loop)
+        .cache_properties(zbus::proxy::CacheProperties::No)
+        .build()
+        .await
+        .unwrap();
+    let c = ChannelProxy::builder(&quick)
+        .path(ghost_channel)
+        .cache_properties(zbus::proxy::CacheProperties::No)
+        .build()
+        .await
+        .unwrap();
+    assert!(vanished(&l.name().await.unwrap_err()));
+    assert!(vanished(&l.pump_floor().await.unwrap_err()));
+    assert!(vanished(&l.set_name("x").await.unwrap_err()));
+    assert!(vanished(&l.set_pump_channels(&[]).await.unwrap_err()));
+    assert!(vanished(&l.delete().await.unwrap_err()));
+    assert!(vanished(&c.name().await.unwrap_err()));
+    assert!(vanished(&c.curve().await.unwrap_err()));
+    assert!(vanished(&c.set_name("x").await.unwrap_err()));
+    // The API still answers.
+    assert!(manager(&rig).await.version().await.is_ok());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn concurrent_loop_delete_answers_every_call() {
+    let mut rig = Rig::start().await;
+    rig.tick_in_background();
+    let quick = zbus::connection::Builder::address(rig.bus.address.as_str())
+        .method_timeout(Duration::from_secs(3))
+        .build()
+        .await
+        .unwrap();
+    for _ in 0..5 {
+        let created = ManagerProxy::builder(&quick)
+            .cache_properties(zbus::proxy::CacheProperties::No)
+            .build()
+            .await
+            .unwrap()
+            .create_loop("x")
+            .await
+            .unwrap();
+        let on = || async {
+            LoopProxy::builder(&quick)
+                .path(created.clone())
+                .cache_properties(zbus::proxy::CacheProperties::No)
+                .build()
+                .await
+                .unwrap()
+        };
+        let (a, b) = (on().await, on().await);
+        let (da, db, name, floor) = tokio::join!(a.delete(), b.delete(), a.name(), b.pump_floor());
+        for e in [da.err(), db.err(), name.err(), floor.err()].into_iter().flatten() {
+            let name = error_name(&e);
+            assert!(
+                name.starts_with("org.freedesktop.DBus.Error.Unknown") || name.starts_with(ERR),
+                "no D-Bus reply: {name}"
+            );
+        }
+    }
+    assert!(manager(&rig).await.version().await.is_ok());
+}

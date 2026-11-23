@@ -984,6 +984,15 @@ impl Hub {
                     Some(table.to_owned())
                 }
             };
+            let current = i.loop_mut(id)?;
+            let flow = (current.flow_sensor.is_some() && current.calibration_table.is_some())
+                .then(|| current.flow_id());
+            if let Some(flow) = flow
+                && current.flow_sensor != sensor
+                && let Some(user) = i.sensor_user(&flow)
+            {
+                return Err(Error::in_use(format!("{flow} is read by {user}")));
+            }
             let l = i.loop_mut(id)?;
             l.flow_sensor = sensor;
             l.calibration_table = table;

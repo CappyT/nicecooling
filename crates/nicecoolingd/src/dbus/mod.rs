@@ -95,13 +95,22 @@ pub(crate) async fn register_sensor(
     Ok(())
 }
 
+/// Removes the objects of a sensor id. A calibrated flow sensor has no `DerivedSensor`
+/// interface, and a concurrent call may have removed an interface already.
 pub(crate) async fn unregister_sensor(server: &ObjectServer, id: &str) -> zbus::Result<()> {
     let path = object(Kind::Sensor, id);
-    server
-        .remove::<derived_sensor::DerivedSensor, _>(path.clone())
-        .await?;
-    server.remove::<sensor::Sensor, _>(path).await?;
-    Ok(())
+    remove_if_present::<derived_sensor::DerivedSensor>(server, path.clone()).await?;
+    remove_if_present::<sensor::Sensor>(server, path).await
+}
+
+async fn remove_if_present<I: zbus::object_server::Interface>(
+    server: &ObjectServer,
+    path: OwnedObjectPath,
+) -> zbus::Result<()> {
+    match server.remove::<I, _>(path).await {
+        Ok(_) | Err(zbus::Error::InterfaceNotFound) => Ok(()),
+        Err(e) => Err(e),
+    }
 }
 
 pub(crate) async fn register_loop(

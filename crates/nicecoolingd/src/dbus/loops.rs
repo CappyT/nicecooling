@@ -6,7 +6,7 @@ use nicecooling_api::errors::Result;
 use nicecooling_api::ids::{self, Kind};
 use zbus::message::Header;
 use zbus::object_server::{ObjectServer, SignalEmitter};
-use zbus::{Connection, OwnedObjectPath, interface};
+use zbus::{Connection, OwnedObjectPath, fdo, interface};
 
 use super::hub::LoopView;
 use super::{Hub, notify_pump_flags, object, optional_object, sync_flow_sensor};
@@ -21,10 +21,17 @@ impl Loop {
         Self { hub, id }
     }
 
-    fn view(&self) -> LoopView {
+    /// For a method: the Loop can be gone when the call arrives, after a concurrent `Delete`.
+    fn require_view(&self) -> Result<LoopView> {
         self.hub
             .loop_view(&self.id)
-            .expect("a Loop object has a Loop")
+            .ok_or_else(|| nicecooling_api::Error::not_found(format!("no Loop {}", self.id)))
+    }
+
+    /// For a property: a gone Loop is an unknown object.
+    fn view(&self) -> fdo::Result<LoopView> {
+        self.require_view()
+            .map_err(|_| fdo::Error::UnknownObject(format!("no Loop {}", self.id)))
     }
 
     fn flow_id(&self) -> Option<String> {
@@ -53,47 +60,57 @@ impl Loop {
     }
 
     #[zbus(property)]
-    fn name(&self) -> String {
-        self.view().name
+    fn name(&self) -> fdo::Result<String> {
+        Ok(self.view()?.name)
     }
 
     #[zbus(property)]
-    fn pump_channels(&self) -> Vec<OwnedObjectPath> {
-        self.view()
+    fn pump_channels(&self) -> fdo::Result<Vec<OwnedObjectPath>> {
+        Ok(self
+            .view()?
             .pump_channels
             .iter()
             .map(|id| object(Kind::Channel, id))
-            .collect()
+            .collect())
     }
 
     #[zbus(property)]
-    fn flow_sensor(&self) -> OwnedObjectPath {
-        optional_object(Kind::Sensor, self.view().flow_sensor.as_deref())
+    fn flow_sensor(&self) -> fdo::Result<OwnedObjectPath> {
+        Ok(optional_object(
+            Kind::Sensor,
+            self.view()?.flow_sensor.as_deref(),
+        ))
     }
 
     #[zbus(property)]
-    fn calibration_table(&self) -> String {
-        self.view().calibration_table.unwrap_or_default()
+    fn calibration_table(&self) -> fdo::Result<String> {
+        Ok(self.view()?.calibration_table.unwrap_or_default())
     }
 
     #[zbus(property)]
-    fn flow(&self) -> OwnedObjectPath {
-        optional_object(Kind::Sensor, self.view().flow.as_deref())
+    fn flow(&self) -> fdo::Result<OwnedObjectPath> {
+        Ok(optional_object(Kind::Sensor, self.view()?.flow.as_deref()))
     }
 
     #[zbus(property)]
-    fn water_temperature(&self) -> OwnedObjectPath {
-        optional_object(Kind::Sensor, self.view().water_temperature.as_deref())
+    fn water_temperature(&self) -> fdo::Result<OwnedObjectPath> {
+        Ok(optional_object(
+            Kind::Sensor,
+            self.view()?.water_temperature.as_deref(),
+        ))
     }
 
     #[zbus(property)]
-    fn leakshield(&self) -> OwnedObjectPath {
-        optional_object(Kind::Leakshield, self.view().leakshield.as_deref())
+    fn leakshield(&self) -> fdo::Result<OwnedObjectPath> {
+        Ok(optional_object(
+            Kind::Leakshield,
+            self.view()?.leakshield.as_deref(),
+        ))
     }
 
     #[zbus(property)]
-    fn pump_floor(&self) -> f64 {
-        self.view().pump_floor
+    fn pump_floor(&self) -> fdo::Result<f64> {
+        Ok(self.view()?.pump_floor)
     }
 
     async fn set_name(
@@ -122,7 +139,7 @@ impl Loop {
         self.hub
             .authorize(connection, &header, "Loop", "SetPumpChannels", None)
             .await?;
-        let before = self.view().pump_channels;
+        let before = self.require_view()?.pump_channels;
         let wanted = channel_ids(&channels)?;
         self.hub.set_pump_channels(&self.id, &wanted)?;
         self.pump_channels_changed(&emitter).await?;
@@ -209,7 +226,7 @@ impl Loop {
             .authorize(connection, &header, "Loop", "Delete", None)
             .await?;
         let (flow, pumps) = {
-            let view = self.view();
+            let view = self.require_view()?;
             (view.flow, view.pump_channels)
         };
         self.hub.delete_loop(&self.id)?;
