@@ -238,6 +238,7 @@ impl ScreenView {
         let response = &row.response;
         let pick: Pick = {
             let event = response.event.clone();
+            let device = device.to_owned();
             Rc::new(move |this, choice, _, cx| {
                 let response = match choice.as_str() {
                     "poweroff" => Response::Poweroff,
@@ -247,7 +248,7 @@ impl ScreenView {
                 let command = this.with_input(cx, |input| {
                     this.leakshield
                         .alarms
-                        .set_alarm_response(input, &event, response, None)
+                        .set_alarm_response(input, &device, &event, response, None)
                 });
                 this.send(command);
             })
@@ -292,6 +293,15 @@ impl ScreenView {
         if let Some(text) = &response.delay_warning {
             response_column =
                 response_column.child(div().text_color(p.warning).child(text.clone()));
+        }
+        if let Some(command) = response.reset.clone() {
+            response_column = response_column.child(
+                Self::link_button(
+                    SharedString::from(format!("ls-response-reset-{}", response.event)),
+                    self.with_input(cx, |input| input.locale.tr("alarms.reset")),
+                )
+                .on_click(act(&view, move |this, _, _| this.send(command.clone()))),
+            );
         }
         if let Some(line) = &response.write_line {
             response_column = response_column.child(write_line(line, p));

@@ -2,7 +2,7 @@
 
 No comp. Rows follow the settings rows of `../comps/leakshield-wizard.html`.
 
-The tab sets the Warning and Alarm thresholds of one Leakshield, its Device response and the alarm response of nicecooling. The Device response is what the Leakshield does by itself: signal output, key sequence, sound. The Alarms screen has the same alarm responses for every source.
+The tab sets the Warning and Alarm thresholds of one Leakshield, its Device response and the alarm response of nicecooling for that Leakshield. The Device response is what the Leakshield does by itself: signal output, key sequence, sound. The Alarms screen has the same alarm responses for every source. The alarm response row of this tab is the resolved row of (event, this Leakshield) in `GetResponses`: a change is an override for this Leakshield only (`SetResponse` with its id as source), and the link "Reset" calls `ResetResponse(event, id)`. "Reset" shows only on a row with an override.
 
 ## Layout
 

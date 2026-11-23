@@ -1,7 +1,7 @@
 //! The Alarms tab (`docs/ui/screens/leakshield-alarms.md`): the thresholds, the Device response
 //! and the alarm response of each Leakshield event, with the recommendations of the daemon.
 
-use crate::command::Command;
+use crate::command::{Command, response_feedback_key};
 use crate::model::{AlarmEntry, FieldValue, Response, Severity};
 use crate::screens::alarms::{DEFAULT_DELAY_S, default_response};
 use crate::screens::format::clock;
@@ -182,35 +182,35 @@ impl AlarmsUi {
         ))
     }
 
-    /// The alarm response of nicecooling. It goes to the daemon, whatever the device says.
+    /// The alarm response of nicecooling for this Leakshield: an override of (event, id). It goes
+    /// to the daemon, whatever the device says.
     pub fn set_alarm_response(
         &self,
         input: &ScreenInput<'_>,
+        id: &str,
         event: &str,
         response: Response,
         delay_s: Option<u32>,
     ) -> Command {
-        let delay_s = delay_s.unwrap_or_else(|| current_delay(input, event));
+        let delay_s = delay_s.unwrap_or_else(|| current_response(input, id, event).1);
         Command::SetAlarmResponse {
             event: event.to_owned(),
-            source: String::new(),
+            source: id.to_owned(),
             response,
             delay_s,
         }
     }
 }
 
-fn current_response(input: &ScreenInput<'_>, event: &str) -> (Response, u32) {
+/// What the daemon resolves for (event, Leakshield): the response, the delay and whether an
+/// override exists. Without a row of the Leakshield, the default of the event.
+pub fn current_response(input: &ScreenInput<'_>, id: &str, event: &str) -> (Response, u32, bool) {
     input
         .state
-        .default_response(event)
-        .map_or((default_response(event), DEFAULT_DELAY_S), |rule| {
-            (rule.response, rule.delay_s)
+        .leakshield_response(event, id)
+        .map_or((default_response(event), DEFAULT_DELAY_S, false), |rule| {
+            (rule.response, rule.delay_s, rule.overridden)
         })
-}
-
-fn current_delay(input: &ScreenInput<'_>, event: &str) -> u32 {
-    current_response(input, event).1
 }
 
 /// The fill level Alarm threshold at or above the Warning threshold.
@@ -257,6 +257,8 @@ pub struct SoundCtl {
 #[derive(Clone, Debug, PartialEq)]
 pub struct ResponseCtl {
     pub event: String,
+    /// "Reset" removes the override of this Leakshield. Only a row with an override has it.
+    pub reset: Option<Command>,
     pub response: Response,
     pub delay_s: u32,
     pub options: Vec<(Response, String, bool)>,
@@ -342,8 +344,12 @@ impl AlarmsModel {
         let all_alarms: Vec<&AlarmEntry> = input.state.snapshot.alarms.iter().collect();
 
         let response_ctl = |event: String| {
-            let (response, delay_s) = current_response(input, &event);
+            let (response, delay_s, overridden) = current_response(input, id, &event);
             ResponseCtl {
+                reset: (overridden && input.writes().enabled).then(|| Command::ResetResponse {
+                    event: event.clone(),
+                    source: id.to_owned(),
+                }),
                 options: [Response::None, Response::Notify, Response::Poweroff]
                     .into_iter()
                     .map(|option| {
@@ -359,7 +365,7 @@ impl AlarmsModel {
                     .then(|| locale.tr("alarms.delay_zero")),
                 write_line: input
                     .feedback
-                    .get(&format!("alarm-response:{event}"))
+                    .get(&response_feedback_key(&event, id))
                     .map(|outcome| {
                         FeedbackLine::new(outcome, locale, &locale.tr("feedback.refused"), None)
                     }),

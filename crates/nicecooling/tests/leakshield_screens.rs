@@ -1304,13 +1304,14 @@ fn leakshield_alarms_commands() {
     assert_eq!(
         ui.set_alarm_response(
             &screen_input,
+            LEAKSHIELD,
             "leakshield.leak-alarm",
             Response::Notify,
             None
         ),
         Command::SetAlarmResponse {
             event: "leakshield.leak-alarm".into(),
-            source: String::new(),
+            source: LEAKSHIELD.into(),
             response: Response::Notify,
             delay_s: 30
         }
@@ -3022,17 +3023,16 @@ async fn software_sensor_and_alarm_writes_reach_the_fake_daemon() {
     // The alarm response goes to the daemon of the alarm responses.
     let alarm_response = ui.set_alarm_response(
         &screen_input,
+        LEAKSHIELD,
         "leakshield.leak-warning",
         Response::Poweroff,
         Some(20),
     );
     run(&harness, &alarm_response).await;
-    assert!(
-        daemon
-            .calls()
-            .iter()
-            .any(|c| c == "SetAlarmResponse(leakshield.leak-warning,poweroff,20) interactive=true")
-    );
+    assert!(daemon.calls().iter().any(|c| c
+        == &format!(
+            "SetAlarmResponse(leakshield.leak-warning@{LEAKSHIELD},poweroff,20) interactive=true"
+        )));
     // A field that the device does not take: the daemon refuses.
     let refused = Command::SetLeakshieldFields {
         leakshield: LEAKSHIELD.into(),
@@ -3480,4 +3480,86 @@ async fn the_backup_file_goes_through_the_fake_daemon() {
         1
     );
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+// Review 11 (adversarial): the tab of one Leakshield must show and write what that Leakshield
+// resolves, not the default of the event, once an override exists.
+#[test]
+fn review_tab_shows_the_override_of_its_leakshield() {
+    let mut state = with_leakshield();
+    state.snapshot.responses = vec![
+        ResponseRule {
+            event: "leakshield.leak-alarm".into(),
+            source: String::new(),
+            response: Response::Poweroff,
+            delay_s: 30,
+            overridden: false,
+        },
+        ResponseRule {
+            event: "leakshield.leak-alarm".into(),
+            source: LEAKSHIELD.into(),
+            response: Response::None,
+            delay_s: 30,
+            overridden: true,
+        },
+    ];
+    let model = alarms(&state, &Feedback::default());
+    // The daemon resolves `none` for this Leakshield.
+    assert_eq!(row(&model, "leak-alarm").response.response, Response::None);
+}
+
+#[test]
+fn review_tab_writes_the_override_of_its_leakshield() {
+    let state = with_leakshield();
+    let feedback = Feedback::default();
+    let screen_input = en(&state, &feedback);
+    let command = AlarmsUi.set_alarm_response(
+        &screen_input,
+        LEAKSHIELD,
+        "leakshield.leak-alarm",
+        Response::Notify,
+        None,
+    );
+    let Command::SetAlarmResponse { source, .. } = command else {
+        panic!("not a response command");
+    };
+    // The tab belongs to one Leakshield: the write targets it, not every Leakshield.
+    assert_eq!(source, LEAKSHIELD);
+}
+
+#[test]
+fn tab_reset_only_on_a_row_with_override() {
+    let mut state = with_leakshield();
+    let rule = |source: &str, response: Response, overridden: bool| ResponseRule {
+        event: "leakshield.leak-alarm".into(),
+        source: source.into(),
+        response,
+        delay_s: 30,
+        overridden,
+    };
+    state.snapshot.responses = vec![
+        rule("", Response::Poweroff, false),
+        rule(LEAKSHIELD, Response::Poweroff, false),
+    ];
+    let feedback = Feedback::default();
+    let model = alarms(&state, &feedback);
+    assert_eq!(row(&model, "leak-alarm").response.reset, None);
+
+    state.snapshot.responses[1] = rule(LEAKSHIELD, Response::None, true);
+    let model = alarms(&state, &feedback);
+    assert_eq!(
+        row(&model, "leak-alarm").response.reset,
+        Some(Command::ResetResponse {
+            event: "leakshield.leak-alarm".into(),
+            source: LEAKSHIELD.into(),
+        })
+    );
+    // The write feedback of the row is the one of its Leakshield.
+    let mut done = Feedback::default();
+    done.set(
+        format!("alarm-response:leakshield.leak-alarm@{LEAKSHIELD}"),
+        nicecooling::screens::WriteOutcome::Applied { at_us: 1 },
+    );
+    let model = alarms(&state, &done);
+    assert!(row(&model, "leak-alarm").response.write_line.is_some());
 }

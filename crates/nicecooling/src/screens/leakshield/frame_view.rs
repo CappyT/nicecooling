@@ -209,14 +209,13 @@ impl ScreenView {
         {
             if let Some(seconds) = parse_number(value).filter(|n| *n >= 0.0) {
                 let seconds = seconds.round() as u32;
+                let id = self.current_leakshield(cx);
                 let command = self.with_input(cx, |input| {
-                    let (response, delay) = input.state.default_response(event).map_or(
-                        (crate::screens::alarms::default_response(event), 30),
-                        |rule| (rule.response, rule.delay_s),
-                    );
+                    let (response, delay, _) =
+                        crate::screens::leakshield::alarms::current_response(input, &id, event);
                     (delay != seconds).then(|| crate::command::Command::SetAlarmResponse {
                         event: event.to_owned(),
-                        source: String::new(),
+                        source: id.clone(),
                         response,
                         delay_s: seconds,
                     })

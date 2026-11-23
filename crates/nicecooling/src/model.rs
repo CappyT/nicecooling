@@ -912,6 +912,16 @@ impl AppState {
         })
     }
 
+    /// The row that the daemon resolves for an event and a Leakshield. Without it, the default
+    /// of the event.
+    pub fn leakshield_response(&self, event: &str, leakshield: &str) -> Option<&ResponseRule> {
+        self.snapshot
+            .responses
+            .iter()
+            .find(|rule| rule.event == event && rule.source == leakshield)
+            .or_else(|| self.default_response(event))
+    }
+
     /// The row of an event that holds its default: source `""` in `GetResponses`.
     pub fn default_response(&self, event: &str) -> Option<&ResponseRule> {
         self.snapshot
