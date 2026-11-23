@@ -4,7 +4,10 @@
 Scope: the text files of docs/protocol/, docs/api.md, docs/storage.md and crates/.
 docs/re/ is outside the scope: RE notes may cite aquasuite names as references, never code.
 
-Token rule: a token is a maximal run of [A-Za-z0-9_] with 6 or more characters.
+Token rule: a token is a maximal run of [A-Za-z0-9_] with 6 or more characters that does not start
+with a digit and is a compound name: it holds an underscore between two characters, a lowercase
+letter followed by an uppercase letter, or a letter followed by a digit. A plain word ("Pressure",
+"standby", "LEAKSHIELD") is not checked, because it says nothing about the origin of a name.
 The script hashes each token (case-sensitive) with SHA-256 (lowercase hex of the UTF-8 bytes) and
 compares it with tools/re/identifier-hashes.txt, minus the tokens of tools/re/identifier-allowlist.txt.
 A token that is in the hash file and not in the allowlist is an error (exit 1).
@@ -23,6 +26,11 @@ import tempfile
 from pathlib import Path
 
 TOKEN = re.compile(r"[A-Za-z0-9_]{6,}")
+COMPOUND = re.compile(r"[A-Za-z0-9]_[A-Za-z0-9]|[a-z][A-Z]|[A-Za-z][0-9]")
+
+
+def checked(token):
+    return not token[0].isdigit() and COMPOUND.search(token) is not None
 SCOPE = ("docs/protocol", "docs/api.md", "docs/storage.md", "crates")
 SKIP_DIRS = {"target", ".git"}
 TOOL_DIR = Path(__file__).resolve().parent
@@ -71,7 +79,7 @@ def check(root, hashes_file, allowlist_file):
         for number, line in enumerate(text.splitlines(), 1):
             for match in TOKEN.finditer(line):
                 token = match.group()
-                if token not in allowed and sha(token) in hashes:
+                if checked(token) and token not in allowed and sha(token) in hashes:
                     errors.append(f"{path.relative_to(root)}:{number}:{match.start() + 1}: {token}")
     return errors
 
@@ -83,7 +91,7 @@ def build_hashes(source, out_file):
         if text is None:
             continue
         for token in TOKEN.findall(text):
-            if not token[0].isdigit():
+            if checked(token):
                 found.add(sha(token))
     out_file.write_text("".join(f"{h}\n" for h in sorted(found)), encoding="utf-8")
     return len(found)
@@ -118,6 +126,9 @@ def self_test():
         hashes.write_text(sha("short") + "\n", encoding="utf-8")
         short.write_text("let short = 1;\n", encoding="utf-8")
         assert not check(root, hashes, allow), "token under 6 characters is not checked"
+        hashes.write_text(sha("Pressure") + "\n", encoding="utf-8")
+        short.write_text("// Pressure in mbar\n", encoding="utf-8")
+        assert not check(root, hashes, allow), "a plain word is not checked"
     print("self-test ok")
     return 0
 
