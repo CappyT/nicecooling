@@ -15,7 +15,7 @@ The daemon logs no Leakshield write: it prints a line only for a failure. So a U
 ## Preconditions
 
 - Fedora 45 on the reference desktop. The daemon runs. The Leakshield is on its USB cable, `Connected` and `Writable` are true, and no Alarm is active.
-- The libvirt VM runs aquasuite X.96. The reference name is `win11-aquasuite` (`docs/hardware-checks/firmware-update.md`). The task text says `win11`. TODO(owner): name the VM. Set `VM` below to it. The VM is shut down or running, and the device is not in it.
+- The libvirt VM runs aquasuite X.96. Its name is `win11-aquasuite`. The VM `win11` passes only a Bluetooth adapter through. The VM is shut down or running, and the device is not in it.
 - `virsh`, `rg`, `lsusb` and `jq` are installed. The kernel module `usbmon` loads: `sudo modprobe usbmon`.
 - The in-tree driver gives the hwmon device `leakshield`. The out-of-tree driver is not loaded.
 
