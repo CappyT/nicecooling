@@ -1264,13 +1264,14 @@ fn content_of(content: &Props) -> ProfileContent {
     out
 }
 
-/// The `details` dictionary of an Alarm: `value`, `limit`, `unit` and `sensor`.
+/// The `details` dictionary of an Alarm: `value`, `limit`, `unit`, `sensor` and `latched_bits`.
 fn details_of(details: &Props) -> AlarmDetails {
     AlarmDetails {
         value: get(details, "value"),
         limit: get(details, "limit"),
         unit: get(details, "unit").unwrap_or_default(),
         sensor: object_id(details, "sensor"),
+        latched_bits: get(details, "latched_bits").unwrap_or(0),
     }
 }
 

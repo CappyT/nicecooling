@@ -10,6 +10,8 @@ use std::time::Duration;
 use futures_util::StreamExt;
 use nicecooling_api::alarms::AlarmsProxy;
 use nicecooling_api::errors::Error;
+use nicecooling_api::ids::Kind;
+use nicecooling_api::leakshield::LeakshieldProxy;
 use nicecoolingd::alarms::logind::{CallFuture, Login1, ZbusLogin1};
 use nicecoolingd::dbus::alarms::run_effects;
 use support::{PrivateBus, Rig, error_name};
@@ -20,6 +22,15 @@ const PUMP_STALL: &str = "leakshield.system-alarm";
 const PUMP_STALL_BIT: u32 = 1 << 8;
 const LEAK_BIT: u32 = 1 << 6;
 const LEAK_WARNING_BIT: u32 = 1 << 2;
+
+async fn leakshield(rig: &Rig) -> LeakshieldProxy<'static> {
+    LeakshieldProxy::builder(&rig.client)
+        .path(support::path(Kind::Leakshield, support::LEAKSHIELD))
+        .cache_properties(zbus::proxy::CacheProperties::No)
+        .build()
+        .await
+        .unwrap()
+}
 
 async fn alarms(rig: &Rig) -> AlarmsProxy<'static> {
     AlarmsProxy::builder(&rig.client)
@@ -595,4 +606,82 @@ async fn a_logind_that_never_answers_fails_the_call_and_retries() {
         2,
         "the failed call is retried"
     );
+}
+
+/// The device holds a latched bit until `reset_alarm`: a bit that flickers in `alarm_bits` keeps
+/// one instance, and its countdown runs on.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_flickering_bit_with_a_latched_bit_keeps_one_countdown() {
+    let mut rig = Rig::start_with_clock().await;
+    let proxy = alarms(&rig).await;
+    // The default response of the large leak is poweroff after 30 s.
+    rig.sim.set_alarm_bits(LEAK_BIT);
+    rig.step(25).await;
+    let rows = active(&proxy).await;
+    assert_eq!(rows.len(), 1);
+    let instance = rows[0].0.clone();
+    assert_eq!(rig.logind.call_count(), 0);
+
+    for cycle in 0..4 {
+        // The bit goes for 1 s while the latched bit stays.
+        rig.sim.edit_report1(|r| r.alarm_bits = 0);
+        rig.step(1).await;
+        let rows = active(&proxy).await;
+        assert_eq!(rows.len(), 1, "cycle {cycle}");
+        assert_eq!(rows[0].0, instance, "cycle {cycle}");
+        rig.sim.set_alarm_bits(LEAK_BIT);
+        rig.step(25).await;
+        let rows = active(&proxy).await;
+        assert_eq!(rows.len(), 1, "cycle {cycle}");
+        assert_eq!(rows[0].0, instance, "cycle {cycle}");
+    }
+    // The Alarm rose at t = 1 s, so the call came at t = 31 s, and only once.
+    assert_eq!(*rig.logind.calls.lock().unwrap(), [0x10]);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_latched_bit_alone_keeps_the_alarm_and_closes_when_the_latch_clears() {
+    let mut rig = Rig::start_with_clock().await;
+    let proxy = alarms(&rig).await;
+    rig.sim.set_alarm_bits(LEAK_WARNING_BIT);
+    rig.step(2).await;
+    rig.sim.edit_report1(|r| r.alarm_bits = 0);
+    rig.step(5).await;
+    assert_eq!(
+        event_and_bits(&proxy).await,
+        [("leakshield.leak-warning".to_owned(), 0)]
+    );
+    let details = &proxy.active().await.unwrap()[0].7;
+    assert!(!details.contains_key("bits"));
+    assert_eq!(
+        u32::try_from(details["latched_bits"].try_clone().unwrap()).unwrap(),
+        LEAK_WARNING_BIT
+    );
+    rig.sim.edit_report1(|r| r.alarm_bits_latched = 0);
+    rig.step(2).await;
+    assert!(active(&proxy).await.is_empty());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn reset_alarms_closes_the_alarm_and_stops_the_countdown() {
+    let mut rig = Rig::start_with_clock().await;
+    let proxy = alarms(&rig).await;
+    let device = leakshield(&rig).await;
+    rig.sim.set_alarm_bits(LEAK_BIT);
+    rig.step(12).await;
+    assert_ne!(active(&proxy).await[0].6, 0, "a poweroff is pending");
+    // The current bit goes, and the latch holds the Alarm.
+    rig.sim.edit_report1(|r| r.alarm_bits = 0);
+    rig.step(3).await;
+    assert_eq!(active(&proxy).await.len(), 1);
+
+    device.reset_alarms().await.unwrap();
+    rig.step(3).await;
+
+    assert_eq!(rig.sim.commands().last().map(|c| c.command), Some(11));
+    let report1 = rig.sim.report1();
+    assert_eq!((report1.alarm_bits, report1.alarm_bits_latched), (0, 0));
+    assert!(active(&proxy).await.is_empty());
+    rig.step(60).await;
+    assert_eq!(rig.logind.call_count(), 0);
 }

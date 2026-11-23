@@ -37,6 +37,7 @@ pub struct Details {
     pub limit: Option<f64>,
     pub unit: &'static str,
     pub sensor: Option<&'static str>,
+    pub latched_bits: u32,
 }
 
 impl Details {
@@ -53,6 +54,9 @@ impl Details {
         }
         if !self.unit.is_empty() {
             put("unit", Value::from(self.unit));
+        }
+        if self.latched_bits != 0 {
+            put("latched_bits", Value::U32(self.latched_bits));
         }
         if let Some(sensor) = self.sensor {
             put("sensor", Value::from(path(&format!("sensor/{sensor}"))));

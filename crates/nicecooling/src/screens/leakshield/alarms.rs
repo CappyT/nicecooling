@@ -298,9 +298,20 @@ pub struct Recommendation {
     pub write_line: Option<FeedbackLine>,
 }
 
+/// The row "Reset device alarms": shown while the Leakshield holds a latched alarm bit.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ResetRow {
+    pub text: String,
+    pub label: String,
+    pub enabled: bool,
+    pub command: Command,
+    pub write_line: Option<FeedbackLine>,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct AlarmsModel {
     pub state: TabState,
+    pub reset: Option<ResetRow>,
     pub recommendation_title: String,
     pub recommendations: Vec<Recommendation>,
     pub columns: Vec<String>,
@@ -471,8 +482,25 @@ impl AlarmsModel {
             }],
         });
 
+        let latched = alarms
+            .iter()
+            .any(|alarm| alarm.event.starts_with("leakshield.") && alarm.details.latched_bits != 0);
+        let state = device.state();
+        let reset = latched.then(|| ResetRow {
+            text: locale.tr("leakshield.alarms.reset_text"),
+            label: locale.tr("leakshield.alarms.reset_button"),
+            enabled: state == TabState::Ready
+                && !device.unknown_firmware()
+                && input.writes().enabled,
+            command: Command::ResetLeakshieldAlarms {
+                leakshield: id.to_owned(),
+            },
+            write_line: write_line(input, id, "alarm-reset"),
+        });
+
         Self {
-            state: device.state(),
+            state,
+            reset,
             recommendation_title: locale.tr("leakshield.alarms.recommendation"),
             recommendations: recommendations(input, &device),
             columns: ["event", "threshold", "device", "response"]

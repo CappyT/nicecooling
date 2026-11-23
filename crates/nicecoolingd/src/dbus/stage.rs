@@ -118,6 +118,7 @@ impl Stage for ApiStage {
                 source: source.to_owned(),
                 severity,
                 bits: ctx.alarms.bits(event, source),
+                latched: ctx.alarms.latched_bits(event, source),
             })
             .collect();
         self.hub.alarm_tick(ctx.now, now_us(), &active);

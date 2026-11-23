@@ -3078,6 +3078,104 @@ async fn display_and_lighting_writes_reach_the_fake_daemon() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn reset_device_alarms_button_shows_while_a_latched_bit_is_set() {
+    use support::fake_daemon::Details;
+    let (_bus, daemon, mut harness) = started(Options::default()).await;
+    // A current bit without a latched bit: no button.
+    daemon
+        .raise_alarm(
+            "a1",
+            "leakshield.leak-warning",
+            "warning",
+            LEAKSHIELD,
+            "notify",
+            0,
+        )
+        .await;
+    harness
+        .until("the Warning arrives", |state| {
+            state.snapshot.alarms.len() == 1
+        })
+        .await;
+    let feedback = Feedback::default();
+    assert!(alarms(&harness.state, &feedback).reset.is_none());
+
+    // The Alarm holds a latched bit.
+    daemon
+        .raise_alarm_with_details(
+            "a2",
+            "leakshield.leak-alarm",
+            "alarm",
+            LEAKSHIELD,
+            "poweroff",
+            30_000_000,
+            Details {
+                latched_bits: 1 << 6,
+                ..Details::default()
+            },
+        )
+        .await;
+    harness
+        .until("the latched Alarm arrives", |state| {
+            state
+                .snapshot
+                .alarms
+                .iter()
+                .any(|a| a.details.latched_bits == 1 << 6)
+        })
+        .await;
+    let model = alarms(&harness.state, &feedback);
+    let reset = model.reset.as_ref().expect("the reset row");
+    assert_eq!(reset.label, "Reset device alarms");
+    assert!(reset.enabled && daemon.calls().is_empty());
+    let italian = AlarmsModel::build(&input(&harness.state, &feedback, IT), &AlarmsUi, LEAKSHIELD);
+    assert_eq!(
+        italian.reset.expect("the reset row").label,
+        "Azzera gli allarmi del dispositivo"
+    );
+
+    let result = run(&harness, &reset.command).await;
+    assert_eq!(daemon.calls(), ["ResetAlarms() interactive=true"]);
+    assert!(
+        !result
+            .get(&format!("ls:{LEAKSHIELD}:alarm-reset"))
+            .unwrap()
+            .is_failure()
+    );
+    // The daemon clears the Alarm: the button goes.
+    daemon.clear_alarm("a2").await;
+    harness
+        .until("the Alarm clears", |state| {
+            !state
+                .snapshot
+                .alarms
+                .iter()
+                .any(|a| a.details.latched_bits != 0)
+        })
+        .await;
+    assert!(alarms(&harness.state, &feedback).reset.is_none());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn reset_device_alarms_not_supported_shows_the_refusal() {
+    let (_bus, _daemon, harness) = started(Options {
+        no_reset_commands: true,
+        ..Options::default()
+    })
+    .await;
+    let command = Command::ResetLeakshieldAlarms {
+        leakshield: LEAKSHIELD.into(),
+    };
+    let result = run(&harness, &command).await;
+    assert_eq!(
+        result.get(&format!("ls:{LEAKSHIELD}:alarm-reset")),
+        Some(&WriteOutcome::Refused {
+            error: "NotSupported".into()
+        })
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn reset_refill_history_button_calls_api_after_confirmation() {
     let (_bus, daemon, harness) = started(Options::default()).await;
     let mut ui = SystemUi::default();

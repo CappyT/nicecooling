@@ -851,6 +851,38 @@ fn stage_raises_one_event_for_the_bits_of_a_group() {
     );
 }
 
+#[test]
+fn stage_keeps_a_group_active_while_a_latched_bit_is_set() {
+    let mut h = pump_on_hardware();
+    let set = |h: &Harness, bits, latched| {
+        h.values.1.lock().unwrap().insert(
+            "ls_1".into(),
+            LeakshieldStatus {
+                alarm_bits: bits,
+                alarm_bits_latched: latched,
+                report1_at: Some(h.clock.now()),
+                ..LeakshieldStatus::default()
+            },
+        );
+    };
+    set(&h, 1 << 6, 1 << 6);
+    h.tick();
+    assert_eq!(h.ctx.alarms.bits("leakshield.leak-alarm", "ls_1"), 1 << 6);
+    assert_eq!(
+        h.ctx.alarms.latched_bits("leakshield.leak-alarm", "ls_1"),
+        1 << 6
+    );
+    // The current bit goes, the latched bit stays: the Alarm stays.
+    set(&h, 0, 1 << 6);
+    h.tick();
+    assert!(h.ctx.alarms.is_active("leakshield.leak-alarm", "ls_1"));
+    assert_eq!(h.ctx.alarms.bits("leakshield.leak-alarm", "ls_1"), 0);
+    // Both words are clear: it closes.
+    set(&h, 0, 0);
+    h.tick();
+    assert_eq!(h.ctx.alarms.iter().count(), 0);
+}
+
 /// A pump on `chip_pwm6` and a Channel of each kind: Hardware curve, Curve and fixed Duty.
 fn stopped_pump_harness() -> Harness {
     Harness::new(

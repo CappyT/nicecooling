@@ -157,6 +157,10 @@ pub enum Command {
     SyncLeakshieldClock {
         leakshield: String,
     },
+    /// Clears the latched alarm bits of the device (`ResetAlarms`).
+    ResetLeakshieldAlarms {
+        leakshield: String,
+    },
     ResetRefillHistory {
         leakshield: String,
     },
@@ -351,6 +355,9 @@ impl Command {
             Self::SyncLeakshieldClock { leakshield } => {
                 client.leakshield_call(leakshield, "SyncClock").await?
             }
+            Self::ResetLeakshieldAlarms { leakshield } => {
+                client.leakshield_call(leakshield, "ResetAlarms").await?
+            }
             Self::ResetRefillHistory { leakshield } => {
                 client
                     .leakshield_call(leakshield, "ResetRefillHistory")
@@ -422,6 +429,7 @@ impl Command {
             | Self::StartLeakshieldAction { leakshield, .. }
             | Self::CancelLeakshieldAction { leakshield }
             | Self::SyncLeakshieldClock { leakshield }
+            | Self::ResetLeakshieldAlarms { leakshield }
             | Self::ResetRefillHistory { leakshield }
             | Self::ResetServiceCounter { leakshield }
             | Self::SetSoftwareSensor { leakshield, .. }
@@ -477,6 +485,7 @@ impl Command {
             Self::StartLeakshieldAction { leakshield, .. }
             | Self::CancelLeakshieldAction { leakshield } => format!("ls:{leakshield}:action"),
             Self::SyncLeakshieldClock { leakshield } => format!("ls:{leakshield}:clock"),
+            Self::ResetLeakshieldAlarms { leakshield } => format!("ls:{leakshield}:alarm-reset"),
             Self::ResetRefillHistory { leakshield } => format!("ls:{leakshield}:refill-history"),
             Self::ResetServiceCounter { leakshield } => format!("ls:{leakshield}:service-counter"),
             Self::SetSoftwareSensor {

@@ -22,7 +22,11 @@ One card per group. Each event is one row with these columns:
 | System | "System Alarm": a fault of the Leakshield or of its power supply. No threshold |
 | nicecooling | "Leakshield unreachable": nicecooling gets no data for 10 s. It has an alarm response only |
 
-Above the cards: the recommendation card.
+Above the cards: the row "Reset device alarms", then the recommendation card.
+
+## Reset device alarms
+
+The row shows while the Leakshield holds a latched alarm bit (`latched_bits` of an active event of this Leakshield is not 0). It has the text "The Leakshield holds a latched alarm. It stays active until you reset it." and the button "Reset device alarms". The button calls `ResetAlarms` (class `write`), with write status in the row. It is disabled while the Leakshield is read-only or does not answer. A firmware without the command shows the standard "This firmware has no such command." text.
 
 ## Recommendation and overlap warnings
 

@@ -39,6 +39,7 @@ pub trait Leakshield {
     fn start_action(&self, action: &str) -> zbus::Result<()>;
     fn cancel_action(&self) -> zbus::Result<()>;
     fn sync_clock(&self) -> zbus::Result<()>;
+    fn reset_alarms(&self) -> zbus::Result<()>;
     fn reset_refill_history(&self) -> zbus::Result<()>;
     fn reset_service_counter(&self) -> zbus::Result<()>;
     /// (device time us, event identifier, details)

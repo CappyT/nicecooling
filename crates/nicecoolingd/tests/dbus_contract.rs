@@ -264,6 +264,7 @@ async fn unfilled_interfaces_reply_not_supported() {
         "GetBackup",
         "ImportBackup",
         "RestoreBackup",
+        "ResetAlarms",
         "ResetRefillHistory",
         "ResetServiceCounter",
         "GetEvents",

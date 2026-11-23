@@ -24,6 +24,7 @@ pub mod factory_reset;
 pub mod feed;
 pub mod fields;
 pub mod mode;
+pub mod reset_alarm;
 pub mod save_settings;
 pub mod software_sensors;
 pub mod worker;

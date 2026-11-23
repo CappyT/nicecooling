@@ -88,6 +88,7 @@ fn alarms_states() {
         limit: Some(250.0),
         unit: "mbar".into(),
         sensor: Some(format!("{LEAKSHIELD}_pressure")),
+        ..Default::default()
     };
     state.snapshot.alarms = vec![leak];
     let at = NOW_US + 9_000_000;
@@ -468,6 +469,7 @@ fn countdown_dialog_default_focus_on_cancel() {
         limit: Some(250.0),
         unit: "mbar".into(),
         sensor: None,
+        ..Default::default()
     };
     state.snapshot.alarms = vec![leak];
     let feedback = Feedback::default();

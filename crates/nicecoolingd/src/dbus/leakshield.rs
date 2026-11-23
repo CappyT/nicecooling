@@ -235,6 +235,16 @@ impl Leakshield {
         self.device.sync_clock()
     }
 
+    async fn reset_alarms(
+        &self,
+        #[zbus(connection)] connection: &Connection,
+        #[zbus(header)] header: Header<'_>,
+    ) -> Result<()> {
+        self.authorize(connection, &header, "ResetAlarms", None)
+            .await?;
+        self.device.reset_alarms()
+    }
+
     async fn reset_refill_history(
         &self,
         #[zbus(connection)] connection: &Connection,

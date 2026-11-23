@@ -82,6 +82,8 @@ pub struct AlarmDetails {
     pub unit: String,
     /// The identifier of the sensor that caused the event.
     pub sensor: Option<String>,
+    /// The bits of `alarm_bits_latched` that the Leakshield holds for the event, 0 when none.
+    pub latched_bits: u32,
 }
 
 #[derive(Clone, Debug, PartialEq)]

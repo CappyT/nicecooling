@@ -956,6 +956,8 @@ leakshield:
       passed: "Scrittura di verifica superata: una scrittura supervisionata ha cambiato solo questo campo."
   alarms:
     recommendation: "Raccomandazione"
+    reset_text: "Il Leakshield mantiene un allarme bloccato. Resta attivo finché non lo azzeri."
+    reset_button: "Azzera gli allarmi del dispositivo"
     rec:
       ok: "Le risposte del dispositivo corrispondono alla raccomandazione."
       key_sequence: "La sequenza di tasti è attiva per: %{event}. Il Leakshield la digita nella finestra attiva, anche in un terminale."

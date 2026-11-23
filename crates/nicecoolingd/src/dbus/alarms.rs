@@ -28,15 +28,18 @@ impl Alarms {
     }
 }
 
-/// The keys of `docs/api.md`, section Event identifiers: `bits` (`u`) holds the bits of the
-/// device report that set the event.
-fn details(bits: u32) -> HashMap<String, OwnedVariant> {
+/// The keys of `docs/api.md`, section Event identifiers: `bits` (`u`) holds the bits of
+/// `alarm_bits` that set the event and `latched_bits` (`u`) those of `alarm_bits_latched`.
+fn details(bits: u32, latched: u32) -> HashMap<String, OwnedVariant> {
     let mut details = HashMap::new();
-    if bits != 0 {
-        details.insert(
-            "bits".to_owned(),
-            OwnedVariant::try_from(Variant::U32(bits)).expect("a number has no file descriptor"),
-        );
+    for (key, value) in [("bits", bits), ("latched_bits", latched)] {
+        if value != 0 {
+            details.insert(
+                key.to_owned(),
+                OwnedVariant::try_from(Variant::U32(value))
+                    .expect("a number has no file descriptor"),
+            );
+        }
     }
     details
 }
@@ -68,7 +71,7 @@ impl Alarms {
                     row.response.to_owned(),
                     row.raised_us,
                     row.poweroff_at_us,
-                    details(row.bits),
+                    details(row.bits, row.latched),
                 )
             })
             .collect()
@@ -167,7 +170,7 @@ pub async fn run_effects(
                     row.source,
                     row.response.to_owned(),
                     row.poweroff_at_us,
-                    details(row.bits),
+                    details(row.bits, row.latched),
                 )
                 .await;
                 true

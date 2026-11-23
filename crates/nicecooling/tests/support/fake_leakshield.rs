@@ -46,8 +46,8 @@ struct Device {
 /// What a test can change on the fake device.
 #[derive(Default, Clone, Copy)]
 pub struct DeviceOptions {
-    /// The registry of this firmware has no `cancel_action`, `reset_refill_history` and
-    /// `reset_service_counter`.
+    /// The registry of this firmware has no `cancel_action`, `reset_alarm`,
+    /// `reset_refill_history` and `reset_service_counter`.
     pub no_reset_commands: bool,
     /// A Pump channel of the Loop reads above 0 rpm.
     pub pump_running: bool,
@@ -466,6 +466,17 @@ impl Leakshield {
         #[zbus(header)] header: zbus::message::Header<'_>,
     ) -> fdo::Result<()> {
         self.shared.record("SyncClock()", &header)
+    }
+
+    async fn reset_alarms(
+        &self,
+        #[zbus(header)] header: zbus::message::Header<'_>,
+    ) -> fdo::Result<()> {
+        self.shared.record("ResetAlarms()", &header)?;
+        if self.options.no_reset_commands {
+            return Err(Self::not_supported());
+        }
+        Ok(())
     }
 
     async fn reset_refill_history(

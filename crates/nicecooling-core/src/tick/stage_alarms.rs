@@ -47,8 +47,8 @@ impl Stage for AlarmsStage {
             for group in GROUPS {
                 alarms.clear(group.id, id);
             }
-            for (event, severity, bits) in leakshield::decode(status.alarm_bits) {
-                alarms.raise_bits(event, id, severity, bits);
+            for event in leakshield::decode(status.alarm_bits, status.alarm_bits_latched) {
+                alarms.raise_bits(event.id, id, event.severity, event.bits, event.latched);
             }
         }
 

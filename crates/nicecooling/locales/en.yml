@@ -956,6 +956,8 @@ leakshield:
       passed: "Verification write passed: a supervised write changed only this field."
   alarms:
     recommendation: "Recommendation"
+    reset_text: "The Leakshield holds a latched alarm. It stays active until you reset it."
+    reset_button: "Reset device alarms"
     rec:
       ok: "The Device responses match the recommendation."
       key_sequence: "The key sequence is on for the %{event}. The Leakshield types it into the focused window, a terminal included."

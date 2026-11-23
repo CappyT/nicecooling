@@ -23,10 +23,17 @@ impl ValueTable {
     }
 
     /// A report 1 of a Leakshield arrived.
-    pub fn publish_report1(&self, leakshield: &str, alarm_bits: u32, at: Duration) {
+    pub fn publish_report1(
+        &self,
+        leakshield: &str,
+        alarm_bits: u32,
+        alarm_bits_latched: u32,
+        at: Duration,
+    ) {
         let mut map = self.leakshields.lock().unwrap();
         let status = map.entry(leakshield.to_owned()).or_default();
         status.alarm_bits = alarm_bits;
+        status.alarm_bits_latched = alarm_bits_latched;
         status.report1_at = Some(at);
     }
 

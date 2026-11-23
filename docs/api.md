@@ -57,11 +57,11 @@ Alarms and Warnings use one identifier each. The app maps an identifier to its t
 | `leakshield.leak-alarm` | alarm | Leakshield id: the large leak Alarm, bit 5 or bit 6 |
 | `leakshield.system-alarm` | alarm | Leakshield id: the system Alarm, any of the bits 7 to 10 |
 
-The Leakshield events follow the groups of `docs/protocol/leakshield.md`. A group is one event and one alarm response: bits 5 and 6 together are one large leak instance. The alarm response table (`GetResponses`) has one row for each event of this table, not one row for each bit. The event list of the device (`GetEvents`, codes 100 to 110) keeps the name of each bit.
+The Leakshield events follow the groups of `docs/protocol/leakshield.md`. A group Alarm is active while any of its bits is set in `alarm_bits` or in `alarm_bits_latched`, as in aquasuite. It closes when both words are clear for the group. A bit that goes in `alarm_bits` while its latched bit stays does not close the instance and does not restart its countdown. `Leakshield.ResetAlarms` sends `reset_alarm` (command 11, parameter 0) to clear the latched bits. The device decides which bits it clears: the hardware check of task 5.11 measures it. The Alarm closes in the tick after the next report 1 that shows both words clear for its group. A group is one event and one alarm response: bits 5 and 6 together are one large leak instance. The alarm response table (`GetResponses`) has one row for each event of this table, not one row for each bit. The event list of the device (`GetEvents`, codes 100 to 110) keeps the name of each bit.
 
 An instance is one raise of an event for one source. Its identifier is `alarm_<start>_<n>`: `<start>` is the start time of the daemon in microseconds since the Unix epoch and `<n>` counts the instances of that start from 1. An identifier is unique across daemon restarts, so a cancel from a notification of an earlier start never reaches another instance. The alarm response of an instance is the response of its event when the instance rises. A change with `SetResponse` applies to the instances that rise after it. `CancelPoweroff` ends a pending countdown or retry, and the Alarm stays active. It returns `NoPoweroff` for an instance that has no pending poweroff and for an unknown instance, and `PoweroffStarted` for an instance whose call to logind is under way or was accepted: the PC powers off and no `PoweroffCancelled` follows. The daemon counts a logind call that does not answer in 10 s as failed: it emits `PoweroffFailed` and calls again after 5 s. A response `poweroff` with `delay_s` 0 calls logind in the tick where the instance rises.
 
-Each active Alarm or Warning (`Alarms.Active`) and each `AlarmRaised` signal carries `details` (`a{sv}`) for the notification text: `value` (`d`) and `limit` (`d`) in `unit` (`s`) when the event compares a value with a limit, and `sensor` (`o`) when a sensor caused it, and `bits` (`u`) for a Leakshield event: the bits of `alarm_bits` that are set now in the group of the event (bits 5 and 6 for the large leak). The `bits` of an active instance follow `alarm_bits`; the signal carries the bits at the raise. A key is absent when it does not apply.
+Each active Alarm or Warning (`Alarms.Active`) and each `AlarmRaised` signal carries `details` (`a{sv}`) for the notification text: `value` (`d`) and `limit` (`d`) in `unit` (`s`) when the event compares a value with a limit, and `sensor` (`o`) when a sensor caused it, and `bits` (`u`) for a Leakshield event: the bits of `alarm_bits` that are set now in the group of the event (bits 5 and 6 for the large leak), `latched_bits` (`u`) holds the bits of `alarm_bits_latched` in the same group. The `bits` and `latched_bits` of an active instance follow the two words; the signal carries them at the raise. A key is absent when it does not apply.
 
 ## Read-only reasons
 
@@ -156,7 +156,7 @@ Error names have the prefix `io.github.cappyt.NiceCooling1.Error.`. polkit denia
 | `NotFound` | An object or an identifier does not exist. |
 | `InUse` | A delete of a sensor, Calibration table or Profile that something else uses. A Rule group that targets a Profile uses it. |
 | `DefaultProfile` | A delete of the Default Profile. |
-| `ReadOnly` | A write to a preset, to a Leakshield that is read-only, or a `SetCurve` or `SetFixedDuty` on a Channel without a BIOS snapshot entry (`no-bios-snapshot`). The message holds the reason identifier. |
+| `ReadOnly` | A write to a preset, to a Leakshield that is read-only (`ResetAlarms` included), or a `SetCurve` or `SetFixedDuty` on a Channel without a BIOS snapshot entry (`no-bios-snapshot`). The message holds the reason identifier. |
 | `NotVerified` | A Leakshield field that is not Verified for this firmware. The message holds the field id. |
 | `PumpRunning` | `StartAction("refill")` while a Pump channel of the Loop reads above 0 rpm or has no tach value. |
 | `Busy` | The Leakshield write worker already holds a queued write. |
@@ -165,7 +165,7 @@ Error names have the prefix `io.github.cappyt.NiceCooling1.Error.`. polkit denia
 | `Disconnected` | The device is not connected. |
 | `NoPoweroff` | `CancelPoweroff` for an instance with no pending poweroff. |
 | `PoweroffStarted` | `CancelPoweroff` for an instance whose call to logind is under way or was accepted. |
-| `NotSupported` | `ImportBackup` with a firmware that the field registry does not cover. `CancelAction`, `ResetRefillHistory`, `ResetServiceCounter` or `FactoryReset` when the field registry of the device firmware lacks the command (`cancel_action`, `reset_refill_history`, `reset_service_counter`, `factory_defaults`). |
+| `NotSupported` | `ImportBackup` with a firmware that the field registry does not cover. `CancelAction`, `ResetAlarms`, `ResetRefillHistory`, `ResetServiceCounter` or `FactoryReset` when the field registry of the device firmware lacks the command (`cancel_action`, `reset_alarm`, `reset_refill_history`, `reset_service_counter`, `factory_defaults`). |
 
 ## Authorization
 

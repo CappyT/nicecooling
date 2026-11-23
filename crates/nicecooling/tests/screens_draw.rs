@@ -138,6 +138,7 @@ fn every_screen_draws_with_an_alarm_and_after_the_daemon_goes_away(cx: &mut Test
         limit: Some(250.0),
         unit: "mbar".into(),
         sensor: Some(format!("{LEAKSHIELD}_pressure")),
+        ..Default::default()
     };
     leak.raised_us = NOW_US;
     let pump = alarm("a2", "pump-stop", "loop_1", Response::Notify, 0);

@@ -13,6 +13,14 @@ The daemon SHALL decode Warnings and Alarms from the Leakshield and treat each A
 - **WHEN** the Leakshield raises a leak Alarm
 - **THEN** the daemon raises the matching Alarm and runs its configured alarm response
 
+#### Scenario: Latched bit keeps the Alarm
+- **WHEN** a bit of a group is set in `alarm_bits_latched` and the same bit goes clear in `alarm_bits` and comes back
+- **THEN** the Alarm of the group stays one instance, and its countdown runs on, until both words are clear for the group
+
+#### Scenario: Alarm reset
+- **WHEN** the user calls `ResetAlarms` and the Leakshield clears its latched bits
+- **THEN** the Alarm of each group with no bit set in either word closes, and its pending poweroff stops
+
 ### Requirement: Pump-stop Alarm
 The daemon SHALL raise a pump-stop Alarm for a Loop when any of its Pump channels reads 0 rpm for 5 seconds while its Duty is above zero. For a Channel on its Hardware curve, the Duty is the current `pwmN` value.
 

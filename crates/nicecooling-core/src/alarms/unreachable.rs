@@ -58,6 +58,7 @@ mod tests {
     fn status(report1_at: Option<u32>, feed_failing_since: Option<u32>) -> LeakshieldStatus {
         LeakshieldStatus {
             alarm_bits: 0,
+            alarm_bits_latched: 0,
             report1_at: report1_at.map(|s| SECOND * s),
             feed_failing_since: feed_failing_since.map(|s| SECOND * s),
         }

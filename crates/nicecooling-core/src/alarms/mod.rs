@@ -28,20 +28,31 @@ impl Severity {
 /// The active Alarms, and the Warnings of the Leakshield, each with an event id and a source id.
 #[derive(Clone, Debug, Default)]
 pub struct ActiveAlarms {
-    active: BTreeMap<(String, String), (Severity, u32)>,
+    active: BTreeMap<(String, String), (Severity, u32, u32)>,
 }
 
 impl ActiveAlarms {
     /// Returns true when the event was not active before.
     pub fn raise(&mut self, event: &str, source: &str, severity: Severity) -> bool {
-        self.raise_bits(event, source, severity, 0)
+        self.raise_bits(event, source, severity, 0, 0)
     }
 
-    /// Like `raise`, for an event that the bits of a device report set. An event that is active
-    /// takes the new bits.
-    pub fn raise_bits(&mut self, event: &str, source: &str, severity: Severity, bits: u32) -> bool {
+    /// Like `raise`, for an event that the bits of a device report set: `bits` are the set bits
+    /// of `alarm_bits` and `latched` those of `alarm_bits_latched`, both in the group of the
+    /// event. An event that is active takes the new bits.
+    pub fn raise_bits(
+        &mut self,
+        event: &str,
+        source: &str,
+        severity: Severity,
+        bits: u32,
+        latched: u32,
+    ) -> bool {
         self.active
-            .insert((event.to_owned(), source.to_owned()), (severity, bits))
+            .insert(
+                (event.to_owned(), source.to_owned()),
+                (severity, bits, latched),
+            )
             .is_none()
     }
 
@@ -49,7 +60,14 @@ impl ActiveAlarms {
     pub fn bits(&self, event: &str, source: &str) -> u32 {
         self.active
             .get(&(event.to_owned(), source.to_owned()))
-            .map_or(0, |&(_, bits)| bits)
+            .map_or(0, |&(_, bits, _)| bits)
+    }
+
+    /// The latched device bits of an active event, 0 when it has none or is not active.
+    pub fn latched_bits(&self, event: &str, source: &str) -> u32 {
+        self.active
+            .get(&(event.to_owned(), source.to_owned()))
+            .map_or(0, |&(_, _, latched)| latched)
     }
 
     /// Returns true when the event was active.
@@ -76,7 +94,7 @@ impl ActiveAlarms {
     pub fn iter(&self) -> impl Iterator<Item = (&str, &str, Severity)> {
         self.active
             .iter()
-            .map(|((e, s), (severity, _))| (e.as_str(), s.as_str(), *severity))
+            .map(|((e, s), (severity, _, _))| (e.as_str(), s.as_str(), *severity))
     }
 }
 
@@ -85,6 +103,8 @@ impl ActiveAlarms {
 pub struct LeakshieldStatus {
     /// `alarm_bits` of the last report 1.
     pub alarm_bits: u32,
+    /// `alarm_bits_latched` of the last report 1: the bits that the device holds until a reset.
+    pub alarm_bits_latched: u32,
     /// When the last report 1 arrived. `None` when none arrived yet.
     pub report1_at: Option<Duration>,
     /// When the current run of failed Feed messages began. `None` while the Feed message works.

@@ -63,6 +63,7 @@ struct State {
 /// Report 2 commands that the simulated device acts on (`docs/protocol/leakshield.md`):
 /// `set_mode` and the codes that it takes, and the others.
 const COMMAND_FACTORY_DEFAULTS: u32 = 3;
+const COMMAND_RESET_ALARM: u32 = 11;
 const COMMAND_SET_MODE: u32 = 12;
 const COMMAND_SET_CLOCK: u32 = 37000;
 
@@ -96,6 +97,10 @@ impl State {
                     self.base_mode = Some(current);
                 }
                 self.edit_report1(|r| r.mode = code as i16);
+            }
+            // A bit that is still set in `alarm_bits` stays latched: the device sets it again.
+            (COMMAND_RESET_ALARM, _) => {
+                self.edit_report1(|r| r.alarm_bits_latched = r.alarm_bits);
             }
             // The settings that the device returns to are the fw1022 dump.
             (COMMAND_FACTORY_DEFAULTS, _) => self.report3 = REPORT3.to_vec(),
@@ -167,6 +172,11 @@ impl SimDevice {
         self.state().bulk.clone()
     }
 
+    /// The report 1 that the device holds now.
+    pub fn report1(&self) -> Report1 {
+        Report1::decode(&self.state().report1).expect("the device holds a valid report 1")
+    }
+
     pub fn report3(&self) -> Vec<u8> {
         self.state().report3.clone()
     }
@@ -195,6 +205,16 @@ impl SimDevice {
             Report1::decode(&state.report1).expect("the device holds a valid report 1");
         edit(&mut report);
         state.report1 = report.encode();
+    }
+
+    /// Sets `alarm_bits` and latches every bit that is set: the device holds a latched bit until
+    /// command 11 (`reset_alarm`), also after the bit in `alarm_bits` goes. `edit_report1` does
+    /// not latch.
+    pub fn set_alarm_bits(&self, bits: u32) {
+        self.edit_report1(|r| {
+            r.alarm_bits = bits;
+            r.alarm_bits_latched |= bits;
+        });
     }
 
     /// The running Action ends: report 1 shows the Mode again.

@@ -19,8 +19,10 @@ pub struct Event {
     pub event: String,
     pub source: String,
     pub severity: Severity,
-    /// The bits of the device report that set the event, 0 for an event without bits.
+    /// The bits of `alarm_bits` that set the event, 0 for an event without bits.
     pub bits: u32,
+    /// The bits of `alarm_bits_latched` in the group of the event.
+    pub latched: u32,
 }
 
 /// One row of the property `Active`.
@@ -34,8 +36,10 @@ pub struct Row {
     pub raised_us: u64,
     /// 0 when no poweroff is pending.
     pub poweroff_at_us: u64,
-    /// The bits of the device report that set the event now, 0 for an event without bits.
+    /// The bits of `alarm_bits` that set the event now, 0 for an event without bits.
     pub bits: u32,
+    /// The bits of `alarm_bits_latched` in the group of the event now.
+    pub latched: u32,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -137,8 +141,9 @@ impl AlarmManager {
                 .iter_mut()
                 .find(|i| i.row.event == event.event && i.row.source == event.source)
             {
-                if found.row.bits != event.bits {
+                if (found.row.bits, found.row.latched) != (event.bits, event.latched) {
                     found.row.bits = event.bits;
+                    found.row.latched = event.latched;
                     effects.push(Effect::Updated(found.row.instance.clone()));
                 }
                 continue;
@@ -164,6 +169,7 @@ impl AlarmManager {
                 raised_us: wall_us,
                 poweroff_at_us,
                 bits: event.bits,
+                latched: event.latched,
             };
             effects.push(Effect::Raised(row.clone()));
             self.instances.push(Instance { row, countdown });
@@ -249,6 +255,7 @@ mod tests {
             source: "loop_1".into(),
             severity,
             bits: 0,
+            latched: 0,
         }
     }
 

@@ -272,6 +272,10 @@
     <method name="SyncClock">
       <annotation name="io.github.cappyt.NiceCooling1.Authorization" value="write"/>
     </method>
+    <!-- Sends reset_alarm (command 11, parameter 0), which clears the latched alarm bits of the device. Fails with NotSupported when the registry of this firmware has no such command, and with ReadOnly on a firmware that the registry does not cover. -->
+    <method name="ResetAlarms">
+      <annotation name="io.github.cappyt.NiceCooling1.Authorization" value="write"/>
+    </method>
     <!-- Sends reset_refill_history (command 13). Fails with NotSupported when the registry of this firmware has no such command. -->
     <method name="ResetRefillHistory">
       <annotation name="io.github.cappyt.NiceCooling1.Authorization" value="write"/>

@@ -73,7 +73,12 @@ pub fn spawn_source(
             };
             if let Some(report1) = report1 {
                 let now = clock.now();
-                table.publish_report1(&device.id(), report1.alarm_bits, now);
+                table.publish_report1(
+                    &device.id(),
+                    report1.alarm_bits,
+                    report1.alarm_bits_latched,
+                    now,
+                );
                 for (field, value) in sensor_values(&report1) {
                     table.publish(&leakshield_sensor_id(&device.id(), field), value, now);
                 }

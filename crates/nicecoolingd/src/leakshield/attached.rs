@@ -28,7 +28,7 @@ use super::mode::{self, COMMAND_DELAY, Mode};
 use super::software_sensors::SoftwareSlots;
 use super::worker::{Job, WorkerParts, WriteWorker};
 use super::write::{WriteEnv, WriteError, out_of_range_field, take_backup};
-use super::{DeviceEvent, DeviceIo, blocking, clock, counters};
+use super::{DeviceEvent, DeviceIo, blocking, clock, counters, reset_alarm};
 
 /// The automatic clock sync runs at most this often, so a device that ignores it is not flooded.
 const AUTO_CLOCK_GAP: Duration = Duration::from_secs(60);
@@ -452,6 +452,14 @@ impl Attached {
         self.send(
             counters::reset_refill_history(&self.registry),
             COMMAND_DELAY,
+        )
+    }
+
+    /// Sends `reset_alarm`. The device clears its latched bits; the next report 1 shows the result.
+    pub fn reset_alarms(&self) -> Result<()> {
+        self.send(
+            reset_alarm::command(&self.registry),
+            reset_alarm::COMMAND_DELAY,
         )
     }
 

@@ -45,6 +45,21 @@ impl ScreenView {
                 )
                 .into_any_element();
         }
+        if let Some(reset) = &model.reset {
+            let view = cx.entity();
+            let command = reset.command.clone();
+            let mut row = notice_row(reset.text.clone(), true, p).child(
+                Button::new("ls-reset-alarms")
+                    .small()
+                    .label(reset.label.clone())
+                    .disabled(!reset.enabled)
+                    .on_click(act(&view, move |this, _, _| this.send(command.clone()))),
+            );
+            if let Some(line) = &reset.write_line {
+                row = row.child(write_line(line, p));
+            }
+            content = content.child(card(p).child(row));
+        }
         if !model.recommendations.is_empty() {
             let view = cx.entity();
             let mut recommendation =

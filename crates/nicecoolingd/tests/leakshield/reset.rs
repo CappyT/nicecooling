@@ -12,6 +12,7 @@ use crate::support::{LEAKSHIELD, Rig, path};
 use crate::{LEAKSHIELD_ID, Rig as DeviceRig};
 
 const FACTORY_DEFAULTS: u32 = 3;
+const RESET_ALARM: u32 = 11;
 const RESET_REFILL_HISTORY: u32 = 13;
 const RESET_SERVICE_COUNTER: u32 = 25000;
 /// A byte of report 3 that no test field covers, which the factory reset must bring back.
@@ -102,6 +103,52 @@ async fn reset_refill_history_sends_command_13() {
 }
 
 #[tokio::test]
+async fn reset_alarms_sends_command_11_with_parameter_0() {
+    let rig = DeviceRig::new("reset-alarms");
+    let device = rig.attached();
+
+    device.reset_alarms().unwrap();
+
+    assert_eq!(rig.sim.commands(), [Report2::new(RESET_ALARM, 0)]);
+}
+
+#[tokio::test]
+async fn reset_alarms_refuses_unknown_firmware_and_a_registry_without_the_command() {
+    let rig = DeviceRig::new("reset-alarms-read-only");
+    rig.sim.edit_report1(|r| r.firmware_version = 1019);
+    let error = rig.attached().reset_alarms().unwrap_err();
+    assert!(matches!(error, Error::ReadOnly(reason) if reason == "unknown-firmware"));
+    assert!(rig.sim.commands().is_empty());
+
+    let rig = DeviceRig::with_registry(
+        "reset-alarms-no-command",
+        without_commands(&["reset_alarm"]),
+    );
+    let error = rig.attached().reset_alarms().unwrap_err();
+    assert!(
+        matches!(error, Error::ZBus(zbus::Error::FDO(e)) if matches!(*e, zbus::fdo::Error::NotSupported(_)))
+    );
+    assert!(rig.sim.commands().is_empty());
+}
+
+#[tokio::test]
+async fn reset_alarms_clears_the_latch_that_the_current_bits_do_not_hold() {
+    let rig = DeviceRig::new("reset-alarms-latch");
+    let device = rig.attached();
+    rig.sim.set_alarm_bits((1 << 6) | (1 << 2));
+    rig.sim.edit_report1(|r| r.alarm_bits = 1 << 2);
+
+    device.reset_alarms().unwrap();
+
+    let report1 = rig.io.read_report1().unwrap();
+    // The bit that is still current stays latched.
+    assert_eq!(
+        (report1.alarm_bits, report1.alarm_bits_latched),
+        (1 << 2, 1 << 2)
+    );
+}
+
+#[tokio::test]
 async fn reset_service_counter_sends_25000_with_serial_xor() {
     let rig = DeviceRig::new("reset-service");
     let device = rig.attached();
@@ -155,14 +202,22 @@ async fn reset_commands_ask_write() {
     let rig = Rig::start().await;
     let proxy = proxy(&rig).await;
 
+    proxy.reset_alarms().await.unwrap();
     proxy.reset_refill_history().await.unwrap();
     proxy.reset_service_counter().await.unwrap();
     assert_eq!(
         rig.authorizer.calls(),
-        [(Action::Write, false), (Action::Write, false)]
+        [
+            (Action::Write, false),
+            (Action::Write, false),
+            (Action::Write, false)
+        ]
     );
     let codes: Vec<u32> = rig.sim.commands().iter().map(|c| c.command).collect();
-    assert_eq!(codes, [RESET_REFILL_HISTORY, RESET_SERVICE_COUNTER]);
+    assert_eq!(
+        codes,
+        [RESET_ALARM, RESET_REFILL_HISTORY, RESET_SERVICE_COUNTER]
+    );
 
     // The factory reset asks `critical`.
     rig.authorizer.clear();
@@ -200,6 +255,7 @@ async fn no_pump_runtime_method() {
         .filter_map(|n| n.attribute("name"))
         .collect();
     assert!(methods.contains(&"ResetRefillHistory"));
+    assert!(methods.contains(&"ResetAlarms"));
     for method in methods {
         let lower = method.to_ascii_lowercase();
         assert!(
