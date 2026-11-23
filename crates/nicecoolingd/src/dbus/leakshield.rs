@@ -200,7 +200,12 @@ impl Leakshield {
     ) -> Result<()> {
         self.authorize(connection, &header, "SetStoredFields", None)
             .await?;
-        let values = field_values(fields)?;
+        // A value that does not decode is an error of its field, after the slot checks.
+        let mut values: Vec<(String, Option<crate::leakshield::fields::FieldValue>)> = fields
+            .iter()
+            .map(|(id, value)| (id.clone(), field_value(value)))
+            .collect();
+        values.sort_by(|a, b| a.0.cmp(&b.0));
         self.device
             .set_stored_fields(slot, values, &self.hub.slot_store())
             .await

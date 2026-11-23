@@ -159,7 +159,8 @@ Each active Alarm or Warning (`Alarms.Active`) and each `AlarmRaised` signal car
   2. A slot with no stored report 3: `NotFound`.
   3. A stored firmware that the field registry does not cover: `NotSupported`.
   4. For `SetStoredFields` only: the slot of report 1 `active_profile`: `InvalidArgument` (use `SetFields`).
-  5. For `SetStoredFields` only: per field the rules of `SetFields`: `InvalidArgument` or `NotVerified`. The field `device_profile` fails with `InvalidArgument`.
+  5. For `SetStoredFields` only: the field `device_profile`: `InvalidArgument`.
+  6. For `SetStoredFields` only: per field the rules of `SetFields`: an unknown field gives `NotFound`, a value that does not fit gives `InvalidArgument`, and a field that is not Verified gives `NotVerified`. The daemon decodes the fields after steps 1 to 5.
 - `SetStoredFields` decodes the stored report 3, changes the fields, encodes it and computes the CRC again. It writes `report3.bin` atomically and sets `edited` to true in `meta.json`.
 - The next activation of an edited slot uses the verified write path of design D11: backup, write, read-back. A good read-back clears `edited`. A failed read-back keeps it and reports `leakshield-failed`. The rule of design D14 that the device produced the stored bytes does not hold for an edited slot.
 

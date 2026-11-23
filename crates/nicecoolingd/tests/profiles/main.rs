@@ -7,6 +7,7 @@ mod ordering;
 mod rules;
 mod set_fields_slot;
 mod slots;
+mod stored_error_order;
 #[path = "../support/mod.rs"]
 mod support;
 

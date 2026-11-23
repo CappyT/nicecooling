@@ -65,6 +65,10 @@ pub enum WriteError {
     ActiveSlot,
     /// The daemon sets this field itself.
     FieldNotEditable(String),
+    /// The value does not fit the kind of the field.
+    BadValue {
+        field: String,
+    },
 }
 
 impl fmt::Display for WriteError {
@@ -84,6 +88,7 @@ impl fmt::Display for WriteError {
             Self::NoStoredSlot => write!(f, "the slot has no stored report 3"),
             Self::ActiveSlot => write!(f, "the slot is the active slot of the device"),
             Self::FieldNotEditable(field) => write!(f, "{field} is not an editable field"),
+            Self::BadValue { field } => write!(f, "the value of {field} does not fit the field"),
         }
     }
 }

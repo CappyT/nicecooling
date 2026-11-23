@@ -4,6 +4,7 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use nicecooling_core::profile::Slot;
+use nicecooling_protocol::access::WriteRefusal;
 use nicecooling_protocol::registry::Registry;
 use nicecooling_protocol::report1::Report1;
 use nicecooling_protocol::report3::Report3;
@@ -54,8 +55,9 @@ pub struct StoredRequest {
     /// The id of the Leakshield: the name of its slot directory.
     pub leakshield: String,
     pub slot: Slot,
-    /// `None` reads the slot.
-    pub edits: Option<Vec<FieldEdit>>,
+    /// `None` reads the slot. A value is `None` when the caller could not decode it. The job
+    /// checks the fields after the slot checks, so the order of the errors follows design D18.
+    pub values: Option<Vec<(String, Option<FieldValue>)>>,
 }
 
 pub enum StoredReply {
@@ -263,6 +265,26 @@ fn note_active_slot(parts: &WorkerParts, slot: u8) {
     });
 }
 
+/// The edits of the values of a `SetStoredFields`, one field after the other: an unknown field is
+/// refused first, then a value that does not fit it.
+fn decode_edits(
+    registry: &Registry,
+    values: Vec<(String, Option<FieldValue>)>,
+) -> Result<Vec<FieldEdit>, WriteError> {
+    let mut decoded = Vec::with_capacity(values.len());
+    for (id, value) in values {
+        if registry.field(&id).is_none() {
+            return Err(WriteError::Refused(WriteRefusal::UnknownField(id)));
+        }
+        let value = value.ok_or_else(|| WriteError::BadValue { field: id.clone() })?;
+        decoded.push((id, value));
+    }
+    fields::edits(registry, decoded).map_err(|e| match e {
+        fields::EditError::NoSuchField(id) => WriteError::Refused(WriteRefusal::UnknownField(id)),
+        fields::EditError::BadValue(field) => WriteError::BadValue { field },
+    })
+}
+
 /// Reads or changes a stored slot. The checks use the firmware and the structure of the slot and
 /// the last report 1: the device is not read.
 fn run_stored(parts: &WorkerParts, request: StoredRequest) -> Result<StoredReply, WriteError> {
@@ -278,7 +300,7 @@ fn run_stored(parts: &WorkerParts, request: StoredRequest) -> Result<StoredReply
     {
         return Err(WriteError::NotSupported);
     }
-    let Some(edits) = &request.edits else {
+    let Some(values) = request.values else {
         return Ok(StoredReply::Fields(fields::values(
             registry,
             &stored.report3,
@@ -287,12 +309,16 @@ fn run_stored(parts: &WorkerParts, request: StoredRequest) -> Result<StoredReply
     if parts.info.borrow().active_slot == request.slot.get() {
         return Err(WriteError::ActiveSlot);
     }
+    if let Some((id, _)) = values.iter().find(|(id, _)| id == "device_profile") {
+        return Err(WriteError::FieldNotEditable(id.clone()));
+    }
+    let edits = decode_edits(registry, values)?;
     let report3 = edit_stored(
         registry,
         stored.meta.firmware,
         stored.meta.structure,
         &stored.report3,
-        edits,
+        &edits,
     )?;
     if !edits.is_empty() {
         let meta = SlotMeta {

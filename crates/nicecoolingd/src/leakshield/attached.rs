@@ -179,6 +179,9 @@ fn write_error(error: WriteError) -> Error {
         WriteError::FieldNotEditable(field) => {
             Error::invalid(format!("{field} is not an editable field"))
         }
+        WriteError::BadValue { field } => {
+            Error::invalid(format!("the value of {field} does not fit the field"))
+        }
     }
 }
 
@@ -634,7 +637,7 @@ impl Attached {
         &self,
         slot: u8,
         slots: &SlotStore,
-        edits: Option<Vec<FieldEdit>>,
+        values: Option<Vec<(String, Option<FieldValue>)>>,
     ) -> Result<StoredReply> {
         let slot = Slot::new(u32::from(slot))
             .ok_or_else(|| Error::invalid("a slot is a number from 1 to 4"))?;
@@ -643,7 +646,7 @@ impl Attached {
                 slots: slots.clone(),
                 leakshield: self.id(),
                 slot,
-                edits,
+                values,
             })
             .await
             .map_err(write_error)
@@ -661,15 +664,15 @@ impl Attached {
         }
     }
 
-    /// Changes the stored report 3 of another slot. The device gets nothing.
+    /// Changes the stored report 3 of another slot. The device gets nothing. A value that the
+    /// caller could not decode is `None`: the job refuses it after the slot checks.
     pub async fn set_stored_fields(
         &self,
         slot: u8,
-        values: Vec<(String, FieldValue)>,
+        values: Vec<(String, Option<FieldValue>)>,
         slots: &SlotStore,
     ) -> Result<()> {
-        let edits = self.edits(values)?;
-        self.stored(slot, slots, Some(edits)).await.map(|_| ())
+        self.stored(slot, slots, Some(values)).await.map(|_| ())
     }
 
     /// One write path run for all fields. Returns after the read-back, with the report 3 that the
