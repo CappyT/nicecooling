@@ -4129,7 +4129,10 @@ dependencies = [
 name = "nicecooling-protocol"
 version = "0.1.0"
 dependencies = [
+ "base64 0.22.1",
  "crc",
+ "nicecooling-protocol",
+ "roxmltree 0.21.2",
  "serde",
  "toml 1.2.2+spec-1.1.0",
 ]
