@@ -11,6 +11,7 @@ mod events;
 mod external;
 mod feed;
 mod hotplug;
+mod lighting;
 mod mode;
 mod profile_spacing;
 mod profile_write;

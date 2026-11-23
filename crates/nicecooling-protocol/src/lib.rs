@@ -7,6 +7,7 @@ pub mod device;
 pub mod display;
 pub mod error;
 pub mod feed;
+pub mod lighting;
 pub mod registry;
 pub mod report1;
 pub mod report2;
