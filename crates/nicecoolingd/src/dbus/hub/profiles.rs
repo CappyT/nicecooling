@@ -13,7 +13,7 @@ use nicecooling_core::tick::stage_rules::ManualCommand;
 
 use super::{Hub, Inner, check_name};
 use crate::profiles::activate::Failure;
-use nicecooling_protocol::report3::Report3;
+use nicecooling_protocol::report3::{REPORT3_STRUCT_END, Report3};
 
 use crate::leakshield::Attached;
 use crate::leakshield::fields::{self, FieldValue};
@@ -357,14 +357,16 @@ impl Hub {
     }
 
     /// A Leakshield setting that the user changed in nicecooling goes into the slot that the
-    /// device runs (`ActiveSlot`), so into every Profile with that slot (ADR-0006). After a failed
-    /// switch this is not the slot of the active Profile, and its stored settings stay as they are.
-    /// `report3` is the verified read-back of the write.
+    /// read-back names in its `device_profile` byte: the slot that the device runs. So it goes into
+    /// every Profile with that slot (ADR-0006). After a failed switch this is not the slot of the
+    /// active Profile, and its stored settings stay as they are. A byte outside 1 to 4 stores
+    /// nothing. `report3` is the verified read-back of the write.
     pub fn store_user_write(&self, device: &Attached, report3: &Report3) {
-        let info = device.info();
-        let Some(slot) = Slot::new(u32::from(info.active_slot)) else {
+        let number = report3.bytes_at(REPORT3_STRUCT_END, 1)[0];
+        let Some(slot) = Slot::new(u32::from(number)) else {
             return;
         };
+        let info = device.info();
         let meta = SlotMeta::new(info.firmware, info.structure, device.serial());
         if let Err(e) = self
             .slots

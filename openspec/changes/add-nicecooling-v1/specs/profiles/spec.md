@@ -315,7 +315,7 @@ A Profile that the user activated by hand SHALL become active at once, also duri
 - **THEN** the Profile becomes active in the same tick
 
 ### Requirement: Edits go into the active Profile and its slot
-A change to a Curve SHALL go into the active Profile. A change to a Leakshield setting that the user makes in nicecooling SHALL go into the slot that the device runs, which is the slot of the active Profile after a switch that worked, and so into every Profile with that slot.
+A change to a Curve SHALL go into the active Profile. A change to a Leakshield setting that the user makes in nicecooling SHALL go into the slot that the `device_profile` byte of the read-back names, which is the slot that the device runs and, after a switch that worked, the slot of the active Profile, and so into every Profile with that slot.
 
 #### Scenario: Curve edit
 - **WHEN** the user changes a Curve while Profile A is active
