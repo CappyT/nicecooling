@@ -4148,6 +4148,7 @@ dependencies = [
 name = "nicecoolingd"
 version = "0.1.0"
 dependencies = [
+ "futures-core",
  "futures-util",
  "nicecooling-api",
  "nicecooling-core",

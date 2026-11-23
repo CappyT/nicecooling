@@ -47,6 +47,14 @@ impl Report3 {
         &self.bytes[offset..offset + len]
     }
 
+    /// Struct offsets (1 to 747) where the two reports differ and `volatile_mask` does not list
+    /// the offset. The CRC bytes follow from the struct bytes, so they are not compared.
+    pub fn differing_offsets(&self, other: &Self, volatile_mask: &[usize]) -> Vec<usize> {
+        (1..=REPORT3_STRUCT_END)
+            .filter(|&o| self.bytes[o] != other.bytes[o] && !volatile_mask.contains(&o))
+            .collect()
+    }
+
     /// Overwrites struct bytes and the CRC. Panics when the range leaves offsets 1 to 747.
     pub fn set_bytes(&mut self, offset: usize, value: &[u8]) {
         assert!(offset >= 1 && offset + value.len() <= REPORT3_STRUCT_END + 1);

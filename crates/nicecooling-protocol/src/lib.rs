@@ -3,13 +3,17 @@
 
 pub mod access;
 pub mod crc;
+pub mod device;
 pub mod error;
 pub mod feed;
 pub mod registry;
 pub mod report1;
+pub mod report2;
 pub mod report3;
 pub mod report5;
 pub mod report8;
+#[cfg(feature = "sim")]
+pub mod sim;
 mod wire;
 
 pub use error::ReportError;

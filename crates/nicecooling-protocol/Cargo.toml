@@ -7,6 +7,10 @@ publish.workspace = true
 [lints]
 workspace = true
 
+[features]
+# The simulated Leakshield of `sim.rs`. Only `[dev-dependencies]` enable it.
+sim = []
+
 [dependencies]
 crc.workspace = true
 serde.workspace = true
