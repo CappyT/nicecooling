@@ -218,6 +218,8 @@ The BIOS snapshot holds every writable `pwmN*` attribute of every Channel: 22 pe
 - The daemon removes the lease only after a restore whose read-back matches the snapshot.
 - The daemon refreshes the snapshot only when no lease exists.
 - A restore writes the attributes in the order of the snapshot file: all others first, then `pwmN`, then `pwmN_enable`.
+- A restore writes only an attribute that reads different from the snapshot. `nct6775` cannot write back every value it reads: it stores a step time of 0 as one step (400 ms).
+- For a Channel in an automatic mode (`pwmN_enable` 2 or more) the restore neither writes nor reads back `pwmN`. The chip sets it, and `nct6775` refuses the write with `EBUSY`.
 - On first start with a Channel already in manual mode, the daemon takes the snapshot anyway. It marks that Channel "manual at snapshot" and raises a Warning.
 - `--restore-bios` with no lease does nothing and exits 0.
 - `--restore-bios` with a lease and no readable snapshot or copy sets every controlled Channel to manual mode at raw 255 and raises the `state-fallback` Warning.

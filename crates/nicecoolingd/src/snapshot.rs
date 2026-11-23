@@ -218,20 +218,15 @@ fn readback_matches(name: &str, expected: &str, actual: &str, mode: Option<&str>
     actual == expected || (name.ends_with("_time") && time_matches(expected, actual, mode))
 }
 
-/// Writes the attributes of one Channel in the order of the snapshot, then reads all of them
-/// back. Returns the problems. For a Channel in an automatic mode (`pwmN_enable` 2 or more) the
-/// chip sets `pwmN` itself, so the read-back skips `pwmN` there.
+/// Writes the attributes of one Channel that differ from the snapshot, in the order of the
+/// snapshot, then reads all of them back. Returns the problems. For a Channel in an automatic
+/// mode (`pwmN_enable` 2 or more) the chip sets `pwmN` itself, so the restore neither writes nor
+/// reads back `pwmN` there.
 pub fn restore_channel(
     dir: &Path,
     channel: &ChannelSnapshot,
     write: &mut WriteFn<'_>,
 ) -> Vec<String> {
-    let mut problems = Vec::new();
-    for (name, value) in &channel.attributes {
-        if let Err(e) = write(dir, name, value) {
-            problems.push(format!("{name}: write failed: {e}"));
-        }
-    }
     let value_of = |name: &str| {
         channel
             .attributes
@@ -240,12 +235,28 @@ pub fn restore_channel(
             .map(|(_, v)| v.as_str())
     };
     let n = channel.channel;
+    let pwm = format!("pwm{n}");
     let automatic = value_of(&format!("pwm{n}_enable"))
         .and_then(|v| v.parse::<u32>().ok())
         .is_some_and(|mode| mode >= 2);
     let mode = value_of(&format!("pwm{n}_mode"));
+    let mut problems = Vec::new();
     for (name, value) in &channel.attributes {
-        if automatic && *name == format!("pwm{n}") {
+        // nct6775 refuses a write of `pwmN` in an automatic mode (EBUSY).
+        if automatic && *name == pwm {
+            continue;
+        }
+        // A value that reads as the snapshot has it stays: nct6775 cannot write back every value
+        // it reads, for example a step time of 0, which it stores as one step.
+        if read_attr(dir, name).is_ok_and(|actual| actual == *value) {
+            continue;
+        }
+        if let Err(e) = write(dir, name, value) {
+            problems.push(format!("{name}: write failed: {e}"));
+        }
+    }
+    for (name, value) in &channel.attributes {
+        if automatic && *name == pwm {
             continue;
         }
         let matches =
@@ -627,7 +638,20 @@ mod tests {
                 problems: vec![]
             })
         );
-        assert_eq!(Env::diff(&env.pwm_files(), &before), Vec::<String>::new());
+        // In an automatic mode the chip sets `pwmN`, so the restore leaves it as it is.
+        let snapshot = env.store().load::<BiosSnapshot>(SNAPSHOT_FILE).value;
+        let automatic: Vec<String> = env
+            .chip(&snapshot)
+            .channels
+            .iter()
+            .filter(|c| !c.manual_at_snapshot)
+            .map(|c| format!("/pwm{} ", c.channel))
+            .collect();
+        let left: Vec<String> = Env::diff(&env.pwm_files(), &before)
+            .into_iter()
+            .filter(|d| !automatic.iter().any(|a| d.contains(a.as_str())))
+            .collect();
+        assert_eq!(left, Vec::<String>::new());
         assert!(!env.lease().exists());
         assert!(env.state.join(SNAPSHOT_FILE).exists());
     }
@@ -658,32 +682,99 @@ mod tests {
         let env = Env::new("order");
         env.prepare();
         let snapshot = env.store().load::<BiosSnapshot>(SNAPSHOT_FILE).value;
+        disturb(&env);
         let mut order = Vec::new();
         restore_with(&env.fake.sysfs(), &snapshot, &mut |_, name, _| {
             order.push(name.to_owned());
             Ok(())
         });
-        assert_eq!(order.len(), 6 * 22 + 28);
-        for n in 1..=7 {
-            let start = order
+        let manual: Vec<u32> = env
+            .chip(&snapshot)
+            .channels
+            .iter()
+            .filter(|c| c.manual_at_snapshot)
+            .map(|c| c.channel)
+            .collect();
+        for n in 1..=7u32 {
+            let group: Vec<&String> = order
                 .iter()
-                .position(|name| name.starts_with(&format!("pwm{n}")))
-                .unwrap();
-            let group = order[start..]
-                .iter()
-                .take_while(|name| name.starts_with(&format!("pwm{n}")))
-                .collect::<Vec<_>>();
+                .filter(|name| {
+                    name.starts_with(&format!("pwm{n}")) && !name.starts_with(&format!("pwm{n}0"))
+                })
+                .collect();
             let len = group.len();
-            assert_eq!(
-                group[len - 2..],
-                [&format!("pwm{n}"), &format!("pwm{n}_enable")]
-            );
+            assert_eq!(group[len - 1], &format!("pwm{n}_enable"));
+            if manual.contains(&n) {
+                assert_eq!(group[len - 2], &format!("pwm{n}"));
+            } else {
+                assert!(!group.contains(&&format!("pwm{n}")), "pwm{n} is automatic");
+            }
             assert!(
-                group[..len - 2]
+                group[..len - 1]
                     .iter()
-                    .all(|name| **name != format!("pwm{n}") && **name != format!("pwm{n}_enable"))
+                    .all(|name| **name != format!("pwm{n}_enable"))
             );
         }
+    }
+
+    #[test]
+    fn restore_leaves_an_untouched_channel_alone() {
+        let env = Env::new("untouched");
+        env.prepare();
+        env.lease().create("boot", 1).unwrap();
+        let snapshot = env.store().load::<BiosSnapshot>(SNAPSHOT_FILE).value;
+        let mut written = Vec::new();
+        let report = restore_with(&env.fake.sysfs(), &snapshot, &mut |_, name, _| {
+            written.push(name.to_owned());
+            Ok(())
+        });
+        assert_eq!(written, Vec::<String>::new());
+        assert!(report.matched, "{:?}", report.problems);
+    }
+
+    /// The write of `nct6775` for `pwmN`: refused while `pwmN_enable` is 2 or more.
+    fn busy_write(dir: &Path, name: &str, value: &str) -> io::Result<()> {
+        if let Some(n) = name
+            .strip_prefix("pwm")
+            .filter(|n| n.chars().all(|c| c.is_ascii_digit()))
+        {
+            let mode: u32 = read_attr(dir, &format!("pwm{n}_enable"))
+                .unwrap()
+                .parse()
+                .unwrap();
+            if mode >= 2 {
+                return Err(io::Error::from_raw_os_error(libc::EBUSY));
+            }
+        }
+        write_attr(dir, name, value)
+    }
+
+    #[test]
+    fn restore_of_a_taken_automatic_channel_writes_no_pwm() {
+        let env = Env::new("taken");
+        env.prepare();
+        env.lease().create("boot", 1).unwrap();
+        let snapshot = env.store().load::<BiosSnapshot>(SNAPSHOT_FILE).value;
+        let channel = env.chip(&snapshot).channels[1].clone();
+        assert!(
+            !channel.manual_at_snapshot,
+            "the fixture has Channel 2 automatic"
+        );
+        // The daemon controls Channel 2: manual mode at raw 77. The others stay on their curves.
+        let dir = env.chip_dir();
+        write_attr(&dir, "pwm2_enable", "1").unwrap();
+        write_attr(&dir, "pwm2", "77").unwrap();
+        let mut written = Vec::new();
+        let report = restore_with(&env.fake.sysfs(), &snapshot, &mut |dir, name, value| {
+            written.push(name.to_owned());
+            busy_write(dir, name, value)
+        });
+        assert!(report.matched, "{:?}", report.problems);
+        assert_eq!(written, ["pwm2_enable"]);
+        assert!(
+            env.lease().exists(),
+            "restore_with does not touch the lease"
+        );
     }
 
     /// The write of `nct6775`: a `*_time` value becomes 1 to 255 steps of 400 ms (PWM mode).

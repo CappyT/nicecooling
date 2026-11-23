@@ -511,9 +511,8 @@ async fn release_to_hardware_restores_the_snapshot() {
     let pwm1 = channel(&rig, "nct6798_pwm1").await;
     pwm1.release_to_hardware().await.unwrap();
     assert_eq!(pwm1.control().await.unwrap(), "hardware");
+    // In an automatic mode the chip sets `pwm1`, so the restore writes only `pwm1_enable` here.
     assert_eq!(std::fs::read_to_string(&enable).unwrap().trim(), "5");
-    let pwm = rig.fake.attr_path("nct6798", "pwm1");
-    assert_eq!(std::fs::read_to_string(pwm).unwrap().trim(), "96");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
