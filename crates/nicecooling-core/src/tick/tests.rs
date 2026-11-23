@@ -15,6 +15,8 @@ struct Chip {
     cache: Duration,
     channels: BTreeMap<String, (Readback, Option<(Readback, Duration)>)>,
     writes: Vec<(String, u8, bool)>,
+    releases: Vec<String>,
+    fail_release: bool,
 }
 
 impl Chip {
@@ -60,6 +62,16 @@ impl ChannelIo for SharedChip {
         chip.writes.push((id.to_owned(), raw, set_manual));
         Ok(())
     }
+
+    fn release(&mut self, id: &str) -> io::Result<()> {
+        let mut chip = self.0.lock().unwrap();
+        chip.releases.push(id.to_owned());
+        if chip.fail_release {
+            return Err(io::Error::other("busy"));
+        }
+        chip.set(id, 200, 5);
+        Ok(())
+    }
 }
 
 impl Default for Readback {
@@ -94,6 +106,8 @@ impl Harness {
             cache: chip_cache,
             channels: BTreeMap::new(),
             writes: Vec::new(),
+            releases: Vec::new(),
+            fail_release: false,
         }));
         for setup in &config.channels {
             chip.lock().unwrap().set(&setup.id, 200, 5);
@@ -188,6 +202,8 @@ fn stage_order() {
         cache: Duration::ZERO,
         channels: BTreeMap::new(),
         writes: Vec::new(),
+        releases: Vec::new(),
+        fail_release: false,
     }));
     let standard = Pipeline::standard(Box::new(values), Box::new(SharedChip(chip)));
     assert_eq!(
@@ -497,4 +513,93 @@ fn resume_corrects_reset_channel() {
         h.chip.lock().unwrap().writes.last(),
         Some(&("ch".to_owned(), 128, true))
     );
+}
+
+/// Starts a ramp: Input 20 gives the first Duty, then Input 90 moves it 5% each tick.
+fn ramping(cache: Duration) -> Harness {
+    let mut h = Harness::new(one_channel(curve("t", 0.0, 5.0)), cache);
+    h.set("t", 20.0);
+    h.tick();
+    h
+}
+
+fn ramp_ticks(h: &mut Harness, n: usize) {
+    for _ in 0..n {
+        h.set("t", 90.0);
+        h.tick();
+    }
+}
+
+#[test]
+fn ramp_with_driver_cache_has_no_false_mismatch() {
+    let mut h = ramping(Duration::from_millis(1500));
+    ramp_ticks(&mut h, 14);
+    assert_eq!(h.duty("ch"), Some(90.0));
+    assert_eq!(h.writes(), 15);
+    assert!(h.ctx.warnings.iter().next().is_none());
+    assert!(h.ctx.errors.is_empty());
+}
+
+#[test]
+fn mode_reset_during_ramp_is_corrected_next_tick() {
+    let mut h = ramping(Duration::from_millis(1500));
+    ramp_ticks(&mut h, 5);
+    h.chip.lock().unwrap().set("ch", 200, 5);
+    ramp_ticks(&mut h, 1);
+    let chip = h.chip.lock().unwrap();
+    assert_eq!(chip.actual("ch").enable, 1);
+    assert_eq!(chip.writes.last().map(|w| w.2), Some(true));
+}
+
+#[test]
+fn another_writer_is_detected_during_ramp() {
+    let mut h = ramping(Duration::from_millis(1500));
+    ramp_ticks(&mut h, 3);
+    for round in 1..=3 {
+        h.chip.lock().unwrap().set("ch", 10, 1);
+        ramp_ticks(&mut h, 1);
+        assert_eq!(
+            h.ctx.warnings.is_active("another-writer", "ch"),
+            round == 3,
+            "round {round}"
+        );
+        ramp_ticks(&mut h, 2);
+    }
+}
+
+#[test]
+fn channel_back_on_hardware_control_is_released_once() {
+    let mut h = settled_fixed(Duration::ZERO);
+    h.ctx.config.channels[0].control = Control::Hardware;
+    h.ticks(3);
+    let chip = h.chip.lock().unwrap();
+    assert_eq!(chip.releases, ["ch"]);
+    assert_eq!(
+        chip.actual("ch"),
+        Readback {
+            raw: 200,
+            enable: 5
+        }
+    );
+}
+
+#[test]
+fn channel_removed_from_config_is_released() {
+    let mut h = settled_fixed(Duration::ZERO);
+    h.ctx.config.channels.clear();
+    h.ticks(2);
+    assert_eq!(h.chip.lock().unwrap().releases, ["ch"]);
+}
+
+#[test]
+fn failed_release_is_retried() {
+    let mut h = settled_fixed(Duration::ZERO);
+    h.chip.lock().unwrap().fail_release = true;
+    h.ctx.config.channels[0].control = Control::Hardware;
+    h.tick();
+    assert_eq!(h.ctx.errors.len(), 1);
+    h.chip.lock().unwrap().fail_release = false;
+    h.ticks(2);
+    assert_eq!(h.chip.lock().unwrap().releases, ["ch", "ch"]);
+    assert!(h.ctx.errors.is_empty());
 }

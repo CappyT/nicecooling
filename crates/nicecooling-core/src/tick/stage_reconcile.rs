@@ -4,7 +4,8 @@ use std::time::Duration;
 
 use super::{Stage, TickContext};
 
-/// A read-back is not reliable this long after a write: the driver caches readings for about 1.5 s.
+/// The driver caches readings for about 1.5 s. A value written this recently can still read back
+/// as an older one.
 const CACHE_GRACE: Duration = Duration::from_secs(2);
 const MISMATCH_WINDOW: Duration = Duration::from_secs(60);
 const MISMATCHES_FOR_WARNING: usize = 3;
@@ -28,6 +29,9 @@ pub trait ChannelIo: Send {
     fn read(&mut self, channel: &str) -> io::Result<Readback>;
     /// Writes `pwmN`. With `set_manual` it first sets `pwmN_enable` to 1.
     fn write(&mut self, channel: &str, raw: u8, set_manual: bool) -> io::Result<()>;
+    /// Gives the Channel back to its BIOS state. The stage calls it once for each Channel that
+    /// was under control and is not any more. An `Err` makes the stage call it again next tick.
+    fn release(&mut self, channel: &str) -> io::Result<()>;
 }
 
 /// Duty to raw value: `round(duty * 255 / 100)`, half away from zero, clamped to 0-255.
@@ -37,14 +41,21 @@ pub fn percent_to_raw(duty: f64) -> u8 {
 
 #[derive(Default)]
 struct ChannelState {
-    /// The raw value of the last write and its time.
-    written: Option<(u8, Duration)>,
+    /// The raw value of the last write.
+    last: Option<u8>,
+    /// The writes of the last `CACHE_GRACE`.
+    recent: VecDeque<(u8, Duration)>,
+    /// The time of the last write that set manual mode or corrected a mismatch. A read-back
+    /// right after it can still show the state before the write.
+    settle_from: Option<Duration>,
     mismatches: VecDeque<Duration>,
 }
 
 /// Stage 9: reconcile and write each Channel.
-/// The read-back is compared with the value the daemon wrote last, so that a Duty
-/// that changes every tick is not a mismatch. A read-back inside the cache grace is skipped.
+/// Every tick reads the Channel back and checks that it is in manual mode at a raw value that the
+/// daemon wrote in the last `CACHE_GRACE` (or the last one it wrote). A Duty that changes every tick
+/// is not a mismatch, and a mode reset during a ramp is corrected on the next tick.
+/// A Channel that is not under control any more goes back to its BIOS state.
 pub struct ReconcileStage {
     io: Box<dyn ChannelIo>,
     state: BTreeMap<String, ChannelState>,
@@ -57,6 +68,24 @@ impl ReconcileStage {
             state: BTreeMap::new(),
         }
     }
+
+    fn release_left_channels(&mut self, ctx: &mut TickContext) {
+        let left: Vec<String> = self
+            .state
+            .keys()
+            .filter(|id| ctx.channels.get(*id).is_none_or(|t| t.duty.is_none()))
+            .cloned()
+            .collect();
+        for id in left {
+            match self.io.release(&id) {
+                Ok(()) => {
+                    self.state.remove(&id);
+                    ctx.warnings.clear("another-writer", &id);
+                }
+                Err(e) => ctx.errors.push(format!("{id}: release failed: {e}")),
+            }
+        }
+    }
 }
 
 impl Stage for ReconcileStage {
@@ -66,27 +95,31 @@ impl Stage for ReconcileStage {
 
     fn run(&mut self, ctx: &mut TickContext) {
         let now = ctx.now;
+        self.release_left_channels(ctx);
         for (id, tick) in &ctx.channels {
-            let Some(duty) = tick.duty else {
-                // Back on the Hardware curve: the next takeover writes the mode again.
-                self.state.remove(id);
-                continue;
-            };
+            let Some(duty) = tick.duty else { continue };
             let desired = percent_to_raw(duty);
             let state = self.state.entry(id.clone()).or_default();
-            let mut set_manual = state.written.is_none();
+            state
+                .recent
+                .retain(|(_, at)| now.saturating_sub(*at) <= CACHE_GRACE);
+            let mut set_manual = state.last.is_none();
             let mut rewrite = false;
 
-            if let Some((expected, at)) = state.written
-                && now.saturating_sub(at) >= CACHE_GRACE
-            {
+            if state.last.is_some() {
                 match self.io.read(id) {
-                    Ok(back) if !back.is_manual() || back.raw != expected => {
-                        state.mismatches.push_back(now);
-                        set_manual = !back.is_manual();
-                        rewrite = true;
+                    Ok(back) => {
+                        let settling = state
+                            .settle_from
+                            .is_some_and(|at| now.saturating_sub(at) < CACHE_GRACE);
+                        let known = state.last == Some(back.raw)
+                            || state.recent.iter().any(|(raw, _)| *raw == back.raw);
+                        if !settling && (!back.is_manual() || !known) {
+                            state.mismatches.push_back(now);
+                            set_manual = !back.is_manual();
+                            rewrite = true;
+                        }
                     }
-                    Ok(_) => {}
                     Err(e) => ctx.errors.push(format!("{id}: read-back failed: {e}")),
                 }
             }
@@ -103,10 +136,15 @@ impl Stage for ReconcileStage {
                 ctx.warnings.clear("another-writer", id);
             }
 
-            let changed = state.written.is_none_or(|(raw, _)| raw != desired);
-            if changed || rewrite {
+            if state.last != Some(desired) || rewrite {
                 match self.io.write(id, desired, set_manual) {
-                    Ok(()) => state.written = Some((desired, now)),
+                    Ok(()) => {
+                        state.last = Some(desired);
+                        state.recent.push_back((desired, now));
+                        if set_manual || rewrite {
+                            state.settle_from = Some(now);
+                        }
+                    }
                     Err(e) => ctx.errors.push(format!("{id}: write failed: {e}")),
                 }
             }

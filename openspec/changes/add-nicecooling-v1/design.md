@@ -6,7 +6,7 @@ See `proposal.md` for the motivation, `GLOSSARY.md` for the terms and `docs/adr/
 
 Facts measured on the reference desktop (Fedora 45, kernel 7.3):
 
-- **Board.** ASUS ROG CROSSHAIR VIII DARK HERO. `nct6775` exposes `nct6798`: 7 Channels with `pwmN` and `pwmN_enable`. Every `pwmN_enable` read 5. Each Channel has a 5-point Hardware curve and 22 writable `pwmN*` attributes. A Channel in manual mode at raw 255 reads `pwmN_enable` 0. `nct6775` caches its readings for about 1.5 s. The chip also has many temperature and voltage inputs.
+- **Board.** ASUS ROG CROSSHAIR VIII DARK HERO. `nct6775` exposes `nct6798`: 7 Channels with `pwmN` and `pwmN_enable`. Every `pwmN_enable` read 5. Each Channel has a 5-point Hardware curve and writable `pwmN*` attributes: 22 for each Channel, except `pwm2` (the CPU Fan), which has 28 because of six `pwm2_weight_*` attributes. A Channel in manual mode at raw 255 reads `pwmN_enable` 0. `nct6775` caches its readings for about 1.5 s. The chip also has many temperature and voltage inputs.
 - **Embedded controller.** `asus_ec_sensors` exposes `asusec`: Chipset, CPU, Motherboard, T_Sensor, VRM, Water_In, Water_Out, CPU_Opt fan, Water_Flow, CPU current and `in0` (CPU Core). Water_In and Water_Out have no probe connected. Channel names come from LibreHardwareMonitor: 1 Chassis Fan 1, 2 CPU Fan, 3 Chassis Fan 2, 4 Chassis Fan 3, 5 High Amp Fan, 6 Waterpump, 7 AIO Pump.
 - **GPU.** The `amdgpu` hwmon device exposes `pwm1` and `pwm1_enable`.
 - **Loop.** The pump is on Channel 6. An Alphacool 17558 sensor on W_FLOW and T_SENSOR gives flow and water temperature. Its datasheet table converts a raw rate of 671 rpm to about 115 L/h. No air temperature probe exists.
@@ -210,7 +210,7 @@ Rules for the stages:
 
 ### D8. BIOS snapshot and takeover lease (fan-control, ADR-0003)
 
-The BIOS snapshot holds every writable `pwmN*` attribute of every Channel: 22 per Channel on the reference `nct6798`. Channels of GPU drivers are not part of it (D3). It lives in `/var/lib/nicecooling/` (`docs/storage.md`). Manual mode means `pwmN_enable` = 1.
+The BIOS snapshot holds every writable `pwmN*` attribute of every Channel: 22 per Channel on the reference `nct6798`, and 28 for `pwm2` (six `pwm2_weight_*` more). Channels of GPU drivers are not part of it (D3). It lives in `/var/lib/nicecooling/` (`docs/storage.md`). Manual mode means `pwmN_enable` = 1.
 
 - The first daemon start takes the snapshot, before it changes any Channel.
 - The daemon writes a takeover lease file before the first manual write.

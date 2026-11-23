@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use serde::{Deserialize, Serialize};
 
@@ -28,25 +28,43 @@ pub fn sanitize(name: &str) -> String {
 /// The first chip of a hwmon name, in device path order, gets the plain name.
 /// The nth chip of the same name gets `<name>_<n>`.
 pub fn device_prefixes(identities: &[DeviceIdentity]) -> Vec<String> {
+    assign_prefixes(identities, &BTreeMap::new())
+}
+
+/// Like `device_prefixes`, but a device in `known` keeps its prefix, and a device that is not in
+/// it gets the first free prefix of its name. A new chip with the name of a known chip so never
+/// renames the ids of the known one.
+pub fn assign_prefixes(
+    identities: &[DeviceIdentity],
+    known: &BTreeMap<DeviceIdentity, String>,
+) -> Vec<String> {
+    let mut prefixes: Vec<Option<String>> =
+        identities.iter().map(|i| known.get(i).cloned()).collect();
+    let mut taken: BTreeSet<String> = known.values().cloned().collect();
     let mut groups: BTreeMap<String, Vec<usize>> = BTreeMap::new();
     for (i, identity) in identities.iter().enumerate() {
-        groups
-            .entry(sanitize(&identity.hwmon_name))
-            .or_default()
-            .push(i);
+        if prefixes[i].is_none() {
+            groups
+                .entry(sanitize(&identity.hwmon_name))
+                .or_default()
+                .push(i);
+        }
     }
-    let mut prefixes = vec![String::new(); identities.len()];
     for (name, mut members) in groups {
         members.sort_by(|&a, &b| identities[a].device_path.cmp(&identities[b].device_path));
-        for (n, &i) in members.iter().enumerate() {
-            prefixes[i] = if n == 0 {
-                name.clone()
-            } else {
-                format!("{name}_{}", n + 1)
-            };
+        for i in members {
+            let prefix = std::iter::once(name.clone())
+                .chain((2..).map(|n| format!("{name}_{n}")))
+                .find(|p| !taken.contains(p))
+                .unwrap_or_default();
+            taken.insert(prefix.clone());
+            prefixes[i] = Some(prefix);
         }
     }
     prefixes
+        .into_iter()
+        .map(Option::unwrap_or_default)
+        .collect()
 }
 
 #[cfg(test)]
@@ -107,6 +125,36 @@ mod tests {
             "/devices/pci0000:00/0000:00:01.1/nvme/nvme0"
         );
         assert_eq!(prefixes, ["nvme", "nvme_2"]);
+    }
+
+    #[test]
+    fn known_chip_keeps_its_prefix_when_a_same_name_chip_appears() {
+        let known_chip = DeviceIdentity {
+            hwmon_name: "nvme".into(),
+            device_path: "/devices/pci0000:00/0000:00:01.2/nvme/nvme1".into(),
+        };
+        let new_chip = DeviceIdentity {
+            hwmon_name: "nvme".into(),
+            device_path: "/devices/pci0000:00/0000:00:01.1/nvme/nvme0".into(),
+        };
+        let known = BTreeMap::from([(known_chip.clone(), "nvme".to_owned())]);
+        // The new chip sorts first by path, and still does not take the plain name.
+        let both = [new_chip.clone(), known_chip.clone()];
+        assert_eq!(assign_prefixes(&both, &known), ["nvme_2", "nvme"]);
+        assert_eq!(device_prefixes(&both), ["nvme", "nvme_2"]);
+        // A second new chip skips the taken `nvme_2`.
+        let third = DeviceIdentity {
+            hwmon_name: "nvme".into(),
+            device_path: "/devices/pci0000:00/0000:00:01.3/nvme/nvme2".into(),
+        };
+        let known = BTreeMap::from([
+            (known_chip.clone(), "nvme".to_owned()),
+            (new_chip.clone(), "nvme_2".to_owned()),
+        ]);
+        assert_eq!(
+            assign_prefixes(&[new_chip, known_chip, third], &known),
+            ["nvme_2", "nvme", "nvme_3"]
+        );
     }
 
     #[test]

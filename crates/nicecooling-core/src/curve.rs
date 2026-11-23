@@ -5,6 +5,9 @@ pub const DEFAULT_SMOOTHING_S: f64 = 5.0;
 /// The default Duty step limit, in percent per second.
 pub const DEFAULT_STEP_LIMIT: f64 = 5.0;
 
+/// The widest Input moving average, in seconds.
+pub const MAX_SMOOTHING_S: f64 = 600.0;
+
 /// A mapping from one Input to the Duty of one Channel.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Curve {
@@ -21,6 +24,8 @@ pub enum CurveError {
     TooFewPoints,
     NotSorted,
     DutyOutOfRange,
+    SmoothingOutOfRange,
+    StepLimitOutOfRange,
 }
 
 impl fmt::Display for CurveError {
@@ -29,6 +34,10 @@ impl fmt::Display for CurveError {
             Self::TooFewPoints => write!(f, "a Curve needs at least 2 points"),
             Self::NotSorted => write!(f, "the points must increase in Input"),
             Self::DutyOutOfRange => write!(f, "a Duty is a percent from 0 to 100"),
+            Self::SmoothingOutOfRange => {
+                write!(f, "the smoothing is 0 to {MAX_SMOOTHING_S} seconds")
+            }
+            Self::StepLimitOutOfRange => write!(f, "the step limit is a number above 0"),
         }
     }
 }
@@ -52,6 +61,25 @@ impl Curve {
             smoothing_s: DEFAULT_SMOOTHING_S,
             step_limit: DEFAULT_STEP_LIMIT,
         })
+    }
+
+    /// Replaces the smoothing and the step limit, each when given. A value that would panic or
+    /// freeze the Duty (negative, zero step, not finite, above `MAX_SMOOTHING_S`) is an error and
+    /// changes nothing.
+    pub fn set_limits(
+        &mut self,
+        smoothing_s: Option<f64>,
+        step_limit: Option<f64>,
+    ) -> Result<(), CurveError> {
+        if smoothing_s.is_some_and(|s| !(0.0..=MAX_SMOOTHING_S).contains(&s)) {
+            return Err(CurveError::SmoothingOutOfRange);
+        }
+        if step_limit.is_some_and(|s| !(s.is_finite() && s > 0.0)) {
+            return Err(CurveError::StepLimitOutOfRange);
+        }
+        self.smoothing_s = smoothing_s.unwrap_or(self.smoothing_s);
+        self.step_limit = step_limit.unwrap_or(self.step_limit);
+        Ok(())
     }
 
     pub fn points(&self) -> &[(f64, f64)] {
@@ -92,6 +120,30 @@ mod tests {
     fn clamp_both_ends() {
         assert_eq!(curve().duty_at(10.0), 30.0);
         assert_eq!(curve().duty_at(90.0), 70.0);
+    }
+
+    #[test]
+    fn limits_reject_values_that_panic_or_freeze() {
+        let mut c = curve();
+        for bad in [-1.0, f64::NAN, f64::INFINITY, 1e300, 600.1] {
+            assert_eq!(
+                c.set_limits(Some(bad), None),
+                Err(CurveError::SmoothingOutOfRange),
+                "smoothing {bad}"
+            );
+        }
+        for bad in [-5.0, 0.0, f64::NAN, f64::INFINITY] {
+            assert_eq!(
+                c.set_limits(None, Some(bad)),
+                Err(CurveError::StepLimitOutOfRange),
+                "step {bad}"
+            );
+        }
+        assert_eq!((c.smoothing_s, c.step_limit), (5.0, 5.0));
+        assert_eq!(c.set_limits(Some(0.0), Some(0.1)), Ok(()));
+        assert_eq!(c.set_limits(Some(600.0), Some(1e9)), Ok(()));
+        assert_eq!((c.smoothing_s, c.step_limit), (600.0, 1e9));
+        assert_eq!(c.set_limits(None, None), Ok(()));
     }
 
     #[test]

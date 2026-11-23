@@ -35,7 +35,7 @@ The daemon creates the files of the four slots of a Leakshield when it first rea
 | Key | Type | Content |
 |---|---|---|
 | `schema_version` | integer | 1 |
-| `identities` | object | Map from sensor or Channel id to `{"hwmon_name", "device_path", "attribute"}`. |
+| `identities` | object | Map from sensor or Channel id to `{"hwmon_name", "device_path", "attribute"}`. The daemon writes an entry when it first sees the sensor or Channel and never removes it. Discovery builds the id prefix of a chip from its entries, so a chip with the same hwmon name that appears later gets a new prefix and the known ids stay. |
 | `names` | object | Map from object id to the user name. |
 | `derived_sensors` | array | `{"id", "name", "type", "sources": [sensor id]}`. |
 | `calibration_tables` | array | User tables: `{"id", "name", "points": [[rpm, lph]]}`. Presets are not stored here. |
@@ -67,7 +67,7 @@ The first start creates the Default Profile `profile_default` with slot 1 and th
 | `board` | object | `{"vendor", "model"}` from DMI. |
 | `chips` | array | `{"hwmon_name", "device_path", "channels": [{"channel", "manual_at_snapshot", "attributes": [[name, value]]}]}`. |
 
-`attributes` lists every `pwm<N>` and `pwm<N>_*` attribute of the Channel that root can write, as sysfs text, in restore order: all others first, then `pwm<N>`, then `pwm<N>_enable`.
+`attributes` lists every `pwm<N>` and `pwm<N>_*` attribute of the Channel that root can write, as sysfs text, in restore order: all others first, then `pwm<N>`, then `pwm<N>_enable`. A snapshot fails when one of these attributes cannot be read, or when `pwm<N>` or `pwm<N>_enable` is not writable. The restore read-back accepts the value that the `nct6775` driver stores for `pwm<N>_stop_time`, `pwm<N>_step_up_time` and `pwm<N>_step_down_time`: 1 to 255 steps of 400 ms (`pwm<N>_mode` 1) or 100 ms (mode 0).
 
 ### Backup `meta.json`
 

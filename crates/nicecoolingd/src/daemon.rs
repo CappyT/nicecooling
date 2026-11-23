@@ -9,7 +9,7 @@ use nicecooling_core::calibration::Preset;
 use nicecooling_core::clock::Clock;
 use nicecooling_core::tick::Pipeline;
 use nicecooling_hwmon::board::select_board_for;
-use nicecooling_hwmon::discovery::discover;
+use nicecooling_hwmon::discovery::discover_with;
 use nicecooling_hwmon::sysfs::Sysfs;
 
 use crate::lease::Lease;
@@ -97,8 +97,20 @@ pub async fn start<N: Notifier + 'static>(
         eprintln!("nicecoolingd: {e}");
         None
     });
-    let loaded = state::load_state(&store);
-    let discovery = discover(&sysfs, board.as_ref(), &loaded.state.names)?;
+    let mut loaded = state::load_state(&store);
+    let known = state::known_prefixes(&loaded.state.identities);
+    let discovery = discover_with(&sysfs, board.as_ref(), &loaded.state.names, &known)?;
+    // The ids of a chip stay the same when a chip with the same hwmon name appears later.
+    let identities = state::identities_of(&discovery);
+    if identities
+        .iter()
+        .any(|(id, identity)| loaded.state.identities.get(id) != Some(identity))
+    {
+        loaded.state.identities.extend(identities);
+        if !loaded.fallback {
+            store.save(state::STATE_FILE, &loaded.state)?;
+        }
+    }
 
     let presets: Vec<Preset> = std::fs::read_dir(&paths.calibration_dir)
         .into_iter()
@@ -144,7 +156,8 @@ pub async fn start<N: Notifier + 'static>(
         let _ = tokio::time::timeout(Duration::from_secs(1), &mut source.primed).await;
     }
 
-    let io = SysfsChannels::new(&discovery.channels, lease, options.boot_id.clone());
+    let io = SysfsChannels::new(&discovery.channels, lease, options.boot_id.clone())
+        .with_snapshot(snapshot::read_snapshot(&store));
     let mut pipeline = Pipeline::standard(Box::new(values.clone()), Box::new(io));
     pipeline.push(Box::new(WatchdogStage::new(notifier)));
     let mut runner = TickRunner::new(pipeline, config, clock, options.tick_period);

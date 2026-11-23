@@ -3,7 +3,7 @@ use std::io;
 use std::path::PathBuf;
 
 use crate::board::BoardFile;
-use crate::identity::{DeviceIdentity, device_prefixes};
+use crate::identity::{DeviceIdentity, assign_prefixes};
 use crate::sysfs::{HwmonDevice, Sysfs, list_attrs, read_attr};
 
 /// Drivers whose `pwmN` outputs are never Channels. Their sensors stay Inputs.
@@ -103,13 +103,24 @@ pub fn discover(
     board: Option<&BoardFile>,
     user_names: &BTreeMap<String, String>,
 ) -> io::Result<Discovery> {
+    discover_with(sysfs, board, user_names, &BTreeMap::new())
+}
+
+/// Like `discover`. A device in `known_prefixes` keeps its identifier prefix, so a chip that
+/// appears later never renames the ids of a chip with the same hwmon name.
+pub fn discover_with(
+    sysfs: &Sysfs,
+    board: Option<&BoardFile>,
+    user_names: &BTreeMap<String, String>,
+    known_prefixes: &BTreeMap<DeviceIdentity, String>,
+) -> io::Result<Discovery> {
     let devices: Vec<HwmonDevice> = sysfs
         .hwmon_devices()?
         .into_iter()
         .filter(|d| d.identity.hwmon_name != LEAKSHIELD_HWMON_NAME)
         .collect();
     let identities: Vec<_> = devices.iter().map(|d| d.identity.clone()).collect();
-    let prefixes = device_prefixes(&identities);
+    let prefixes = assign_prefixes(&identities, known_prefixes);
     let mut found = Discovery::default();
 
     for (device, prefix) in devices.iter().zip(&prefixes) {
@@ -375,5 +386,46 @@ mod tests {
         assert_eq!(names.len(), 22);
         assert_eq!(&names[20..], ["pwm6", "pwm6_enable"]);
         assert_eq!(crate::sysfs::channel_attributes(&dir, 2).unwrap().len(), 28);
+    }
+
+    #[test]
+    fn known_prefix_keeps_the_ids_of_a_chip_when_another_with_its_name_appears() {
+        let fake = FakeSysfs::new();
+        let attrs = [("name", "nvme"), ("temp1_input", "40000")];
+        let old_path = "devices/pci0000:00/0000:00:01.2/nvme/nvme1";
+        fake.add_hwmon(0, "nvme", old_path, None, &attrs);
+        let before = discover(&fake.sysfs(), None, &BTreeMap::new()).unwrap();
+        assert_eq!(before.sensors[0].id, "nvme_temp1");
+        let known: BTreeMap<_, _> = [(before.sensors[0].device.clone(), "nvme".to_owned())].into();
+
+        // The new chip sorts before the old one by device path.
+        fake.add_hwmon(
+            1,
+            "nvme",
+            "devices/pci0000:00/0000:00:01.1/nvme/nvme0",
+            None,
+            &attrs,
+        );
+        let renamed = discover(&fake.sysfs(), None, &BTreeMap::new()).unwrap();
+        let ids = |d: &Discovery| -> Vec<(String, String)> {
+            d.sensors
+                .iter()
+                .map(|s| (s.id.clone(), s.device.device_path.clone()))
+                .collect()
+        };
+        assert_eq!(
+            renamed
+                .sensors
+                .iter()
+                .find(|s| s.device.device_path == format!("/{old_path}"))
+                .unwrap()
+                .id,
+            "nvme_2_temp1"
+        );
+
+        let stable = discover_with(&fake.sysfs(), None, &BTreeMap::new(), &known).unwrap();
+        let by_path = ids(&stable);
+        assert!(by_path.contains(&("nvme_temp1".to_owned(), format!("/{old_path}"))));
+        assert!(by_path.iter().any(|(id, _)| id == "nvme_2_temp1"));
     }
 }

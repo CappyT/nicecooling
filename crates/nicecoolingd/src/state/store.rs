@@ -7,7 +7,7 @@ use std::sync::Mutex;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 
-use super::atomic::write_atomic;
+use super::atomic::{RealFs, create_dir_all_with, write_atomic};
 
 /// Where a loaded value came from.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -165,7 +165,7 @@ impl StateStore {
             None => {}
         }
         if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent)?;
+            create_dir_all_with(&RealFs, parent)?;
         }
         write_atomic(
             &path,

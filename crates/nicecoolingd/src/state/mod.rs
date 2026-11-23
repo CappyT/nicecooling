@@ -10,6 +10,8 @@ use nicecooling_core::curve::Curve;
 use nicecooling_core::derived::DerivedSensor;
 use nicecooling_core::loops::Loop;
 use nicecooling_core::tick::{ChannelSetup, Control, LoopSetup, TickConfig};
+use nicecooling_hwmon::discovery::Discovery;
+use nicecooling_hwmon::identity::DeviceIdentity;
 use serde::{Deserialize, Serialize};
 use tokio::sync::Notify;
 use tokio::task::JoinHandle;
@@ -157,12 +159,16 @@ fn is_identifier(id: &str) -> bool {
 }
 
 /// Loads `state.json` and the active Profile. A file that fails to load gives its default,
-/// which has no Curves: every Channel stays on its Hardware curve.
+/// which has no Curves: every Channel stays on its Hardware curve. When `state.json` itself falls
+/// back to its default, the Profile is not loaded: its Curves would run without the Loops, so no
+/// Pump floor would apply.
 pub fn load_state(store: &StateStore) -> LoadedState {
     let state = store.load::<DaemonState>(STATE_FILE);
     let mut fallback = state.fallback;
     let active = state.value.profiles.active.clone();
-    let profile = if is_identifier(&active) {
+    let profile = if state.source == Source::Defaults && state.fallback {
+        ProfileFile::default()
+    } else if is_identifier(&active) {
         let loaded = store.load::<ProfileFile>(&format!("profiles/{active}/profile.json"));
         fallback |= loaded.fallback;
         loaded.value
@@ -175,6 +181,43 @@ pub fn load_state(store: &StateStore) -> LoadedState {
         profile,
         fallback,
     }
+}
+
+/// The identifier prefix of each device that `state.json` has seen. Discovery keeps these, so a
+/// chip that appears later never renames the ids of a chip with the same hwmon name.
+pub fn known_prefixes(identities: &BTreeMap<String, Identity>) -> BTreeMap<DeviceIdentity, String> {
+    let mut known = BTreeMap::new();
+    for (id, identity) in identities {
+        if let Some(prefix) = id.strip_suffix(&format!("_{}", identity.attribute)) {
+            known
+                .entry(DeviceIdentity {
+                    hwmon_name: identity.hwmon_name.clone(),
+                    device_path: identity.device_path.clone(),
+                })
+                .or_insert_with(|| prefix.to_owned());
+        }
+    }
+    known
+}
+
+/// The `state.json` identity of each Channel and sensor of a discovery.
+pub fn identities_of(discovery: &Discovery) -> BTreeMap<String, Identity> {
+    let identity = |device: &DeviceIdentity, attribute: String| Identity {
+        hwmon_name: device.hwmon_name.clone(),
+        device_path: device.device_path.clone(),
+        attribute,
+    };
+    let channels = discovery.channels.iter().map(|c| {
+        (
+            c.id.clone(),
+            identity(&c.device, format!("pwm{}", c.number)),
+        )
+    });
+    let sensors = discovery
+        .sensors
+        .iter()
+        .map(|s| (s.id.clone(), identity(&s.device, s.attribute.clone())));
+    channels.chain(sensors).collect()
 }
 
 /// Builds the tick configuration. A Curve that fails its checks leaves its Channel on the
@@ -202,14 +245,15 @@ pub fn tick_config(
                     .clone()
                     .ok_or_else(|| "no Input".to_owned())
                     .and_then(|input| {
-                        Curve::new(input, channel.points.clone()).map_err(|e| e.to_string())
+                        let mut curve =
+                            Curve::new(input, channel.points.clone()).map_err(|e| e.to_string())?;
+                        curve
+                            .set_limits(channel.smoothing_s, channel.step_limit_pct_per_s)
+                            .map_err(|e| e.to_string())?;
+                        Ok(curve)
                     });
                 match curve {
-                    Ok(mut curve) => {
-                        curve.smoothing_s = channel.smoothing_s.unwrap_or(curve.smoothing_s);
-                        curve.step_limit = channel.step_limit_pct_per_s.unwrap_or(curve.step_limit);
-                        Control::Curve(curve)
-                    }
+                    Ok(curve) => Control::Curve(curve),
                     Err(e) => {
                         problems.push(format!("{id}: {e}"));
                         Control::Hardware
@@ -378,6 +422,157 @@ mod tests {
         assert_eq!(
             fs::read(dir.join("state.json.lkg.broken")).unwrap(),
             b"{ not json"
+        );
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    fn fixed_channel(duty: f64) -> ProfileChannel {
+        ProfileChannel {
+            control: ControlKind::Fixed,
+            input: None,
+            points: vec![],
+            smoothing_s: None,
+            step_limit_pct_per_s: None,
+            fixed_duty: Some(duty),
+        }
+    }
+
+    #[test]
+    fn state_fallback_to_defaults_does_not_run_the_profile_without_loops() {
+        let dir = temp("state-lost-profile-kept");
+        let store = StateStore::new(&dir);
+        let mut profile = ProfileFile::default();
+        profile
+            .channels
+            .insert("nct6798_pwm6".into(), fixed_channel(10.0));
+        store
+            .save("profiles/profile_default/profile.json", &profile)
+            .unwrap();
+        for file in ["state.json", "state.json.lkg"] {
+            fs::write(dir.join(file), b"{ not json").unwrap();
+        }
+        let loaded = load_state(&StateStore::new(&dir));
+        assert!(loaded.fallback);
+        assert!(loaded.profile.channels.is_empty());
+        let mut problems = Vec::new();
+        let config = tick_config(&loaded.state, &loaded.profile, &[], &mut problems);
+        assert!(config.channels.is_empty());
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn profile_fallback_to_defaults_runs_no_curves_and_raises_state_fallback() {
+        let dir = temp("profile-lost");
+        let store = StateStore::new(&dir);
+        store.save(STATE_FILE, &sample_state()).unwrap();
+        fs::create_dir_all(dir.join("profiles/profile_default")).unwrap();
+        for file in ["profile.json", "profile.json.lkg"] {
+            fs::write(dir.join("profiles/profile_default").join(file), b"{ no").unwrap();
+        }
+        let loaded = load_state(&StateStore::new(&dir));
+        assert!(loaded.fallback);
+        assert!(loaded.profile.channels.is_empty());
+        assert_eq!(loaded.state, sample_state());
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn curve_limits_that_panic_or_freeze_leave_the_channel_on_hardware() {
+        let bad: [(Option<f64>, Option<f64>); 7] = [
+            (Some(-1.0), None),
+            (Some(1e300), None),
+            (Some(601.0), None),
+            (Some(f64::NAN), None),
+            (None, Some(-5.0)),
+            (None, Some(0.0)),
+            (None, Some(f64::NAN)),
+        ];
+        let mut profile = ProfileFile::default();
+        for (i, (smoothing_s, step_limit_pct_per_s)) in bad.into_iter().enumerate() {
+            profile.channels.insert(
+                format!("bad_{i}"),
+                ProfileChannel {
+                    control: ControlKind::Curve,
+                    input: Some("k10temp_temp1".into()),
+                    points: vec![(40.0, 30.0), (60.0, 70.0)],
+                    smoothing_s,
+                    step_limit_pct_per_s,
+                    fixed_duty: None,
+                },
+            );
+        }
+        profile.channels.insert(
+            "good".into(),
+            ProfileChannel {
+                control: ControlKind::Curve,
+                input: Some("k10temp_temp1".into()),
+                points: vec![(40.0, 30.0), (60.0, 70.0)],
+                smoothing_s: Some(0.0),
+                step_limit_pct_per_s: Some(0.5),
+                fixed_duty: None,
+            },
+        );
+        let mut problems = Vec::new();
+        let config = tick_config(&DaemonState::default(), &profile, &[], &mut problems);
+        for setup in &config.channels {
+            let on_curve = matches!(setup.control, Control::Curve(_));
+            assert_eq!(on_curve, setup.id == "good", "{}", setup.id);
+        }
+        assert_eq!(problems.len(), 7);
+    }
+
+    #[test]
+    fn identities_keep_ids_when_a_chip_with_the_same_name_appears() {
+        use nicecooling_hwmon::discovery::discover_with;
+        use nicecooling_hwmon::fake::FakeSysfs;
+
+        let fake = FakeSysfs::new();
+        let attrs = [("name", "nvme"), ("temp1_input", "40000")];
+        let old_chip = "devices/pci0000:00/0000:00:01.2/nvme/nvme1";
+        fake.add_hwmon(0, "nvme", old_chip, None, &attrs);
+        let mut state = DaemonState::default();
+        let first = discover_with(
+            &fake.sysfs(),
+            None,
+            &state.names,
+            &known_prefixes(&state.identities),
+        )
+        .unwrap();
+        state.identities.extend(identities_of(&first));
+        assert_eq!(first.sensors[0].id, "nvme_temp1");
+
+        // The state survives a restart as JSON.
+        let dir = temp("identities");
+        let store = StateStore::new(&dir);
+        store.save(STATE_FILE, &state).unwrap();
+        let state = store.load::<DaemonState>(STATE_FILE).value;
+
+        // The new chip has the lower device path. Without the identities it would take `nvme`.
+        fake.add_hwmon(
+            1,
+            "nvme",
+            "devices/pci0000:00/0000:00:01.1/nvme/nvme0",
+            None,
+            &attrs,
+        );
+        let second = discover_with(
+            &fake.sysfs(),
+            None,
+            &state.names,
+            &known_prefixes(&state.identities),
+        )
+        .unwrap();
+        let id_of = |path: &str| {
+            second
+                .sensors
+                .iter()
+                .find(|s| s.device.device_path == format!("/{path}"))
+                .map(|s| s.id.as_str())
+        };
+        assert_eq!(id_of(old_chip), Some("nvme_temp1"));
+        assert_eq!(
+            id_of("devices/pci0000:00/0000:00:01.1/nvme/nvme0"),
+            Some("nvme_2_temp1")
         );
         fs::remove_dir_all(dir).unwrap();
     }

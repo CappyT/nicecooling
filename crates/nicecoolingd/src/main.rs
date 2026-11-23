@@ -1,5 +1,6 @@
 use std::process::ExitCode;
 use std::sync::Arc;
+use std::time::Duration;
 
 use nicecoolingd::daemon::{self, Options, Paths};
 use nicecoolingd::snapshot::{RestoreOutcome, restore_bios};
@@ -48,11 +49,15 @@ fn restore(paths: &Paths) -> ExitCode {
             );
             ExitCode::FAILURE
         }
-        Ok(RestoreOutcome::Fallback { channels }) => {
+        Ok(RestoreOutcome::Fallback { channels, failed }) => {
             eprintln!(
-                "nicecoolingd: no readable snapshot, {channels} Channels set to manual mode at raw 255 (state-fallback)"
+                "nicecoolingd: no readable snapshot, {channels} Channels set to manual mode at raw 255 (state-fallback), {failed} writes failed"
             );
-            ExitCode::SUCCESS
+            if failed == 0 {
+                ExitCode::SUCCESS
+            } else {
+                ExitCode::FAILURE
+            }
         }
         Err(e) => {
             eprintln!("nicecoolingd: restore failed: {e}");
@@ -61,8 +66,7 @@ fn restore(paths: &Paths) -> ExitCode {
     }
 }
 
-#[tokio::main]
-async fn main() -> ExitCode {
+fn main() -> ExitCode {
     let args = match parse_args() {
         Ok(args) => args,
         Err(e) => {
@@ -73,7 +77,24 @@ async fn main() -> ExitCode {
     if args.restore_bios {
         return restore(&args.paths);
     }
+    let runtime = match tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+    {
+        Ok(runtime) => runtime,
+        Err(e) => {
+            eprintln!("nicecoolingd: cannot start the runtime: {e}");
+            return ExitCode::FAILURE;
+        }
+    };
+    let code = runtime.block_on(serve(args));
+    // A source stuck in a blocking device read would hold the runtime drop up to
+    // `TimeoutStopSec`. `ExecStopPost` restores the snapshot only after the process exits.
+    runtime.shutdown_timeout(Duration::from_secs(1));
+    code
+}
 
+async fn serve(args: Args) -> ExitCode {
     let options = Options::new(args.paths);
     let mut daemon =
         match daemon::start(&options, Arc::new(TokioClock::new()), SystemdNotifier).await {

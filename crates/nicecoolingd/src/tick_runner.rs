@@ -7,10 +7,12 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use nicecooling_core::clock::Clock;
 use nicecooling_core::tick::{ChannelIo, Pipeline, Readback, TickConfig, TickContext};
 use nicecooling_hwmon::discovery::Channel;
+use nicecooling_hwmon::identity::DeviceIdentity;
 use nicecooling_hwmon::sysfs::{read_attr, write_attr};
 use tokio::time::{Instant, MissedTickBehavior};
 
 use crate::lease::Lease;
+use crate::snapshot::{BiosSnapshot, restore_channel};
 
 /// The clock of the tick: time since the start, on the Tokio clock.
 pub struct TokioClock {
@@ -40,8 +42,10 @@ impl Clock for TokioClock {
 /// Reads and writes the `pwmN` attributes of the Channels. A write takes the lease first.
 pub struct SysfsChannels {
     channels: BTreeMap<String, (PathBuf, u32)>,
+    devices: BTreeMap<String, DeviceIdentity>,
     lease: Lease,
     boot_id: String,
+    snapshot: Option<BiosSnapshot>,
 }
 
 impl SysfsChannels {
@@ -51,9 +55,20 @@ impl SysfsChannels {
                 .iter()
                 .map(|c| (c.id.clone(), (c.dir.clone(), c.number)))
                 .collect(),
+            devices: channels
+                .iter()
+                .map(|c| (c.id.clone(), c.device.clone()))
+                .collect(),
             lease,
             boot_id,
+            snapshot: None,
         }
+    }
+
+    /// The snapshot that `release` restores a Channel from.
+    pub fn with_snapshot(mut self, snapshot: Option<BiosSnapshot>) -> Self {
+        self.snapshot = snapshot;
+        self
     }
 
     fn channel(&self, id: &str) -> io::Result<&(PathBuf, u32)> {
@@ -87,6 +102,28 @@ impl ChannelIo for SysfsChannels {
             write_attr(&dir, &format!("pwm{n}_enable"), "1")?;
         }
         write_attr(&dir, &format!("pwm{n}"), &raw.to_string())
+    }
+
+    fn release(&mut self, id: &str) -> io::Result<()> {
+        let (dir, number) = self.channel(id)?.clone();
+        let device = &self.devices[id];
+        // A Channel that the snapshot does not hold has no BIOS state to go back to.
+        let Some(channel) = self.snapshot.as_ref().and_then(|s| {
+            s.chips
+                .iter()
+                .find(|c| c.hwmon_name == device.hwmon_name && c.device_path == device.device_path)
+                .and_then(|c| c.channels.iter().find(|c| c.channel == number))
+        }) else {
+            return Ok(());
+        };
+        let problems = restore_channel(&dir, channel, &mut |dir, name, value| {
+            write_attr(dir, name, value)
+        });
+        if problems.is_empty() {
+            Ok(())
+        } else {
+            Err(io::Error::other(problems.join("; ")))
+        }
     }
 }
 
@@ -182,6 +219,31 @@ mod tests {
                 raw: 128,
                 enable: 1
             }
+        );
+        std::fs::remove_dir_all(state).unwrap();
+    }
+
+    #[test]
+    fn release_restores_only_that_channel_from_the_snapshot() {
+        let fake = FakeSysfs::reference_board();
+        let discovery = discover(&fake.sysfs(), None, &Default::default()).unwrap();
+        let snapshot = crate::snapshot::take(&discovery.channels, Default::default(), 1).unwrap();
+        let state =
+            std::env::temp_dir().join(format!("nicecooling-release-{}", std::process::id()));
+        std::fs::create_dir_all(&state).unwrap();
+        let mut io = SysfsChannels::new(&discovery.channels, Lease::new(&state), "boot".into())
+            .with_snapshot(Some(snapshot));
+        io.write("nct6798_pwm3", 128, true).unwrap();
+        io.write("nct6798_pwm4", 77, true).unwrap();
+
+        io.release("nct6798_pwm3").unwrap();
+        assert_eq!(
+            io.read("nct6798_pwm3").unwrap(),
+            Readback { raw: 96, enable: 5 }
+        );
+        assert_eq!(
+            io.read("nct6798_pwm4").unwrap(),
+            Readback { raw: 77, enable: 1 }
         );
         std::fs::remove_dir_all(state).unwrap();
     }
