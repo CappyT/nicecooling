@@ -209,7 +209,7 @@ Mode and Action use one transport: command 12 (`set_mode`) with the code as the 
 
 ## Report 3
 
-Report 3 holds the settings: 750 bytes, the report ID, the 747-byte struct and the CRC. Bytes 1-2 are the structure id. The table gives each field with its offset, type, repeat, scale, range, the default that aquasuite code sets, and the value in the fw1022 dump. A repeat `n x s` means n copies, s bytes apart. A second repeat is a nested copy inside each first copy. The range is in engineering units (raw value times scale). "Type only" means the code defines no range.
+Report 3 holds the settings: 750 bytes, the report ID, the 747-byte struct and the CRC. Bytes 1-2 are the structure id. The table gives each field with its offset, type, repeat, scale, range, the default that aquasuite code sets, and the value in the fw1022 dump. A repeat `n x s` means n copies, s bytes apart. A second repeat is a nested copy inside each first copy. The range is in engineering units (raw value times scale). "Type only" means the code defines no range. A field with a list of codes also has a `names` list in the registry, with one lowercase kebab-case name for each code in the same order. The names are our own: the D-Bus API shows an enum field by its name.
 
 aquasuite reads the struct, changes the fields of the user, and writes back every other byte as read (P2). Its GUI keeps the shield and monitor setpoint at least 20 mbar above the lower limit and the upper limit at least 30 mbar above the setpoint. The fw1022 dump has a monitor upper range of 20.0 mbar, so the registry range of that field is the full span of the limits.
 
@@ -309,7 +309,7 @@ aquasuite reads the struct, changes the fields of the user, and writes back ever
 | `monitor_pressure_low_standby` | 741 | i16 |  | 0.1 | 30 to 430 mbar | 100.0 | 500 | Lower pressure limit in MONITOR while the PC is in standby. aquasuite keeps it at or below the lower limit. |
 | `monitor_pressure_working_range` | 743 | i16 |  | 0.1 | 0 to 420 mbar | 50.0 | 300 | Setpoint minus lower limit. |
 | `monitor_pressure_max_range` | 745 | i16 |  | 0.1 | 0 to 450 mbar | 50.0 | 200 | Upper limit minus setpoint. |
-| `device_profile` | 747 | u8 |  |  | codes 1-4 |  | 1 | Number of the device profile: 1-4, one fixed slot each. aquasuite writes the slot number before it stores the report of a slot. Only a Profile activation sets it. |
+| `device_profile` | 747 | u8 |  |  | 1 to 4 |  | 1 | Number of the device profile: 1-4, one fixed slot each. aquasuite writes the slot number before it stores the report of a slot. Only a Profile activation sets it. |
 <!-- report3-table:end -->
 
 ### Unit codes

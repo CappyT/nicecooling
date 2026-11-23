@@ -40,6 +40,56 @@ fn plausible_read_entries_in_range_on_fixtures() {
     }
 }
 
+fn is_kebab_case(name: &str) -> bool {
+    !name.is_empty()
+        && name.split('-').all(|part| {
+            !part.is_empty()
+                && part
+                    .bytes()
+                    .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit())
+        })
+}
+
+#[test]
+fn enum_fields_have_unique_kebab_case_names_in_the_order_of_their_values() {
+    let registry = Registry::leakshield();
+    let mut enums = 0;
+    for field in &registry.field {
+        assert_eq!(
+            field.names.is_some(),
+            field.values.is_some(),
+            "{}: names exist exactly when values exist",
+            field.id
+        );
+        let (Some(names), Some(values)) = (&field.names, &field.values) else {
+            continue;
+        };
+        enums += 1;
+        assert_eq!(names.len(), values.len(), "{}", field.id);
+        let unique: std::collections::BTreeSet<_> = names.iter().collect();
+        assert_eq!(unique.len(), names.len(), "{}: duplicate name", field.id);
+        for (name, &code) in names.iter().zip(values) {
+            assert!(is_kebab_case(name), "{}: bad name {name:?}", field.id);
+            assert_eq!(field.name_of(code), Some(name.as_str()), "{}", field.id);
+            assert_eq!(field.code_of(name), Some(code), "{}", field.id);
+        }
+    }
+    assert!(enums > 0);
+}
+
+#[test]
+fn name_lookup_refuses_what_the_field_does_not_list() {
+    let registry = Registry::leakshield();
+    let model = registry.field("reservoir_model").unwrap();
+    assert_eq!(model.name_of(255), Some("custom"));
+    assert_eq!(model.code_of("ultitube-150"), Some(2));
+    assert_eq!(model.name_of(12), None);
+    assert_eq!(model.code_of("unknown-12"), None);
+    // A limit field and a bit mask have no names.
+    assert_eq!(registry.field("device_profile").unwrap().name_of(1), None);
+    assert_eq!(registry.field("pump_flags").unwrap().code_of("none"), None);
+}
+
 const HEADER: &str = r#"
 schema_version = 1
 model = "LEAKSHIELD"

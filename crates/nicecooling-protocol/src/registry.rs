@@ -99,6 +99,8 @@ pub struct Field {
     pub max: Option<f64>,
     /// Allowed raw values.
     pub values: Option<Vec<i64>>,
+    /// Our own lowercase kebab-case name of each entry of `values`, in the same order.
+    pub names: Option<Vec<String>>,
     /// Mask of the bits that the field uses.
     pub bits: Option<i64>,
     pub default: Option<f64>,
@@ -113,6 +115,18 @@ pub struct Field {
 impl Field {
     pub fn is_writable(&self) -> bool {
         self.verification_state.allows_write(self.risk_class)
+    }
+
+    /// The name of an enum code, or `None` for a field without names or a code that is not listed.
+    pub fn name_of(&self, raw: i64) -> Option<&str> {
+        let index = self.values.as_ref()?.iter().position(|&v| v == raw)?;
+        self.names.as_ref()?.get(index).map(String::as_str)
+    }
+
+    /// The enum code of a name, or `None` for a field without names or a name that is not listed.
+    pub fn code_of(&self, name: &str) -> Option<i64> {
+        let index = self.names.as_ref()?.iter().position(|n| n == name)?;
+        self.values.as_ref()?.get(index).copied()
     }
 
     /// Offsets of every scalar: `count` copies, `stride` bytes apart, in each copy `inner_count`

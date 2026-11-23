@@ -10,13 +10,43 @@ import sys
 REPO = sys.argv[1]
 FIX = REPO + "/tests/fixtures/leakshield/fw1022/report3.bin"
 
-E = lambda *v: ("enum", list(v))
+E = lambda *pairs: ("enum", [c for c, _ in pairs], [n for _, n in pairs])
+def names(codes, *names):
+    assert len(codes) == len(names), (codes, names)
+    return list(zip(codes, names))
 L = lambda lo, hi: ("limit", lo, hi)
 B = lambda m: ("bits", m)
 T = ("type",)
-LEDMODES = [0, 1, 2, 3, 4, 5, 7, 8, 9, 10, 11, 12, 13, 14, 18, 19, 33]
-KEYS = [0] + list(range(4, 47)) + list(range(58, 71)) + [72] + list(range(74, 83)) + list(range(84, 99)) \
-    + list(range(104, 116)) + [1064, 1066, 1067, 1070, 1071, 1072, 1135, 1181, 1182, 1205, 1226, 1233, 1234, 2001, 2002, 2004]
+LED_MODES = names([0, 1, 2, 3, 4, 5, 7, 8, 9, 10, 11, 12, 13, 14, 18, 19, 33],
+    "unused", "fixed-color", "breathing", "rainbow", "blink-1", "blink-2", "sequential", "visor-1", "visor-2",
+    "marquee-1", "marquee-2", "ambient", "bar", "candle", "switch", "rainbow-shift", "gradient")
+RESERVOIRS = names([*range(12), 255], "undefined", "ultitube-100", "ultitube-150", "ultitube-200", "aqualis-100",
+    "aqualis-150", "aqualis-450", "aqualis-880", "aquainlet-100", "aquainlet-150", "aquatube", "aquabox", "custom")
+PUMPS = names([*range(9), 255], "undefined", "d5", "aquastream", "ddc-1t", "ddc-1t-plus", "ddc-325", "eheim-1046",
+    "eheim-1048", "eheim-1250", "custom")
+LOG_INTERVALS = names(range(8), "500ms", "1s", "5s", "10s", "30s", "1min", "5min", "10min")
+UNITS = names(range(48), "none", "none-1", "none-2", "rpm", "percent", "fps", "ma", "a", "mv", "v", "degc", "degf",
+    "l-per-h", "l-per-min", "gal-per-h", "gal-per-min", "hz", "khz", "mhz", "ghz", "mw", "w", "kw", "ms", "s", "min",
+    "h", "days", "bit", "kbit", "mbit", "gbit", "mbar", "bar", "ratio", "mb", "gb", "tb", "bool", "g", "kg", "t", "deg",
+    "humidity", "l", "conductivity", "mbar-per-min", "ml-per-h")
+BRIGHTNESS = names(range(4), "maximum", "mid", "low", "off")
+TEMPLATES = names([*range(14), 255], "logo", "chart", "values-1", "values-2", "values-4", "values-3a", "values-3b",
+    "time", "bars-2", "bars-4a", "bars-4b", "value-and-bar", "value-and-time", "leakshield-state", "none")
+RESPONSE_ACTIONS = names(range(4), "none", "signal-short", "signal-long", "key-sequence")
+DEFAULT_MODES = names([1, 2, 3], "shield", "monitor", "release")
+KEYS = names([0], "none") \
+    + names(range(4, 30), *"abcdefghijklmnopqrstuvwxyz") \
+    + names(range(30, 40), *"1234567890") \
+    + names(range(40, 47), "enter", "escape", "backspace", "tab", "space", "minus", "equals") \
+    + names(range(58, 70), *[f"f{n}" for n in range(1, 13)]) \
+    + names([70, 72], "print-screen", "pause") \
+    + names(range(74, 83), "home", "page-up", "delete", "end", "page-down", "right", "left", "down", "up") \
+    + names(range(84, 89), "kp-divide", "kp-multiply", "kp-minus", "kp-plus", "kp-enter") \
+    + names(range(89, 98), *[f"kp-{n}" for n in range(1, 10)]) + names([98], "kp-0") \
+    + names(range(104, 116), *[f"f{n}" for n in range(13, 25)]) \
+    + names([1064, 1066, 1067, 1070, 1071, 1072, 1135, 1181, 1182, 1205, 1226, 1233, 1234, 2001, 2002, 2004],
+            "menu", "menu-up", "menu-down", "menu-escape", "menu-increase", "menu-decrease", "media-select",
+            "next-track", "previous-track", "play-pause", "mute", "volume-up", "volume-down", "power", "sleep", "wake")
 
 # id, offset, type, scale, unit, range, default, risk, description, extra
 F = []
@@ -25,27 +55,27 @@ def f(id, off, typ, rng, risk, desc, scale=1, unit="", default=None, **kw):
 
 f("signal_output_config", 3, "u8", T, "safety", "Setting of the signal output. The code does not define its values; aquasuite keeps the byte as read.")
 f("fill_level_calibration", 4, "i16", L(-20, 20), "safety", "Correction of the fill level.", scale=0.01, unit="%")
-f("reservoir_model", 6, "u8", E(*range(0, 12), 255), "safety", "Reservoir preset: 0 undefined, 1-11 Aqua Computer reservoirs, 255 custom.")
+f("reservoir_model", 6, "u8", E(*RESERVOIRS), "safety", "Reservoir preset: 0 undefined, 1-11 Aqua Computer reservoirs, 255 custom.")
 f("reservoir_air_volume_full", 7, "i16", L(0, 32767), "safety", "Air volume of the reservoir at fill level 100 %.", unit="ml")
 f("reservoir_air_volume_empty", 9, "i16", L(0, 32767), "safety", "Air volume of the reservoir at fill level 0 %.", unit="ml")
 f("reservoir_total_volume", 11, "i16", L(0, 32767), "safety", "Total volume of the reservoir.", unit="ml")
-f("pump_model", 13, "u8", E(*range(0, 9), 255), "safety", "Pump preset: 0 undefined, 1 D5, 2 aquastream, 3-5 DDC, 6-8 Eheim, 255 custom.")
+f("pump_model", 13, "u8", E(*PUMPS), "safety", "Pump preset: 0 undefined, 1 D5, 2 aquastream, 3-5 DDC, 6-8 Eheim, 255 custom.")
 f("pump_flags", 14, "u8", B(0x03), "safety", "Bit 0: custom pump. Bit 1: dual pump.")
 f("pump_max_speed", 15, "i16", L(0, 32767), "safety", "Pump speed at full duty (\"max speed\").", unit="rpm", default=4800)
 f("pump_max_pressure", 17, "i16", L(0, 3276.7), "safety", "Pump pressure at full speed (\"max pressure\").", scale=0.1, unit="mbar", default=365.0)
 f("pump_start_speed", 19, "i16", L(0, 32767), "safety", "Pump speed that the device assumes without a Feed value (\"start speed\"). aquasuite keeps it at or below `pump_max_speed`.", unit="rpm", default=4800)
 f("pump_start_flow", 21, "i16", L(0, 3276.7), "safety", "Flow that the device assumes without a Feed value (\"start flow\").", scale=0.1, unit="l/h", default=100.0)
-f("sensor_log_interval", 23, "u8", E(*range(8)), "low", "Log interval of each device sensor: 0 0.5 s, 1 1 s, 2 5 s, 3 10 s, 4 30 s, 5 1 min, 6 5 min, 7 10 min.", count=20, stride=2)
-f("sensor_unit", 24, "u8", E(*range(48)), "safety", "Unit code of each device sensor (unit code table). The Feed pump speed and flow use sensors 4 and 5, so the unit sets their scale.", count=20, stride=2)
+f("sensor_log_interval", 23, "u8", E(*LOG_INTERVALS), "low", "Log interval of each device sensor: 0 0.5 s, 1 1 s, 2 5 s, 3 10 s, 4 30 s, 5 1 min, 6 5 min, 7 10 min.", count=20, stride=2)
+f("sensor_unit", 24, "u8", E(*UNITS), "safety", "Unit code of each device sensor (unit code table). The Feed pump speed and flow use sensors 4 and 5, so the unit sets their scale.", count=20, stride=2)
 f("display_page_time", 63, "u16", L(0, 6553.5), "low", "Time that each display page shows.", scale=0.1, unit="s")
-f("display_brightness_active", 65, "u8", E(0, 1, 2, 3), "low", "0 maximum, 1 mid, 2 low, 3 off.")
-f("display_brightness_idle", 66, "u8", E(0, 1, 2, 3), "low", "0 maximum, 1 mid, 2 low, 3 off.")
+f("display_brightness_active", 65, "u8", E(*BRIGHTNESS), "low", "0 maximum, 1 mid, 2 low, 3 off.")
+f("display_brightness_idle", 66, "u8", E(*BRIGHTNESS), "low", "0 maximum, 1 mid, 2 low, 3 off.")
 f("display_idle_delay", 67, "u16", T, "low", "Delay before the display goes idle. aquasuite always writes 2400. Unit not defined in the code.", default=2400)
 f("clock_flags", 69, "u8", B(0x07), "safety", "Bit 0: daylight saving time on. Bit 1: 12 h format. Bit 2: daylight saving region US (clear: EU).")
 f("clock_timezone", 70, "i16", L(-12, 14), "safety", "Time zone offset of the device local time.", scale=0.1, unit="h")
 f("display_flags", 72, "u8", B(0x0F), "low", "Bit 0: rotation off. Bit 1: display standby allowed. Bit 2: invert. Bit 3: automatic invert off.")
 P = dict(count=10, stride=46)
-f("page_template", 73, "u8", E(*range(14), 255), "low", "Page layout: 0 logo, 1 chart, 2-6 values, 7 time, 8-10 bars, 11 value and bar, 12 value and time, 13 Leakshield state, 255 none.", **P)
+f("page_template", 73, "u8", E(*TEMPLATES), "low", "Page layout: 0 logo, 1 chart, 2-6 values, 7 time, 8-10 bars, 11 value and bar, 12 value and time, 13 Leakshield state, 255 none.", **P)
 f("page_options", 74, "u8", B(0x03), "low", "Bit 0: show the page in standby. Bit 1: hide the page in normal operation.", **P)
 f("page_icons", 75, "u8[4]", T, "low", "Index into the icons of report 8, 255 none.", **P)
 f("page_names", 79, "u8[8]", T, "low", "Index into the names of report 8, 255 none.", **P)
@@ -61,7 +91,7 @@ f("fill_level_alarm_threshold", 545, "i16", L(0, 100), "safety", "Fill level bel
 f("leak_rate_warning_threshold", 551, "i16", L(50, 200), "safety", "Leak rate above which the warning starts.", unit="ml/h")
 for name, off in (("fill_level_warning", 541), ("fill_level_alarm", 547), ("leak_rate_warning", 553),
                   ("leak_rate_alarm_1", 557), ("leak_rate_alarm_2", 561), ("system_alarm", 565)):
-    f(f"{name}_response_action", off, "u8", E(0, 1, 2, 3), "safety", "Device response: 0 none, 1 power switch short, 2 power switch long, 3 USB key sequence.")
+    f(f"{name}_response_action", off, "u8", E(*RESPONSE_ACTIONS), "safety", "Device response: 0 none, 1 power switch short, 2 power switch long, 3 USB key sequence.")
     f(f"{name}_response_modifiers", off + 1, "u8", B(0x0F), "safety", "Key modifiers of the USB key sequence: bit 0 ctrl, bit 1 shift, bit 2 alt, bit 3 windows.")
     f(f"{name}_response_key", off + 2, "u16", E(*KEYS), "safety", "Key code of the USB key sequence. Codes 4-115 follow the USB HID keyboard usages.")
 f("loop_height", 569, "u8", L(0, 200), "safety", "Height of the loop.", unit="cm")
@@ -72,7 +102,7 @@ C = dict(count=2, stride=70)
 f("led_controller_strip", 574, "u8", T, "low", "Strip of the LED controller.", **C)
 f("led_controller_first_led", 575, "u8", T, "low", "First LED of the LED controller.", **C)
 f("led_controller_led_count", 576, "u8", T, "low", "Number of LEDs of the LED controller.", **C)
-f("led_controller_mode", 577, "u8", E(*LEDMODES), "low", "Effect: 0 unused, 1 fixed color, 2 breathing, 3 rainbow, 19 rainbow shift, 12 ambient, 4-5 blink, 7 sequential, 8-9 visor, 10-11 marquee, 14 candle, 18 switch, 13 bar, 33 gradient.", **C)
+f("led_controller_mode", 577, "u8", E(*LED_MODES), "low", "Effect: 0 unused, 1 fixed color, 2 breathing, 3 rainbow, 19 rainbow shift, 12 ambient, 4-5 blink, 7 sequential, 8-9 visor, 10-11 marquee, 14 candle, 18 switch, 13 bar, 33 gradient.", **C)
 f("led_controller_flags", 578, "u16", T, "low", "Bit 14: binding 1 off. Bit 15: binding 2 off. Other bits are effect options.", **C)
 f("led_controller_source", 580, "i16", T, "low", "Sensor that drives the effect.", **C)
 f("led_controller_source_filter", 582, "u8[2]", T, "low", "Rise and fall filter of the source.", **C)
@@ -90,7 +120,7 @@ f("vacuum_timer_start_hour", 716, "u8", L(0, 23), "safety", "Start of each of th
 f("vacuum_timer_start_minute", 717, "u8", L(0, 59), "safety", "Start minute of each window.", unit="min", count=2, stride=2)
 f("vacuum_timer_end_hour", 720, "u8", L(0, 23), "safety", "End of each window. aquasuite writes the start plus 1 min.", unit="h", count=2, stride=2)
 f("vacuum_timer_end_minute", 721, "u8", L(0, 59), "safety", "End minute of each window.", unit="min", count=2, stride=2)
-f("default_mode", 724, "u8", E(1, 2, 3), "safety", "Mode after power-up and after an Action: 1 SHIELD, 2 MONITOR, 3 RELEASE.")
+f("default_mode", 724, "u8", E(*DEFAULT_MODES), "safety", "Mode after power-up and after an Action: 1 SHIELD, 2 MONITOR, 3 RELEASE.")
 for name, off in (("test_pressure", 725), ("deaeration_pressure", 727), ("refill_pressure", 729)):
     f(name, off, "i16", L(50, 450), "safety", f"Pressure of the Action ({name.split('_')[0]}).", scale=0.1, unit="mbar")
 for mode, off in (("shield", 731), ("monitor", 739)):
@@ -98,7 +128,7 @@ for mode, off in (("shield", 731), ("monitor", 739)):
     f(f"{mode}_pressure_low_standby", off + 2, "i16", L(30, 430), "safety", f"Lower pressure limit in {mode.upper()} while the PC is in standby. aquasuite keeps it at or below the lower limit.", scale=0.1, unit="mbar", default=100.0)
     f(f"{mode}_pressure_working_range", off + 4, "i16", L(0, 420), "safety", "Setpoint minus lower limit.", scale=0.1, unit="mbar", default=50.0)
     f(f"{mode}_pressure_max_range", off + 6, "i16", L(0, 450), "safety", "Upper limit minus setpoint.", scale=0.1, unit="mbar", default=50.0)
-f("device_profile", 747, "u8", E(1, 2, 3, 4), "safety", "Number of the device profile: 1-4, one fixed slot each. aquasuite writes the slot number before it stores the report of a slot. Only a Profile activation sets it.")
+f("device_profile", 747, "u8", L(1, 4), "safety", "Number of the device profile: 1-4, one fixed slot each. aquasuite writes the slot number before it stores the report of a slot. Only a Profile activation sets it.")
 
 SIZES = {"u8": (1, "B"), "u16": (2, "H"), "i16": (2, "h")}
 
@@ -184,6 +214,7 @@ for e in F:
         lines.append(f'max = {fmtnum(r[2])}')
     elif r[0] == "enum":
         lines.append('values = [' + ", ".join(map(str, r[1])) + ']')
+        lines.append('names = [' + ", ".join(f'"{n}"' for n in r[2]) + ']')
     elif r[0] == "bits":
         lines.append(f'bits = 0x{r[1]:04X}')
     if e["default"] is not None:
