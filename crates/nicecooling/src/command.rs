@@ -1,7 +1,7 @@
 //! What a tray entry, a notification button, a banner button or a screen asks the app to do.
 
 use crate::daemon_client::DaemonClient;
-use crate::model::{FieldValue, Response, RuleGroup};
+use crate::model::{DaemonEvent, FieldValue, Response, RuleGroup};
 use crate::shell::Page;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -135,6 +135,12 @@ pub enum Command {
         source: String,
         response: Response,
         delay_s: u32,
+    },
+    /// Change fields of a stored slot. The daemon sends nothing to the device.
+    SetStoredFields {
+        leakshield: String,
+        slot: u8,
+        fields: Vec<(String, FieldValue)>,
     },
     /// Restore the Leakshield backup after a failed write. Needs the polkit action `critical`.
     RestoreBackup {
@@ -336,6 +342,11 @@ impl Command {
                     .set_alarm_response(event, source, *response, *delay_s)
                     .await?
             }
+            Self::SetStoredFields {
+                leakshield,
+                slot,
+                fields,
+            } => client.set_stored_fields(leakshield, *slot, fields).await?,
             Self::RestoreBackup { leakshield, backup } => {
                 client.restore_backup(leakshield, backup).await?
             }
@@ -435,6 +446,7 @@ impl Command {
     pub fn leakshield(&self) -> Option<&str> {
         match self {
             Self::RestoreBackup { leakshield, .. }
+            | Self::SetStoredFields { leakshield, .. }
             | Self::SetLeakshieldFields { leakshield, .. }
             | Self::ChangeLeakshieldMode { leakshield, .. }
             | Self::StartLeakshieldAction { leakshield, .. }
@@ -448,6 +460,17 @@ impl Command {
             | Self::ExportBackup { leakshield, .. }
             | Self::ImportBackup { leakshield, .. }
             | Self::FactoryReset { leakshield } => Some(leakshield),
+            _ => None,
+        }
+    }
+
+    /// What the screens need to read again after this command ran, when the daemon sends no
+    /// signal for the change.
+    pub async fn refresh(&self, client: &DaemonClient) -> Option<DaemonEvent> {
+        match self {
+            Self::SetAlarmResponse { .. } | Self::ResetResponse { .. } => {
+                client.responses().await.ok().map(DaemonEvent::Responses)
+            }
             _ => None,
         }
     }
@@ -488,6 +511,9 @@ impl Command {
             Self::SetAlarmResponse { event, source, .. }
             | Self::ResetResponse { event, source } => response_feedback_key(event, source),
             Self::RestoreBackup { leakshield, .. } => format!("restore:{leakshield}"),
+            Self::SetStoredFields {
+                leakshield, slot, ..
+            } => format!("stored:{leakshield}:{slot}"),
             Self::SetLeakshieldFields {
                 leakshield,
                 control,

@@ -510,6 +510,7 @@ pub fn leakshield_data() -> LeakshieldData {
         writable: true,
         clock_offset_s: -42,
         software_sensor_slots: 12,
+        stored: Default::default(),
     }
 }
 

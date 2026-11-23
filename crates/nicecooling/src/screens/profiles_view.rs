@@ -19,8 +19,8 @@ use crate::screen_view::{InputKey, ScreenView, skeleton};
 use crate::screens::controls::{Pick, act};
 use crate::screens::format::plain;
 use crate::screens::profiles::{
-    COMPARISONS, Dialog, EditorModel, GroupRow, NoticeKind, PROCESS_MATCHES, ProfileDetail,
-    ProfilesModel, ProfilesState, RuleEditorModel, RuleKind, minutes_text,
+    COMPARISONS, Dialog, DiffDialog, EditorModel, GroupRow, NoticeKind, PROCESS_MATCHES,
+    ProfileDetail, ProfilesModel, ProfilesState, RuleEditorModel, RuleKind, minutes_text,
 };
 use crate::screens::ui::{
     TagKind, caption, card, card_header, card_row, modal, notice_row, page, tag, write_line,
@@ -166,6 +166,9 @@ impl ScreenView {
                     cx,
                 ));
             }
+            if let Some(dialog) = &detail.diff_dialog {
+                root = root.child(self.diff_dialog(dialog, p, cx));
+            }
             if let Some(dialog) = &detail.delete_dialog {
                 root = root.child(self.simple_dialog(
                     "delete",
@@ -233,6 +236,47 @@ impl ScreenView {
                 cancel_button.into_any_element(),
                 confirm_button.into_any_element(),
             ],
+            p,
+        )
+        .into_any_element()
+    }
+
+    /// The fields that change on the Leakshield when the Profile is activated.
+    fn diff_dialog(&self, dialog: &DiffDialog, p: &Palette, cx: &mut Context<Self>) -> AnyElement {
+        let view = cx.entity();
+        let row = |cells: &[String; 3], head: bool| {
+            let line = card_row(p)
+                .child(div().flex_1().child(cells[0].clone()))
+                .child(div().w(px(100.)).child(cells[1].clone()))
+                .child(div().w(px(100.)).child(cells[2].clone()));
+            if head {
+                line.text_size(px(12.))
+                    .font_weight(FontWeight::BOLD)
+                    .text_color(p.fg_dim)
+            } else {
+                line
+            }
+        };
+        let mut table = v_flex().w_full().child(row(&dialog.columns, true));
+        for cells in &dialog.rows {
+            table = table.child(row(cells, false));
+        }
+        let cancel = Button::new("diff-cancel")
+            .label(dialog.cancel.clone())
+            .on_click(act(&view, |this, _, _| this.profiles.diff_dialog = None));
+        let confirm = Button::new("diff-confirm")
+            .primary()
+            .label(dialog.confirm.clone())
+            .on_click(act(&view, |this, _, _| {
+                if let Some(command) = this.profiles.confirm_activation() {
+                    this.send(command);
+                }
+            }));
+        modal(
+            dialog.title.clone(),
+            dialog.text.clone(),
+            vec![table.into_any_element()],
+            vec![cancel.into_any_element(), confirm.into_any_element()],
             p,
         )
         .into_any_element()
@@ -393,7 +437,7 @@ impl ScreenView {
                         let command = if revoke {
                             Some(crate::command::Command::ReturnToAutomatic)
                         } else {
-                            this.profiles.activate(&state)
+                            this.profiles.request_activation(&state)
                         };
                         if let Some(command) = command {
                             this.send(command);
@@ -585,12 +629,25 @@ impl ScreenView {
                 .child(curves)
                 .child(leakshield),
         );
-        for notice in &detail.notices {
-            card = card.child(notice_row(
-                notice.text.clone(),
-                notice.kind == NoticeKind::Warning,
-                p,
-            ));
+        if let Some(text) = &detail.rule_group {
+            card = card.child(card_row(p).child(caption(text.clone(), p)));
+        }
+        for (index, notice) in detail.notices.iter().enumerate() {
+            let mut row = notice_row(notice.text.clone(), notice.kind == NoticeKind::Warning, p);
+            if let Some((label, commands)) = notice.button.clone() {
+                row = row.child(
+                    Button::new(("notice-button", index))
+                        .small()
+                        .label(label)
+                        .disabled(!enabled)
+                        .on_click(act(&view, move |this, _, _| {
+                            for command in commands.clone() {
+                                this.send(command);
+                            }
+                        })),
+                );
+            }
+            card = card.child(row);
         }
         if let Some(offer) = &detail.restore {
             let mut row = card_row(p)

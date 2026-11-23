@@ -4,7 +4,7 @@ use nicecooling::command::Command;
 use nicecooling::daemon_client::rule_params;
 use nicecooling::i18n::{EN, IT};
 use nicecooling::model::{
-    AppState, Cause, FieldValue, Link, ProfileContent, ProfileInfo, Rule, RuleGroup, WriteFailure,
+    AppState, Cause, FieldValue, LeakshieldData, Link, ProfileContent, ProfileInfo, Rule, RuleGroup,
 };
 use nicecooling::screens::profiles::{
     NoticeKind, ProfilesModel, ProfilesState, ProfilesUi, RULE_KINDS, RuleKind, rule_keys,
@@ -1027,16 +1027,11 @@ fn no_hotkey_rule_kind_offered() {
     }
 }
 
-#[tokio::test(flavor = "multi_thread")]
-async fn curves_applied_leakshield_failed_shows_restore_offer() {
-    // The model: the Curves are active and the write to the Leakshield failed.
+#[test]
+fn curves_applied_leakshield_failed_shows_restore_offer() {
+    // The model: the Curves are active and the daemon holds the backup of the failed write.
     let mut state = base();
-    state.snapshot.profile_state = "leakshield-failed".into();
-    state.write_failure = Some(WriteFailure {
-        leakshield: LEAKSHIELD.into(),
-        error: "VerifyFailed".into(),
-        backup: "20261123T010000Z-abc123".into(),
-    });
+    state.snapshot.leakshields[0].failed_write_backup = "20261123T010000Z-abc123".into();
     let detail = model(&state, &ProfilesUi::default()).detail.unwrap();
     let offer = detail.restore.expect("the restore offer");
     assert_eq!(
@@ -1052,7 +1047,7 @@ async fn curves_applied_leakshield_failed_shows_restore_offer() {
             backup: "20261123T010000Z-abc123".into()
         })
     );
-    // A Profile that is not active shows no offer, and an applied state shows none.
+    // A Profile that is not active shows no offer, and a good write shows none.
     assert!(
         model(&state, &select(&state, "profile_2"))
             .detail
@@ -1060,7 +1055,7 @@ async fn curves_applied_leakshield_failed_shows_restore_offer() {
             .restore
             .is_none()
     );
-    state.snapshot.profile_state = "applied".into();
+    state.snapshot.leakshields[0].failed_write_backup.clear();
     assert!(
         model(&state, &ProfilesUi::default())
             .detail
@@ -1068,26 +1063,25 @@ async fn curves_applied_leakshield_failed_shows_restore_offer() {
             .restore
             .is_none()
     );
+}
 
-    // The daemon: `WriteFailed` carries the backup, and the button runs `RestoreBackup`.
+#[tokio::test(flavor = "multi_thread")]
+async fn restore_offer_from_failed_write_backup() {
     let bus = PrivateBus::start("profiles-restore");
     let daemon = FakeDaemon::start(bus.connect().await, Options::default()).await;
+    // The failure happened before the app started: the property holds the backup.
+    daemon.set_failed_write_backup("backup_7").await;
     let mut harness = Harness::start(&bus).await;
     harness
-        .until("the Profiles are known", |state| {
-            !state.snapshot.profiles.is_empty()
+        .until("the failed backup is known", |state| {
+            state
+                .snapshot
+                .leakshields
+                .first()
+                .is_some_and(|device| device.failed_write_backup == "backup_7")
         })
         .await;
-    daemon.emit_write_failed("VerifyFailed", "backup_7").await;
-    harness
-        .until("the failure is known", |state| {
-            state.write_failure.is_some()
-        })
-        .await;
-    let failure = harness.state.write_failure.clone().unwrap();
-    assert_eq!(failure.backup, "backup_7");
-    assert_eq!(failure.leakshield, LEAKSHIELD);
-    harness.state.snapshot.profile_state = "leakshield-failed".into();
+    assert!(harness.state.write_failure.is_none(), "no signal was seen");
     let offer = model(&harness.state, &ProfilesUi::default())
         .detail
         .unwrap()
@@ -1102,6 +1096,20 @@ async fn curves_applied_leakshield_failed_shows_restore_offer() {
     assert_eq!(
         daemon.calls()[0],
         format!("RestoreBackup({LEAKSHIELD},backup_7) interactive=true")
+    );
+    // A good write clears the property, and the offer goes away.
+    daemon.set_failed_write_backup("").await;
+    harness
+        .until("the offer goes away", |state| {
+            state.snapshot.leakshields[0].failed_write_backup.is_empty()
+        })
+        .await;
+    assert!(
+        model(&harness.state, &ProfilesUi::default())
+            .detail
+            .unwrap()
+            .restore
+            .is_none()
     );
 }
 
@@ -1149,6 +1157,11 @@ fn leakshield_rows_and_differences() {
         .snapshot
         .profile_contents
         .insert("profile_4".into(), content(30.0));
+    // Slot 2 has other thresholds. Slot 3 has the same ones.
+    state.snapshot.leakshield_data.insert(
+        LEAKSHIELD.into(),
+        stored_slots(&[(1, 30.0), (2, 25.0), (3, 30.0)]),
+    );
     let detail = model(&state, &ProfilesUi::default()).detail.unwrap();
     let rows: Vec<(&str, &str)> = detail
         .leakshield_rows
@@ -1188,6 +1201,21 @@ fn profiles_labels() {
     // The copy table of docs/ui/screens/profiles.md.
     let table = [
         ("profiles.new", "New", "Nuovo"),
+        (
+            "profiles.notice.slot_failed",
+            "Slot %{slot}: not changed. %{reason}",
+            "Slot %{slot}: non modificato. %{reason}",
+        ),
+        (
+            "profiles.notice.apply_all",
+            "Apply to all slots",
+            "Applica a tutti gli slot",
+        ),
+        (
+            "profiles.caption.dwell",
+            "Stays for %{time} more (Profile dwell)",
+            "Resta per altri %{time} (permanenza profilo)",
+        ),
         ("profiles.groups.add", "Add group", "Aggiungi gruppo"),
         ("profiles.activate", "Activate manually", "Attiva a mano"),
         (
@@ -1269,5 +1297,389 @@ fn profiles_labels() {
     assert_ne!(
         rule_sentence(EN, &state, &sensor_rule()),
         rule_sentence(IT, &state, &sensor_rule())
+    );
+}
+
+/// The device data with the stored thresholds of some slots: `(slot, fill level warning)`.
+fn stored_slots(slots: &[(u8, f64)]) -> LeakshieldData {
+    let mut data = support::fixtures::leakshield_data();
+    for (slot, warning) in slots {
+        data.stored.insert(
+            *slot,
+            [
+                (
+                    "fill_level_warning_threshold".to_owned(),
+                    FieldValue::Number(*warning),
+                ),
+                (
+                    "fill_level_alarm_threshold".to_owned(),
+                    FieldValue::Number(15.0),
+                ),
+                (
+                    "leak_rate_warning_threshold".to_owned(),
+                    FieldValue::Number(100.0),
+                ),
+            ]
+            .into_iter()
+            .collect(),
+        );
+    }
+    data
+}
+
+/// A state where Profile "Default Profile" has the slot 1 and the device runs the slot 1.
+fn with_slots() -> AppState {
+    let mut state = base();
+    state.snapshot.leakshields[0].active_slot = 1;
+    state.snapshot.leakshields[0].connected = true;
+    state.snapshot.leakshield_data.insert(
+        LEAKSHIELD.into(),
+        device_like(stored_slots(&[(1, 60.0), (2, 50.0), (4, 60.0)])),
+    );
+    state
+}
+
+/// The device runs the same alarm thresholds as the stored slots, except the fill level warning.
+fn device_like(mut data: LeakshieldData) -> LeakshieldData {
+    for field in &mut data.fields {
+        match field.id.as_str() {
+            "fill_level_alarm_threshold" => field.value = FieldValue::Number(15.0),
+            "leak_rate_warning_threshold" => field.value = FieldValue::Number(100.0),
+            _ => {}
+        }
+    }
+    data
+}
+
+#[test]
+fn dwell_caption_from_dwell_until() {
+    let mut state = base();
+    state.snapshot.cause = Cause::Rule;
+    state.snapshot.active_profile = Some(state.snapshot.profiles[1].clone());
+    state.snapshot.rule_groups = vec![group("g1", "profile_2", vec![sensor_rule()])];
+    state.snapshot.rule_groups[0].holds = true;
+    let ui = select(&state, "profile_2");
+    let at = |state: &AppState, locale| {
+        let feedback = Feedback::default();
+        ProfilesModel::build(
+            &ScreenInput {
+                locale,
+                ..input(state, &feedback, NOW_US)
+            },
+            &ui,
+        )
+    };
+    // No dwell runs.
+    let shown = at(&state, EN);
+    assert_eq!(shown.rows[1].caption, "Active by group 1");
+    // The dwell ends in 3 minutes.
+    state.snapshot.dwell_until_us = NOW_US + 180_000_000;
+    let shown = at(&state, EN);
+    assert_eq!(
+        shown.rows[1].caption,
+        "Active by group 1. Stays for 3 min more (Profile dwell)"
+    );
+    assert_eq!(
+        shown.detail.unwrap().caption,
+        "Active by group 1. Stays for 3 min more (Profile dwell)"
+    );
+    assert_eq!(
+        at(&state, IT).rows[1].caption,
+        "Attivo dal gruppo 1. Resta per altri 3 min (permanenza profilo)"
+    );
+    // Another Profile does not show it, and a dwell in the past shows nothing.
+    assert_eq!(shown.rows[2].caption, "No group. Slot 2");
+    state.snapshot.dwell_until_us = NOW_US - 1;
+    assert_eq!(at(&state, EN).rows[1].caption, "Active by group 1");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn dwell_until_property_reaches_the_snapshot() {
+    let bus = PrivateBus::start("profiles-dwell");
+    let daemon = FakeDaemon::start(bus.connect().await, Options::default()).await;
+    let mut harness = Harness::start(&bus).await;
+    harness
+        .until("the Profiles are known", |state| {
+            !state.snapshot.profiles.is_empty()
+        })
+        .await;
+    assert_eq!(harness.state.snapshot.dwell_until_us, 0);
+    daemon.set_dwell_until(1_700_000_300_000_000).await;
+    harness
+        .until("the dwell shows", |state| {
+            state.snapshot.dwell_until_us == 1_700_000_300_000_000
+        })
+        .await;
+}
+
+#[test]
+fn diff_dialog_before_activation() {
+    let state = with_slots();
+    let mut ui = select(&state, "profile_2");
+    // Slot 2 holds other thresholds than the device runs: the dialog opens, nothing is sent.
+    assert_eq!(ui.request_activation(&state), None);
+    let dialog = model(&state, &ui)
+        .detail
+        .unwrap()
+        .diff_dialog
+        .expect("the dialog");
+    assert_eq!(dialog.title, "Activate the Profile 'Quiet'?");
+    assert_eq!(dialog.columns, ["Field", "Leakshield now", "Slot 2"]);
+    assert_eq!(dialog.rows, [["Fill level warning threshold", "60", "50"]]);
+    assert_eq!(
+        (dialog.cancel.as_str(), dialog.confirm.as_str()),
+        ("Cancel", "Activate")
+    );
+    // "Activate" sends the activation and closes the dialog.
+    assert_eq!(
+        ui.confirm_activation(),
+        Some(Command::ActivateProfile {
+            id: "profile_2".into()
+        })
+    );
+    assert!(model(&state, &ui).detail.unwrap().diff_dialog.is_none());
+    // "Cancel" leaves the Profile as it is: another select closes the dialog too.
+    ui.request_activation(&state);
+    ui.select("profile_3");
+    assert!(ui.diff_dialog.is_none());
+}
+
+#[test]
+fn no_diff_dialog_for_same_slot() {
+    let activate = |id: &str| Some(Command::ActivateProfile { id: id.into() });
+    // The Profile has the slot of the device.
+    let state = with_slots();
+    let mut ui = select(&state, "profile_default");
+    assert_eq!(ui.request_activation(&state), activate("profile_default"));
+    // Another slot with the same values as the device: nothing to show.
+    let mut same = with_slots();
+    same.snapshot
+        .leakshield_data
+        .insert(LEAKSHIELD.into(), device_like(stored_slots(&[(2, 60.0)])));
+    let mut ui = select(&same, "profile_2");
+    assert_eq!(ui.request_activation(&same), activate("profile_2"));
+    // The slot of the device is unknown: the app cannot compare.
+    let mut unknown = with_slots();
+    unknown.snapshot.leakshields[0].active_slot = 0;
+    let mut ui = select(&unknown, "profile_2");
+    assert_eq!(ui.request_activation(&unknown), activate("profile_2"));
+    // A Profile without stored settings for its slot.
+    let mut missing = with_slots();
+    missing.snapshot.profiles[2].slot = 3;
+    let mut ui = select(&missing, "profile_3");
+    assert_eq!(ui.request_activation(&missing), activate("profile_3"));
+}
+
+#[test]
+fn differs_from_other_slots_uses_stored_fields() {
+    let mut state = with_slots();
+    let content = {
+        let mut fields = std::collections::BTreeMap::new();
+        for (id, value) in [
+            ("fill_level_warning_threshold", 60.0),
+            ("fill_level_alarm_threshold", 15.0),
+            ("leak_rate_warning_threshold", 100.0),
+        ] {
+            fields.insert(id.to_owned(), FieldValue::Number(value));
+        }
+        ProfileContent {
+            leakshield: [(LEAKSHIELD.to_owned(), fields)].into(),
+            ..Default::default()
+        }
+    };
+    state
+        .snapshot
+        .profile_contents
+        .insert("profile_default".into(), content);
+    // Slots 2 and 4 are stored, and only slot 2 has other values. Slot 3 has nothing stored.
+    state.snapshot.leakshield_data.insert(
+        LEAKSHIELD.into(),
+        stored_slots(&[(1, 60.0), (2, 50.0), (4, 60.0)]),
+    );
+    let notices = model(&state, &ProfilesUi::default())
+        .detail
+        .unwrap()
+        .notices;
+    let notice = notices
+        .iter()
+        .find(|n| n.text.starts_with("Alarm thresholds differ"))
+        .expect("the warning");
+    assert_eq!(notice.text, "Alarm thresholds differ from 1 other slots");
+    assert_eq!(notice.kind, NoticeKind::Warning);
+    let (label, commands) = notice.button.clone().expect("the button");
+    assert_eq!(label, "Apply to all slots");
+    assert_eq!(commands.len(), 1);
+    // The other Profiles and their content play no part: no content for slot 2 is needed.
+    assert!(!state.snapshot.profile_contents.contains_key("profile_2"));
+
+    // Equal thresholds in every slot: no warning.
+    state.snapshot.leakshield_data.insert(
+        LEAKSHIELD.into(),
+        stored_slots(&[(1, 60.0), (2, 60.0), (4, 60.0)]),
+    );
+    assert!(
+        model(&state, &ProfilesUi::default())
+            .detail
+            .unwrap()
+            .notices
+            .iter()
+            .all(|n| !n.text.starts_with("Alarm thresholds differ"))
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn apply_to_all_slots_calls_set_stored_fields() {
+    let bus = PrivateBus::start("profiles-apply-all");
+    let daemon = FakeDaemon::start(bus.connect().await, Options::default()).await;
+    let mut harness = Harness::start(&bus).await;
+    harness
+        .until("the stored slots are known", |state| {
+            state
+                .snapshot
+                .leakshield_data
+                .get(LEAKSHIELD)
+                .is_some_and(|d| !d.stored.is_empty())
+                && state
+                    .snapshot
+                    .profile_contents
+                    .contains_key("profile_default")
+        })
+        .await;
+    // The daemon has stored slots 1, 2 and 4: slot 3 has no stored report 3.
+    let data = &harness.state.snapshot.leakshield_data[LEAKSHIELD];
+    assert_eq!(data.stored.keys().copied().collect::<Vec<_>>(), [1, 2, 4]);
+    let ui = ProfilesUi::default();
+    let commands = ui.apply_to_all_slots(&harness.state);
+    let slots: Vec<u8> = commands
+        .iter()
+        .filter_map(|c| match c {
+            Command::SetStoredFields { slot, .. } => Some(*slot),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(slots, [2, 4]);
+    for command in &commands {
+        assert_eq!(
+            command
+                .feedback_key()
+                .as_deref()
+                .map(|k| k.starts_with("stored:")),
+            Some(true)
+        );
+        command
+            .run_on_daemon(&harness.client)
+            .await
+            .expect("stored");
+    }
+    assert_eq!(
+        daemon.calls(),
+        [
+            "SetStoredFields(2,fill_level_alarm_threshold,fill_level_warning_threshold,leak_rate_warning_threshold) interactive=true",
+            "SetStoredFields(4,fill_level_alarm_threshold,fill_level_warning_threshold,leak_rate_warning_threshold) interactive=true",
+        ]
+    );
+    // The command reads the Leakshield again: the stored slots now match.
+    let data = harness.client.leakshield_data(LEAKSHIELD).await;
+    assert_eq!(
+        data.stored[&2]["fill_level_warning_threshold"],
+        FieldValue::Number(29.0)
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn apply_to_all_slots_shows_failed_slot() {
+    let bus = PrivateBus::start("profiles-apply-failed");
+    let _daemon = FakeDaemon::start(bus.connect().await, Options::default()).await;
+    let mut harness = Harness::start(&bus).await;
+    harness
+        .until("the stored slots are known", |state| {
+            state
+                .snapshot
+                .leakshield_data
+                .get(LEAKSHIELD)
+                .is_some_and(|d| !d.stored.is_empty())
+                && state.snapshot.profile_contents.contains_key("profile_2")
+        })
+        .await;
+    // Profile "Quiet" has the slot 2. Slot 1 is the active slot: the daemon refuses it.
+    let ui = select(&harness.state, "profile_2");
+    let commands = ui.apply_to_all_slots(&harness.state);
+    let mut feedback = Feedback::default();
+    for command in &commands {
+        let key = command.feedback_key().expect("a key");
+        match command.run_on_daemon(&harness.client).await {
+            Ok(_) => feedback.set(
+                key,
+                nicecooling::screens::WriteOutcome::Applied { at_us: NOW_US },
+            ),
+            Err(error) => feedback.set(key, nicecooling::screens::WriteOutcome::from_error(&error)),
+        }
+    }
+    let shown = ProfilesModel::build(&input(&harness.state, &feedback, NOW_US), &ui);
+    let failed: Vec<&str> = shown
+        .detail
+        .as_ref()
+        .unwrap()
+        .notices
+        .iter()
+        .filter(|n| n.text.starts_with("Slot "))
+        .map(|n| n.text.as_str())
+        .collect();
+    assert_eq!(
+        failed,
+        ["Slot 1: not changed. Not applied: the daemon refused the change."]
+    );
+    // Italian.
+    let italian = ProfilesModel::build(
+        &ScreenInput {
+            locale: IT,
+            ..input(&harness.state, &feedback, NOW_US)
+        },
+        &ui,
+    );
+    assert!(
+        italian
+            .detail
+            .unwrap()
+            .notices
+            .iter()
+            .any(|n| n.text.starts_with("Slot 1: non modificato."))
+    );
+}
+
+#[test]
+fn active_profile_shows_rule_group() {
+    let mut state = base();
+    state.snapshot.cause = Cause::Rule;
+    state.snapshot.active_profile = Some(state.snapshot.profiles[1].clone());
+    state.snapshot.rule_groups = vec![
+        group("g1", "profile_3", vec![process_rule()]),
+        group("g2", "profile_2", vec![time_rule()]),
+    ];
+    state.snapshot.rule_groups[1].holds = true;
+    let text = model(&state, &ProfilesUi::default())
+        .detail
+        .unwrap()
+        .rule_group;
+    assert_eq!(
+        text.as_deref(),
+        Some("Group 2: time window 22:00 to 07:00.")
+    );
+    // Another Profile, a manual activation and the Default Profile show no group.
+    assert!(
+        model(&state, &select(&state, "profile_3"))
+            .detail
+            .unwrap()
+            .rule_group
+            .is_none()
+    );
+    let mut manual = state.clone();
+    manual.snapshot.cause = Cause::Manual;
+    assert!(
+        model(&manual, &ProfilesUi::default())
+            .detail
+            .unwrap()
+            .rule_group
+            .is_none()
     );
 }

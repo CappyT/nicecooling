@@ -722,6 +722,31 @@ fn alarms_labels() {
             "Poweroff cancelled by the user",
             "Spegnimento annullato dall'utente",
         ),
+        (
+            "alarms.history.poweroff_pending",
+            "Poweroff pending",
+            "Spegnimento in attesa",
+        ),
+        (
+            "alarms.history.poweroff_requested",
+            "PC powered off",
+            "PC spento",
+        ),
+        (
+            "alarms.history.poweroff_stopped",
+            "Poweroff stopped: the Alarm closed",
+            "Spegnimento fermato: l'allarme si \u{e8} chiuso",
+        ),
+        (
+            "alarms.history.poweroff_failed",
+            "Poweroff failed",
+            "Spegnimento non riuscito",
+        ),
+        (
+            "alarms.history.closed_by_restart",
+            "Closed by a daemon restart",
+            "Chiuso da un riavvio del daemon",
+        ),
         ("alarms.dialog.hide", "Hide", "Nascondi"),
         ("alarms.daemon_down.title", "Daemon down", "Demone fermo"),
         (
@@ -939,7 +964,7 @@ fn overlap_icon_from_proposals() {
 
     let mut data = support::fixtures::leakshield_data();
     data.proposals = vec![nicecooling::model::ResponseProposal {
-        alarm: "leakshield.leak-alarm".into(),
+        alarm: "leak-alarm".into(),
         current: "signal-long".into(),
         proposed: "none".into(),
         overlap: "double-poweroff".into(),

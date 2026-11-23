@@ -2,7 +2,7 @@
 //! daemon only through D-Bus. The connection is a parameter: the binary gives the system bus
 //! and a test gives a private bus.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::time::Duration;
 
 use futures_util::StreamExt;
@@ -374,6 +374,8 @@ impl DaemonClient {
                                 flow_lph,
                             })
                             .unwrap_or_default(),
+                        active_slot: get(&props, "ActiveSlot").unwrap_or_default(),
+                        failed_write_backup: get(&props, "FailedWriteBackup").unwrap_or_default(),
                         field_counts: None,
                     }),
                     Some("Profile") => snapshot.profiles.push(ProfileInfo {
@@ -404,6 +406,7 @@ impl DaemonClient {
         snapshot.profile_state = get(&profiles, "ActiveState").unwrap_or_default();
         snapshot.rule_delay_s = get(&profiles, "RuleDelaySeconds").unwrap_or_default();
         snapshot.dwell_s = get(&profiles, "DwellSeconds").unwrap_or_default();
+        snapshot.dwell_until_us = get(&profiles, "DwellUntil").unwrap_or_default();
         let group_state: Vec<(String, bool, u64)> =
             get(&profiles, "RuleGroupState").unwrap_or_default();
         if let Some(active) = alarms.get("Active") {
@@ -527,7 +530,48 @@ impl DaemonClient {
                 overlap,
             })
             .collect();
+        for slot in 1..=4u8 {
+            if let Ok(fields) = self.stored_fields(id, slot).await {
+                data.stored.insert(slot, fields);
+            }
+        }
         data
+    }
+
+    /// `GetStoredFields`: the fields of the stored report 3 of a slot.
+    pub async fn stored_fields(
+        &self,
+        leakshield: &str,
+        slot: u8,
+    ) -> zbus::Result<BTreeMap<String, FieldValue>> {
+        let proxy = self
+            .proxy(&Self::leakshield_path(leakshield), "Leakshield")
+            .await?;
+        let fields: Props = proxy.call("GetStoredFields", &(slot,)).await?;
+        Ok(fields
+            .iter()
+            .filter_map(|(id, value)| Some((id.clone(), field_value(value)?)))
+            .collect())
+    }
+
+    /// `SetStoredFields`: change fields of a stored slot. The device is not written.
+    pub async fn set_stored_fields(
+        &self,
+        leakshield: &str,
+        slot: u8,
+        fields: &[(String, FieldValue)],
+    ) -> zbus::Result<()> {
+        let fields: HashMap<String, Value<'static>> = fields
+            .iter()
+            .map(|(name, value)| (name.clone(), field_wire(value)))
+            .collect();
+        self.write(
+            &Self::leakshield_path(leakshield),
+            "Leakshield",
+            "SetStoredFields",
+            &(slot, fields),
+        )
+        .await
     }
 
     async fn daemon_version(&self) -> zbus::Result<String> {
@@ -969,16 +1013,7 @@ impl DaemonClient {
     ) -> zbus::Result<()> {
         let fields: HashMap<String, Value<'static>> = fields
             .iter()
-            .map(|(name, value)| {
-                let value = match value {
-                    FieldValue::Flag(on) => Value::Bool(*on),
-                    FieldValue::Number(number) => Value::F64(*number),
-                    FieldValue::Text(text) => Value::from(text.clone()),
-                    FieldValue::List(list) => Value::from(list.clone()),
-                    FieldValue::TextList(names) => Value::from(names.clone()),
-                };
-                (name.clone(), value)
-            })
+            .map(|(name, value)| (name.clone(), field_wire(value)))
             .collect();
         self.write(
             &Self::leakshield_path(leakshield),
@@ -1076,6 +1111,17 @@ impl DaemonClient {
             &(backup,),
         )
         .await
+    }
+}
+
+/// The wire value of a field for `SetFields` and `SetStoredFields`.
+fn field_wire(value: &FieldValue) -> Value<'static> {
+    match value {
+        FieldValue::Flag(on) => Value::Bool(*on),
+        FieldValue::Number(number) => Value::F64(*number),
+        FieldValue::Text(text) => Value::from(text.clone()),
+        FieldValue::List(list) => Value::from(list.clone()),
+        FieldValue::TextList(names) => Value::from(names.clone()),
     }
 }
 

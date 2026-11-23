@@ -223,14 +223,23 @@ pub fn init(cx: &mut App, mode: StartMode, backend: Backend) -> Entity<AppModel>
                                 Some(id) => Some((id.to_owned(), client.leakshield_data(id).await)),
                                 None => None,
                             };
-                            (result, device)
+                            let refresh = daemon_command.refresh(&client).await;
+                            (result, device, refresh)
                         });
                         let model = model.clone();
                         cx.spawn(async move |cx| {
-                            let (result, device) = match task.await {
-                                Ok((result, device)) => (Ok(result), device),
-                                Err(error) => (Err(error), None),
+                            let (result, device, refresh) = match task.await {
+                                Ok((result, device, refresh)) => (Ok(result), device, refresh),
+                                Err(error) => (Err(error), None, None),
                             };
+                            if let Some(event) = refresh {
+                                cx.update(|cx| {
+                                    model.update(cx, |app, cx| {
+                                        app.state.apply(&event);
+                                        cx.notify();
+                                    });
+                                });
+                            }
                             if let Some((id, data)) = device
                                 && !data.fields.is_empty()
                             {
@@ -275,7 +284,9 @@ pub fn init(cx: &mut App, mode: StartMode, backend: Backend) -> Entity<AppModel>
                         if app.connecting_expired() {
                             app.state.apply(&DaemonEvent::Link(Link::Offline));
                             cx.notify();
-                        } else if app.state.next_poweroff().is_some() {
+                        } else if app.state.next_poweroff().is_some()
+                            || app.state.snapshot.dwell_until_us != 0
+                        {
                             app.now_us = now_us();
                             cx.notify();
                         }

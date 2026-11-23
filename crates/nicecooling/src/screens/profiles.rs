@@ -7,7 +7,9 @@ use crate::model::{
     AppState, Control, FieldValue, Link, ProfileContent, ProfileInfo, Rule, RuleGroup,
 };
 use crate::screens::format::{clock_minutes, plain, value_text};
-use crate::screens::{FeedbackLine, ScreenInput};
+use crate::screens::leakshield::fields::humanize;
+use crate::screens::leakshield::refused_text;
+use crate::screens::{FeedbackLine, ScreenInput, WriteOutcome};
 
 pub const SLOTS: [u8; 4] = [1, 2, 3, 4];
 
@@ -190,6 +192,8 @@ pub struct ProfilesUi {
     pub delete_dialog: bool,
     /// The slot that waits for "Change slot".
     pub slot_dialog: Option<u8>,
+    /// The diff table before an activation is open for this Profile.
+    pub diff_dialog: Option<String>,
     /// The warning of Immediate switching is open. The flag is "Do not show this again".
     pub immediate_dialog: Option<bool>,
     pub editor: Option<GroupEditor>,
@@ -214,6 +218,7 @@ impl ProfilesUi {
         self.menu_open = false;
         self.delete_dialog = false;
         self.slot_dialog = None;
+        self.diff_dialog = None;
     }
 
     /// Open the rename popover of a Profile that "Duplicate" made, when the daemon lists it.
@@ -278,6 +283,51 @@ impl ProfilesUi {
         Some(Command::ActivateProfile {
             id: self.current(state)?.id.clone(),
         })
+    }
+
+    /// "Activate manually". A Profile whose slot differs from `ActiveSlot` shows the diff table
+    /// first, when the stored slot and the device differ.
+    pub fn request_activation(&mut self, state: &AppState) -> Option<Command> {
+        let profile = self.current(state)?;
+        if !slot_diff(state, profile.slot).is_empty() {
+            self.diff_dialog = Some(profile.id.clone());
+            return None;
+        }
+        self.activate(state)
+    }
+
+    /// "Activate" in the diff dialog.
+    pub fn confirm_activation(&mut self) -> Option<Command> {
+        let id = self.diff_dialog.take()?;
+        Some(Command::ActivateProfile { id })
+    }
+
+    /// "Apply to all slots": the alarm thresholds of this Profile go to every other slot that has
+    /// other thresholds. The daemon refuses the active slot and a slot that it cannot change.
+    pub fn apply_to_all_slots(&self, state: &AppState) -> Vec<Command> {
+        let Some(profile) = self.current(state) else {
+            return Vec::new();
+        };
+        let Some((device, fields)) = state
+            .snapshot
+            .profile_contents
+            .get(&profile.id)
+            .and_then(slot_fields)
+        else {
+            return Vec::new();
+        };
+        let values: Vec<(String, FieldValue)> = THRESHOLD_FIELDS
+            .iter()
+            .filter_map(|id| Some(((*id).to_owned(), fields.get(*id)?.clone())))
+            .collect();
+        if values.len() != THRESHOLD_FIELDS.len() {
+            return Vec::new();
+        }
+        store_commands(
+            device,
+            &differing_slots(state, device, profile.slot, &values),
+            &values,
+        )
     }
 
     /// The slot select. The change of the active Profile asks first.
@@ -513,6 +563,106 @@ impl ProfilesUi {
     }
 }
 
+/// The alarm thresholds that "Apply to all slots" copies.
+const THRESHOLD_FIELDS: [&str; 3] = [
+    "fill_level_warning_threshold",
+    "fill_level_alarm_threshold",
+    "leak_rate_warning_threshold",
+];
+
+fn store_commands(device: &str, slots: &[u8], values: &[(String, FieldValue)]) -> Vec<Command> {
+    slots
+        .iter()
+        .map(|slot| Command::SetStoredFields {
+            leakshield: device.to_owned(),
+            slot: *slot,
+            fields: values.to_vec(),
+        })
+        .collect()
+}
+
+/// One row of the diff table before an activation.
+#[derive(Clone, Debug, PartialEq)]
+pub struct DiffRow {
+    pub leakshield: String,
+    pub field: String,
+    /// What the device holds now.
+    pub device: FieldValue,
+    /// What the stored slot holds.
+    pub stored: FieldValue,
+}
+
+/// The fields that differ between the stored settings of `slot` and the device, for every
+/// connected Leakshield whose `ActiveSlot` is another slot.
+pub fn slot_diff(state: &AppState, slot: u8) -> Vec<DiffRow> {
+    let mut rows = Vec::new();
+    for device in &state.snapshot.leakshields {
+        if !device.connected || device.active_slot == 0 || device.active_slot == slot {
+            continue;
+        }
+        let Some(data) = state.snapshot.leakshield_data.get(&device.id) else {
+            continue;
+        };
+        let Some(stored) = data.stored.get(&slot) else {
+            continue;
+        };
+        for (field, stored) in stored {
+            if let Some(entry) = data.field(field)
+                && entry.value != *stored
+            {
+                rows.push(DiffRow {
+                    leakshield: device.id.clone(),
+                    field: field.clone(),
+                    device: entry.value.clone(),
+                    stored: stored.clone(),
+                });
+            }
+        }
+    }
+    rows
+}
+
+/// The other slots with stored settings whose values for `values` differ.
+fn differing_slots(
+    state: &AppState,
+    device: &str,
+    slot: u8,
+    values: &[(String, FieldValue)],
+) -> Vec<u8> {
+    let Some(data) = state.snapshot.leakshield_data.get(device) else {
+        return Vec::new();
+    };
+    data.stored
+        .iter()
+        .filter(|(other, _)| **other != slot)
+        .filter(|(_, stored)| {
+            values
+                .iter()
+                .any(|(id, value)| stored.get(id).is_some_and(|stored| stored != value))
+        })
+        .map(|(other, _)| *other)
+        .collect()
+}
+
+/// A field value as text, for the diff table.
+fn field_text(locale: Locale, value: &FieldValue) -> String {
+    match value {
+        FieldValue::Number(n) => plain(locale, *n),
+        FieldValue::Flag(on) => locale.tr(if *on {
+            "profiles.diff.on"
+        } else {
+            "profiles.diff.off"
+        }),
+        FieldValue::Text(text) => text.clone(),
+        FieldValue::List(list) => list
+            .iter()
+            .map(|n| plain(locale, *n))
+            .collect::<Vec<_>>()
+            .join(", "),
+        FieldValue::TextList(names) => names.join(", "),
+    }
+}
+
 // --- The model ---
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -556,6 +706,8 @@ pub enum NoticeKind {
 pub struct Notice {
     pub kind: NoticeKind,
     pub text: String,
+    /// A button in the row: its label and the commands that it sends.
+    pub button: Option<(String, Vec<Command>)>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -593,6 +745,19 @@ pub struct Dialog {
     pub confirm: String,
 }
 
+/// The diff table before an activation.
+#[derive(Clone, Debug, PartialEq)]
+pub struct DiffDialog {
+    pub title: String,
+    pub text: String,
+    /// "Field", "Leakshield now", "Slot 3".
+    pub columns: [String; 3],
+    /// The field, what the device holds, what the slot holds.
+    pub rows: Vec<[String; 3]>,
+    pub cancel: String,
+    pub confirm: String,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct ProfileDetail {
     pub id: String,
@@ -616,6 +781,9 @@ pub struct ProfileDetail {
     pub leakshield_rows: Vec<(String, String)>,
     pub notices: Vec<Notice>,
     pub restore: Option<RestoreOffer>,
+    /// "Group 2: time window 22:00 to 07:00." while a group holds the active Profile.
+    pub rule_group: Option<String>,
+    pub diff_dialog: Option<DiffDialog>,
     pub slot_dialog: Option<Dialog>,
     pub delete_dialog: Option<Dialog>,
     pub name_write_line: Option<FeedbackLine>,
@@ -763,10 +931,41 @@ fn row_caption(input: &ScreenInput<'_>, profile: &ProfileInfo) -> String {
         let numbers: Vec<String> = groups.iter().map(|n| n.to_string()).collect();
         parts.push(locale.fmt("profiles.caption.group", &[("n", &numbers.join(", "))]));
     }
+    if active && state.snapshot.dwell_until_us > input.now_us {
+        let seconds = (state.snapshot.dwell_until_us - input.now_us).div_ceil(1_000_000);
+        parts.push(locale.fmt(
+            "profiles.caption.dwell",
+            &[("time", &duration_text(locale, seconds as u32))],
+        ));
+    }
     if profile.contains_release {
         parts.push(locale.tr("profiles.caption.release"));
     }
     parts.join(". ")
+}
+
+/// "Group 2: time window 22:00 to 07:00." for the group that holds the active Profile.
+pub fn active_group_text(locale: Locale, state: &AppState) -> Option<String> {
+    if state.snapshot.cause != crate::model::Cause::Rule {
+        return None;
+    }
+    let number = active_group(state)?;
+    let group = state.snapshot.rule_groups.get(number - 1)?;
+    let rules: Vec<String> = group
+        .rules
+        .iter()
+        .map(|rule| {
+            let text = rule_sentence(locale, state, rule);
+            let mut chars = text.chars();
+            chars.next().map_or_else(String::new, |first| {
+                first.to_lowercase().chain(chars).collect()
+            })
+        })
+        .collect();
+    Some(locale.fmt(
+        "profiles.group.active",
+        &[("n", &number.to_string()), ("rules", &rules.join("; "))],
+    ))
 }
 
 /// The number of the group that activated the active Profile: the first one that holds.
@@ -861,8 +1060,8 @@ fn field_number(fields: &std::collections::BTreeMap<String, FieldValue>, id: &st
 /// The fields of the slot of the first Leakshield in a Profile content.
 fn slot_fields(
     content: &ProfileContent,
-) -> Option<&std::collections::BTreeMap<String, FieldValue>> {
-    content.leakshield.values().next()
+) -> Option<(&String, &std::collections::BTreeMap<String, FieldValue>)> {
+    content.leakshield.iter().next()
 }
 
 /// The values of the alarm thresholds, as text and as numbers for the comparison.
@@ -972,7 +1171,7 @@ fn detail_of(input: &ScreenInput<'_>, ui: &ProfilesUi, profile: &ProfileInfo) ->
     };
 
     let content = snapshot.profile_contents.get(&profile.id);
-    let fields = content.and_then(slot_fields);
+    let fields = content.and_then(slot_fields).map(|(_, fields)| fields);
     let leakshield_rows = fields.map_or_else(Vec::new, |f| leakshield_rows(locale, f));
 
     let mut notices = Vec::new();
@@ -980,6 +1179,7 @@ fn detail_of(input: &ScreenInput<'_>, ui: &ProfilesUi, profile: &ProfileInfo) ->
         notices.push(Notice {
             kind: NoticeKind::Warning,
             text: locale.tr("profiles.notice.release"),
+            button: None,
         });
     }
     if !sharing.is_empty() {
@@ -992,32 +1192,47 @@ fn detail_of(input: &ScreenInput<'_>, ui: &ProfilesUi, profile: &ProfileInfo) ->
                     ("names", &shared_names),
                 ],
             ),
+            button: None,
         });
     }
-    // Alarm thresholds of this slot against the slots of the other Profiles.
-    if let Some((_, mine)) = fields.and_then(|f| thresholds(locale, f)) {
-        let mut other_slots: Vec<(u8, [f64; 3])> = Vec::new();
-        for other in snapshot.profiles.iter().filter(|p| p.slot != profile.slot) {
-            let theirs = snapshot
-                .profile_contents
-                .get(&other.id)
-                .and_then(slot_fields)
-                .and_then(|f| thresholds(locale, f));
-            if let Some((_, values)) = theirs
-                && values != mine
-                && !other_slots.iter().any(|(slot, _)| *slot == other.slot)
-            {
-                other_slots.push((other.slot, values));
-            }
-        }
-        if !other_slots.is_empty() {
+    // Alarm thresholds of this slot against the stored settings of the other slots.
+    if let Some((device, fields)) = content.and_then(slot_fields)
+        && thresholds(locale, fields).is_some()
+    {
+        let values: Vec<(String, FieldValue)> = THRESHOLD_FIELDS
+            .iter()
+            .filter_map(|id| Some(((*id).to_owned(), fields.get(*id)?.clone())))
+            .collect();
+        let others = differing_slots(state, device, profile.slot, &values);
+        if !others.is_empty() {
+            let commands = store_commands(device, &others, &values);
             notices.push(Notice {
                 kind: NoticeKind::Warning,
                 text: locale.fmt(
                     "profiles.notice.thresholds_differ",
-                    &[("count", &other_slots.len().to_string())],
+                    &[("count", &others.len().to_string())],
                 ),
+                button: Some((locale.tr("profiles.notice.apply_all"), commands)),
             });
+        }
+        // One row for each slot that the last "Apply to all slots" could not change.
+        for slot in SLOTS {
+            if let Some(outcome) = input.feedback.get(&format!("stored:{device}:{slot}"))
+                && outcome.is_failure()
+            {
+                let reason = match outcome {
+                    WriteOutcome::Refused { error } => refused_text(locale, error),
+                    _ => locale.tr("feedback.not_authorized"),
+                };
+                notices.push(Notice {
+                    kind: NoticeKind::Warning,
+                    text: locale.fmt(
+                        "profiles.notice.slot_failed",
+                        &[("slot", &slot.to_string()), ("reason", &reason)],
+                    ),
+                    button: None,
+                });
+            }
         }
     }
     if let Some(fields) = &state.external_change
@@ -1031,21 +1246,49 @@ fn detail_of(input: &ScreenInput<'_>, ui: &ProfilesUi, profile: &ProfileInfo) ->
         notices.push(Notice {
             kind: NoticeKind::Info,
             text: locale.fmt("profiles.notice.external_change", &[("field", &name)]),
+            button: None,
         });
     }
 
-    let restore = (active && snapshot.profile_state == "leakshield-failed").then(|| {
-        let failure = state.write_failure.as_ref();
-        let key = failure.map(|f| format!("restore:{}", f.leakshield));
-        RestoreOffer {
-            text: locale.tr("profiles.restore.text"),
-            button: locale.tr("profiles.restore.button"),
-            locked: true,
-            command: failure.map(|f| Command::RestoreBackup {
-                leakshield: f.leakshield.clone(),
-                backup: f.backup.clone(),
-            }),
-            write_line: key.and_then(|key| write_line(input, key)),
+    // The daemon keeps the backup of a failed write: an app that starts later still finds it.
+    let failed = snapshot
+        .leakshields
+        .iter()
+        .find(|device| !device.failed_write_backup.is_empty());
+    let restore = failed.filter(|_| active).map(|device| RestoreOffer {
+        text: locale.tr("profiles.restore.text"),
+        button: locale.tr("profiles.restore.button"),
+        locked: true,
+        command: Some(Command::RestoreBackup {
+            leakshield: device.id.clone(),
+            backup: device.failed_write_backup.clone(),
+        }),
+        write_line: write_line(input, format!("restore:{}", device.id)),
+    });
+
+    let diff_dialog = (ui.diff_dialog.as_deref() == Some(profile.id.as_str())).then(|| {
+        let rows = slot_diff(state, profile.slot)
+            .into_iter()
+            .map(|row| {
+                [
+                    humanize(&row.field),
+                    field_text(locale, &row.device),
+                    field_text(locale, &row.stored),
+                ]
+            })
+            .collect();
+        let slot = profile.slot.to_string();
+        DiffDialog {
+            title: locale.fmt("profiles.diff.title", &[("name", &profile.name)]),
+            text: locale.fmt("profiles.diff.text", &[("slot", &slot)]),
+            columns: [
+                locale.tr("profiles.diff.field"),
+                locale.tr("profiles.diff.device"),
+                locale.fmt("profiles.slot.value", &[("slot", &slot)]),
+            ],
+            rows,
+            cancel: locale.tr("profiles.cancel"),
+            confirm: locale.tr("profiles.diff.confirm"),
         }
     });
 
@@ -1124,6 +1367,8 @@ fn detail_of(input: &ScreenInput<'_>, ui: &ProfilesUi, profile: &ProfileInfo) ->
         leakshield_rows,
         notices,
         restore,
+        rule_group: active.then(|| active_group_text(locale, state)).flatten(),
+        diff_dialog,
         slot_dialog,
         delete_dialog,
         name_write_line: write_line(input, format!("profile-name:{}", profile.id)),

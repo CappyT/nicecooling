@@ -394,7 +394,10 @@ fn response_row(input: &ScreenInput<'_>, rule: &ResponseRule, enabled: bool) -> 
         .iter()
         .filter(|(id, _)| rule.source.is_empty() || **id == rule.source)
         .flat_map(|(_, data)| &data.proposals)
-        .any(|proposal| proposal.alarm == rule.event && !proposal.overlap.is_empty())
+        .any(|proposal| {
+            rule.event.strip_prefix("leakshield.") == Some(proposal.alarm.as_str())
+                && !proposal.overlap.is_empty()
+        })
         .then(|| locale.tr("alarms.overlap"));
     ResponseRow {
         event: rule.event.clone(),

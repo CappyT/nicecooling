@@ -336,6 +336,8 @@ struct Profiles {
     immediate: bool,
     rule_delay: u32,
     dwell: u32,
+    /// The end of the running Profile dwell in microseconds, 0 when none runs.
+    dwell_until: u64,
     shared: Arc<Shared>,
 }
 
@@ -391,7 +393,7 @@ impl Profiles {
 
     #[zbus(property)]
     fn dwell_until(&self) -> u64 {
-        0
+        self.dwell_until
     }
 
     #[zbus(property)]
@@ -1450,6 +1452,7 @@ impl FakeDaemon {
                     immediate: false,
                     rule_delay: 30,
                     dwell: 300,
+                    dwell_until: 0,
                     shared: shared.clone(),
                 },
             )
@@ -1804,6 +1807,73 @@ impl FakeDaemon {
         Manager::sensors_updated(iface.signal_emitter(), time_us, sensors, channels)
             .await
             .expect("signal");
+    }
+
+    /// The end of the Profile dwell changes: the property changes and the signal goes out.
+    pub async fn set_dwell_until(&self, until_us: u64) {
+        let iface = self
+            .conn
+            .object_server()
+            .interface::<_, Profiles>(ROOT)
+            .await
+            .expect("profiles");
+        iface.get_mut().await.dwell_until = until_us;
+        iface
+            .get()
+            .await
+            .dwell_until_changed(iface.signal_emitter())
+            .await
+            .expect("changed");
+    }
+
+    async fn leakshield_iface(&self) -> zbus::object_server::InterfaceRef<Leakshield> {
+        self.conn
+            .object_server()
+            .interface::<_, Leakshield>(path(&format!("leakshield/{LEAKSHIELD}")))
+            .await
+            .expect("leakshield")
+    }
+
+    /// The slot of report 1 changes.
+    pub async fn set_active_slot(&self, slot: u8) {
+        let iface = self.leakshield_iface().await;
+        iface.get().await.live.lock().expect("live").active_slot = slot;
+        iface
+            .get()
+            .await
+            .active_slot_changed(iface.signal_emitter())
+            .await
+            .expect("changed");
+    }
+
+    /// The backup id of a failed Profile write: an empty id is a good write.
+    pub async fn set_failed_write_backup(&self, backup: &str) {
+        let iface = self.leakshield_iface().await;
+        iface
+            .get()
+            .await
+            .live
+            .lock()
+            .expect("live")
+            .failed_write_backup = backup.to_owned();
+        iface
+            .get()
+            .await
+            .failed_write_backup_changed(iface.signal_emitter())
+            .await
+            .expect("changed");
+    }
+
+    /// A good Feed send: the time, the pump speed and the flow.
+    pub async fn set_last_feed(&self, time_us: u64, pump: f64, flow: f64) {
+        let iface = self.leakshield_iface().await;
+        iface.get().await.live.lock().expect("live").last_feed = (time_us, pump, flow);
+        iface
+            .get()
+            .await
+            .last_feed_changed(iface.signal_emitter())
+            .await
+            .expect("changed");
     }
 
     /// A Leakshield write that failed after a Profile activation.

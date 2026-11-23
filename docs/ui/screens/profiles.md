@@ -49,11 +49,12 @@ The editor has no hotkey condition. Wayland has no standard global shortcut.
 | Immediate switching on | Banner 4 of the shell. "Rule delay" and "Profile dwell" are disabled, caption "Not used with Immediate switching" |
 | Profile with RELEASE | Warning row: "This Profile sets Mode RELEASE: the Loop has no leak protection while it is active." Saving it needs no administrator password |
 | Shared slot | Information row: "Slot 2 is shared with Profile 3. A Leakshield change here changes both." |
-| Differs from other slots | Warning row: "Alarm thresholds differ from 2 other slots" with the values, and "Apply to all slots" |
+| Differs from other slots | Warning row: "Alarm thresholds differ from 2 other slots" and the button "Apply to all slots". The app compares the thresholds of this slot with `GetStoredFields` of every other slot that has stored settings. The button calls `SetStoredFields` for each slot that differs. A slot that the daemon does not change (the active slot, for example) gets one row: "Slot 3: not changed. Not applied: the daemon refused the change." |
 | Slot change | A dialog before the change of the slot of the active Profile: "Slot 3 has other Leakshield settings. They are written to the Leakshield now." Buttons: "Cancel", "Change slot". The change of the slot of another Profile needs no dialog |
 | External change | Information row: "Display brightness changed outside nicecooling. Activating a Profile with another slot overwrites it." |
-| Activating | Write status. With Leakshield differences, a dialog first shows the diff table and "Activate" |
-| Activation failed | The diff table row has the failure. "Restore the backup" with the padlock. The Curves stay active |
+| Activating | Write status. When the slot of the Profile differs from `ActiveSlot` and the stored slot differs from the device, a dialog first shows the diff table (the columns "Field", "Leakshield now" and "Slot 2") and the buttons "Cancel" and "Activate". The table compares `GetStoredFields` of the slot with `GetFields` |
+| Activation failed | The diff table row has the failure. "Restore the backup" with the padlock: the button shows while a Leakshield holds a `FailedWriteBackup`, also after an app restart. The Curves stay active |
+| Rule group of the active Profile | A row under the header: "Group 2: time window 22:00 to 07:00." It shows while a group activated the Profile |
 | Alarm | Not used. The poweroff banner shows above |
 | Locked | Only "Restore the backup" after a failed write has the padlock |
 
@@ -72,5 +73,8 @@ The editor has no hotkey condition. Wayland has no standard global shortcut.
 |---|---|
 | Groups caption | "A group holds when all its rules hold. The first group that holds wins. Drag to change the order." |
 | Options | "Rule delay", "Profile dwell", "Immediate switching", "No Rule delay, no Profile dwell" |
+| Diff dialog | "Activate the Profile 'Quiet'?", "Slot 2 has other settings than the Leakshield. These fields change on the Leakshield.", "Field", "Leakshield now", "Activate" |
+| Slots | "Apply to all slots", "Slot 3: not changed. %{reason}" |
+| Profile dwell | "Stays for 3 min more (Profile dwell)" |
 | Options help | "Rule delay: a group must hold for this time before it activates a Profile." / "Profile dwell: a Profile that a group activated stays active for at least this time." |
 | Editor | "Condition", "Sensor", "Is", "Value", "Up to", "For", "Match", "Every", "Start after", "Lasts", "Activate Profile", "Enabled", "Add rule", "Remove", "Delete group", "Save group", "Slot" |

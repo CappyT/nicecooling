@@ -476,6 +476,7 @@ profiles:
     no_group: No group
     slot: "Slot %{slot}"
     release: Mode RELEASE
+    dwell: "Stays for %{time} more (Profile dwell)"
   options:
     title: Options
     rule_delay: Rule delay
@@ -510,8 +511,18 @@ profiles:
     release: "This Profile sets Mode RELEASE: the Loop has no leak protection while it is active."
     shared_slot: "Slot %{slot} is shared with %{names}. A Leakshield change here changes both."
     thresholds_differ: "Alarm thresholds differ from %{count} other slots"
+    apply_all: Apply to all slots
+    slot_failed: "Slot %{slot}: not changed. %{reason}"
     display_brightness: Display brightness
     external_change: "%{field} changed outside nicecooling. Activating a Profile with another slot overwrites it."
+  diff:
+    title: "Activate the Profile '%{name}'?"
+    text: "Slot %{slot} has other settings than the Leakshield. These fields change on the Leakshield."
+    field: Field
+    device: Leakshield now
+    confirm: Activate
+    "on": "on"
+    "off": "off"
   restore:
     text: "The Curves are active. The Leakshield write failed."
     button: Restore the backup
@@ -541,6 +552,7 @@ profiles:
     short_interval: The window is shorter than the Rule delay. The group never activates its Profile.
     holds_since: "Holds since %{time}"
     holds_activates: "Holds, activates in %{seconds} s"
+    active: "Group %{n}: %{rules}."
   editor:
     activate: Activate Profile
     enabled: Enabled

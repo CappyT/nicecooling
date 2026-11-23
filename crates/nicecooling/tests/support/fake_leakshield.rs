@@ -64,7 +64,17 @@ pub struct DeviceOptions {
     pub feed_waiting: bool,
 }
 
+/// What a test changes on the properties of the fake Leakshield while it runs.
+pub struct Live {
+    pub active_slot: u8,
+    pub failed_write_backup: String,
+    pub last_feed: (u64, f64, f64),
+    /// The stored settings of each slot. A slot that is not here has no stored report 3.
+    pub stored: std::collections::BTreeMap<u8, HashMap<String, Fv>>,
+}
+
 pub struct Leakshield {
+    pub live: Mutex<Live>,
     firmware: u16,
     read_only_reason: String,
     options: DeviceOptions,
@@ -233,7 +243,29 @@ impl Leakshield {
                 field.reason = "unknown-firmware";
             }
         }
+        let thresholds = |warning: f64| -> HashMap<String, Fv> {
+            HashMap::from([
+                ("fill_level_warning_threshold".to_owned(), Fv::Num(warning)),
+                ("fill_level_alarm_threshold".to_owned(), Fv::Num(20.0)),
+                ("leak_rate_warning_threshold".to_owned(), Fv::Num(150.0)),
+            ])
+        };
+        let last_feed = if options.feed_waiting {
+            (0, 0.0, 0.0)
+        } else {
+            (1_700_000_000_000_000, 2840.0, 115.2)
+        };
         Self {
+            live: Mutex::new(Live {
+                active_slot: 1,
+                failed_write_backup: String::new(),
+                last_feed,
+                // Slot 3 has no stored report. Slot 2 has other thresholds than the device.
+                stored: [(1, 60.0), (2, 50.0), (4, 60.0)]
+                    .into_iter()
+                    .map(|(slot, warning)| (slot, thresholds(warning)))
+                    .collect(),
+            }),
             firmware,
             read_only_reason: read_only_reason.to_owned(),
             options,
@@ -478,21 +510,17 @@ impl Leakshield {
 
     #[zbus(property)]
     fn last_feed(&self) -> (u64, f64, f64) {
-        if self.options.feed_waiting {
-            (0, 0.0, 0.0)
-        } else {
-            (1_700_000_000_000_000, 2840.0, 115.2)
-        }
+        self.live.lock().expect("live").last_feed
     }
 
     #[zbus(property)]
     fn active_slot(&self) -> u8 {
-        1
+        self.live.lock().expect("live").active_slot
     }
 
     #[zbus(property)]
     fn failed_write_backup(&self) -> String {
-        String::new()
+        self.live.lock().expect("live").failed_write_backup.clone()
     }
 
     /// (field id, risk class, value, writable, reason)
@@ -568,21 +596,22 @@ impl Leakshield {
         Ok(())
     }
 
-    /// The stored settings of a slot: the fake keeps one set for all slots.
+    /// The stored settings of a slot. A slot without a stored report 3 is `NotFound`.
     async fn get_stored_fields(&self, slot: u8) -> fdo::Result<HashMap<String, OwnedValue>> {
+        let error =
+            |name: &str| fdo::Error::Failed(format!("io.github.cappyt.NiceCooling1.Error.{name}"));
         if !(1..=4).contains(&slot) {
-            return Err(fdo::Error::Failed(
-                "io.github.cappyt.NiceCooling1.Error.InvalidArgument".into(),
-            ));
+            return Err(error("InvalidArgument"));
         }
-        let device = self.device.lock().expect("device");
-        Ok(device
-            .fields
+        let live = self.live.lock().expect("live");
+        let stored = live.stored.get(&slot).ok_or_else(|| error("NotFound"))?;
+        Ok(stored
             .iter()
-            .map(|field| (field.id.to_owned(), to_value(&field.value)))
+            .map(|(id, value)| (id.clone(), to_value(value)))
             .collect())
     }
 
+    /// The active slot and a slot without a stored report are refused, as the daemon does.
     async fn set_stored_fields(
         &self,
         #[zbus(header)] header: zbus::message::Header<'_>,
@@ -595,7 +624,23 @@ impl Leakshield {
         self.shared.record(
             &format!("SetStoredFields({slot},{})", list.join(",")),
             &header,
-        )
+        )?;
+        let error =
+            |name: &str| fdo::Error::Failed(format!("io.github.cappyt.NiceCooling1.Error.{name}"));
+        let mut live = self.live.lock().expect("live");
+        if slot == live.active_slot {
+            return Err(error("InvalidArgument"));
+        }
+        let stored = live
+            .stored
+            .get_mut(&slot)
+            .ok_or_else(|| error("NotFound"))?;
+        for (id, value) in &fields {
+            if let Some(value) = from_value(value) {
+                stored.insert(id.clone(), value);
+            }
+        }
+        Ok(())
     }
 
     async fn set_mode(

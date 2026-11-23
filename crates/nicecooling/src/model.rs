@@ -308,6 +308,10 @@ pub struct LeakshieldInfo {
     pub feed_state: FeedState,
     /// The last good Feed send.
     pub last_feed: LastFeed,
+    /// The slot of report 1, 0 when the daemon does not know it.
+    pub active_slot: u8,
+    /// The backup id of the last Profile write that failed. Empty when none.
+    pub failed_write_backup: String,
     /// `(fields, read-only fields)` from `GetFields`, when the daemon answered.
     pub field_counts: Option<(u32, u32)>,
 }
@@ -426,6 +430,8 @@ pub struct LeakshieldData {
     /// Device time minus PC time, in seconds.
     pub clock_offset_s: i64,
     pub software_sensor_slots: u16,
+    /// `GetStoredFields` of each slot that has stored settings.
+    pub stored: BTreeMap<u8, BTreeMap<String, FieldValue>>,
 }
 
 impl LeakshieldData {
@@ -643,6 +649,8 @@ pub struct Snapshot {
     pub profile_state: String,
     pub rule_delay_s: u32,
     pub dwell_s: u32,
+    /// The end of the running Profile dwell, 0 when none runs.
+    pub dwell_until_us: u64,
     pub rule_groups: Vec<RuleGroup>,
     /// Every row of `GetResponses`.
     pub responses: Vec<ResponseRule>,
@@ -722,6 +730,8 @@ pub enum DaemonEvent {
     Sensors(SensorSample),
     /// `GetHistory` was read again.
     History(Vec<AlarmRecord>),
+    /// `GetResponses` was read again: the daemon sends no signal for a response.
+    Responses(Vec<ResponseRule>),
     AlarmRaised(AlarmEntry),
     AlarmCleared {
         instance: String,
@@ -778,6 +788,7 @@ impl AppState {
                 self.snapshot = (**snapshot).clone();
             }
             DaemonEvent::History(rows) => self.snapshot.alarm_history = rows.clone(),
+            DaemonEvent::Responses(rows) => self.snapshot.responses = rows.clone(),
             DaemonEvent::Sensors(sample) => {
                 self.sensors = Some(sample.clone());
                 self.last_sensors = Some(sample.clone());

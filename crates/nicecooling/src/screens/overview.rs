@@ -408,7 +408,10 @@ fn profile_card(input: &ScreenInput<'_>) -> ProfileCard {
         .as_ref()
         .map_or_else(String::new, |profile| profile.name.clone());
     let (tag, detail) = match snapshot.cause {
-        Cause::Rule => (Some(locale.tr("overview.profile.by_group")), None),
+        Cause::Rule => (
+            Some(locale.tr("overview.profile.by_group")),
+            crate::screens::profiles::active_group_text(locale, input.state),
+        ),
         Cause::Manual => (
             Some(locale.tr("overview.profile.manual")),
             Some(locale.tr("overview.profile.manual_detail")),

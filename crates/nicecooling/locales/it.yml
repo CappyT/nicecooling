@@ -476,6 +476,7 @@ profiles:
     no_group: Nessun gruppo
     slot: "Slot %{slot}"
     release: Modalità RELEASE
+    dwell: "Resta per altri %{time} (permanenza profilo)"
   options:
     title: Opzioni
     rule_delay: Ritardo regola
@@ -510,8 +511,18 @@ profiles:
     release: "Questo Profilo imposta la Modalità RELEASE: il Loop non ha protezione dalle perdite mentre è attivo."
     shared_slot: "Lo slot %{slot} è condiviso con %{names}. Una modifica al Leakshield qui cambia entrambi."
     thresholds_differ: "Le soglie di allarme sono diverse da %{count} altri slot"
+    apply_all: Applica a tutti gli slot
+    slot_failed: "Slot %{slot}: non modificato. %{reason}"
     display_brightness: La luminosità del display
     external_change: "%{field} è cambiato fuori da nicecooling. Attivare un Profilo con un altro slot lo sovrascrive."
+  diff:
+    title: "Attivare il Profilo '%{name}'?"
+    text: "Lo slot %{slot} ha impostazioni diverse dal Leakshield. Questi campi cambiano sul Leakshield."
+    field: Campo
+    device: Leakshield ora
+    confirm: Attiva
+    "on": "sì"
+    "off": "no"
   restore:
     text: "Le Curve sono attive. La scrittura sul Leakshield è fallita."
     button: Ripristina il backup
@@ -541,6 +552,7 @@ profiles:
     short_interval: La finestra è più corta del Ritardo regola. Il gruppo non attiva mai il suo Profilo.
     holds_since: "Valido dalle %{time}"
     holds_activates: "Valido, si attiva tra %{seconds} s"
+    active: "Gruppo %{n}: %{rules}."
   editor:
     activate: Attiva il Profilo
     enabled: Attivo
