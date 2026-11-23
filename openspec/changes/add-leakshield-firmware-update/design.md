@@ -59,13 +59,16 @@ Rejected: SQLite in the protocol crate. Every tool of the workspace links that c
 
 The user picks the database file in the app. The app opens it as the user and passes the file descriptor (D-Bus type `h`) (owner decision). The daemon reads the file through the descriptor:
 
-1. `fstat` the descriptor. Refuse it with `InvalidArgument` when it is not a regular file or when it is above 16 MiB.
-2. Read the file into memory on a blocking thread, at most 16 MiB. A read that takes more than 10 s fails with `InvalidArgument`. A descriptor on a FUSE mount can block the read.
-3. Open it with SQLite from memory, read-only: `Connection::deserialize_read_exact` of `rusqlite` with the feature `serialize`. Set `SQLITE_DBCONFIG_TRUSTED_SCHEMA` off and `SQLITE_DBCONFIG_DEFENSIVE` on.
-4. Refuse the file when `firmware` is not a table in `sqlite_schema`.
+1. `fstat` the descriptor. Refuse it with `InvalidArgument` when it is not a regular file or when it is above 16 MiB. This step runs on the blocking thread, after the parse slot is taken and inside the time limit of step 2.
+2. Read the file into memory on a blocking thread, at most 16 MiB. A call that takes more than 10 s fails with `InvalidArgument`. A descriptor on a FUSE mount can block the read.
+3. Open it with SQLite from memory, read-only: `Connection::deserialize_read_exact` of `rusqlite` with the features `serialize`, `hooks` and `limits`. Set `SQLITE_DBCONFIG_TRUSTED_SCHEMA` off and `SQLITE_DBCONFIG_DEFENSIVE` on. Set `SQLITE_LIMIT_LENGTH` to 8 MiB, so that no expression of the file builds a larger value. Install a progress handler that interrupts the running statement when the 10 s deadline of the call has passed. The thread then ends and frees the slot, also when SQLite and not the read is slow.
+4. Refuse the file when `firmware` is not a plain table. The `sql` column of `sqlite_schema` must start with `CREATE TABLE`: SQLite builds the schema from that column, so a view and a virtual table are refused whatever their `type` is. Refuse a table that has a generated or hidden column (`PRAGMA table_xinfo`), because SQLite runs the expression of a generated column for each row.
 
 - The daemon parses one database at a time. A second call while a parse runs returns `Busy`. A read that blocks holds that slot until its thread ends.
-- The list query reads `id`, `version`, `bootloader`, `hardware` and `device` of the rows whose `device` is `leakshield_EN` or `leakshield_DE`. It reads `data` only for the chosen row, only when `length(data)` is at most 4 MiB, as bytes of a BLOB or a TEXT value.
+- The list query reads `id`, `version`, `bootloader`, `hardware` and `device` of the rows whose `device` is `leakshield_EN` or `leakshield_DE`. It compares with `COLLATE BINARY`, so the collation of the column in the file has no effect, and only these two exact strings name a Leakshield row.
+- The read of an image takes the identity, the size and the data of the chosen row with one filter: `id` and the device match. Two matching rows refuse the call with `InvalidArgument`, no row gives `NotFound`. The column `id` of a file is not unique by itself.
+- It reads `data` only for the chosen row, only when `octet_length(data)` is at most 4 MiB, as bytes of a BLOB or a TEXT value. The bytes that come back, as UTF-8, must also be at most 4 MiB: a UTF-16 database gives up to 1.5 times more.
+- A Leakshield row with a number out of the range of a 16-bit value, a NULL number, or `data` that is neither BLOB nor TEXT refuses the whole file with `InvalidArgument`. A genuine aquasuite package has no such row.
 - The daemon never opens a path. Thus the file and its directory stay unchanged.
 - The image stays in memory during the update. The daemon writes no copy (`spec.md`, Image source). A resume after a daemon restart needs the file again.
 - Both methods are class `write` or higher (D10). Thus only a local, active wheel member makes the daemon read a file.
@@ -118,6 +121,8 @@ Then the first failing check gives the status:
 | 3 | image version differs from the firmware, or image language differs from the display language | `same-version` |
 | 4 | image version is not below the firmware | `downgrade`, the option `downgrade` lifts it |
 | 5 | all checks pass | `ok` |
+
+In normal operation a report 1 with hardware or bootloader 0 has no such field, so its status is `target-unknown`.
 
 Thus the German 1022 image on a device with firmware 1022 in English passes check 3 and check 4, and its status is `ok`. Check 3 compares only the version when the language is absent.
 
