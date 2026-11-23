@@ -113,7 +113,7 @@ impl Manager {
         emitter: &SignalEmitter<'_>,
         time_us: u64,
         sensors: Vec<(String, f64, u8)>,
-        channels: Vec<(String, f64, u8)>,
+        channels: Vec<(String, f64, f64, f64, u8)>,
     ) -> zbus::Result<()>;
 }
 

@@ -131,8 +131,8 @@ pub fn spawn_history(mut events: broadcast::Receiver<DaemonEvent>, path: PathBuf
                             .map_or("", |s| s.unit.as_str());
                         writer.record(t, id, unit, (flags & FLAG_NO_VALUE == 0).then_some(*value));
                     }
-                    for (id, value, flags) in &sample.channels {
-                        writer.record(t, id, "%", (flags & FLAG_NO_VALUE == 0).then_some(*value));
+                    for (id, duty, _, _, flags) in &sample.channels {
+                        writer.record(t, id, "%", (flags & FLAG_NO_VALUE == 0).then_some(*duty));
                     }
                 }
             }

@@ -161,7 +161,7 @@ async fn sensor_and_external_change_signals_decode() {
                 ("nct6798_temp1".into(), 31.4, 0),
                 ("loop_1_flow".into(), 0.0, 1),
             ],
-            vec![("nct6798_pwm6".into(), 62.0, 0)],
+            vec![("nct6798_pwm6".into(), 62.0, 45.5, 70.0, 4)],
         )
         .await;
     harness
@@ -175,7 +175,11 @@ async fn sensor_and_external_change_signals_decode() {
         None,
         "flag bit 0: no value"
     );
-    assert_eq!(sample.channels, [("nct6798_pwm6".to_owned(), 62.0, 0)]);
+    assert_eq!(
+        sample.channels,
+        [("nct6798_pwm6".to_owned(), 62.0, 45.5, 70.0, 4)]
+    );
+    assert_eq!(sample.channel_readout("nct6798_pwm6"), Some((45.5, 70.0)));
 
     daemon
         .emit_external_change(vec!["display_brightness".into()])

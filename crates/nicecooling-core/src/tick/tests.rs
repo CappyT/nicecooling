@@ -268,6 +268,69 @@ fn smoothing_5s() {
 }
 
 #[test]
+fn readout_is_window_mean_and_target() {
+    let mut h = Harness::new(one_channel(curve("t", 5.0, 100.0)), Duration::ZERO);
+    for _ in 0..4 {
+        h.set("t", 40.0);
+        h.tick();
+    }
+    h.set("t", 70.0);
+    h.tick();
+    let tick = &h.ctx.channels["ch"];
+    assert_eq!(tick.input, Some(46.0));
+    assert_eq!(tick.target, Some(46.0));
+}
+
+#[test]
+fn readout_flag_only_when_sample_added() {
+    let config = TickConfig {
+        channels: vec![
+            setup("curve", curve("t", 5.0, 100.0)),
+            setup("fixed", Control::Fixed(30.0)),
+            setup("hardware", Control::Hardware),
+        ],
+        ..TickConfig::default()
+    };
+    let mut h = Harness::new(config, Duration::ZERO);
+    h.set("t", 40.0);
+    h.tick();
+    assert_eq!(h.ctx.channels["curve"].input, Some(40.0));
+    assert_eq!(h.ctx.channels["fixed"].input, None);
+    assert_eq!(h.ctx.channels["hardware"].input, None);
+    h.remove("t");
+    h.tick();
+    assert_eq!(h.ctx.channels["curve"].input, None);
+    assert_eq!(h.ctx.channels["curve"].target, None);
+}
+
+#[test]
+fn window_cleared_on_lost_input() {
+    let mut h = Harness::new(one_channel(curve("t", 10.0, 100.0)), Duration::ZERO);
+    for _ in 0..4 {
+        h.set("t", 80.0);
+        h.tick();
+    }
+    h.remove("t");
+    h.tick();
+    h.set("t", 20.0);
+    h.tick();
+    assert_eq!(h.ctx.channels["ch"].input, Some(20.0));
+}
+
+#[test]
+fn window_cleared_on_input_change() {
+    let mut h = Harness::new(one_channel(curve("a", 10.0, 100.0)), Duration::ZERO);
+    for _ in 0..4 {
+        h.set("a", 80.0);
+        h.set("b", 20.0);
+        h.tick();
+    }
+    h.ctx.config = one_channel(curve("b", 10.0, 100.0));
+    h.tick();
+    assert_eq!(h.ctx.channels["ch"].input, Some(20.0));
+}
+
+#[test]
 fn per_curve_smoothing_and_step_settings() {
     let config = TickConfig {
         channels: vec![

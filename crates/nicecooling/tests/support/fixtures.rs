@@ -211,8 +211,8 @@ pub fn full() -> AppState {
             (format!("{LEAKSHIELD}_fill_level"), 68.0, 0),
         ],
         channels: vec![
-            ("nct6798_pwm6".into(), 62.0, 0),
-            ("nct6798_pwm2".into(), 40.0, 2),
+            ("nct6798_pwm6".into(), 62.0, 0.0, 0.0, 0),
+            ("nct6798_pwm2".into(), 40.0, 0.0, 0.0, 2),
         ],
     });
     state.last_sensors = state.sensors.clone();

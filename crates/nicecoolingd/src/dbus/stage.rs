@@ -18,6 +18,7 @@ const OUT_OF_RANGE: u8 = 2;
 /// `SensorsUpdated` flags of a Channel.
 const OVERRIDE_ACTIVE: u8 = 1;
 const ON_HARDWARE_CURVE: u8 = 2;
+const READOUT_VALID: u8 = 4;
 
 pub struct ApiStage {
     hub: Arc<Hub>,
@@ -89,7 +90,16 @@ impl Stage for ApiStage {
             if on_hardware {
                 flags |= ON_HARDWARE_CURVE;
             }
-            channels.push((meta.id.clone(), duty, flags));
+            // The smoothed Input and the target are valid only for a Curve that took a sample in
+            // this tick and that no override replaces.
+            let (input, target) = match tick.map(|t| (t.input, t.target)) {
+                Some((Some(input), Some(target))) if !overriding => {
+                    flags |= READOUT_VALID;
+                    (input, target)
+                }
+                _ => (0.0, 0.0),
+            };
+            channels.push((meta.id.clone(), duty, input, target, flags));
             live.channels.insert(
                 meta.id.clone(),
                 ChannelLive {

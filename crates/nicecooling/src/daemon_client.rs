@@ -44,8 +44,13 @@ type RuleGroupOut<'a> = (
     bool,
     Vec<(String, HashMap<String, Value<'a>>)>,
 );
-/// The body of `SensorsUpdated`: the time, then `(id, value, flags)` of sensors and Channels.
-type SensorsUpdated = (u64, Vec<(String, f64, u8)>, Vec<(String, f64, u8)>);
+/// The body of `SensorsUpdated`: the time, `(id, value, flags)` of sensors, and `(id, Duty,
+/// smoothed Input, Curve target, flags)` of Channels.
+type SensorsUpdated = (
+    u64,
+    Vec<(String, f64, u8)>,
+    Vec<(String, f64, f64, f64, u8)>,
+);
 
 #[derive(Clone)]
 pub struct DaemonClient {

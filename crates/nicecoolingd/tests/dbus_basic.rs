@@ -135,10 +135,130 @@ async fn five_sensors_updated_signals_in_five_ticks() {
     assert_eq!(sensor("loop_1_flow").2, 0);
     assert!(sensor("loop_1_flow").1 > 0.0);
     let pwm1 = last.2.iter().find(|c| c.0 == "nct6798_pwm1").unwrap();
-    assert_eq!(pwm1.2 & 2, 0, "pwm1 is on a Curve");
+    assert_eq!(pwm1.4 & 2, 0, "pwm1 is on a Curve");
     let pwm2 = last.2.iter().find(|c| c.0 == "nct6798_pwm2").unwrap();
-    assert_eq!(pwm2.2 & 2, 2, "pwm2 is on its Hardware curve");
+    assert_eq!(pwm2.4 & 2, 2, "pwm2 is on its Hardware curve");
     assert!(received.windows(2).all(|w| w[0].0 <= w[1].0));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn sensors_updated_carries_readout() {
+    let mut rig = Rig::start().await;
+    let manager = manager(&rig).await;
+    let mut signals = manager.receive_sensors_updated().await.unwrap();
+    rig.ticks(3).await;
+    let mut last = None;
+    for _ in 0..3 {
+        let signal = timeout(Duration::from_secs(5), signals.next())
+            .await
+            .expect("a signal for each tick")
+            .unwrap();
+        last = Some(signal.args().unwrap().channels.clone());
+    }
+    let channels = last.unwrap();
+    // The Curve of pwm1 reads Tctl 61.875 C and gives 63.75%.
+    let pwm1 = channels.iter().find(|c| c.0 == "nct6798_pwm1").unwrap();
+    assert_eq!(pwm1.4 & 4, 4, "the readout is valid");
+    assert_eq!((pwm1.2, pwm1.3), (61.875, 63.75));
+    let pwm2 = channels.iter().find(|c| c.0 == "nct6798_pwm2").unwrap();
+    assert_eq!(pwm2.4 & 4, 0, "a Hardware curve has no readout");
+    assert_eq!((pwm2.2, pwm2.3), (0.0, 0.0));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn bios_snapshot_property_in_restore_order() {
+    let mut rig = Rig::start().await;
+    rig.ticks(1).await;
+    let stored = snapshot::read_snapshot(&StateStore::new(&rig.state)).expect("a snapshot");
+    let entry = stored.chips[0]
+        .channels
+        .iter()
+        .find(|c| c.channel == 1)
+        .unwrap();
+    let (taken_us, attributes) = channel(&rig, "nct6798_pwm1")
+        .await
+        .bios_snapshot()
+        .await
+        .unwrap();
+    assert_eq!(taken_us, stored.taken_us);
+    assert_eq!(attributes, entry.attributes);
+    let names: Vec<_> = attributes.iter().map(|a| a.0.as_str()).collect();
+    assert_eq!(names[names.len() - 2..], ["pwm1", "pwm1_enable"]);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn bios_snapshot_property_no_entry() {
+    let mut rig = rig_with_snapshot(|snapshot| {
+        for chip in &mut snapshot.chips {
+            chip.channels.retain(|c| c.channel != 2);
+        }
+    })
+    .await;
+    rig.ticks(1).await;
+    assert_eq!(
+        channel(&rig, "nct6798_pwm2")
+            .await
+            .bios_snapshot()
+            .await
+            .unwrap(),
+        (1, Vec::new())
+    );
+    assert!(
+        !channel(&rig, "nct6798_pwm1")
+            .await
+            .bios_snapshot()
+            .await
+            .unwrap()
+            .1
+            .is_empty()
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn bios_snapshot_property_no_snapshot() {
+    // A lease without a snapshot file: the daemon keeps no snapshot.
+    let mut rig = Rig::start_with(|_, state| {
+        Lease::new(state).create("test-boot", 1).unwrap();
+    })
+    .await;
+    rig.ticks(1).await;
+    assert_eq!(
+        channel(&rig, "nct6798_pwm1")
+            .await
+            .bios_snapshot()
+            .await
+            .unwrap(),
+        (0, Vec::new())
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn fan_sensor_pairs_pwm_and_fan() {
+    let mut rig = Rig::start().await;
+    rig.ticks(1).await;
+    assert_eq!(
+        channel(&rig, "nct6798_pwm1")
+            .await
+            .fan_sensor()
+            .await
+            .unwrap(),
+        path(Kind::Sensor, "nct6798_fan1")
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn fan_sensor_slash_without_fan() {
+    // The test tree has `fan1_input` and no `fan2_input`.
+    let mut rig = Rig::start().await;
+    rig.ticks(1).await;
+    assert_eq!(
+        channel(&rig, "nct6798_pwm2")
+            .await
+            .fan_sensor()
+            .await
+            .unwrap(),
+        none_path()
+    );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

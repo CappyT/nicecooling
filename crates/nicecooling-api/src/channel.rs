@@ -32,6 +32,12 @@ pub trait Channel {
     fn curve(&self) -> zbus::Result<(OwnedObjectPath, Vec<(f64, f64)>, f64, f64)>;
     #[zbus(property)]
     fn fixed_duty(&self) -> zbus::Result<f64>;
+    /// (snapshot time in microseconds, attributes as (name, value) in restore order)
+    #[zbus(property)]
+    fn bios_snapshot(&self) -> zbus::Result<(u64, Vec<(String, String)>)>;
+    /// The sensor of the fan speed, `/` when it does not exist.
+    #[zbus(property)]
+    fn fan_sensor(&self) -> zbus::Result<OwnedObjectPath>;
 
     fn set_name(&self, name: &str) -> zbus::Result<()>;
     fn set_curve(

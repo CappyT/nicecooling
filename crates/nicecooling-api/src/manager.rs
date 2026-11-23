@@ -30,12 +30,13 @@ pub trait Manager {
     ) -> zbus::Result<String>;
     fn delete_calibration_table(&self, id: &str) -> zbus::Result<()>;
 
-    /// `sensors` and `channels` hold (id, value, flags).
+    /// `sensors` holds (id, value, flags). `channels` holds (id, Duty, smoothed Input, Curve
+    /// target, flags).
     #[zbus(signal)]
     fn sensors_updated(
         &self,
         time_us: u64,
         sensors: Vec<(String, f64, u8)>,
-        channels: Vec<(String, f64, u8)>,
+        channels: Vec<(String, f64, f64, f64, u8)>,
     ) -> zbus::Result<()>;
 }

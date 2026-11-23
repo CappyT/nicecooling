@@ -52,11 +52,12 @@
       <arg name="id" type="s" direction="in"/>
     </method>
 
-    <!-- One signal per tick. Each entry: (id, value, flags). api.md defines the flags. -->
+    <!-- One signal per tick. A sensor entry is (id, value, flags). A Channel entry is
+         (id, Duty, smoothed Input, Curve target, flags). api.md defines the flags. -->
     <signal name="SensorsUpdated">
       <arg name="time_us" type="t"/>
       <arg name="sensors" type="a(sdy)"/>
-      <arg name="channels" type="a(sdy)"/>
+      <arg name="channels" type="a(sdddy)"/>
     </signal>
   </interface>
 
@@ -153,6 +154,14 @@
     <!-- (input sensor, points as (input, duty), smoothing s, step limit %/s); input is / when Control is not curve -->
     <property name="Curve" type="(oa(dd)dd)" access="read"/>
     <property name="FixedDuty" type="d" access="read"/>
+    <!-- (snapshot time, attributes as (name, value) in restore order). (0, []) when the daemon holds no snapshot. -->
+    <property name="BiosSnapshot" type="(ta(ss))" access="read">
+      <annotation name="org.freedesktop.DBus.Property.EmitsChangedSignal" value="const"/>
+    </property>
+    <!-- The sensor <chip>_fan<N> of <chip>_pwm<N>, or / when it does not exist. -->
+    <property name="FanSensor" type="o" access="read">
+      <annotation name="org.freedesktop.DBus.Property.EmitsChangedSignal" value="const"/>
+    </property>
 
     <method name="SetName">
       <annotation name="io.github.cappyt.NiceCooling1.Authorization" value="write"/>

@@ -93,6 +93,19 @@ impl Channel {
         Ok(self.view()?.fixed_duty)
     }
 
+    #[zbus(property(emits_changed_signal = "const"))]
+    fn bios_snapshot(&self) -> fdo::Result<(u64, Vec<(String, String)>)> {
+        Ok(self.view()?.bios_snapshot)
+    }
+
+    #[zbus(property(emits_changed_signal = "const"))]
+    fn fan_sensor(&self) -> fdo::Result<OwnedObjectPath> {
+        Ok(self
+            .view()?
+            .fan_sensor
+            .map_or_else(none, |id| object(Kind::Sensor, &id)))
+    }
+
     async fn set_name(
         &self,
         #[zbus(connection)] connection: &Connection,

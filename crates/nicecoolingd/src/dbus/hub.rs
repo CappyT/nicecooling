@@ -13,7 +13,7 @@ use nicecooling_api::ids::{self, Kind};
 use nicecooling_core::calibration::{CalibrationTable, Preset};
 use nicecooling_core::curve::{Curve, DEFAULT_SMOOTHING_S, DEFAULT_STEP_LIMIT};
 use nicecooling_core::derived::{DerivedKind, DerivedSensor};
-use nicecooling_core::loops::Loop;
+use nicecooling_core::loops::{Loop, tach_sensor};
 use nicecooling_core::tick::TickConfig;
 use nicecooling_hwmon::identity::DeviceIdentity;
 use nicecooling_hwmon::sysfs::Sysfs;
@@ -102,7 +102,8 @@ pub struct Live {
 pub struct TickReport {
     pub time_us: u64,
     pub sensors: Vec<(String, f64, u8)>,
-    pub channels: Vec<(String, f64, u8)>,
+    /// (id, Duty, smoothed Input, Curve target, flags).
+    pub channels: Vec<(String, f64, f64, f64, u8)>,
 }
 
 pub struct HubInit {
@@ -145,6 +146,10 @@ pub struct ChannelView {
     pub smoothing_s: f64,
     pub step_limit: f64,
     pub fixed_duty: f64,
+    /// The snapshot time and the attributes of the Channel. `(0, [])` without a snapshot.
+    pub bios_snapshot: (u64, Vec<(String, String)>),
+    /// The fan sensor of the Channel, when it exists.
+    pub fan_sensor: Option<String>,
 }
 
 pub struct LoopView {
@@ -561,6 +566,15 @@ impl Inner {
                 .and_then(|c| c.step_limit_pct_per_s)
                 .unwrap_or(DEFAULT_STEP_LIMIT),
             fixed_duty: entry.and_then(|e| e.fixed_duty).unwrap_or(0.0),
+            bios_snapshot: self.snapshot.as_ref().map_or((0, Vec::new()), |s| {
+                (
+                    s.taken_us,
+                    s.channel(&meta.device, meta.number)
+                        .map(|c| c.attributes.clone())
+                        .unwrap_or_default(),
+                )
+            }),
+            fan_sensor: tach_sensor(id).filter(|fan| self.sensor_exists(fan)),
         })
     }
 

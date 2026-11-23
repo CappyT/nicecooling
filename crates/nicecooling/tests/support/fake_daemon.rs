@@ -300,7 +300,7 @@ impl Manager {
         emitter: &SignalEmitter<'_>,
         time_us: u64,
         sensors: Vec<(String, f64, u8)>,
-        channels: Vec<(String, f64, u8)>,
+        channels: Vec<(String, f64, f64, f64, u8)>,
     ) -> zbus::Result<()>;
 }
 
@@ -813,6 +813,8 @@ struct Channel {
     is_pump: bool,
     curve: (OwnedObjectPath, Vec<(f64, f64)>, f64, f64),
     fixed: f64,
+    bios_snapshot: (u64, Vec<(String, String)>),
+    fan_sensor: OwnedObjectPath,
     shared: Arc<Shared>,
 }
 
@@ -866,6 +868,16 @@ impl Channel {
     #[zbus(property)]
     fn curve(&self) -> (OwnedObjectPath, Vec<(f64, f64)>, f64, f64) {
         self.curve.clone()
+    }
+
+    #[zbus(property(emits_changed_signal = "const"))]
+    fn bios_snapshot(&self) -> (u64, Vec<(String, String)>) {
+        self.bios_snapshot.clone()
+    }
+
+    #[zbus(property(emits_changed_signal = "const"))]
+    fn fan_sensor(&self) -> OwnedObjectPath {
+        self.fan_sensor.clone()
     }
 
     #[zbus(property)]
@@ -1356,6 +1368,20 @@ impl FakeDaemon {
                         5.0,
                     ),
                     fixed: 50.0,
+                    bios_snapshot: (
+                        1_700_000_000_000_000,
+                        [
+                            ("pwm6_auto_point1_temp", "30000"),
+                            ("pwm6_auto_point1_pwm", "102"),
+                            ("pwm6_auto_point2_temp", "60000"),
+                            ("pwm6_auto_point2_pwm", "255"),
+                            ("pwm6", "158"),
+                            ("pwm6_enable", "5"),
+                        ]
+                        .map(|(name, value)| (name.to_owned(), value.to_owned()))
+                        .to_vec(),
+                    ),
+                    fan_sensor: path("sensor/nct6798_fan6"),
                     shared: shared.clone(),
                 },
             )
@@ -1377,6 +1403,8 @@ impl FakeDaemon {
                         5.0,
                     ),
                     fixed: 50.0,
+                    bios_snapshot: (1_700_000_000_000_000, Vec::new()),
+                    fan_sensor: OwnedObjectPath::try_from("/").expect("path"),
                     shared: shared.clone(),
                 },
             )
@@ -1595,7 +1623,7 @@ impl FakeDaemon {
         &self,
         time_us: u64,
         sensors: Vec<(String, f64, u8)>,
-        channels: Vec<(String, f64, u8)>,
+        channels: Vec<(String, f64, f64, f64, u8)>,
     ) {
         let iface = self
             .conn

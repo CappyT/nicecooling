@@ -551,20 +551,23 @@ pub struct Snapshot {
     pub daemon_version: String,
 }
 
-/// One `SensorsUpdated` signal: `(id, value, flags)` for each sensor and Channel.
+/// One `SensorsUpdated` signal. A sensor row is `(id, value, flags)`. A Channel row is
+/// `(id, Duty, smoothed Input, Curve target, flags)`.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct SensorSample {
     pub time_us: u64,
     pub sensors: Vec<(String, f64, u8)>,
-    pub channels: Vec<(String, f64, u8)>,
+    pub channels: Vec<(String, f64, f64, f64, u8)>,
 }
 
 /// `sensors` flags: bit 0 no value, bit 1 above the range of its Calibration table.
 pub const FLAG_NO_VALUE: u8 = 1;
 pub const FLAG_OUT_OF_RANGE: u8 = 2;
-/// `channels` flags: bit 0 override active, bit 1 on its Hardware curve.
+/// `channels` flags: bit 0 override active, bit 1 on its Hardware curve, bit 2 the smoothed Input
+/// and the Curve target are valid.
 pub const FLAG_OVERRIDE: u8 = 1;
 pub const FLAG_ON_HARDWARE: u8 = 2;
+pub const FLAG_READOUT_VALID: u8 = 4;
 
 impl SensorSample {
     /// The value of a sensor, `None` when it has no value.
@@ -586,15 +589,23 @@ impl SensorSample {
     pub fn channel_duty(&self, id: &str) -> Option<f64> {
         self.channels
             .iter()
-            .find(|(name, _, _)| name == id)
-            .map(|(_, value, _)| *value)
+            .find(|row| row.0 == id)
+            .map(|row| row.1)
     }
 
     pub fn channel_flags(&self, id: &str) -> u8 {
         self.channels
             .iter()
-            .find(|(name, _, _)| name == id)
-            .map_or(0, |(_, _, flags)| *flags)
+            .find(|row| row.0 == id)
+            .map_or(0, |row| row.4)
+    }
+
+    /// The smoothed Input and the Curve target of a Channel, `None` without flag bit 2.
+    pub fn channel_readout(&self, id: &str) -> Option<(f64, f64)> {
+        self.channels
+            .iter()
+            .find(|row| row.0 == id && row.4 & FLAG_READOUT_VALID != 0)
+            .map(|row| (row.2, row.3))
     }
 }
 

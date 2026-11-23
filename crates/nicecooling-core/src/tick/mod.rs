@@ -95,6 +95,8 @@ pub struct TickConfig {
 pub struct ChannelTick {
     /// The Duty that the Curve or the fixed Duty asks for. Stage 5.
     pub target: Option<f64>,
+    /// The mean of the smoothing window of a Curve that took a sample in this tick. Stage 5.
+    pub input: Option<f64>,
     /// The Curve Input has no value. Stage 5.
     pub lost_input: bool,
     /// The Duty to write. `None` means the Channel stays on its Hardware curve. Stages 6 to 8.
@@ -139,6 +141,7 @@ impl TickContext {
         self.errors.clear();
         for tick in self.channels.values_mut() {
             tick.target = None;
+            tick.input = None;
             tick.lost_input = false;
             tick.duty = None;
             tick.override_active = false;
