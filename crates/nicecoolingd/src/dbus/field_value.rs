@@ -40,6 +40,9 @@ fn scalar(value: &Variant<'_>) -> Option<FieldValue> {
 /// `None` for a type that no field takes: `b`, a structure, a dictionary, or an array of mixed
 /// elements.
 pub fn field_value(value: &Variant<'_>) -> Option<FieldValue> {
+    if let Variant::Variant(inner) = value {
+        return field_value(inner);
+    }
     let Variant::Array(array) = value else {
         return scalar(value);
     };
@@ -164,5 +167,21 @@ mod tests {
         assert_eq!(field_value(&Variant::from(vec![true, false])), None);
         let mixed = Variant::from(vec![Variant::from(1.0_f64), Variant::from(1_i64)]);
         assert_eq!(field_value(&mixed), None);
+    }
+
+    #[test]
+    fn an_array_of_variants_follows_the_inner_type() {
+        let av = Variant::from(vec![Variant::from(1.0_f64), Variant::from(2.0_f64)]);
+        assert_eq!(field_value(&av), Some(FieldValue::Numbers(vec![1.0, 2.0])));
+    }
+
+    #[test]
+    fn a_variant_that_holds_an_array_is_a_list() {
+        let inner = Variant::from(vec!["logo".to_owned()]);
+        let nested = Variant::Variant(Box::new(inner));
+        assert_eq!(
+            field_value(&nested),
+            Some(FieldValue::Names(vec!["logo".into()]))
+        );
     }
 }
