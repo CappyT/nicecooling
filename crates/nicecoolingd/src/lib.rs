@@ -4,6 +4,7 @@ pub mod alarms;
 pub mod authz;
 pub mod daemon;
 pub mod dbus;
+pub mod firmware;
 pub mod fleet;
 pub mod leakshield;
 pub mod lease;

@@ -20,6 +20,7 @@ nicecooling-core.workspace = true
 nicecooling-hwmon.workspace = true
 nicecooling-protocol.workspace = true
 nusb.workspace = true
+rusqlite = { workspace = true, features = ["serialize"] }
 rustix = { workspace = true, features = ["event", "fs"] }
 sd-notify.workspace = true
 serde.workspace = true
