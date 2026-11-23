@@ -16,6 +16,7 @@ use nicecooling_hwmon::sysfs::Sysfs;
 use crate::dbus::stage::ApiStage;
 use crate::dbus::{BoardInfo, ChannelMeta, Hub, HubInit, LeakshieldInfo, SensorMeta, sensor_meta};
 use crate::lease::Lease;
+use crate::rescan::{self, Rescan};
 use crate::snapshot::{self, SnapshotBoard};
 use crate::sources::hwmon::{Source, chip_readers, spawn_source};
 use crate::state::{self, StateStore};
@@ -58,6 +59,8 @@ pub struct Options {
     pub boot_id: String,
     /// The Leakshield objects of the API, until the device access fills them in (tasks 5.x).
     pub leakshields: Vec<LeakshieldInfo>,
+    /// The time between two scans for hwmon chips that load after the start.
+    pub rescan_period: Duration,
 }
 
 impl Options {
@@ -71,6 +74,7 @@ impl Options {
             source_period: Duration::from_secs(1),
             boot_id,
             leakshields: Vec::new(),
+            rescan_period: rescan::RESCAN_PERIOD,
         }
     }
 }
@@ -81,6 +85,7 @@ pub struct Daemon {
     /// The model behind the D-Bus API. `dbus::serve` puts it on a bus.
     pub hub: Arc<Hub>,
     sources: Vec<Source>,
+    rescan: tokio::task::JoinHandle<()>,
 }
 
 fn now_us() -> u64 {
@@ -172,6 +177,8 @@ pub async fn start<N: Notifier + 'static>(
     } else {
         "last-known-good"
     };
+    let (rescan_names, rescan_identities) =
+        (loaded.state.names.clone(), loaded.state.identities.clone());
     let hub = Hub::new(HubInit {
         store: StateStore::new(&paths.state_dir),
         sysfs_root: paths.sysfs_root.clone(),
@@ -203,6 +210,20 @@ pub async fn start<N: Notifier + 'static>(
         state_health: state_health.to_owned(),
     });
 
+    let rescan = Rescan {
+        sysfs: sysfs.clone(),
+        board: board.clone(),
+        names: rescan_names,
+        identities: rescan_identities,
+        sensors: discovery.sensors.iter().map(|s| s.id.clone()).collect(),
+        hub: hub.clone(),
+        values: values.clone(),
+        clock: clock.clone(),
+        source_period: options.source_period,
+        period: options.rescan_period,
+    }
+    .spawn();
+
     let io = SysfsChannels::new(&discovery.channels, lease, options.boot_id.clone())
         .with_snapshot(snapshot::read_snapshot(&store));
     let mut pipeline = Pipeline::standard(Box::new(values.clone()), Box::new(io));
@@ -217,6 +238,7 @@ pub async fn start<N: Notifier + 'static>(
         values,
         hub,
         sources,
+        rescan,
     })
 }
 
@@ -231,5 +253,6 @@ impl Drop for Daemon {
         for source in &self.sources {
             source.task.abort();
         }
+        self.rescan.abort();
     }
 }

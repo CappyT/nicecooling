@@ -4,6 +4,7 @@ pub mod authz;
 pub mod daemon;
 pub mod dbus;
 pub mod lease;
+pub mod rescan;
 pub mod snapshot;
 pub mod sources;
 pub mod state;
