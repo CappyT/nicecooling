@@ -62,8 +62,8 @@ A Leakshield setting that affects the leak protection: Mode, pressure, reservoir
 **Verification write**:
 A supervised test during development that writes a known value to one field of the reference Leakshield, reads back the device settings, checks that only the expected bytes changed, and restores the previous value. The app has no control for it.
 
-**Device profile number**:
-The number that the Leakshield holds as its current profile (report 1 `active_profile`). Each Profile has one number, and the stored report 3 of the Profile carries it (`device_profile`). A Profile activation writes the Leakshield only when the numbers differ.
+**Leakshield slot**:
+One of four numbered places, 1 to 4, that hold the Leakshield settings (the stored report 3 and the display assets) of one Leakshield. The slot number is the device profile number: report 1 `active_profile` and report 3 `device_profile`. Each Profile references one slot, and Profiles with the same slot share its settings. A Profile activation writes the Leakshield only when the slot number differs from the number of the device.
 
 ## Fan control
 
@@ -106,20 +106,23 @@ The minimum Duty of the Pump channel. No Curve goes below it.
 ## Profiles
 
 **Profile**:
-A named set of Curves and Leakshield settings that becomes active as one unit. It has a device profile number.
+A named set of Curves and one Leakshield slot that becomes active as one unit. It has no Leakshield settings of its own: it uses those of its slot.
 _Avoid_: preset, scene
 
 **Default Profile**:
-The Profile that always exists and cannot be deleted. It is active when no Profile rule wins and no manual activation exists.
+The Profile that always exists and cannot be deleted. It has Leakshield slot 1. It is active when no Rule group wins and no manual activation exists.
 
 **Profile rule**:
-A condition that activates a Profile automatically.
+One condition of a Rule group. It is a sensor comparison with a hold time, a list of process names, weekdays with a time window, or an interval timer.
+
+**Rule group**:
+An ordered set of Profile rules with a target Profile. A group holds when all its rules hold. The first holding group activates its Profile, and the Default Profile is active when no group holds.
 
 **Rule delay**:
-The time a Profile rule condition must stay true before the rule activates its Profile.
+The time a Rule group must hold before it activates its Profile.
 
 **Profile dwell**:
-The minimum time a Profile that a Profile rule activated stays active.
+The minimum time a Profile that a Rule group activated stays active.
 
 **Immediate switching**:
-The user option that removes the Rule delay and the Profile dwell, so that every rule change applies at once.
+The user option that removes the Rule delay and the Profile dwell, so that every Rule group change applies at once.

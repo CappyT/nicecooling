@@ -32,18 +32,30 @@ nicecooling SHALL NOT start a Refill while a Pump channel of the Loop of the Lea
 - **THEN** the daemon starts the Refill
 
 ### Requirement: Cancel an Action
-The user SHALL be able to cancel a running Action when the registry has a cancel command for the firmware. Without one, the daemon SHALL refuse the cancel with `NotSupported`.
+The user SHALL be able to cancel a running Action. The daemon SHALL send the command `cancel_action` (report 2 command 12, code 0). When the registry of the device firmware lacks that command, the daemon SHALL refuse the cancel with `NotSupported`.
+
+#### Scenario: Cancel
+- **WHEN** the user cancels a running Action
+- **THEN** the daemon sends `cancel_action` and the Leakshield returns to its Mode
 
 #### Scenario: No cancel command
-- **WHEN** the user cancels an Action and the registry has no cancel command for the firmware
+- **WHEN** the user cancels an Action and the registry of the firmware has no cancel command
 - **THEN** the daemon replies `NotSupported` and the Action continues
 
-### Requirement: Clear the pump runtime
-The user SHALL be able to clear the pump runtime of the Leakshield.
+### Requirement: Reset the refill history and the service counter
+The user SHALL be able to reset the refill history and the service counter of the Leakshield. The daemon SHALL send `reset_refill_history` (command 13) and `reset_service_counter` (command 25000, parameter: serial XOR 0xFFFFFFFF). When the registry of the device firmware lacks the command, the daemon SHALL refuse with `NotSupported`. The Leakshield has no command that clears the pump runtime, and nicecooling SHALL NOT offer one.
 
-#### Scenario: Clear
-- **WHEN** the user clears the pump runtime
-- **THEN** the daemon sends the documented command to the Leakshield
+#### Scenario: Reset the refill history
+- **WHEN** the user resets the refill history
+- **THEN** the daemon sends command 13 to the Leakshield
+
+#### Scenario: Reset the service counter
+- **WHEN** the user resets the service counter
+- **THEN** the daemon sends command 25000 with the serial XOR 0xFFFFFFFF as the parameter
+
+#### Scenario: No command in the registry
+- **WHEN** the user resets the refill history and the registry of the firmware has no such command
+- **THEN** the daemon replies `NotSupported`
 
 ### Requirement: Send the Feed message
 For each Loop with a Leakshield, the daemon SHALL send the Feed (pump speed and flow) in a Feed message every tick. The Feed message SHALL have 51 bytes: 49 bytes that start with `0x04`, then a big-endian CRC-16/USB over those 49 bytes. The message SHALL have 16 slots: slot 0 is the pump speed, slot 1 is the flow, slots 2 and 3 are spare, and slots 4 to 15 are the 12 Software sensors.

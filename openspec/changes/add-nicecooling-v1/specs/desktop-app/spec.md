@@ -90,7 +90,7 @@ The app SHALL show pages for every Leakshield setting group. A field that is not
 - **THEN** each field is read-only and the page says why
 
 ### Requirement: Profile and rule management
-The app SHALL let the user create, edit, activate and revoke Profiles and their rules, and set Immediate switching. The app SHALL NOT offer to delete the Default Profile.
+The app SHALL let the user create, edit, activate and revoke Profiles, set the Leakshield slot of a Profile, edit Rule groups, and set Immediate switching. The app SHALL NOT offer to delete the Default Profile.
 
 #### Scenario: Activate by hand
 - **WHEN** the user activates a Profile in the app

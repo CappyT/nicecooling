@@ -4,5 +4,5 @@ nicecooling reads the Leakshield settings from the device and writes them only w
 
 ## Consequences
 
-- When another tool changes a Leakshield setting, nicecooling shows the new value, keeps it and sends a notification. The change does not enter any Profile. A Profile activation writes the Profile's stored report 3 only when the device profile number of the Profile differs from the one of the device, as aquasuite does. Thus the activation overwrites an external change only when the numbers differ, and it keeps the change when they are equal. The notification says so.
-- Changes made in nicecooling go into the active Profile.
+- When another tool changes a Leakshield setting, nicecooling shows the new value, keeps it and sends a notification. The change does not enter any Profile. A Profile activation writes the stored report 3 of the Profile's Leakshield slot only when the slot number differs from the device profile number of the device, as aquasuite does. Thus the activation overwrites an external change only when the numbers differ, and it keeps the change when they are equal. The notification says so.
+- Curve changes made in nicecooling go into the active Profile. Leakshield setting changes go into the slot of the active Profile.

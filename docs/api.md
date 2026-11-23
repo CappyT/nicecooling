@@ -23,7 +23,7 @@ Identifiers contain only `[a-z0-9_]`, so the object path element is the identifi
 | Calibrated flow | `<loop id>_flow` | `loop_1_flow` |
 | Loop | `loop_<n>` | `loop_1` |
 | Profile | `profile_<n>`; the Default Profile is `profile_default` | `profile_2` |
-| Rule | `rule_<n>` | `rule_3` |
+| Rule group | `group_<n>` | `group_3` |
 | Calibration table | preset: the preset file id; user table: `table_<n>` | `alphacool_17558`, `table_1` |
 
 The daemon keeps the map from identifier to hardware identity in its state (`storage.md`). The hardware identity is the hwmon `name` plus the resolved path of the hwmon `device` link, never `hwmonN`.
@@ -59,17 +59,43 @@ Alarms and Warnings use one identifier each. The app maps an identifier to its t
 - The variant type comes from the registry: `b` for a flag, `s` for an enum value (our own lowercase name), `d` for a scaled number, `x` for an unscaled integer, `s` for a text.
 - `SetFields` runs the write path of design D11 once for all fields. It returns after the read-back. The save-settings command (report 2) goes out 4 s after the last write; a failure then emits `WriteFailed`.
 
-## Profile rule parameters
+## Leakshield slots
 
-| Type | Key | Type | Meaning |
+A Leakshield slot is a number from 1 to 4, as in aquasuite (`docs/protocol/leakshield.md`, section Device profile numbers). The number is the device profile number: report 3 `device_profile` and report 1 `active_profile`. Each Profile references one slot with the property `Slot` of the interface `Profile`. `SetSlot` changes it (class `write`). The Default Profile has slot 1, and `SetSlot` on it fails with `InvalidArgument`. A slot outside 1 to 4 fails with `InvalidArgument`.
+
+- The Leakshield settings of a slot are stored per Leakshield and per slot, not per Profile (`storage.md`). Profiles that share a slot share these settings.
+- `CreateProfile` gives the new Profile the slot of the Profile that it copies. With `copy_from` `/`, it gives the slot of the active Profile.
+- `SetSlot` on the active Profile applies the new slot as an activation does (design D14).
+
+## Rule groups
+
+A Rule group has an identifier, a target Profile, an `enabled` flag and an ordered list of rules. `GetRuleGroups` and `SetRuleGroups` use the type `a(soba(sa{sv}))`: group id, target Profile, enabled, and the rules as (kind, parameters). The list order is the priority.
+
+- A group holds when it is enabled and all its rules hold. A group without rules never holds.
+- The first group in list order that holds activates its Profile. Rule delay, Profile dwell and Immediate switching apply to the group (design D14). When no group holds, the Default Profile is active.
+- `SetRuleGroups` replaces the whole list. An empty group id creates a group. It returns the group ids in list order. A target Profile that does not exist fails with `NotFound`. An unknown kind, a missing key or a value out of range fails with `InvalidArgument`.
+- Hotkeys are not a rule kind. Wayland has no standard global shortcut.
+- The property `RuleGroupState` gives, for each group, whether it holds and since when (`a(sbt)`: group id, holds, since in microseconds, 0 when it does not hold). It changes only when a group starts or stops holding.
+
+| Kind | Key | Type | Meaning |
 |---|---|---|---|
-| process | `match` | `s` | `name`: exact, case-sensitive match on the basename of `/proc/<pid>/exe` or on `comm`. `cmdline`: case-insensitive substring of the command line. |
-| process | `pattern` | `s` | The name or the substring. |
+| sensor | `sensor` | `o` | The sensor to compare. A sensor with no value (`SensorsUpdated` flag bit 0) makes the rule false. |
+| sensor | `comparison` | `s` | `lt`, `le`, `eq`, `ge`, `gt`, `ne` or `in_range`. |
+| sensor | `value` | `d` | The compared value in the unit of the sensor. For `in_range`, the lower bound. |
+| sensor | `value_max` | `d` | The upper bound. Only for `in_range`, and not less than `value`. |
+| sensor | `hold_s` | `u` | The comparison must hold for this time before the rule holds. 0 means no hold time. |
+| process | `names` | `as` | The process names. At least one. |
+| process | `match` | `s` | `any`: one name matches. `all`: every name matches. `none`: no name matches. |
+| process | `match_on` | `s` | `name` (the default) or `cmdline`. Owner decision: `cmdline` finds games that run under Proton, where the executable is the Wine loader. |
 | time | `days` | `ay` | ISO weekdays, 1 Monday to 7 Sunday. |
 | time | `start`, `end` | `q` | Minutes after midnight, system local time. When `end` is before `start`, the range ends on the next day and belongs to the day of `start`. |
-| threshold | `sensor` | `o` | The Input. |
-| threshold | `direction` | `s` | `above` or `below`. |
-| threshold | `value` | `d` | The threshold in the unit of the sensor. |
+| interval | `interval_s` | `u` | The period of the timer, at least 1. |
+| interval | `delay_s` | `u` | The start delay inside each period. |
+| interval | `duration_s` | `u` | The time that the rule holds, at least 1. |
+
+- With `match_on` `name`, a process name matches when it equals, without case, the `comm` or the basename of `/proc/<pid>/exe` of a running process. With `match_on` `cmdline`, it matches when it is a substring, without case, of `/proc/<pid>/cmdline`. The daemon reads the process list once per second.
+- The interval rule holds from `delay_s` to `delay_s + duration_s` after the start of each period of `interval_s`. A window that ends after the period is cut at the period end. The first period starts when the daemon starts or when `SetRuleGroups` saves the rule.
+- A window that is shorter than the Rule delay never activates its Profile, unless Immediate switching is on.
 
 ## Errors
 
@@ -79,7 +105,7 @@ Error names have the prefix `io.github.cappyt.NiceCooling1.Error.`. polkit denia
 |---|---|
 | `InvalidArgument` | A value out of range, an unknown identifier type, a Curve with fewer than 2 points or points not sorted by Input. |
 | `NotFound` | An object or an identifier does not exist. |
-| `InUse` | A delete of a sensor, Calibration table or Profile that something else uses. |
+| `InUse` | A delete of a sensor, Calibration table or Profile that something else uses. A Rule group that targets a Profile uses it. |
 | `DefaultProfile` | A delete of the Default Profile. |
 | `ReadOnly` | A write to a preset or to a Leakshield that is read-only. The message holds the reason identifier. |
 | `NotVerified` | A Leakshield field that is not Verified for this firmware. The message holds the field id. |
@@ -89,7 +115,7 @@ Error names have the prefix `io.github.cappyt.NiceCooling1.Error.`. polkit denia
 | `VerifyFailed` | The read-back differs outside the volatile mask. The message holds the backup id. |
 | `Disconnected` | The device is not connected. |
 | `NoPoweroff` | `CancelPoweroff` for an instance with no pending poweroff. |
-| `NotSupported` | `CancelAction` or `ClearPumpRuntime` when the field registry has no such command for the firmware of the device. |
+| `NotSupported` | `CancelAction`, `ResetRefillHistory` or `ResetServiceCounter` when the field registry of the device firmware lacks the command (`cancel_action`, `reset_refill_history`, `reset_service_counter`). |
 
 ## Authorization
 

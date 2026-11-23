@@ -10,7 +10,7 @@ On Linux, the Aqua Computer LEAKSHIELD is only half supported: the kernel driver
 - Loops that group Pump channels, a flow sensor with a Calibration table, a water temperature sensor and a Leakshield; per-Loop Pump floor and pump-stop Alarm.
 - Full Leakshield support except firmware update: Modes, Actions, every setting of the aquasuite wizard, alarms, display pages, Software sensors, RGBpx lighting, clock, backup and restore. Writes are limited to Verified fields.
 - Alarm handling with a configurable alarm response per Warning and Alarm, including a poweroff after a cancellable delay that ends in at most 60 s.
-- Profiles that bundle Curves, a device profile number and a full Leakshield snapshot, with a Default Profile and Profile rules on process, time and sensor thresholds.
+- Profiles that bundle Curves and one of the four Leakshield slots, which hold the full Leakshield settings, with a Default Profile and Rule groups of sensor, process, time and interval rules.
 - A D-Bus system API with polkit authorization.
 - A GPUI desktop app: tray icon, notifications, sensor history, Curve editor, Leakshield pages, English and Italian.
 - An RPM spec for Fedora, with a drop-in for `poweroff.target`.
@@ -24,7 +24,7 @@ On Linux, the Aqua Computer LEAKSHIELD is only half supported: the kernel driver
 - `leakshield-settings`: reading, decoding, writing, backing up and restoring Leakshield settings, the field registry, external change detection and the device clock.
 - `leakshield-operation`: Modes, Actions, the Feed, Software sensor values, hot-plug, and Leakshield status and events.
 - `alarms`: Leakshield Alarms and nicecooling Alarms, their alarm responses, the poweroff delay and its time bound, and the coordination with the device's own alarm outputs.
-- `profiles`: Profiles, the Default Profile, Profile rules, Rule delay, Profile dwell, Immediate switching and the Leakshield write of a Profile switch (device profile number, write spacing).
+- `profiles`: Profiles, the Default Profile, Leakshield slots, Rule groups, Rule delay, Profile dwell, Immediate switching and the Leakshield write of a Profile switch (slot number, write spacing).
 - `control-api`: the D-Bus system API and its polkit authorization.
 - `desktop-app`: the GPUI session agent: windows, tray icon, notifications, sensor history and languages.
 

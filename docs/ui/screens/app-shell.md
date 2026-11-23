@@ -41,7 +41,7 @@ A banner spans the content width. The order from the top is fixed. A screen show
 | 2 | Daemon offline | Offline tint | "The daemon is offline. The values are not live, and you cannot change settings." | "Try again" |
 | 2 | Daemon down | Alarm, solid | "The daemon is down. nicecooling protection is off." and "No Curve, no Feed, no alarm response. The Board runs its Hardware curves from the BIOS snapshot." | "Show how to start it" |
 | 3 | Unknown firmware | Warning tint | "Leakshield firmware 1042 is unknown. Every field is read-only." | "Open Fields" |
-| 4 | Immediate switching | Warning tint | "Immediate switching is on. Rules change the Profile without delay." | "Open Profiles" |
+| 4 | Immediate switching | Warning tint | "Immediate switching is on. Rule groups change the Profile without delay." | "Open Profiles" |
 
 The poweroff banner shows on every screen while a countdown runs. No screen can hide it.
 

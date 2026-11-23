@@ -84,15 +84,15 @@ Tabs: Overview, Settings, Sensors, Display, Lighting, Alarms, Status, System, Fi
 - Lighting (RGBpx): LED timeline with 6 integrated LEDs and the external LEDs; up to 8 controllers as draggable and resizable color bars, vertical order is priority; effect picker dialog; effect parameters (colors, speed, sensor-driven parameters); duplicate and delete.
 - Alarms: leakage Warning threshold slider (volume change) with acoustic toggle; small and large leak Alarms; fill level Warning and Alarm thresholds; system Alarm. For each: the device output (signal short press, signal long press, key sequence, none) and the nicecooling alarm response (none, notify, poweroff with delay). Overlap warnings follow ADR-0007.
 - Status: schematic of the Leakshield (vacuum pump, valves, active parts highlighted, measured values); event list with time and details; export.
-- System: serial, firmware version, maintenance indicator percent, device description; factory reset (locked); backup list with export, import and restore (restore locked); clear pump runtime chart; clock (device time, time zone, date and time format, sync now); standby behavior per USB state (display, alarm evaluation, lighting).
+- System: serial, firmware version, maintenance indicator percent, device description; factory reset (locked); reset service counter next to the maintenance indicator; refill history table with a reset button; backup list with export, import and restore (restore locked); clock (device time, time zone, date and time format, sync now); standby behavior per USB state (display, alarm evaluation, lighting).
 - Fields: every field with its verification state from the registry (code-defined, plausible read, Verification write passed) and risk class; explanation of why a field is read-only. The tab has no control that writes a verification value.
 
 ### Profiles
 
-- Profile list: active marker (manual, rule or Default Profile), create, duplicate, rename, delete (not for the Default Profile), activate, revoke manual activation.
+- Profile list: active marker (manual, rule or Default Profile), create, duplicate, rename, delete (not for the Default Profile), activate, revoke manual activation. The number of Profiles is not limited.
 - Profile state after a switch: applied, or "Curves applied, Leakshield failed" with the offer to restore the backup.
-- Profile content: Curve per Channel and a summary of the Leakshield snapshot; "differs from other Profiles" warnings with "apply to all Profiles".
-- Rule editor: ordered list; conditions (process from a running-process picker, time window, sensor threshold with duration); target Profile; one Rule delay timer state per rule.
+- Profile content: Curve per Channel; the Leakshield slot select (1 to 4) with the Profiles that share the slot; a summary of the Leakshield settings of the slot; "differs from other slots" warnings with "apply to all slots".
+- Rule group editor: ordered list of groups, each with its rules and its target Profile. Rule kinds: sensor comparison with a hold time, process list (one of, all of, none of), time window with weekdays, interval timer. No hotkey rule. One Rule delay timer state per group.
 - Options: Rule delay and Profile dwell values; Immediate switching with a warning dialog and a persistent checkbox.
 
 ### Alarms

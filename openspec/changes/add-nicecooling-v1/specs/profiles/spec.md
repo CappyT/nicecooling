@@ -2,37 +2,75 @@
 
 ## Purpose
 
-Defines Profiles, the Default Profile, the Profile rules that activate them, the timing rules that stop fast switching, and the rules for the Leakshield write that a Profile switch causes.
+Defines Profiles, the Leakshield slots, the Default Profile, the Rule groups that activate Profiles, the timing rules that stop fast switching, and the rules for the Leakshield write that a Profile switch causes.
 
 ## ADDED Requirements
 
 ### Requirement: Profile content
-A Profile SHALL hold a set of Curves, a device profile number, and the whole settings report of each Leakshield as the device produced it (with the device profile number set), with binary assets such as display logos. The daemon SHALL store each Profile in one place.
+A Profile SHALL hold a set of Curves and a Leakshield slot number. The Leakshield settings SHALL NOT belong to the Profile: the daemon SHALL store them per Leakshield and per slot, as the whole settings report as the device produced it, with the binary assets such as display logos. The number of Profiles SHALL NOT be limited.
 
 #### Scenario: Save a Profile
 - **WHEN** the user saves a Profile with a display logo
-- **THEN** activating it later writes the logo and the stored settings
+- **THEN** the logo and the settings are in the slot of the Profile, and activating the Profile later writes them
 
-### Requirement: Device profile number
-Each Profile SHALL have a device profile number, a u8 that the stored report 3 of the Profile carries in `device_profile`. The Default Profile SHALL keep the number that the Leakshield has now, 1. A new Profile SHALL get the next free number. The daemon SHALL set the number in each report 3 that it stores in the Profile.
+#### Scenario: More than four Profiles
+- **WHEN** the user creates a fifth Profile
+- **THEN** the daemon creates it and it references one of the four slots
 
-#### Scenario: Default Profile number
+### Requirement: Leakshield slot
+Each Profile SHALL reference one Leakshield slot, a number from 1 to 4. The number is the device profile number that the stored report 3 of the slot carries in `device_profile`. The daemon SHALL set the number in each report 3 that it stores in a slot. The Default Profile SHALL have slot 1, and its slot SHALL NOT change.
+
+#### Scenario: Default Profile slot
 - **WHEN** the daemon creates the Default Profile
-- **THEN** its device profile number is 1
+- **THEN** its slot is 1
 
 #### Scenario: New Profile
-- **WHEN** the user creates a Profile and the numbers 1 and 2 are in use
-- **THEN** the Profile gets the next free number
+- **WHEN** the user creates a Profile as a copy of a Profile with slot 3
+- **THEN** the new Profile has slot 3 and shares its Leakshield settings
 
 #### Scenario: Stored report carries the number
-- **WHEN** the daemon stores a report 3 in a Profile
-- **THEN** the `device_profile` byte of the report holds the number of the Profile and the CRC is valid
+- **WHEN** the daemon stores a report 3 in slot 2
+- **THEN** the `device_profile` byte of the report is 2 and the CRC is valid
+
+#### Scenario: Delete a Profile
+- **WHEN** the user deletes a Profile with slot 3
+- **THEN** the Leakshield settings of slot 3 stay
+
+### Requirement: Initial Profiles and shared slots
+At first start the daemon SHALL create the Default Profile and three more Profiles with the slots 2, 3 and 4. Several Profiles MAY have the same slot, and they then share the Leakshield settings of the slot. A new Profile SHALL take the slot of the Profile it copies, and the slot of the active Profile when it is created from the current state.
+
+#### Scenario: First start
+- **WHEN** the daemon starts with no state
+- **THEN** it creates the Default Profile with slot 1 and three Profiles with the slots 2, 3 and 4
+
+#### Scenario: Shared settings
+- **WHEN** two Profiles have slot 2 and the user changes a Leakshield setting of that slot
+- **THEN** both Profiles use the new value
+
+### Requirement: Change the slot of a Profile
+The user SHALL be able to change the slot of a Profile, except the Default Profile. A slot outside 1 to 4 SHALL be refused. When the Profile is active, the daemon SHALL apply the new slot as an activation does.
+
+#### Scenario: Change the slot
+- **WHEN** the user changes the slot of a Profile from 3 to 4
+- **THEN** the Profile uses the Leakshield settings of slot 4, and the settings of slot 3 do not change
+
+#### Scenario: Slot out of range
+- **WHEN** a client sets the slot of a Profile to 5
+- **THEN** the daemon refuses with `InvalidArgument`
+
+#### Scenario: Change the slot of the Default Profile
+- **WHEN** a client sets the slot of the Default Profile
+- **THEN** the daemon refuses with `InvalidArgument`
+
+#### Scenario: Change the slot of the active Profile
+- **WHEN** the user changes the slot of the active Profile and the device reports another number
+- **THEN** the daemon applies the new slot as an activation does
 
 ### Requirement: Default Profile
-A Default Profile SHALL always exist and SHALL NOT be deletable. It SHALL be active when no Profile rule wins and no manual activation exists. A change that the user makes while it is active SHALL go into it.
+A Default Profile SHALL always exist and SHALL NOT be deletable. It SHALL be active when no Rule group wins and no manual activation exists. A change to a Curve that the user makes while it is active SHALL go into it.
 
-#### Scenario: No rule wins
-- **WHEN** no rule condition has held for its Rule delay and no manual activation exists
+#### Scenario: No group wins
+- **WHEN** no Rule group has held for its Rule delay and no manual activation exists
 - **THEN** the Default Profile is active
 
 #### Scenario: Delete the Default Profile
@@ -44,11 +82,11 @@ A Default Profile SHALL always exist and SHALL NOT be deletable. It SHALL be act
 - **THEN** the Default Profile holds the new Curve
 
 ### Requirement: Activate as one unit
-Activating a Profile SHALL apply its Curves and its Leakshield snapshot as one unit.
+Activating a Profile SHALL apply its Curves and the Leakshield settings of its slot as one unit.
 
 #### Scenario: Activation
 - **WHEN** the user activates a Profile
-- **THEN** the Curves and the Leakshield values of the Profile become active
+- **THEN** the Curves of the Profile and the Leakshield values of its slot become active
 
 ### Requirement: Partial switch
 When the Leakshield part of a Profile switch fails with a write error, the Curves SHALL stay applied. The API SHALL report the state "Curves applied, Leakshield failed" and offer the restore of the backup.
@@ -57,41 +95,45 @@ When the Leakshield part of a Profile switch fails with a write error, the Curve
 - **WHEN** a Profile switch applies the Curves and the write of the report 3 fails
 - **THEN** the Profile state is "Curves applied, Leakshield failed" and the restore is offered
 
-### Requirement: Write only when the profile number differs
-A Profile switch SHALL write the stored whole report 3 of a Leakshield, as stored, only when the device profile number of the Profile differs from the number that the device reports in report 1 `active_profile`. It SHALL NOT compare bytes and SHALL NOT read the report back.
+### Requirement: Write only when the slot differs
+A Profile switch SHALL write the stored whole report 3 of the slot of the Profile to a Leakshield, as stored, only when the slot number differs from the number that the device reports in report 1 `active_profile`. It SHALL NOT compare bytes and SHALL NOT read the report back. A switch between two Profiles with the same slot SHALL write only the Curves.
 
 #### Scenario: Device already has the number
-- **WHEN** the user activates a Profile and the device already reports the number of that Profile
+- **WHEN** the user activates a Profile and the device already reports the slot number of that Profile
 - **THEN** the daemon writes nothing to the Leakshield
 
 #### Scenario: Different number
 - **WHEN** the user activates a Profile and the device reports another number
-- **THEN** the daemon writes the whole stored report 3 as stored, and does not read it back
+- **THEN** the daemon writes the whole stored report 3 of the slot as stored, and does not read it back
+
+#### Scenario: Two Profiles on one slot
+- **WHEN** the user switches from a Profile with slot 2 to another Profile with slot 2
+- **THEN** the daemon applies the Curves of the second Profile and writes nothing to the Leakshield
 
 ### Requirement: Write in any Mode
 A Profile switch SHALL write the Leakshield also while an Action runs and while the Mode is RELEASE.
 
 #### Scenario: Action running
-- **WHEN** a Test runs and a time rule activates a Profile with another number
+- **WHEN** a Test runs and a Rule group activates a Profile with another slot
 - **THEN** the Curves apply and the daemon writes the stored report 3 to the Leakshield
 
 #### Scenario: Mode RELEASE
-- **WHEN** the Mode is RELEASE and a Profile with another number and Mode SHIELD is activated
+- **WHEN** the Mode is RELEASE and a Profile with another slot and Mode SHIELD is activated
 - **THEN** the daemon writes the stored report 3
 
 ### Requirement: Write only to a matching device
-A Profile switch SHALL NOT write a Leakshield whose firmware is unknown, whose firmware differs from the firmware of the stored report 3, or whose serial differs from the serial of the stored report 3.
+A Profile switch SHALL NOT write a Leakshield whose firmware is unknown, whose firmware differs from the firmware of the stored report 3 of the slot, or whose serial differs from the serial of that report 3.
 
 #### Scenario: Different firmware
-- **WHEN** the stored settings come from another firmware version than the device runs
+- **WHEN** the stored settings of the slot come from another firmware version than the device runs
 - **THEN** the daemon writes no Leakshield setting and reports "Curves applied, Leakshield failed"
 
 #### Scenario: Other serial
-- **WHEN** the stored report 3 comes from a Leakshield with another serial than the device
+- **WHEN** the stored report 3 of the slot comes from a Leakshield with another serial than the device
 - **THEN** the daemon writes no Leakshield setting and reports "Curves applied, Leakshield failed"
 
 ### Requirement: Leakshield write spacing
-The daemon SHALL write a Profile switch to the Leakshield at once when no write waits and the last profile write is older than 2 seconds. Otherwise it SHALL keep only the newest request and write it 1.5 seconds after the last profile write. It SHALL send the save-settings command 4 seconds after the last report 3 write.
+The daemon SHALL write a Profile switch that needs a Leakshield write at once when no write waits and the last profile write is older than 2 seconds. Otherwise it SHALL keep only the newest request and write it 1.5 seconds after the last profile write. It SHALL send the save-settings command 4 seconds after the last report 3 write.
 
 #### Scenario: Write at once
 - **WHEN** a Profile switch needs a write, no write waits and the last profile write is 10 seconds old
@@ -106,120 +148,151 @@ The daemon SHALL write a Profile switch to the Leakshield at once when no write 
 - **THEN** it sends one save-settings command 4 seconds after that write
 
 ### Requirement: Overwrite external changes
-Activating a Profile whose device profile number differs from the number of the device SHALL write the Profile snapshot over a Leakshield setting that another tool changed.
+Activating a Profile whose slot number differs from the number of the device SHALL write the settings of the slot over a Leakshield setting that another tool changed.
 
 #### Scenario: External change overwritten
-- **WHEN** the device button changed a field and the user activates a Profile with another number
-- **THEN** the field takes the value of the Profile
+- **WHEN** the device button changed a field and the user activates a Profile with another slot
+- **THEN** the field takes the value of the slot
 
 #### Scenario: External change kept
-- **WHEN** the device button changed a field and the user activates the Profile whose number the device already reports
+- **WHEN** the device button changed a field and the user activates a Profile whose slot number the device already reports
 - **THEN** the field keeps the value that the button set
 
-### Requirement: Profile rules
-A Profile rule SHALL activate a Profile on a condition: a running process, a time or a sensor threshold. The daemon SHALL evaluate the rules in list order every tick.
+### Requirement: Rule groups
+A Rule group SHALL hold an ordered list of Profile rules and a target Profile. A group SHALL hold when it is enabled and all its rules hold. The daemon SHALL evaluate the groups in list order every tick. The first group that holds, and has held for the Rule delay, SHALL activate its Profile. When no group holds, the Default Profile SHALL be active. The daemon SHALL NOT offer hotkeys as a rule kind, because Wayland has no standard global shortcut.
 
-#### Scenario: Process rule
-- **WHEN** a process named by a rule starts
-- **THEN** the rule condition becomes true within 2 seconds
+#### Scenario: All rules hold
+- **WHEN** a group has a process rule and a time rule, and both hold
+- **THEN** the group holds
 
-#### Scenario: Sensor threshold
-- **WHEN** a sensor rises above the threshold of a rule
-- **THEN** the rule condition becomes true
+#### Scenario: One rule does not hold
+- **WHEN** a group has a process rule that holds and a time rule that does not hold
+- **THEN** the group does not hold
 
-#### Scenario: Two rules true
-- **WHEN** the conditions of the second and the fourth rule in the list have both held for their Rule delay
-- **THEN** the second rule wins and activates its Profile
+#### Scenario: Two groups hold
+- **WHEN** the second and the fourth group in the list have both held for the Rule delay
+- **THEN** the second group wins and activates its Profile
 
-### Requirement: Rule semantics
-The daemon SHALL evaluate the three rule types as `docs/api.md` defines them, in section Profile rule parameters.
+#### Scenario: Group without rules
+- **WHEN** a group has no rule
+- **THEN** the group never holds
+
+#### Scenario: Disabled group
+- **WHEN** all rules of a disabled group hold
+- **THEN** the group does not hold
+
+### Requirement: Rule kinds
+The daemon SHALL evaluate four rule kinds as `docs/api.md` defines them, in section Rule groups: a sensor comparison with a hold time, a process list, weekdays with a time window, and an interval timer.
+
+#### Scenario: Sensor comparison
+- **WHEN** a sensor rule has the comparison `gt` and the value 50, and the sensor reads 55
+- **THEN** the rule holds after its hold time
+
+#### Scenario: Sensor inside a range
+- **WHEN** a sensor rule has the comparison `in_range` with the values 30 and 40, and the sensor reads 35
+- **THEN** the rule holds after its hold time
+
+#### Scenario: Sensor hold time
+- **WHEN** the sensor of a rule with the hold time 60 s meets the comparison for 20 s and then leaves it
+- **THEN** the rule does not hold
+
+#### Scenario: Sensor without a value
+- **WHEN** the sensor of a sensor rule has no value
+- **THEN** the rule does not hold
 
 #### Scenario: Process name
-- **WHEN** a rule matches the name `game` and a process runs with `comm` `game` or an executable `/opt/x/game`
-- **THEN** the rule condition is true, and a process `Game` does not match
+- **WHEN** a process rule lists the name `game` and a process runs with `comm` `game` or an executable `/opt/x/game`
+- **THEN** the rule holds, and a process `Game` also matches, because the match ignores case
 
-#### Scenario: Process command line
-- **WHEN** a rule matches the command line with the pattern `Render` and a process has `--mode render` in its command line
-- **THEN** the rule condition is true
+#### Scenario: Command line match
+- **WHEN** a process rule lists `Cyberpunk2077.exe` with `match_on` `cmdline`, and a Proton game runs whose executable is the Wine loader
+- **THEN** the rule holds, because the command line of the process contains the name
+
+#### Scenario: Process list modes
+- **WHEN** a process rule lists two names, and only one of them runs
+- **THEN** the match `any` holds, the match `all` does not hold and the match `none` does not hold
 
 #### Scenario: Time range across midnight
 - **WHEN** a time rule has the days Friday to Saturday, start 22:00 and end 02:00
-- **THEN** the condition is true on Saturday at 01:00, because the range belongs to Friday
+- **THEN** the rule holds on Saturday at 01:00, because the range belongs to Friday
 
-#### Scenario: Threshold above
-- **WHEN** a threshold rule has the direction `above` and the value 50, and the sensor reads 55
-- **THEN** the condition is true
-
-#### Scenario: Threshold below
-- **WHEN** a threshold rule has the direction `below` and the value 50, and the sensor reads 45
-- **THEN** the condition is true
-
-#### Scenario: Threshold debounce
-- **WHEN** the sensor of a threshold rule crosses the value for 10 seconds and returns
-- **THEN** the rule does not activate its Profile, because the Rule delay is the debounce
+#### Scenario: Interval timer
+- **WHEN** an interval rule has the interval 600 s, the start delay 60 s and the duration 120 s
+- **THEN** the rule holds from 60 s to 180 s after the start of each period of 600 s
 
 ### Requirement: Edge-triggered activation
-A Profile rule SHALL activate its Profile only when it becomes the winning rule. It SHALL NOT activate the Profile again on later ticks while it stays the winner.
+A Rule group SHALL activate its Profile only when it becomes the winning group. It SHALL NOT activate the Profile again on later ticks while it stays the winner.
 
-#### Scenario: Rule stays true
-- **WHEN** a rule has won and its condition stays true for 100 ticks
+#### Scenario: Group stays true
+- **WHEN** a group has won and holds for 100 ticks
 - **THEN** the daemon activates its Profile once
 
-#### Scenario: Setting changed while the rule is true
-- **WHEN** a rule has won and the device button changes a Leakshield setting
-- **THEN** the daemon does not write the Profile snapshot over the change
+#### Scenario: Setting changed while the group holds
+- **WHEN** a group has won and the device button changes a Leakshield setting
+- **THEN** the daemon does not write the settings of the slot over the change
 
 ### Requirement: Rule delay
-Each Profile rule SHALL have its own Rule delay timer. The winning rule SHALL be the first rule in list order whose condition has held for the Rule delay. The Rule delay SHALL be a setting that applies to every rule. Its default SHALL be 30 seconds.
+Each Rule group SHALL have its own Rule delay timer. The winning group SHALL be the first group in list order that has held for the Rule delay. The Rule delay SHALL be a setting that applies to every group. Its default SHALL be 30 seconds.
 
-#### Scenario: Condition lasts
-- **WHEN** a condition stays true for 30 seconds with the default Rule delay
-- **THEN** the rule wins and activates its Profile
+#### Scenario: Group holds
+- **WHEN** a group holds for 30 seconds with the default Rule delay
+- **THEN** the group wins and activates its Profile
 
 #### Scenario: Rule delay changed
-- **WHEN** the user sets the Rule delay to 10 seconds and a condition stays true for 10 seconds
-- **THEN** the rule wins and activates its Profile
+- **WHEN** the user sets the Rule delay to 10 seconds and a group holds for 10 seconds
+- **THEN** the group wins and activates its Profile
 
-#### Scenario: Condition ends early
-- **WHEN** the condition becomes false after 10 seconds
-- **THEN** the rule does not activate its Profile and its timer resets
+#### Scenario: Group stops early
+- **WHEN** the group stops holding after 10 seconds
+- **THEN** the group does not activate its Profile and its timer resets
 
-#### Scenario: Later rule is ready first
-- **WHEN** the third rule has held for 30 seconds and the first rule has held for 10 seconds
-- **THEN** the third rule wins, and the first rule wins when its own 30 seconds end
+#### Scenario: Later group is ready first
+- **WHEN** the third group has held for 30 seconds and the first group has held for 10 seconds
+- **THEN** the third group wins, and the first group wins when its own 30 seconds end
 
 ### Requirement: Profile dwell
-A Profile that a Profile rule activated SHALL stay active for the Profile dwell. The Profile dwell SHALL be a setting that applies to every rule. Its default SHALL be 5 minutes.
+A Profile that a Rule group activated SHALL stay active for the Profile dwell. The Profile dwell SHALL be a setting that applies to every group. Its default SHALL be 5 minutes.
 
 #### Scenario: Profile dwell changed
-- **WHEN** the user sets the Profile dwell to 1 minute and another rule asks for a switch 2 minutes after a rule activation
-- **THEN** the Profile of that rule becomes active
+- **WHEN** the user sets the Profile dwell to 1 minute and another group asks for a switch 2 minutes after a group activation
+- **THEN** the Profile of that group becomes active
 
-#### Scenario: Rule changes inside dwell
-- **WHEN** another rule asks for a switch 2 minutes after a rule activation
+#### Scenario: Group changes inside dwell
+- **WHEN** another group asks for a switch 2 minutes after a group activation
 - **THEN** the active Profile stays until the dwell ends
 
-#### Scenario: No rule wins after the dwell
-- **WHEN** the condition of the winning rule becomes false 2 minutes after its activation and no other rule wins
+#### Scenario: No group wins after the dwell
+- **WHEN** the winning group stops holding 2 minutes after its activation and no other group wins
 - **THEN** its Profile stays active until the dwell ends, and then the Default Profile becomes active
 
 ### Requirement: Immediate switching
-When the user turns on Immediate switching, the daemon SHALL apply Profile rule changes at once, without the Rule delay and the Profile dwell.
+When the user turns on Immediate switching, the daemon SHALL apply Rule group changes at once, without the Rule delay and the Profile dwell.
 
 #### Scenario: Immediate switching on
-- **WHEN** Immediate switching is on and a condition becomes true
-- **THEN** the rule activates its Profile in the same tick
+- **WHEN** Immediate switching is on and a group starts to hold
+- **THEN** the group activates its Profile in the same tick
 
 ### Requirement: Manual activation wins
 A Profile that the user activated by hand SHALL become active at once, also during the Profile dwell. It SHALL stay active until the user returns to automatic.
 
 #### Scenario: Rule during manual activation
-- **WHEN** a rule condition becomes true while the user holds a manual activation
+- **WHEN** a Rule group starts to hold while the user holds a manual activation
 - **THEN** the daemon does not switch Profile
 
 #### Scenario: Manual activation during the dwell
-- **WHEN** the user activates a Profile by hand 2 minutes after a rule activation
+- **WHEN** the user activates a Profile by hand 2 minutes after a group activation
 - **THEN** the Profile becomes active in the same tick
+
+### Requirement: Edits go into the active Profile and its slot
+A change to a Curve SHALL go into the active Profile. A change to a Leakshield setting that the user makes in nicecooling SHALL go into the slot of the active Profile, and so into every Profile with that slot.
+
+#### Scenario: Curve edit
+- **WHEN** the user changes a Curve while Profile A is active
+- **THEN** Profile A holds the new Curve and no other Profile changes
+
+#### Scenario: Leakshield edit with a shared slot
+- **WHEN** Profile A and Profile B have slot 2, A is active, and the user changes a Leakshield setting
+- **THEN** slot 2 holds the new value and Profile B uses it when activated
 
 ### Requirement: Profiles with critical values
 Saving a Profile that contains Mode RELEASE SHALL NOT need admin authorization.

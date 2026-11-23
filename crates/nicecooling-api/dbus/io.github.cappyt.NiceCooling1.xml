@@ -263,7 +263,7 @@
       <annotation name="io.github.cappyt.NiceCooling1.Authorization" value="write"/>
       <arg name="action" type="s" direction="in"/>
     </method>
-    <!-- Fails with NotSupported when the registry has no cancel command for this firmware. -->
+    <!-- Sends cancel_action (command 12, code 0). Fails with NotSupported when the registry of this firmware has no such command. -->
     <method name="CancelAction">
       <annotation name="io.github.cappyt.NiceCooling1.Authorization" value="write"/>
     </method>
@@ -271,8 +271,12 @@
     <method name="SyncClock">
       <annotation name="io.github.cappyt.NiceCooling1.Authorization" value="write"/>
     </method>
-    <!-- Fails with NotSupported when the registry has no clear command for this firmware. -->
-    <method name="ClearPumpRuntime">
+    <!-- Sends reset_refill_history (command 13). Fails with NotSupported when the registry of this firmware has no such command. -->
+    <method name="ResetRefillHistory">
+      <annotation name="io.github.cappyt.NiceCooling1.Authorization" value="write"/>
+    </method>
+    <!-- Sends reset_service_counter (command 25000, serial XOR 0xFFFFFFFF). Fails with NotSupported when the registry of this firmware has no such command. -->
+    <method name="ResetServiceCounter">
       <annotation name="io.github.cappyt.NiceCooling1.Authorization" value="write"/>
     </method>
     <!-- (device time us, event identifier, details) -->
@@ -353,7 +357,7 @@
     <property name="RuleDelaySeconds" type="u" access="read"/>
     <property name="DwellSeconds" type="u" access="read"/>
 
-    <!-- copy_from / creates the Profile from the current state -->
+    <!-- copy_from / creates the Profile from the current state. The new Profile takes the Leakshield slot of the Profile it copies (of the active Profile for /). -->
     <method name="CreateProfile">
       <annotation name="io.github.cappyt.NiceCooling1.Authorization" value="write"/>
       <arg name="name" type="s" direction="in"/>
@@ -373,21 +377,23 @@
       <annotation name="io.github.cappyt.NiceCooling1.Authorization" value="write"/>
       <arg name="enabled" type="b" direction="in"/>
     </method>
-    <!-- Applies to every rule. Defaults 30 and 300. -->
+    <!-- Applies to every Rule group. Defaults 30 and 300. -->
     <method name="SetRuleTiming">
       <annotation name="io.github.cappyt.NiceCooling1.Authorization" value="write"/>
       <arg name="rule_delay_s" type="u" direction="in"/>
       <arg name="dwell_s" type="u" direction="in"/>
     </method>
-    <!-- Ordered list: (rule id, profile, type process|time|threshold, enabled, parameters) -->
-    <method name="GetRules">
+    <!-- (group id, holds, since us or 0); api.md, section Rule groups -->
+    <property name="RuleGroupState" type="a(sbt)" access="read"/>
+    <!-- Ordered list of Rule groups: (group id, target profile, enabled, rules). A rule is (kind sensor|process|time|interval, parameters); api.md gives the keys of each kind. -->
+    <method name="GetRuleGroups">
       <annotation name="io.github.cappyt.NiceCooling1.Authorization" value="read"/>
-      <arg name="rules" type="a(sosba{sv})" direction="out"/>
+      <arg name="groups" type="a(soba(sa{sv}))" direction="out"/>
     </method>
-    <!-- Replaces the list. An empty rule id creates a rule. Returns the ids in list order. -->
-    <method name="SetRules">
+    <!-- Replaces the list. An empty group id creates a group. Returns the group ids in list order. -->
+    <method name="SetRuleGroups">
       <annotation name="io.github.cappyt.NiceCooling1.Authorization" value="write"/>
-      <arg name="rules" type="a(sosba{sv})" direction="in"/>
+      <arg name="groups" type="a(soba(sa{sv}))" direction="in"/>
       <arg name="ids" type="as" direction="out"/>
     </method>
 
@@ -408,11 +414,18 @@
       <annotation name="org.freedesktop.DBus.Property.EmitsChangedSignal" value="const"/>
     </property>
     <property name="ContainsRelease" type="b" access="read"/>
+    <!-- Leakshield slot, 1 to 4. The Default Profile has slot 1. -->
+    <property name="Slot" type="y" access="read"/>
     <method name="SetName">
       <annotation name="io.github.cappyt.NiceCooling1.Authorization" value="write"/>
       <arg name="name" type="s" direction="in"/>
     </method>
-    <!-- Fails with DefaultProfile on the Default Profile, with InUse while a rule points to it. -->
+    <!-- Fails with InvalidArgument for a slot outside 1 to 4 and for the Default Profile. -->
+    <method name="SetSlot">
+      <annotation name="io.github.cappyt.NiceCooling1.Authorization" value="write"/>
+      <arg name="slot" type="y" direction="in"/>
+    </method>
+    <!-- Fails with DefaultProfile on the Default Profile, with InUse while a Rule group points to it. The Leakshield slot of the Profile stays. -->
     <method name="Delete">
       <annotation name="io.github.cappyt.NiceCooling1.Authorization" value="write"/>
     </method>

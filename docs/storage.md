@@ -18,14 +18,17 @@ systemd creates the directory with `StateDirectory=nicecooling` and `StateDirect
 |---|---|---|
 | `state.json` | JSON | Global state, see below. |
 | `profiles/<profile id>/profile.json` | JSON | One Profile, see below. |
-| `profiles/<profile id>/leakshield/<leakshield id>/report3.bin` | binary | The whole report 3 with its report ID byte, as the device produced it, except the `device_profile` byte (the Profile number) and the CRC that follows it. A Profile activation writes it when the device profile number differs. |
-| `profiles/<profile id>/assets/<leakshield id>/<asset id>.bin` | binary | Display assets of the Profile. The asset write path is open until the reverse engineering answers it. |
+| `leakshield/<leakshield id>/slot-<n>/report3.bin` | binary | The Leakshield settings of slot n (1 to 4): the whole report 3 with its report ID byte, as the device produced it, except the `device_profile` byte (the number n) and the CRC that follows it. Every Profile with slot n uses it. A Profile activation writes it when n differs from report 1 `active_profile`. |
+| `leakshield/<leakshield id>/slot-<n>/meta.json` | JSON | `{"schema_version":1, "firmware", "structure"}` of the stored `report3.bin`. |
+| `leakshield/<leakshield id>/slot-<n>/assets/<asset id>.bin` | binary | Display assets of slot n. The asset write path is open until the reverse engineering answers it. |
 | `bios-snapshot.json` | JSON | The BIOS snapshot, see below. |
 | `lease.json` | JSON | The takeover lease: `{"schema_version":1,"created_us":<t>,"boot_id":"<from /proc/sys/kernel/random/boot_id>"}`. The file exists from before the first manual write until a restore whose read-back matches. |
 | `leakshield/<leakshield id>/last-known-report3.bin` | binary | Report 3 with its report ID byte, as the daemon last read or wrote it. External change detection compares against it, also after a daemon restart. |
 | `backups/<leakshield id>/<UTC yyyymmddThhmmssZ>-<sha256 first 12 hex>/` | directory | One backup: `report3.bin`, `report5.bin`, `report8.bin` (each with its report ID byte) and `meta.json`. |
 
 Every JSON file above has a `.lkg` copy, except `lease.json` and the backup `meta.json`.
+
+The daemon creates the files of the four slots of a Leakshield when it first reads the Leakshield. Each slot gets a copy of the report 3 of the device with its own number and a valid CRC. A Profile delete never deletes a slot file.
 
 ### `state.json`
 
@@ -38,10 +41,12 @@ Every JSON file above has a `.lkg` copy, except `lease.json` and the backup `met
 | `calibration_tables` | array | User tables: `{"id", "name", "points": [[rpm, lph]]}`. Presets are not stored here. |
 | `loops` | array | `{"id", "name", "pump_channels": [id], "flow_sensor", "calibration_table", "water_temperature", "leakshield", "pump_floor"}`. An absent link is `null`. |
 | `alarm_responses` | object | Map from event id to `{"response", "delay_s"}`. An event without an entry uses its default. |
-| `rules` | array | Ordered: `{"id", "profile", "type", "enabled", "params"}` with the keys of `api.md`. |
+| `rule_groups` | array | Ordered, the first group has the highest priority: `{"id", "profile", "enabled", "rules": [{"kind", "params"}]}` with the kinds and keys of `api.md`. |
 | `profiles` | object | `{"default": "profile_default", "active": <profile id>, "cause": "default"|"rule"|"manual", "immediate_switching": false, "rule_delay_s": 30, "dwell_s": 300}`. |
 
 ### `profiles/<id>/profile.json`
+
+The first start creates the Default Profile `profile_default` with slot 1 and three more Profiles with the slots 2, 3 and 4.
 
 | Key | Type | Content |
 |---|---|---|
@@ -49,10 +54,9 @@ Every JSON file above has a `.lkg` copy, except `lease.json` and the backup `met
 | `id`, `name` | string | |
 | `channels` | object | Map from Channel id to `{"control": "hardware"|"curve"|"fixed", "input", "points": [[input, duty]], "smoothing_s", "step_limit_pct_per_s", "fixed_duty"}`. |
 | `pump_floors` | object | Map from Loop id to the Pump floor in percent. |
-| `device_profile` | integer | The device profile number of the Profile (u8). The Default Profile has 1. A new Profile gets the next free number. The `device_profile` byte of every stored `report3.bin` of the Profile holds the same number, with a valid CRC. |
-| `leakshield` | object | Map from Leakshield id to `{"firmware", "structure"}` of the stored `report3.bin`. |
+| `slot` | integer | The Leakshield slot of the Profile, 1 to 4. The Default Profile has 1. Several Profiles can have the same slot. |
 
-`GetContent` returns the same keys as an `a{sv}`, plus `leakshield_fields`: for each Leakshield id, the decoded fields of the stored report 3.
+`GetContent` returns the same keys as an `a{sv}`, plus `leakshield_fields`: for each Leakshield id, the decoded fields of the stored report 3 of the slot of the Profile.
 
 ### `bios-snapshot.json`
 

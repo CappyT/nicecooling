@@ -111,9 +111,9 @@ Comp: `comps/leakshield-overview.html`.
 
 ## Process picker
 
-- The same popover as the sensor picker. Rows are the running processes: the process name in bold, the command line as a caption, one row per name.
+- The same popover as the sensor picker. Rows are the running processes: the process name in bold, the command line as a caption, one row per name. The rule can list several names: the picker is multi-select.
 - The search field also accepts a name that does not run now: the first row is then "Use 'name'".
-- A caption under the list says: "A rule matches the process name."
+- A caption under the list says: "A rule matches the process name, without case."
 
 ## Diff table
 

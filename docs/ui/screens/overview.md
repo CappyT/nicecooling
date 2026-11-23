@@ -14,7 +14,7 @@ From the top:
 4. A row of three cards: "Active Alarms", "Key temperatures", "Active Profile".
 
 - Key temperatures: CPU, GPU, chipset and VRM. A sensor that the Board does not have is absent.
-- Active Profile: the Profile name, a tag "By rule" or "Manual", and the rule that activated it.
+- Active Profile: the Profile name, a tag "By group" or "Manual", and the Rule group that activated it.
 - Two Loops and the row of three cards fit in 1100x700 without a scroll. With an Alarm banner or a third Loop the page scrolls, and the banner stays in place.
 
 ## States
@@ -58,5 +58,5 @@ From the top:
 | Alarm row | "Large leak" and "Leakshield, since 21:46:51. Alarm response: poweroff after 30 s." |
 | Warning row | "Input lost" and "Chassis Fan 3, since 20:58. Alarm response: notify." |
 | Daemon down row | "Daemon down" and "Since 21:52:07. The daemon runs the alarm responses: none runs now." |
-| Profile card, rule | "Rule 2: time window 22:00 to 07:00." |
-| Profile card, manual | "Profile rules wait until you revoke it." |
+| Profile card, group | "Group 2: time window 22:00 to 07:00." |
+| Profile card, manual | "Rule groups wait until you revoke it." |

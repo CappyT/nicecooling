@@ -39,7 +39,7 @@ When the daemon is offline, the Loop lines are one line: "Daemon offline", and t
 | Warning | "Leak Warning" | "Leakshield, Main loop. Volume change 3.2 ml/h, limit 2.0 ml/h." | "Open nicecooling" | Normal |
 | Lost Input | "Input lost" | "Chassis Fan 3 runs at 100 % until GPU temperature returns." | "Open Channels" | Normal |
 | External change | "Leakshield setting changed outside nicecooling" | "Display brightness: 40 % -> 80 %. The next Profile activation overwrites it." | "Open Leakshield" | Normal |
-| Profile switched by a rule | "Profile: Gaming" | "Rule 1: process steam runs." | none | Low. Off by default |
+| Profile switched by a group | "Profile: Gaming" | "Group 1: process steam runs." | none | Low. Off by default |
 | Poweroff cancelled | "Poweroff cancelled" | "The Large leak Alarm is still active." | "Open nicecooling" | Normal |
 
 - The title names the event. The body names the source and the consequence. No body is longer than two lines.

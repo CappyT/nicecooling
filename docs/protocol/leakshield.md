@@ -359,13 +359,13 @@ Automatic switching (P9): the aquasuite service has profile rules, which the GUI
 
 A hotkey also switches the profile. At service start the service applies the stored profile of the device.
 
-Differences between aquasuite and nicecooling. The owner decided on 2026-11-23 (gate 2.14). Items 1 to 4, 6 and 7 are adopted: a nicecooling Profile activation behaves as aquasuite does. Item 5 stays as designed.
+Differences between aquasuite and nicecooling. The owner decided on 2026-11-23 (gate 2.14). Items 1 to 4, 6 and 7 are adopted: a nicecooling Profile activation behaves as aquasuite does. Item 5 is adopted except for the hotkeys and the switch at service start.
 
 1. Comparison: adopted. nicecooling compares the device profile number of the Profile with the number of the device (report 1 `active_profile`). It does not compare bytes.
 2. Volatile bytes: adopted. nicecooling writes the stored report 3 as stored. The volatile mask is empty now, so this has no effect yet.
 3. Mode: adopted. nicecooling writes also while an Action runs or the Mode is RELEASE. The owner accepted the risk that a time rule writes SHIELD on an open loop (ADR-0007).
 4. Rate limits: adopted for the Leakshield write. nicecooling writes at once when no write waits and the last profile write is older than 2 s. Else it keeps only the newest request and writes it 1.5 s after the last write. The Rule delay (30 s) and the Profile dwell (5 min) stay as rule timing: they decide when a rule activates a Profile.
-5. Triggers: not adopted. aquasuite has rule groups (all rules of a group must hold), sensor rules with a hold time, process rules, time rules, interval rules, hotkeys and a switch at service start. nicecooling has single process, time and threshold rules with one Rule delay and one Profile dwell, and no interval rules and no hotkeys.
+5. Triggers: adopted, with Rule groups as in aquasuite: a group holds when all its rules hold, the first holding group activates its Profile, and the Default Profile is active when no group holds. The rule kinds are a sensor comparison with a hold time, a process list, weekdays with a time window and an interval timer. Not adopted: hotkeys, because Wayland has no standard global shortcut, and the switch at service start. nicecooling keeps one Rule delay and one Profile dwell for all groups (item 4).
 6. Firmware and device: adopted for the serial. nicecooling checks the serial of the device before a write and writes the stored report 3 only to the Leakshield with that serial. An unknown firmware stays read-only, and a Profile with a report 3 of another firmware than the device runs is not written.
 7. Read-back: adopted. A Profile write has no read-back. A write error gives "Curves applied, Leakshield failed". A write that the user starts in nicecooling keeps its read-back (design D11).
 
@@ -400,4 +400,4 @@ Thus the device uses the start values of report 3 for some time without a Feed, 
 | Device clock offsets | `device_clock` at offset 35, validity bit 2 of `status_bits` at offset 15, `local_time` at offset 39 | P5 |
 | Write path of display assets | Report 8 feature write of the whole struct with a new CRC. No save-settings command follows | P7 |
 | Command that cancels an Action | Report 2 command 12 with code 0 (`cancel_action`). The aquasuite debug page sends it with its "Stop" button | P4 |
-| Command that clears the pump runtime | The code does not define one. "Reset pump history" of aquasuite clears only the aquasuite log on the PC. Command 13 (`reset_refill_history`) is the "Reset history" button under the refill history table. Command 25000 (`reset_service_counter`, the serial XOR 0xFFFFFFFF) is the "Reset service counter" button in a hidden service section. The code does not say which report 1 counters these two commands clear | P4 |
+| Command that clears the pump runtime | The device has none. "Reset pump history" of aquasuite clears only the aquasuite log on the PC, so nicecooling has no such function. Command 13 (`reset_refill_history`) is the "Reset history" button under the refill history table. Command 25000 (`reset_service_counter`, the serial XOR 0xFFFFFFFF) is the "Reset service counter" button in a hidden service section. The code does not say which report 1 values these two commands clear | P4 |

@@ -27,8 +27,8 @@ Terms that the safety decisions use (`GLOSSARY.md` has the full list):
 - **Mode**: the persistent state of the Leakshield: SHIELD, MONITOR or RELEASE. RELEASE releases the vacuum so that the loop can be opened. The protection is off.
 - **Action**: a temporary Leakshield procedure: Test, Measure fill level, Deaerate or Refill. In this design, "polkit action" always names a polkit permission, never an Action.
 - **Safety field**: a Leakshield setting that affects the leak protection. **Verified field**: a setting that nicecooling may write.
-- **Device profile number**: the number that the Leakshield holds as its current profile (report 1 `active_profile`). Each Profile has one, and a Profile activation writes the Leakshield only when the numbers differ.
-- **Profile rule**: a condition that activates a Profile. The **Rule delay** is how long the condition must hold. The **Profile dwell** is the minimum time the Profile stays active.
+- **Leakshield slot**: a number from 1 to 4 that is also the device profile number (report 1 `active_profile`, report 3 `device_profile`). The Leakshield settings are stored per slot. Each Profile references one slot, and a Profile activation writes the Leakshield only when the slot number differs from the number of the device.
+- **Profile rule**: one condition of a Rule group. A **Rule group** holds when all its rules hold, and then activates its Profile. The **Rule delay** is how long a group must hold. The **Profile dwell** is the minimum time the Profile stays active.
 - **BIOS snapshot**: the writable `pwmN*` attributes of all Channels, as the Board had them before nicecooling took control.
 
 ## Goals / Non-Goals
@@ -38,13 +38,13 @@ Terms that the safety decisions use (`GLOSSARY.md` has the full list):
 - Without a user session, the daemon runs the Curves, sends the Feed message, evaluates the Alarms and runs the alarm responses.
 - From the end of the alarm delay to power off, at most 60 s pass.
 - nicecooling writes only Verified fields to the Leakshield.
-- The domain core (Loops, Curves, Profiles, Profile rules, Alarms) runs in tests without hardware.
+- The domain core (Loops, Curves, Profiles, Rule groups, Alarms) runs in tests without hardware.
 
 **Non-Goals:**
 
 - Leakshield firmware update, Board RGB and Corsair devices, GPU fan control (ADR-0004).
 - Write support for other Aqua Computer devices (ADR-0004). Their sensors still appear through generic hwmon discovery when the kernel driver exposes them.
-- Profile rules on suspend and resume.
+- Profile rules on suspend and resume, and hotkeys as a rule kind.
 - Water-to-air delta T in this version: no air probe exists. The Derived sensor type difference stays available.
 - A dedicated CLI: `busctl` covers scripting.
 - A hand-edited configuration file.
@@ -56,7 +56,7 @@ The Cargo workspace has these crates under `crates/`:
 
 | Crate | Content |
 |---|---|
-| `nicecooling-core` | Domain types, the tick stages, Curves, Profiles, Profile rules, Alarms and a simulated clock. |
+| `nicecooling-core` | Domain types, the tick stages, Curves, Profiles, Rule groups, Alarms and a simulated clock. |
 | `nicecooling-protocol` | Leakshield report codecs, the field registry (`registry/leakshield.toml`, compiled in), the Feed message and the CRC. |
 | `nicecooling-hwmon` | The sysfs layer, discovery and Board files. |
 | `nicecooling-api` | The zbus interface definitions, the error names and the authorization map. |
@@ -119,7 +119,7 @@ Rejected: `hidapi` and `libudev`. Both need C libraries. `nusb` watches hot-plug
 
 ### D1. Processes (ADR-0002, ADR-0005)
 
-- `nicecoolingd`: root, systemd service, Tokio. It owns hwmon writes, hidraw and the bulk endpoint, and it runs the tick, the Profile rules and the Alarms.
+- `nicecoolingd`: root, systemd service, Tokio. It owns hwmon writes, hidraw and the bulk endpoint, and it runs the tick, the Rule groups and the Alarms.
 - `nicecooling`: GPUI app, started at login with `--background` through XDG autostart. It owns the tray icon, the notifications and the history.
 - Shared crates: the domain core, the protocol codecs, the hwmon layer and the D-Bus interface definitions.
 
@@ -127,10 +127,10 @@ Rejected: one process in the user session, because Curves and the Feed message m
 
 ### D2. State storage
 
-The daemon owns all state in `/var/lib/nicecooling/`: Loops, names, Calibration tables, Curves, Profiles, Profile rules, alarm responses, options, the BIOS snapshot and the backups. `docs/storage.md` defines the files and their schemas. Nobody hand-edits a configuration file. Scripts use `busctl`.
+The daemon owns all state in `/var/lib/nicecooling/`: Loops, names, Calibration tables, Curves, Profiles, Rule groups, alarm responses, options, the BIOS snapshot and the backups. `docs/storage.md` defines the files and their schemas. Nobody hand-edits a configuration file. Scripts use `busctl`.
 
 - systemd creates the directory with `StateDirectory=nicecooling` and `StateDirectoryMode=0700`.
-- Each Profile lives in one place, with its Leakshield snapshot and its binary assets.
+- Each Profile lives in one place. The Leakshield settings and their binary assets live per Leakshield and per slot.
 - Every write is atomic: temporary file, `fsync`, rename, `fsync` of the directory.
 - Each file carries a schema version. The daemon keeps a last-known-good copy.
 - A file with a higher schema version is not written. The daemon loads the last-known-good copy and raises the `state-fallback` Warning.
@@ -184,7 +184,7 @@ Every second the daemon runs these stages in order:
 1. Read the value table.
 2. Compute Derived sensors and calibrated flows.
 3. Evaluate the Alarms.
-4. Evaluate the Profile rules.
+4. Evaluate the Rule groups.
 5. Compute each Curve from its smoothed Input.
 6. Apply the Duty step limit.
 7. Apply the Pump floor.
@@ -278,7 +278,8 @@ Rejected: a user write without a second read, because another tool can change re
 - The Feed message has 16 slots: slot 0 is the pump speed, slot 1 is the flow, slots 2 and 3 are spare, and slots 4 to 15 are the 12 Software sensors.
 - The aquasuite code does not define what the Leakshield does when the Feed stops. Task 5.11 measures it.
 - The daemon refuses a Refill while a Pump channel of the same Loop reads above 0 rpm (ADR-0007).
-- `CancelAction` fails with `NotSupported` until the registry has a cancel command for the firmware. `ClearPumpRuntime` uses the command that the reverse engineering documents (task 2.9).
+- `CancelAction` sends `cancel_action` (command 12, code 0). It fails with `NotSupported` only when the registry of the device firmware lacks the command.
+- The device has no command that clears the pump runtime. "Reset pump history" of aquasuite clears only a log on the PC, so nicecooling has no such function. `ResetRefillHistory` sends `reset_refill_history` (command 13). `ResetServiceCounter` sends `reset_service_counter` (command 25000, parameter: serial XOR 0xFFFFFFFF). Both are `write` class and fail with `NotSupported` when the registry of the firmware lacks the command. The code does not say which report 1 values they clear.
 - The Leakshield stamps its event list and its time-controlled vacuum generation with its clock, and it has no battery for it. The user can set the device clock from the PC clock at any offset (`SyncClock`). The daemon sets the device clock by itself only when the device time differs from the PC time by more than 60 s. This is its only Leakshield write without a user action or a Profile activation.
 - A manual check reads `fan2_input` and `fan3_input` of the kernel hwmon device `leakshield`. They show that the device accepted the Feed.
 
@@ -298,28 +299,29 @@ Rejected: a forced poweroff from the daemon after a time bound. systemd stops th
 
 Rejected: the plain logind `PowerOff` call. Since systemd 257, logind obeys block inhibitors for root, so the poweroff can fail.
 
-### D14. Profiles and Profile rules (profiles, ADR-0006, ADR-0007)
+### D14. Profiles, Leakshield slots and Rule groups (profiles, ADR-0006, ADR-0007)
 
-- A Default Profile always exists and cannot be deleted. It is active when no rule wins and no manual activation exists. A change made then goes into it. When the winning rule stops winning, its Profile stays until the Profile dwell ends, and then the Default Profile becomes active.
-- Each rule has its own Rule delay timer. The winner is the first rule in list order whose condition has held for its Rule delay.
-- A rule activates its Profile only when it becomes the winner. It does not write again on later ticks.
-- Rule semantics (`docs/api.md`, section Profile rule parameters):
-  - A process rule matches the name (exact, case-sensitive, on the basename of `/proc/<pid>/exe` or on `comm`) or the command line (case-insensitive substring).
+- A Default Profile always exists and cannot be deleted. It is active when no Rule group wins and no manual activation exists. A Curve change made then goes into it. When the winning group stops holding, its Profile stays until the Profile dwell ends, and then the Default Profile becomes active.
+- Rule groups follow the aquasuite model (`docs/protocol/leakshield.md`, section Device profiles in aquasuite). The groups are an ordered list. A group holds when it is enabled and all its rules hold. The first group that holds activates its Profile. Without a holding group, the Default Profile is active. Each group has its own Rule delay timer. The winner is the first group in list order that has held for the Rule delay.
+- A group activates its Profile only when it becomes the winner. It does not write again on later ticks.
+- Rule kinds (`docs/api.md`, section Rule groups):
+  - A sensor rule compares a sensor value with `lt`, `le`, `eq`, `ge`, `gt`, `ne` or `in_range`, and the comparison must hold for a hold time. A sensor without a value makes the rule false.
+  - A process rule lists names and matches `any`, `all` or `none`. A name equals, without case, `comm` or the basename of `/proc/<pid>/exe`. The daemon scans `/proc` every second.
   - A time rule has ISO weekdays and a range in minutes after midnight, in system local time. A range that ends before it starts crosses midnight and belongs to the day of its start.
-  - A threshold rule has a sensor, a direction (`above` or `below`) and a value. The Rule delay is the debounce.
-- A manual activation wins over every rule at once, also during the Profile dwell. It stays until the user returns to automatic (`ReturnToAutomatic`).
-- The Rule delay and the Profile dwell are settings of the daemon. They apply to every rule. `SetRuleTiming` changes them. The defaults are 30 s and 5 min (300 s). Immediate switching removes both.
-- A change made in nicecooling goes into the active Profile at once, with no confirm step.
-- A Profile stores the whole report 3 of each Leakshield, as the device produced it, as aquasuite does.
-- Each Profile has a device profile number (u8), as aquasuite does (`docs/protocol/leakshield.md`, section Device profiles in aquasuite). The number is in `profile.json` and in the `device_profile` byte of each stored report 3. The daemon sets the byte and the CRC when it stores a report in the Profile. The Default Profile keeps the number 1, which the device has now. A new Profile gets the next free number. The valid range is open (see Open Questions).
-- A switch writes the Curves, then, for each Leakshield, the stored whole report 3 as stored. It writes only when the device profile number of the Profile differs from report 1 `active_profile` of the device. It does not compare bytes and does not read the report back. The save-settings command follows 4 s after the last report 3 write (the worker timer of D11). The backup step of D11 applies before the write.
-- The write goes out also while an Action runs and while the Mode is RELEASE. The owner accepted the risk that a time rule writes SHIELD on an open loop (ADR-0007).
-- Spacing, as in aquasuite: a request writes at once when no write waits and the last profile write is older than 2 s. Otherwise the worker keeps only the newest request and writes it 1.5 s after the last profile write. The Rule delay and the Profile dwell still decide when a rule activates a Profile.
-- The daemon writes no Leakshield part when the firmware of the device is unknown, when it differs from the firmware of the stored report, or when the serial differs from the serial of the stored report. It reports `leakshield-failed`.
+  - An interval rule has an interval, a start delay and a duration. It holds from the start delay to the start delay plus the duration, in each period.
+  - There is no hotkey rule: Wayland has no standard global shortcut. aquasuite also switches at service start. nicecooling does not: the daemon start writes nothing to the Leakshield.
+- The Rule delay and the Profile dwell are settings of the daemon. They apply to every group. `SetRuleTiming` changes them. The defaults are 30 s and 5 min (300 s). Immediate switching removes both. A window of an interval rule that is shorter than the Rule delay never wins, unless Immediate switching is on.
+- A manual activation wins over every Rule group at once, also during the Profile dwell. It stays until the user returns to automatic (`ReturnToAutomatic`).
+- A Curve change made in nicecooling goes into the active Profile at once, with no confirm step. A Leakshield setting change goes into the slot of the active Profile, so into every Profile with that slot.
+- The Leakshield settings live per Leakshield and per slot, as aquasuite stores them: the whole report 3 of the device and the binary assets, in `leakshield/<leakshield id>/slot-<n>/` (`docs/storage.md`). A Profile has no Leakshield data of its own.
+- Each Profile references one Leakshield slot (1 to 4), as the four fixed slots of aquasuite (`docs/protocol/leakshield.md`, section Device profile numbers). The number of Profiles is not limited. The Default Profile has slot 1 and its slot cannot change. The first start creates three more Profiles with the slots 2, 3 and 4. A new Profile takes the slot of the Profile it copies (of the active Profile for a new Profile from the current state). The user can change the slot of a Profile (`SetSlot`). The number is in `profile.json` as `slot` and in the `device_profile` byte of the stored report 3 of the slot. The daemon sets the byte and the CRC when it stores a report in a slot. When the daemon first reads a Leakshield, it copies the report 3 of the device into the four slots, each with its own number.
+- A switch writes the Curves, then, for each Leakshield, the stored whole report 3 of the slot as stored. It writes only when the slot number of the Profile differs from report 1 `active_profile` of the device. A switch between two Profiles with the same slot writes only the Curves. It does not compare bytes and does not read the report back. The save-settings command follows 4 s after the last report 3 write (the worker timer of D11). The backup step of D11 applies before the write. `SetSlot` on the active Profile runs the same switch for the new slot.
+- The write goes out also while an Action runs and while the Mode is RELEASE. The owner accepted the risk that a Rule group writes SHIELD on an open loop (ADR-0007).
+- Spacing, as in aquasuite: a request writes at once when no write waits and the last profile write is older than 2 s. Otherwise the worker keeps only the newest request and writes it 1.5 s after the last profile write. The Rule delay and the Profile dwell still decide when a Rule group activates a Profile.
+- The daemon writes no Leakshield part when the firmware of the device is unknown, when it differs from the firmware of the stored report of the slot, or when the serial differs from the serial of that report. It reports `leakshield-failed`.
 - A switch can thus write bytes of fields that are not Verified fields. The device produced these bytes on the same firmware (owner decision).
-- After a Profile write, the daemon stores the written report as the last known report 3 (D11). After a verified write that the user started in nicecooling, the daemon stores the read-back report 3 in the active Profile.
+- After a Profile write, the daemon stores the written report as the last known report 3 (D11). After a verified write that the user started in nicecooling, the daemon stores the read-back report 3 in the slot of the active Profile.
 - When the write of the Leakshield part fails, the Profile shows "Curves applied, Leakshield failed" and offers the restore.
-- Process rules scan `/proc` every 2 s.
 
 Rejected: Profile rules on suspend and resume. They need a logind inhibitor and a bypass of the delay and the dwell. They also need a full Leakshield write in a window of about 5 s, and they have no effect on Curves. The reconcile rule of D7 covers resume.
 
@@ -356,7 +358,7 @@ Rejected: a history database in `/var/lib` written by the daemon (ADR-0005).
 
 - Protocol codecs: golden tests on dumps of the reference device, and on the golden bytes of the out-of-tree driver for the Feed message.
 - hwmon layer: tests on a fake sysfs tree. The fixture for the reference Board comes from the real attribute list, with an `amdgpu` node that has `pwm1`.
-- Domain core: unit tests for the tick stages, Curves, Pump floor, Profile rules, timers and Alarms with a simulated clock.
+- Domain core: unit tests for the tick stages, Curves, Pump floor, Rule groups, timers and Alarms with a simulated clock.
 - D-Bus: integration tests on a private `dbus-daemon` with a simulated hardware layer. An `Authorizer` trait has a polkit implementation and a test implementation. The test harness builds the daemon library with the test implementation. The release binary has no switch for it.
 - Fakes: logind, the notification server and the StatusNotifierWatcher run as fakes on the private bus. The AppIndicator extension of GNOME ships the interface XML files for them.
 - A simulated Leakshield device (`nicecooling-protocol/src/sim.rs`, behind the Cargo feature `sim` that only dev-dependencies enable) serves the write path and the hot-plug tests.
@@ -398,6 +400,6 @@ Files that remain after removal: `/var/lib/nicecooling/` and the user history in
 
 ## Open Questions
 
-- The command that clears the pump runtime. The aquasuite code does not define it. Candidates: `reset_refill_history` (13) and `reset_service_counter` (25000). The cancel command is `cancel_action` (command 12, code 0).
+- The report 1 values that `reset_refill_history` and `reset_service_counter` clear. The aquasuite code does not say.
 - The behavior of the Leakshield when the Feed stops. The aquasuite code does not define it. Task 5.11 measures it.
 - The license of nicecooling and its compatibility with CoolerControl (GPL-3.0), before any distribution.
