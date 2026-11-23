@@ -91,11 +91,17 @@ impl Read for FileReader {
 }
 
 impl Source {
-    pub fn new(reader: impl Read + Send + 'static, len: u64) -> Self {
-        Self {
+    /// `len` is the number of bytes that the reader gives: 1 byte to 16 MiB.
+    pub(crate) fn new(reader: impl Read + Send + 'static, len: u64) -> Result<Self, PackageError> {
+        if len == 0 || len > MAX_FILE_BYTES {
+            return Err(invalid(format!(
+                "the database has {len} bytes, the limit is {MAX_FILE_BYTES}"
+            )));
+        }
+        Ok(Self {
             reader: Box::new(reader),
             len,
-        }
+        })
     }
 
     /// Checks the descriptor: a regular file of 1 byte to 16 MiB.
@@ -106,13 +112,7 @@ impl Source {
         if !meta.is_file() {
             return Err(invalid("the descriptor is not a regular file"));
         }
-        if meta.len() == 0 || meta.len() > MAX_FILE_BYTES {
-            return Err(invalid(format!(
-                "the file has {} bytes, the limit is {MAX_FILE_BYTES}",
-                meta.len()
-            )));
-        }
-        Ok(Self::new(FileReader { file, offset: 0 }, meta.len()))
+        Self::new(FileReader { file, offset: 0 }, meta.len())
     }
 }
 
@@ -315,17 +315,9 @@ impl PackageReader {
         .await
     }
 
-    pub async fn list_source(&self, source: Source) -> Result<Vec<ImageRow>, PackageError> {
+    #[cfg(test)]
+    pub(crate) async fn list_source(&self, source: Source) -> Result<Vec<ImageRow>, PackageError> {
         self.run(move || Ok(source), |conn| rows(&conn)).await
-    }
-
-    pub async fn read_source(
-        &self,
-        source: Source,
-        id: i64,
-    ) -> Result<(ImageRow, Vec<u8>), PackageError> {
-        self.run(move || Ok(source), move |conn| read_row(&conn, id))
-            .await
     }
 
     /// `source` runs on the blocking thread, after the slot is taken and inside the time limit: the
@@ -743,7 +735,8 @@ mod tests {
                 inner: Cursor::new(bytes.clone()),
             },
             bytes.len() as u64,
-        );
+        )
+        .unwrap();
         let first = tokio::spawn({
             let reader = reader.clone();
             async move { reader.list_source(slow).await }
@@ -772,7 +765,8 @@ mod tests {
                 inner: Cursor::new(bytes.clone()),
             },
             bytes.len() as u64,
-        );
+        )
+        .unwrap();
         let result = reader.list_source(slow).await;
         assert!(
             matches!(result, Err(PackageError::InvalidArgument(_))),
@@ -1036,7 +1030,8 @@ mod tests {
                 inner: Cursor::new(bytes.clone()),
             },
             bytes.len() as u64,
-        );
+        )
+        .unwrap();
         let first = tokio::spawn({
             let reader = reader.clone();
             async move { reader.list_source(slow).await }
@@ -1077,5 +1072,17 @@ mod tests {
             "{:?}",
             result.map(|(_, d)| d.len())
         );
+    }
+
+    #[test]
+    fn source_new_bounds_the_length() {
+        for len in [0, MAX_FILE_BYTES + 1] {
+            let result = Source::new(Cursor::new(Vec::new()), len);
+            assert!(
+                matches!(result, Err(PackageError::InvalidArgument(_))),
+                "{len}"
+            );
+        }
+        assert!(Source::new(Cursor::new(Vec::new()), MAX_FILE_BYTES).is_ok());
     }
 }
