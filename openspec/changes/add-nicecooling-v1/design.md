@@ -437,7 +437,7 @@ Every new property emits `PropertiesChanged` when its value changes, except the 
 
 - An override exists only for an event `leakshield.*` and a Leakshield id. The other events keep one row each. A Leakshield id comes from the serial, so a new device never takes the id of an old one.
 - Resolution when an instance rises: the forced `notify` of a firmware update (change `add-leakshield-firmware-update`), then the override of (event, Leakshield), then the default of the event, then the built-in default.
-- `SetResponse` with source `""` sets the default of the event. With a source: an event that is not `leakshield.*` fails with `InvalidArgument`, and a source that is not a known Leakshield id (the identity map of the state, connected or not) fails with `NotFound`.
+- `SetResponse` with source `""` sets the default of the event. With a source: an event that is not `leakshield.*` fails with `InvalidArgument`, and a source that is not a known Leakshield id fails with `NotFound`. A known Leakshield is one that the daemon attached since its start, connected or not.
 - `ResetResponse(event, "")` sets the default of the event back to the built-in default. `ResetResponse(event, source)` removes the override. It accepts any stored key, also the key of a Leakshield that no longer exists.
 - `GetResponses` returns, in the event order of `api.md`: one row per event with source `""` and override false, then, for each `leakshield.*` event, one resolved row per known Leakshield, with override true when an override exists.
 - `state.json` stores an override under the key `<event>@<source>`. A state file without overrides loads as before.
