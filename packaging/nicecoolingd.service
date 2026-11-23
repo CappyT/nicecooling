@@ -1,0 +1,18 @@
+[Unit]
+Description=NiceCooling fan and Leakshield daemon
+StartLimitIntervalSec=60s
+StartLimitBurst=5
+
+[Service]
+Type=notify
+ExecStart=/usr/libexec/nicecoolingd
+ExecStopPost=/usr/libexec/nicecoolingd --restore-bios
+WatchdogSec=10s
+TimeoutAbortSec=5s
+Restart=on-failure
+RestartSec=2s
+StateDirectory=nicecooling
+StateDirectoryMode=0700
+
+[Install]
+WantedBy=multi-user.target
