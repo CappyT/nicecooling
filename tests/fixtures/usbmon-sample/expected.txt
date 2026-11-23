@@ -1,0 +1,11 @@
+feature report 32 length: 1042 bytes with the report ID (8328 bits, interface 1)
+bootloader interfaces: 2: 0 (class 0x03, 1 endpoints), 1 (class 0x03, 1 endpoints)
+SET_REPORT dev 5 output id 0x02 wLength 11 ACK t=0.100
+SET_REPORT dev 6 feature id 0x20 wLength 1042 ACK t=1.000
+SET_REPORT dev 6 feature id 0x20 wLength 1042 STALL t=1.060
+SET_REPORT dev 6 feature id 0x20 wLength 1042 timeout t=1.120
+SET_REPORT dev 6 output id 0x02 wLength 11 ACK t=1.700
+first chunk, first 32 bytes: 20 00 00 00 00 00 00 02 00 00 40 00 00 00 04 00 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01
+time to enter the bootloader: 0.251 s
+time to leave the bootloader: 1.401 s
+bootloader report 1: 64 bytes, count 2, first t=0.400: 01 00 01 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
