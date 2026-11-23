@@ -19,9 +19,10 @@ systemd creates the directory with `StateDirectory=nicecooling` and `StateDirect
 | `state.json` | JSON | Global state, see below. |
 | `profiles/<profile id>/profile.json` | JSON | One Profile, see below. |
 | `leakshield/<leakshield id>/slot-<n>/report3.bin` | binary | The Leakshield settings of slot n (1 to 4): the whole report 3 with its report ID byte, as the device produced it, except the `device_profile` byte (the number n) and the CRC that follows it. Every Profile with slot n uses it. A Profile activation writes it when n differs from report 1 `active_profile`. |
-| `leakshield/<leakshield id>/slot-<n>/meta.json` | JSON | `{"schema_version":1, "firmware", "structure", "serial"}` of the stored `report3.bin`. `serial` is the text form of the Leakshield serial that produced the report. A Profile activation writes the report only to a device with that serial and that firmware. |
+| `leakshield/<leakshield id>/slot-<n>/meta.json` | JSON | `{"schema_version":1, "firmware", "structure", "serial", "edited"}` of the stored `report3.bin`. `serial` is the text form of the Leakshield serial that produced the report. A Profile activation writes the report only to a device with that serial and that firmware. `edited` is a boolean. It is true when `SetStoredFields` changed the report. A file without `edited` reads as false. The next activation of an edited slot uses the verified write path (read-back), and a good read-back sets `edited` to false. |
 | `leakshield/<leakshield id>/slot-<n>/assets/<asset id>.bin` | binary | Display assets of slot n. The asset write path is open until the reverse engineering answers it. |
 | `bios-snapshot.json` | JSON | The BIOS snapshot, see below. |
+| `alarm-history.json` | JSON | The Alarm history, see below. |
 | `lease.json` | JSON | The takeover lease: `{"schema_version":1,"created_us":<t>,"boot_id":"<from /proc/sys/kernel/random/boot_id>"}`. The file exists from before the first manual write until a restore whose read-back matches. |
 | `leakshield/<leakshield id>/last-known-report3.bin` | binary | Report 3 with its report ID byte, as the daemon last read or wrote it. External change detection compares against it, also after a daemon restart. |
 | `backups/<leakshield id>/<UTC yyyymmddThhmmssZ>-<sha256 first 12 hex>/` | directory | One backup: `report3.bin`, `report5.bin`, `report8.bin` (each with its report ID byte) and `meta.json`. |
@@ -40,7 +41,7 @@ The daemon creates the files of the four slots of a Leakshield when it first rea
 | `derived_sensors` | array | `{"id", "name", "type", "sources": [sensor id]}`. |
 | `calibration_tables` | array | User tables: `{"id", "name", "points": [[rpm, lph]]}`. Presets are not stored here. |
 | `loops` | array | `{"id", "name", "pump_channels": [id], "flow_sensor", "calibration_table", "water_temperature", "leakshield", "pump_floor"}`. An absent link is `null`. |
-| `alarm_responses` | object | Map from event id to `{"response", "delay_s"}`. An event without an entry uses its default. |
+| `alarm_responses` | object | Map from key to `{"response", "delay_s"}`. The key `<event>` is the default of the event. The key `<event>@<source>` is the override of a `leakshield.*` event for the Leakshield `<source>`. A key without an entry uses the next step of the resolution (`api.md`, Alarm response per Leakshield). A state file without `@` keys loads as before. |
 | `rule_groups` | array | Ordered, the first group has the highest priority: `{"id", "profile", "enabled", "rules": [{"kind", "params"}]}` with the kinds and keys of `api.md`. |
 | `software_sensors` | object | Map from Leakshield id to a map from slot number ("1" to "12") to the sensor id in that slot. An empty slot has no entry. |
 | `profiles` | object | `{"default": "profile_default", "active": <profile id>, "cause": "default"|"rule"|"manual", "immediate_switching": false, "rule_delay_s": 30, "dwell_s": 300}`. |
@@ -58,6 +59,17 @@ The first start creates the Default Profile `profile_default` with slot 1 and th
 | `slot` | integer | The Leakshield slot of the Profile, 1 to 4. The Default Profile has 1. Several Profiles can have the same slot. |
 
 `GetContent` returns the same keys as an `a{sv}`, plus `leakshield_fields`: for each Leakshield id, the decoded fields of the stored report 3 of the slot of the Profile, with the variant types of `GetFields` (`api.md`, Leakshield fields).
+
+### `alarm-history.json`
+
+| Key | Type | Content |
+|---|---|---|
+| `schema_version` | integer | 1 |
+| `rows` | array | The rows, oldest raise first. At most 1000 rows with severity `alarm` and 1000 with severity `warning`. |
+
+A row holds `instance`, `event`, `severity`, `source`, `response`, `raised_us`, `cleared_us` (0 while active), `outcome` (`api.md`, Alarm history), `closed_by_restart` (boolean) and `details`. `details` maps a key to `{"<signature>": value}`, with the signature `d`, `u`, `s` or `o`.
+
+The file follows the common rules, with one change: the history has its own writer. A row change marks the history dirty and the writer saves at most once per second. A change to `poweroff-requested` saves at once, before the call to logind. The daemon saves the history at stop. A damaged file loads the `.lkg` copy, else an empty history, and the daemon logs it. `StateHealth` does not change, because the history controls nothing.
 
 ### `bios-snapshot.json`
 

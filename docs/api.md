@@ -33,7 +33,30 @@ The daemon keeps the map from identifier to hardware identity in its state (`sto
 - Duty is a percent from 0 to 100 as `d`. Raw is the `pwmN` value 0-255.
 - Temperatures in degrees Celsius, flow in L/h, pressure in mbar, volumes in ml, times in microseconds since the Unix epoch (`t`) unless an argument name says `_s`.
 - `SensorsUpdated` flags, `sensors` array: bit 0 no value (stale for more than 3 s, or missing), bit 1 out of range of its Calibration table.
-- `SensorsUpdated` flags, `channels` array: bit 0 override active (Lost Input or pump stop), bit 1 on its Hardware curve.
+- `SensorsUpdated` flags, `channels` array: bit 0 override active (Lost Input or pump stop), bit 1 on its Hardware curve, bit 2 the Curve readout is valid (see Curve readout).
+- A time that this file adds with design D18 (`LastFeed`, `DwellUntil`, `BiosSnapshot`, the history rows) is in microseconds since the Unix epoch. The daemon reads the wall clock at the transition. A later change of the wall clock does not move a stored time.
+
+## Channel snapshot, fan sensor and Curve readout
+
+- `Channel.BiosSnapshot` (`(ta(ss))`, const) holds the snapshot time and the attributes of the Channel in `bios-snapshot.json`, in restore order (name, value as sysfs text). `(0, [])` means that the daemon holds no snapshot. `(t, [])` means that the snapshot has no entry for the Channel. The daemon does not decode the attributes. The app reads `pwm<N>_auto_point<K>_temp` (millidegree Celsius) and `pwm<N>_auto_point<K>_pwm` (0 to 255) from them.
+- `Channel.FanSensor` (`o`, const) is the sensor `<chip>_fan<N>` of the Channel `<chip>_pwm<N>`, or `/` when it does not exist. The daemon uses the pairing rule of the pump-stop Alarm (`tach_sensor` in `nicecooling-core/src/loops.rs`).
+- `SensorsUpdated` `channels` is `a(sdddy)`: id, Duty, smoothed Input, Curve target, flags. The smoothed Input is the mean of the smoothing window. The target is the Curve value at that Input.
+- Flag bit 2 is set when the Control is `curve`, no override runs and this tick added a sample to the window. Without bit 2, the smoothed Input and the target are 0.
+- The Curve stage clears the window of a Channel on Lost Input and when `SetCurve` changes the Input sensor. The readout never shows a mean of old samples or of two sensors.
+
+## Feed state
+
+- `Leakshield.FeedState` (`s`) is `off`, `waiting`, `ok` or `failing`.
+- `off`: no Loop links the Leakshield, the registry does not cover its firmware, the device is disconnected, or a firmware update runs. `waiting`: the Feed is on and no send result exists yet. `ok`: the last send succeeded. `failing`: the last send failed.
+- `Leakshield.LastFeed` (`(tdd)`) holds the time of the last good send, the pump speed in rpm and the flow in L/h that the message carried. Before the first good send it is `(0, 0, 0)`. It changes with each good send, about once a second.
+- A change of `FeedState` to `off` resets the failing time of the value table.
+
+## Leakshield slot and pressure data
+
+- `Leakshield.ActiveSlot` (`y`) is `active_profile` of report 1. It is 0 when the daemon does not know it.
+- `Leakshield.FailedWriteBackup` (`s`) is the backup id of the last Profile write of this Leakshield that failed. It is empty after a good Profile write and after `RestoreBackup`. An activation takes one backup for each Leakshield, so the id is a property of the Leakshield and not an argument of `ProfileActivated`.
+- The sensors `<leakshield id>_pressure_setpoint`, `<leakshield id>_pressure_low` and `<leakshield id>_pressure_high` come from report 1 (offsets 293, 291 and 295, 0.1 mbar). Their kind is `pressure` and their unit is mbar.
+- Every new property of the Leakshield and Profiles interfaces emits `PropertiesChanged` when its value changes. The const properties do not.
 
 ## Event identifiers
 
@@ -57,11 +80,48 @@ Alarms and Warnings use one identifier each. The app maps an identifier to its t
 | `leakshield.leak-alarm` | alarm | Leakshield id: the large leak Alarm, bit 5 or bit 6 |
 | `leakshield.system-alarm` | alarm | Leakshield id: the system Alarm, any of the bits 7 to 10 |
 
-The Leakshield events follow the groups of `docs/protocol/leakshield.md`. A group Alarm is active while any of its bits is set in `alarm_bits` or in `alarm_bits_latched`, as in aquasuite. It closes when both words are clear for the group. A bit that goes in `alarm_bits` while its latched bit stays does not close the instance and does not restart its countdown. `Leakshield.ResetAlarms` sends `reset_alarm` (command 11, parameter 0) to clear the latched bits. The device decides which bits it clears: the hardware check of task 5.11 measures it. The Alarm closes in the tick after the next report 1 that shows both words clear for its group. A group is one event and one alarm response: bits 5 and 6 together are one large leak instance. The alarm response table (`GetResponses`) has one row for each event of this table, not one row for each bit. The event list of the device (`GetEvents`, codes 100 to 110) keeps the name of each bit.
+The Leakshield events follow the groups of `docs/protocol/leakshield.md`. A group Alarm is active while any of its bits is set in `alarm_bits` or in `alarm_bits_latched`, as in aquasuite. It closes when both words are clear for the group. A bit that goes in `alarm_bits` while its latched bit stays does not close the instance and does not restart its countdown. `Leakshield.ResetAlarms` sends `reset_alarm` (command 11, parameter 0) to clear the latched bits. The device decides which bits it clears: the hardware check of task 5.11 measures it. The Alarm closes in the tick after the next report 1 that shows both words clear for its group. A group is one event and one alarm response: bits 5 and 6 together are one large leak instance. The alarm response table (`GetResponses`) has one row for each event of this table, not one row for each bit. A `leakshield.*` event has in addition one row for each known Leakshield. The event list of the device (`GetEvents`, codes 100 to 110) keeps the name of each bit.
 
-An instance is one raise of an event for one source. Its identifier is `alarm_<start>_<n>`: `<start>` is the start time of the daemon in microseconds since the Unix epoch and `<n>` counts the instances of that start from 1. An identifier is unique across daemon restarts, so a cancel from a notification of an earlier start never reaches another instance. The alarm response of an instance is the response of its event when the instance rises. A change with `SetResponse` applies to the instances that rise after it. `CancelPoweroff` ends a pending countdown or retry, and the Alarm stays active. It returns `NoPoweroff` for an instance that has no pending poweroff and for an unknown instance, and `PoweroffStarted` for an instance whose call to logind is under way or was accepted: the PC powers off and no `PoweroffCancelled` follows. The daemon counts a logind call that does not answer in 10 s as failed: it emits `PoweroffFailed` and calls again after 5 s. A response `poweroff` with `delay_s` 0 calls logind in the tick where the instance rises.
+An instance is one raise of an event for one source. Its identifier is `alarm_<start>_<n>`: `<start>` is the start time of the daemon in microseconds since the Unix epoch and `<n>` counts the instances of that start from 1. An identifier is unique across daemon restarts, so a cancel from a notification of an earlier start never reaches another instance. The alarm response of an instance is the resolved response when the instance rises (see Alarm response per Leakshield). A change with `SetResponse` or `ResetResponse` applies to the instances that rise after it. `CancelPoweroff` ends a pending countdown or retry, and the Alarm stays active. It returns `NoPoweroff` for an instance that has no pending poweroff and for an unknown instance, and `PoweroffStarted` for an instance whose call to logind is under way or was accepted: the PC powers off and no `PoweroffCancelled` follows. The daemon counts a logind call that does not answer in 10 s as failed: it emits `PoweroffFailed` and calls again after 5 s. A response `poweroff` with `delay_s` 0 calls logind in the tick where the instance rises.
 
 Each active Alarm or Warning (`Alarms.Active`) and each `AlarmRaised` signal carries `details` (`a{sv}`) for the notification text: `value` (`d`) and `limit` (`d`) in `unit` (`s`) when the event compares a value with a limit, and `sensor` (`o`) when a sensor caused it, and `bits` (`u`) for a Leakshield event: the bits of `alarm_bits` that are set now in the group of the event (bits 5 and 6 for the large leak), `latched_bits` (`u`) holds the bits of `alarm_bits_latched` in the same group. The `bits` and `latched_bits` of an active instance follow the two words; the signal carries them at the raise. A key is absent when it does not apply.
+
+## Alarm response per Leakshield
+
+- `SetResponse(event, source, response, delay_s)` and `ResetResponse(event, source)` are class `write`. `GetResponses` returns `a(sssub)`: event, source, response, delay, override.
+- Source `""` is the default of the event. An override exists only for an event `leakshield.*` and the id of a Leakshield. A Leakshield id comes from the serial, so a new device never takes the id of an old one.
+- Resolution when an instance rises, first match wins: the forced `notify` of a firmware update, the override of (event, Leakshield), the default of the event, the built-in default.
+- `SetResponse` with source `""` sets the default of the event. With a source, an event that is not `leakshield.*` fails with `InvalidArgument`, and a source that is not a known Leakshield id fails with `NotFound`. The known ids are the identity map of the state, connected or not.
+- `ResetResponse(event, "")` sets the default of the event back to its built-in default. `ResetResponse(event, source)` removes the override. It accepts any stored key, also the key of a Leakshield that no longer exists.
+- `GetResponses` returns, in the event order of the table above: one row for each event with source `""` and override false. Then, for each `leakshield.*` event, one resolved row for each known Leakshield. A row has override true when an override exists.
+- `GetDeviceResponseProposals` uses the resolved response of each Leakshield for the `double-poweroff` overlap.
+- `state.json` stores an override under the key `<event>@<source>` (`storage.md`).
+
+## Alarm history
+
+- `Alarms.GetHistory(since_us, limit)` is class `read`. It returns `a(sssssttsa{sv})`: instance, event, severity, source, response, raised_us, cleared_us, outcome, details. `cleared_us` is 0 while the instance is active. `details` has the keys of `Active`.
+- It returns the rows that were active at or after `since_us`: `cleared_us` is 0 or at least `since_us`. The newest raise comes first. It returns at most `limit` rows, and `limit` 0 means no limit.
+- The history keeps the last 1000 Alarm rows and the last 1000 Warning rows. Each group drops its oldest row. A Warning that flaps does not push Alarms out.
+- The outcome of a row:
+
+  | Outcome | Meaning |
+  |---|---|
+  | `none` | The response was `none`. Final. |
+  | `notified` | The response was `notify`. Final. |
+  | `poweroff-pending` | The countdown runs. |
+  | `poweroff-cancelled` | `CancelPoweroff` ended the countdown or the retry wait. Final. |
+  | `poweroff-stopped` | The instance cleared before the call to logind, or in the retry wait. Final. |
+  | `poweroff-requested` | The call to logind went out. The app shows "PC powered off". |
+  | `poweroff-failed` | The call to logind failed. A retry gives `poweroff-requested`. |
+
+- Changes: `poweroff-pending` goes to `poweroff-cancelled`, `poweroff-stopped` or `poweroff-requested`. `poweroff-requested` goes to `poweroff-failed` on `PoweroffFailed`. `poweroff-failed` goes to `poweroff-requested` on the retry, to `poweroff-cancelled` on a cancel in the retry wait, and to `poweroff-stopped` on a clear.
+- At start, the daemon closes every row of an earlier start that has `cleared_us` 0. `cleared_us` becomes the start time of this daemon and the row is marked closed by restart (`closed_by_restart` in the file). An instance that is still active rises again as a new instance.
+- A change to `poweroff-requested` is on disk before the call to logind.
+- The file is `alarm-history.json` (`storage.md`).
+
+## Profile dwell
+
+`Profiles.DwellUntil` (`t`) is the time of the last switch to the active Profile plus the Profile dwell. It holds that time only while the cause is `rule`, Immediate switching is off and the time is in the future. Otherwise it is 0. A daemon restart restarts the dwell, so the time then counts from the daemon start. The daemon computes it again on an activation, a change of the cause, `SetRuleTiming`, `SetImmediateSwitching` and `ReturnToAutomatic`, and sets it to 0 when the dwell ends.
 
 ## Read-only reasons
 
@@ -88,6 +148,20 @@ Each active Alarm or Warning (`Alarms.Active`) and each `AlarmRaised` signal car
 - `GetBackup` returns the firmware version of the backup, then reports 3, 5 and 8. `ImportBackup` takes the firmware as its first argument, then the three reports. The daemon stores the backup with that firmware.
 - `ImportBackup` fails with `NotSupported` when the field registry does not cover the firmware. It fails with `InvalidArgument` for a wrong size, a bad CRC, a field out of its range or another structure id than the device has.
 - `RestoreBackup` refuses a backup whose firmware differs from the firmware of the device.
+
+## Stored slot settings
+
+- `Leakshield.GetStoredFields(slot) -> a{sv}` is class `read`. `Leakshield.SetStoredFields(slot, fields)` is class `write`. They read and change the stored report 3 of a slot (`storage.md`). They use the field ids and the variant types of Leakshield fields.
+- Both methods run as a job of the write worker of the Leakshield. They are serialized with Profile writes and `SetFields`. The check of the active slot runs inside the job.
+- They use the firmware and the structure in the `meta.json` of the slot, not report 1. They work while the device is disconnected. They send nothing to the device.
+- Errors, in this order:
+  1. A slot outside 1 to 4: `InvalidArgument`.
+  2. A slot with no stored report 3: `NotFound`.
+  3. A stored firmware that the field registry does not cover: `NotSupported`.
+  4. For `SetStoredFields` only: the slot of report 1 `active_profile`: `InvalidArgument` (use `SetFields`).
+  5. For `SetStoredFields` only: per field the rules of `SetFields`: `InvalidArgument` or `NotVerified`. The field `device_profile` fails with `InvalidArgument`.
+- `SetStoredFields` decodes the stored report 3, changes the fields, encodes it and computes the CRC again. It writes `report3.bin` atomically and sets `edited` to true in `meta.json`.
+- The next activation of an edited slot uses the verified write path of design D11: backup, write, read-back. A good read-back clears `edited`. A failed read-back keeps it and reports `leakshield-failed`. The rule of design D14 that the device produced the stored bytes does not hold for an edited slot.
 
 ## Leakshield events and Software sensors
 
@@ -167,8 +241,8 @@ Error names have the prefix `io.github.cappyt.NiceCooling1.Error.`. polkit denia
 
 | Error | When |
 |---|---|
-| `InvalidArgument` | A value out of range or above a limit, an unknown identifier type, a Curve with fewer than 2 points, points not sorted by Input, or a number that is not finite. |
-| `NotFound` | An object or an identifier does not exist. |
+| `InvalidArgument` | A value out of range or above a limit, a slot outside 1 to 4, `SetStoredFields` for the active slot or for the field `device_profile`, `SetResponse` with a source for an event that is not `leakshield.*`, an unknown identifier type, a Curve with fewer than 2 points, points not sorted by Input, or a number that is not finite. |
+| `NotFound` | An object or an identifier does not exist, a slot with no stored report 3, or a source of `SetResponse` that is not a known Leakshield. |
 | `InUse` | A delete of a sensor, Calibration table or Profile that something else uses. A Rule group that targets a Profile uses it. |
 | `DefaultProfile` | A delete of the Default Profile. |
 | `ReadOnly` | A write to a preset, to a Leakshield that is read-only (`ResetAlarms` included), or a `SetCurve` or `SetFixedDuty` on a Channel without a BIOS snapshot entry (`no-bios-snapshot`). The message holds the reason identifier. |
@@ -180,7 +254,7 @@ Error names have the prefix `io.github.cappyt.NiceCooling1.Error.`. polkit denia
 | `Disconnected` | The device is not connected. |
 | `NoPoweroff` | `CancelPoweroff` for an instance with no pending poweroff. |
 | `PoweroffStarted` | `CancelPoweroff` for an instance whose call to logind is under way or was accepted. |
-| `NotSupported` | `ImportBackup` with a firmware that the field registry does not cover. `CancelAction`, `ResetAlarms`, `ResetRefillHistory`, `ResetServiceCounter` or `FactoryReset` when the field registry of the device firmware lacks the command (`cancel_action`, `reset_alarm`, `reset_refill_history`, `reset_service_counter`, `factory_defaults`). |
+| `NotSupported` | `ImportBackup`, `GetStoredFields` or `SetStoredFields` with a firmware that the field registry does not cover. `CancelAction`, `ResetAlarms`, `ResetRefillHistory`, `ResetServiceCounter` or `FactoryReset` when the field registry of the device firmware lacks the command (`cancel_action`, `reset_alarm`, `reset_refill_history`, `reset_service_counter`, `factory_defaults`). |
 
 ## Authorization
 
