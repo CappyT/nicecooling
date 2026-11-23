@@ -887,10 +887,11 @@ mod tests {
         Instant::now() + READ_LIMIT
     }
 
-    /// A schema expression runs inside the root daemon. A file of a few KiB must not make SQLite
-    /// allocate far above the file bound.
+    /// A schema expression runs inside the root daemon: this one needs 120 MB of a file of a few
+    /// KiB. The process-wide memory counter of SQLite is shared with the parallel tests, so the
+    /// test checks that the expression never runs: the table check refuses the file first.
     #[tokio::test]
-    async fn generated_column_memory_stays_bounded() {
+    async fn generated_column_never_runs() {
         let dir = dir("genmem");
         let path = plain(
             &dir,
@@ -900,11 +901,12 @@ mod tests {
              INSERT INTO firmware (id, bootloader, hardware, device, data) \
              VALUES (26, 100, 1000, 'leakshield_EN', x'00');",
         );
-        unsafe { rusqlite::ffi::sqlite3_memory_highwater(1) };
-        let rows = PackageReader::default().list(open_file(&path)).await;
-        let peak = unsafe { rusqlite::ffi::sqlite3_memory_highwater(0) };
-        // Other tests of this process hold up to about 30 MiB. The expression alone needs 120 MB.
-        assert!(peak < 64 << 20, "SQLite peak {peak} bytes, result {rows:?}");
+        let opened = open(Source::from_file(open_file(&path)).unwrap(), far());
+        assert!(
+            matches!(&opened, Err(PackageError::InvalidArgument(why)) if why.contains("generated")),
+            "{:?}",
+            opened.err()
+        );
     }
 
     #[tokio::test]
