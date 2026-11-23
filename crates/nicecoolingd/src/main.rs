@@ -61,7 +61,8 @@ fn restore(paths: &Paths) -> ExitCode {
         Ok(RestoreOutcome::Restored(report)) if report.matched => ExitCode::SUCCESS,
         Ok(RestoreOutcome::Restored(report)) => {
             eprintln!(
-                "nicecoolingd: the restore does not match the snapshot: {:?}",
+                "nicecoolingd: the restore does not match the snapshot, {} Channels set to manual mode at raw 255: {:?}",
+                report.unmatched.len(),
                 report.problems
             );
             ExitCode::FAILURE

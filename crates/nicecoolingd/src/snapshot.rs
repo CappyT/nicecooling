@@ -2,7 +2,7 @@
 
 use std::collections::BTreeMap;
 use std::io;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use nicecooling_hwmon::discovery::Channel;
 use nicecooling_hwmon::identity::DeviceIdentity;
@@ -185,6 +185,8 @@ pub struct RestoreReport {
     /// Every attribute reads back as the snapshot has it.
     pub matched: bool,
     pub problems: Vec<String>,
+    /// The directory and the number of each Channel that does not read back as the snapshot.
+    pub unmatched: Vec<(PathBuf, u32)>,
 }
 
 type WriteFn<'a> = dyn FnMut(&Path, &str, &str) -> io::Result<()> + 'a;
@@ -219,9 +221,11 @@ fn readback_matches(name: &str, expected: &str, actual: &str, mode: Option<&str>
 }
 
 /// Writes the attributes of one Channel that differ from the snapshot, in the order of the
-/// snapshot, then reads all of them back. Returns the problems. For a Channel in an automatic
-/// mode (`pwmN_enable` 2 or more) the chip sets `pwmN` itself, so the restore neither writes nor
-/// reads back `pwmN` there.
+/// snapshot, then reads all of them back. Returns the problems. `nct6775` refuses a write of
+/// `pwmN` in an automatic mode (`pwmN_enable` 2 or more, EBUSY). When the Channel reads an
+/// automatic mode, a restore to an automatic mode skips `pwmN`, and a restore to manual mode
+/// writes `pwmN_enable` before `pwmN`. In an automatic mode the chip sets `pwmN`, so the
+/// read-back skips `pwmN` of a Channel automatic in the snapshot.
 pub fn restore_channel(
     dir: &Path,
     channel: &ChannelSnapshot,
@@ -236,16 +240,25 @@ pub fn restore_channel(
     };
     let n = channel.channel;
     let pwm = format!("pwm{n}");
-    let automatic = value_of(&format!("pwm{n}_enable"))
-        .and_then(|v| v.parse::<u32>().ok())
-        .is_some_and(|mode| mode >= 2);
+    let enable = format!("pwm{n}_enable");
+    let is_automatic = |v: &str| v.parse::<u32>().is_ok_and(|mode| mode >= 2);
+    let automatic = value_of(&enable).is_some_and(is_automatic);
     let mode = value_of(&format!("pwm{n}_mode"));
-    let mut problems = Vec::new();
-    for (name, value) in &channel.attributes {
-        // nct6775 refuses a write of `pwmN` in an automatic mode (EBUSY).
-        if automatic && *name == pwm {
-            continue;
+    let mut order: Vec<&(String, String)> = channel.attributes.iter().collect();
+    if read_attr(dir, &enable).is_ok_and(|v| is_automatic(&v)) {
+        if automatic {
+            order.retain(|(name, _)| *name != pwm);
+        } else if let Some(at) = order.iter().position(|(name, _)| *name == enable) {
+            let item = order.remove(at);
+            let before = order
+                .iter()
+                .position(|(name, _)| *name == pwm)
+                .unwrap_or(order.len());
+            order.insert(before, item);
         }
+    }
+    let mut problems = Vec::new();
+    for (name, value) in order {
         // A value that reads as the snapshot has it stays: nct6775 cannot write back every value
         // it reads, for example a step time of 0, which it stores as one step.
         if read_attr(dir, name).is_ok_and(|actual| actual == *value) {
@@ -276,7 +289,7 @@ pub fn restore_with(
 ) -> RestoreReport {
     let mut report = RestoreReport {
         matched: true,
-        problems: Vec::new(),
+        ..RestoreReport::default()
     };
     let devices = sysfs.hwmon_devices().unwrap_or_default();
     for chip in &snapshot.chips {
@@ -294,11 +307,25 @@ pub fn restore_with(
         };
         for channel in &chip.channels {
             let problems = restore_channel(&device.dir, channel, write);
-            report.matched &= problems.is_empty();
+            if !problems.is_empty() {
+                report.matched = false;
+                report.unmatched.push((device.dir.clone(), channel.channel));
+            }
             report.problems.extend(problems);
         }
     }
     report
+}
+
+/// Manual mode at raw 255. Returns the writes that failed.
+fn set_full_speed(dir: &Path, n: u32) -> Vec<String> {
+    [(format!("pwm{n}_enable"), "1"), (format!("pwm{n}"), "255")]
+        .into_iter()
+        .filter_map(|(name, value)| {
+            let e = write_attr(dir, &name, value).err()?;
+            Some(format!("{name}: full-speed write failed: {e}"))
+        })
+        .collect()
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -323,9 +350,13 @@ pub fn restore_bios(paths: &Paths) -> io::Result<RestoreOutcome> {
     }
     let sysfs = Sysfs::new(&paths.sysfs_root);
     if let Some(snapshot) = load_snapshot(&store) {
-        let report = restore(&sysfs, &snapshot.value);
+        let mut report = restore(&sysfs, &snapshot.value);
         if report.matched {
             lease.remove()?;
+        }
+        // After the stop nothing controls a Channel that did not go back to the snapshot.
+        for (dir, n) in &report.unmatched {
+            report.problems.extend(set_full_speed(dir, *n));
         }
         return Ok(RestoreOutcome::Restored(report));
     }
@@ -355,12 +386,9 @@ pub fn restore_bios(paths: &Paths) -> io::Result<RestoreOutcome> {
         .collect();
     let mut failed = 0;
     for channel in &channels {
-        let n = channel.number;
-        for (name, value) in [(format!("pwm{n}_enable"), "1"), (format!("pwm{n}"), "255")] {
-            if let Err(e) = write_attr(&channel.dir, &name, value) {
-                eprintln!("nicecoolingd: {}: {name}: write failed: {e}", channel.id);
-                failed += 1;
-            }
+        for problem in set_full_speed(&channel.dir, channel.number) {
+            eprintln!("nicecoolingd: {}: {problem}", channel.id);
+            failed += 1;
         }
     }
     Ok(RestoreOutcome::Fallback {
@@ -635,23 +663,10 @@ mod tests {
             outcome,
             RestoreOutcome::Restored(RestoreReport {
                 matched: true,
-                problems: vec![]
+                ..RestoreReport::default()
             })
         );
-        // In an automatic mode the chip sets `pwmN`, so the restore leaves it as it is.
-        let snapshot = env.store().load::<BiosSnapshot>(SNAPSHOT_FILE).value;
-        let automatic: Vec<String> = env
-            .chip(&snapshot)
-            .channels
-            .iter()
-            .filter(|c| !c.manual_at_snapshot)
-            .map(|c| format!("/pwm{} ", c.channel))
-            .collect();
-        let left: Vec<String> = Env::diff(&env.pwm_files(), &before)
-            .into_iter()
-            .filter(|d| !automatic.iter().any(|a| d.contains(a.as_str())))
-            .collect();
-        assert_eq!(left, Vec::<String>::new());
+        assert_eq!(Env::diff(&env.pwm_files(), &before), Vec::<String>::new());
         assert!(!env.lease().exists());
         assert!(env.state.join(SNAPSHOT_FILE).exists());
     }
@@ -688,13 +703,7 @@ mod tests {
             order.push(name.to_owned());
             Ok(())
         });
-        let manual: Vec<u32> = env
-            .chip(&snapshot)
-            .channels
-            .iter()
-            .filter(|c| c.manual_at_snapshot)
-            .map(|c| c.channel)
-            .collect();
+        // `disturb` puts every Channel in manual mode, so every Channel writes `pwmN`.
         for n in 1..=7u32 {
             let group: Vec<&String> = order
                 .iter()
@@ -703,16 +712,14 @@ mod tests {
                 })
                 .collect();
             let len = group.len();
-            assert_eq!(group[len - 1], &format!("pwm{n}_enable"));
-            if manual.contains(&n) {
-                assert_eq!(group[len - 2], &format!("pwm{n}"));
-            } else {
-                assert!(!group.contains(&&format!("pwm{n}")), "pwm{n} is automatic");
-            }
+            assert_eq!(
+                group[len - 2..],
+                [&format!("pwm{n}"), &format!("pwm{n}_enable")]
+            );
             assert!(
-                group[..len - 1]
+                group[..len - 2]
                     .iter()
-                    .all(|name| **name != format!("pwm{n}_enable"))
+                    .all(|name| **name != format!("pwm{n}") && **name != format!("pwm{n}_enable"))
             );
         }
     }
@@ -750,7 +757,7 @@ mod tests {
     }
 
     #[test]
-    fn restore_of_a_taken_automatic_channel_writes_no_pwm() {
+    fn restore_of_a_taken_automatic_channel_writes_its_duty_then_the_mode() {
         let env = Env::new("taken");
         env.prepare();
         env.lease().create("boot", 1).unwrap();
@@ -770,11 +777,64 @@ mod tests {
             busy_write(dir, name, value)
         });
         assert!(report.matched, "{:?}", report.problems);
-        assert_eq!(written, ["pwm2_enable"]);
+        assert_eq!(written, ["pwm2", "pwm2_enable"]);
         assert!(
             env.lease().exists(),
             "restore_with does not touch the lease"
         );
+    }
+
+    #[test]
+    fn restore_of_a_channel_on_a_chip_curve_writes_no_pwm() {
+        let env = Env::new("chip-curve");
+        env.prepare();
+        let snapshot = env.store().load::<BiosSnapshot>(SNAPSHOT_FILE).value;
+        // Channel 2 stays on its automatic curve, and a curve point differs from the snapshot.
+        let dir = env.chip_dir();
+        let point = read_attr(&dir, "pwm2_auto_point1_pwm").unwrap();
+        let other = if point == "10" { "11" } else { "10" };
+        write_attr(&dir, "pwm2_auto_point1_pwm", other).unwrap();
+        let mut written = Vec::new();
+        let report = restore_with(&env.fake.sysfs(), &snapshot, &mut |dir, name, value| {
+            written.push(name.to_owned());
+            busy_write(dir, name, value)
+        });
+        assert!(report.matched, "{:?}", report.problems);
+        assert_eq!(written, ["pwm2_auto_point1_pwm"]);
+        assert_eq!(read_attr(&dir, "pwm2_auto_point1_pwm").unwrap(), point);
+    }
+
+    #[test]
+    fn restore_bios_sets_full_speed_on_a_channel_that_does_not_match() {
+        let env = Env::new("unmatched");
+        env.prepare();
+        env.lease().create("boot", 1).unwrap();
+        let dir = env.chip_dir();
+        // The daemon stopped the fan of Channel 3, and a curve point of it cannot be written.
+        write_attr(&dir, "pwm3_enable", "1").unwrap();
+        write_attr(&dir, "pwm3", "0").unwrap();
+        write_attr(&dir, "pwm1_enable", "1").unwrap();
+        write_attr(&dir, "pwm1", "0").unwrap();
+        let point = env.fake.attr_path("nct6798", "pwm3_auto_point1_pwm");
+        let other = if read_attr(&dir, "pwm3_auto_point1_pwm").unwrap() == "10" {
+            "11"
+        } else {
+            "10"
+        };
+        fs::write(&point, format!("{other}\n")).unwrap();
+        let mut mode = fs::metadata(&point).unwrap().permissions();
+        std::os::unix::fs::PermissionsExt::set_mode(&mut mode, 0o444);
+        fs::set_permissions(&point, mode).unwrap();
+
+        let RestoreOutcome::Restored(report) = restore_bios(&env.paths()).unwrap() else {
+            panic!("the snapshot is readable");
+        };
+        assert!(!report.matched);
+        assert_eq!(report.unmatched, [(dir.clone(), 3)]);
+        assert_eq!(read_attr(&dir, "pwm3_enable").unwrap(), "1");
+        assert_eq!(read_attr(&dir, "pwm3").unwrap(), "255");
+        assert_eq!(read_attr(&dir, "pwm1_enable").unwrap(), "5");
+        assert!(env.lease().exists());
     }
 
     /// The write of `nct6775`: a `*_time` value becomes 1 to 255 steps of 400 ms (PWM mode).
@@ -920,6 +980,75 @@ mod tests {
         assert_eq!(
             env.prepare(),
             [("state-fallback".to_owned(), String::new())]
+        );
+    }
+
+    #[test]
+    fn restore_to_manual_leaves_the_automatic_mode_before_the_pwm_write() {
+        let env = Env::new("manual-from-auto");
+        env.prepare();
+        let mut snapshot = env.store().load::<BiosSnapshot>(SNAPSHOT_FILE).value;
+        // Channel 1 manual at raw 96 in the snapshot (BIOS "full manual" with a fixed Duty).
+        let chip = snapshot
+            .chips
+            .iter_mut()
+            .find(|c| c.hwmon_name == "nct6798")
+            .unwrap();
+        for (name, value) in &mut chip.channels[0].attributes {
+            match name.as_str() {
+                "pwm1_enable" => *value = "1".to_owned(),
+                "pwm1" => *value = "96".to_owned(),
+                _ => {}
+            }
+        }
+        chip.channels.truncate(1);
+        // Someone put the Channel on a chip curve: `echo 5 > pwm1_enable`, the chip runs it at 200.
+        let dir = env.chip_dir();
+        write_attr(&dir, "pwm1_enable", "5").unwrap();
+        write_attr(&dir, "pwm1", "200").unwrap();
+        let report = restore_with(&env.fake.sysfs(), &snapshot, &mut |dir, name, value| {
+            busy_write(dir, name, value)
+        });
+        assert_eq!(read_attr(&dir, "pwm1_enable").unwrap(), "1");
+        assert_eq!(
+            read_attr(&dir, "pwm1").unwrap(),
+            "96",
+            "manual mode at the last curve Duty, problems {:?}",
+            report.problems
+        );
+        assert!(report.matched, "{:?}", report.problems);
+    }
+
+    #[test]
+    fn restore_to_automatic_writes_the_snapshot_duty_before_the_mode() {
+        let env = Env::new("enable-fails");
+        env.prepare();
+        let snapshot = env.store().load::<BiosSnapshot>(SNAPSHOT_FILE).value;
+        let channel = &env.chip(&snapshot).channels[0];
+        assert!(!channel.manual_at_snapshot);
+        let bios_raw = channel
+            .attributes
+            .iter()
+            .find(|(n, _)| n == "pwm1")
+            .unwrap()
+            .1
+            .clone();
+        // The daemon stopped the fan (zero-RPM curve): manual mode at raw 0.
+        let dir = env.chip_dir();
+        write_attr(&dir, "pwm1_enable", "1").unwrap();
+        write_attr(&dir, "pwm1", "0").unwrap();
+        let report = restore_with(&env.fake.sysfs(), &snapshot, &mut |dir, name, value| {
+            if name == "pwm1_enable" {
+                return Err(io::Error::from_raw_os_error(libc::EIO));
+            }
+            busy_write(dir, name, value)
+        });
+        assert!(!report.matched);
+        // In manual mode the chip takes `pwm1`, so a failed mode write leaves the snapshot Duty.
+        assert_eq!(
+            read_attr(&dir, "pwm1").unwrap(),
+            bios_raw,
+            "the fan stays stopped after the daemon exits"
         );
     }
 }

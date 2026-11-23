@@ -181,6 +181,14 @@ When the daemon stops, and after a crash, the system SHALL write the BIOS snapsh
 - **WHEN** the read-back after a restore differs from the snapshot
 - **THEN** the lease stays and the next start does not refresh the snapshot
 
+#### Scenario: A Channel stays off its snapshot at the stop
+- **WHEN** `nicecoolingd --restore-bios` restores a Channel and its read-back differs from the snapshot
+- **THEN** that Channel is in manual mode at raw 255 and the command exits with an error
+
+#### Scenario: Restore from an automatic mode
+- **WHEN** a Channel reads `pwmN_enable` 2 or more at restore time
+- **THEN** the restore writes no `pwmN` while the Channel is in an automatic mode
+
 #### Scenario: Restore command without a lease
 - **WHEN** `nicecoolingd --restore-bios` runs and no lease exists
 - **THEN** it changes nothing and exits 0

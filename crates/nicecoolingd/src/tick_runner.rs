@@ -268,14 +268,9 @@ mod tests {
         io.write("nct6798_pwm4", 77, true).unwrap();
 
         io.release("nct6798_pwm3").unwrap();
-        // Channel 3 goes back to its automatic mode. The chip sets `pwm3` then, not the restore,
-        // so the fake keeps the last written raw.
         assert_eq!(
             io.read("nct6798_pwm3").unwrap(),
-            Readback {
-                raw: 128,
-                enable: 5
-            }
+            Readback { raw: 96, enable: 5 }
         );
         assert_eq!(
             io.read("nct6798_pwm4").unwrap(),
