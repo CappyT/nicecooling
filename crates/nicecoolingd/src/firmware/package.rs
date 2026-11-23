@@ -258,7 +258,16 @@ fn read_row(conn: &Connection, id: i64) -> Result<(ImageRow, Vec<u8>), PackageEr
                     "the data of the row {id} is above {MAX_DATA_BYTES} bytes"
                 ))));
             }
+            // `octet_length` counts bytes of the database encoding. The bytes of a TEXT value
+            // come back as UTF-8, which needs up to 1.5 times more than UTF-16.
             Ok(match row.get_ref(6)? {
+                ValueRef::Blob(bytes) | ValueRef::Text(bytes)
+                    if bytes.len() as i64 > MAX_DATA_BYTES =>
+                {
+                    Err(invalid(format!(
+                        "the data of the row {id} is above {MAX_DATA_BYTES} bytes"
+                    )))
+                }
                 ValueRef::Blob(bytes) | ValueRef::Text(bytes) => Ok((image, bytes.to_vec())),
                 _ => Err(invalid(format!(
                     "the data of the row {id} is neither BLOB nor TEXT"
@@ -1041,5 +1050,32 @@ mod tests {
             reader.list(open_fifo()).await,
             Err(PackageError::InvalidArgument(_))
         ));
+    }
+
+    #[tokio::test]
+    async fn utf16_text_stays_under_the_data_bound() {
+        let dir = dir("utf16");
+        let path = dir.join("utf16.database");
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch(
+            "PRAGMA encoding='UTF-16le';\
+             CREATE TABLE firmware (id INTEGER PRIMARY KEY, version INTEGER, bootloader INTEGER, \
+             hardware INTEGER, device TEXT, data BLOB);",
+        )
+        .unwrap();
+        // `octet_length` counts 2 bytes for each of these characters, and UTF-8 needs 3.
+        let text = "\u{4e00}".repeat(MAX_DATA_BYTES as usize / 2);
+        conn.execute(
+            "INSERT INTO firmware VALUES (26, 1022, 100, 1000, 'leakshield_EN', ?1)",
+            [Value::Text(text)],
+        )
+        .unwrap();
+        drop(conn);
+        let result = PackageReader::default().read(open_file(&path), 26).await;
+        assert!(
+            matches!(result, Err(PackageError::InvalidArgument(_))),
+            "{:?}",
+            result.map(|(_, d)| d.len())
+        );
     }
 }
