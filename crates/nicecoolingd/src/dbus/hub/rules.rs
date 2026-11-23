@@ -38,6 +38,10 @@ impl RuleQueue {
         }
     }
 
+    pub(super) fn push_manual(&mut self, command: ManualCommand) {
+        self.manual.push(command);
+    }
+
     fn empty() -> Self {
         Self {
             sync: false,
@@ -153,13 +157,14 @@ impl Hub {
     /// A manual activation wins at once, also during the Profile dwell, until
     /// `return_to_automatic`.
     pub fn activate_manually(self: &Arc<Self>, id: &str) -> Result<()> {
-        self.activate_profile(id, Cause::Manual)?;
-        self.change(|i| {
-            i.rule_queue
-                .manual
-                .push(ManualCommand::Activated(id.to_owned()))
-        });
-        Ok(())
+        // The state and the command change in one lock section: a `ReturnToAutomatic` from
+        // another caller cannot land between them.
+        self.activate_with(
+            id,
+            Cause::Manual,
+            Some(ManualCommand::Activated(id.to_owned())),
+        )
+        .map(|_| ())
     }
 
     /// The Rule groups decide again at the next tick.

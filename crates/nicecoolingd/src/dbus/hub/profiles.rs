@@ -9,6 +9,7 @@ use nicecooling_api::errors::Result;
 use nicecooling_api::ids::{self, Kind};
 use nicecooling_core::profile::{Cause, Slot};
 use nicecooling_core::tick::TickConfig;
+use nicecooling_core::tick::stage_rules::ManualCommand;
 
 use super::{Hub, Inner, check_name};
 use crate::profiles::activate::Failure;
@@ -226,6 +227,17 @@ impl Hub {
     /// and the Leakshield part runs in the background (`profiles::activate`). The caller keeps the
     /// rule state, if there is one.
     pub fn activate_profile(self: &Arc<Self>, id: &str, cause: Cause) -> Result<TickConfig> {
+        self.activate_with(id, cause, None)
+    }
+
+    /// `activate_profile`, with a command for the rules stage that joins the state change in the
+    /// same lock section.
+    pub(super) fn activate_with(
+        self: &Arc<Self>,
+        id: &str,
+        cause: Cause,
+        command: Option<ManualCommand>,
+    ) -> Result<TickConfig> {
         let (config, activation) = {
             let mut inner = self.inner();
             if !inner.profiles.contains(id) {
@@ -233,6 +245,9 @@ impl Hub {
             }
             inner.state.profiles.active = id.to_owned();
             inner.state.profiles.cause = cause.as_str().to_owned();
+            if let Some(command) = command {
+                inner.rule_queue.push_manual(command);
+            }
             let config = self.queue_config(&inner);
             (config, self.begin_activation(&mut inner, id, cause))
         };
