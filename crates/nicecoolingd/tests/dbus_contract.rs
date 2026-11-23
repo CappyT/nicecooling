@@ -182,11 +182,6 @@ async fn unfilled_interfaces_reply_not_supported() {
     assert_eq!(profiles.rule_delay_seconds().await.unwrap(), 30);
     stub!(
         seen,
-        "Profiles.CreateProfile",
-        profiles.create_profile("p", &none)
-    );
-    stub!(
-        seen,
         "Profiles.ActivateProfile",
         profiles.activate_profile(&none)
     );
@@ -220,10 +215,6 @@ async fn unfilled_interfaces_reply_not_supported() {
         .unwrap();
     assert!(profile.is_default().await.unwrap());
     assert_eq!(profile.slot().await.unwrap(), 1);
-    stub!(seen, "Profile.SetName", profile.set_name("n"));
-    stub!(seen, "Profile.SetSlot", profile.set_slot(2));
-    stub!(seen, "Profile.Delete", profile.delete());
-    stub!(seen, "Profile.GetContent", profile.get_content());
 
     // Every method of the three interfaces is in the list, and nothing else, except the wired ones.
     let doc = roxmltree::Document::parse_with_options(
@@ -273,7 +264,19 @@ async fn unfilled_interfaces_reply_not_supported() {
         "FactoryReset",
         "GetDeviceResponseProposals",
     ]
-    .map(|m| format!("Leakshield.{m}"));
+    .map(|m| format!("Leakshield.{m}"))
+    .into_iter()
+    .chain(
+        [
+            "Profiles.CreateProfile",
+            "Profile.SetName",
+            "Profile.SetSlot",
+            "Profile.Delete",
+            "Profile.GetContent",
+        ]
+        .map(str::to_owned),
+    )
+    .collect::<Vec<_>>();
     let in_xml: BTreeSet<String> = in_xml.into_iter().filter(|m| !wired.contains(m)).collect();
     assert_eq!(seen, in_xml);
 }

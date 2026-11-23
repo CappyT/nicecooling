@@ -68,6 +68,26 @@ pub fn rows(registry: &Registry, report1: &Report1, report3: &Report3) -> Vec<Fi
         .collect()
 }
 
+/// The value of every registry field in `report3`, in registry order.
+pub fn values(registry: &Registry, report3: &Report3) -> Vec<(String, FieldValue)> {
+    registry
+        .field
+        .iter()
+        .map(|field| {
+            let values: Vec<f64> = field
+                .element_offsets()
+                .into_iter()
+                .map(|o| field.read_raw(report3, o) as f64 * scale_of(field))
+                .collect();
+            let value = match values.as_slice() {
+                [one] => FieldValue::Number(*one),
+                _ => FieldValue::List(values),
+            };
+            (field.id.clone(), value)
+        })
+        .collect()
+}
+
 #[derive(Debug, PartialEq, Eq)]
 pub enum EditError {
     NoSuchField(String),

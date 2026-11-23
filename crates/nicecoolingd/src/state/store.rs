@@ -145,6 +145,26 @@ impl StateStore {
         }
     }
 
+    /// Removes the directory of a Profile: `profile.json`, its copy and any broken copy.
+    pub fn remove_profile(&self, id: &str) -> io::Result<()> {
+        if id.is_empty()
+            || !id
+                .bytes()
+                .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_')
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "not a Profile id",
+            ));
+        }
+        let rel = format!("profiles/{id}/profile.json");
+        self.guards.lock().unwrap().remove(&rel);
+        match fs::remove_dir_all(self.path(&format!("profiles/{id}"))) {
+            Err(e) if e.kind() != io::ErrorKind::NotFound => Err(e),
+            _ => Ok(()),
+        }
+    }
+
     /// Writes a JSON file atomically. Returns false when the file has a higher
     /// `schema_version` and the daemon must not write it.
     pub fn save<T: Serialize>(&self, rel: &str, value: &T) -> io::Result<bool> {

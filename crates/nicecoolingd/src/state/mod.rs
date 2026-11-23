@@ -5,6 +5,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
+use nicecooling_api::ids::DEFAULT_PROFILE;
 use nicecooling_core::calibration::{CalibrationTable, Preset};
 use nicecooling_core::curve::Curve;
 use nicecooling_core::derived::DerivedSensor;
@@ -17,8 +18,12 @@ use tokio::sync::Notify;
 use tokio::task::JoinHandle;
 
 pub mod atomic;
+pub mod profiles;
+pub mod slots;
 pub mod store;
 
+pub use profiles::ProfileSet;
+pub use slots::SlotStore;
 pub use store::{Loaded, Source, StateStore};
 
 pub const STATE_FILE: &str = "state.json";
@@ -150,8 +155,20 @@ impl Default for ProfileFile {
 /// The state that the tick runs on, and the reasons to raise `state-fallback`.
 pub struct LoadedState {
     pub state: DaemonState,
-    pub profile: ProfileFile,
+    /// Every Profile. `state.profiles.active` is one of them.
+    pub profiles: ProfileSet,
     pub fallback: bool,
+    /// No `state.json` existed: the daemon created the Default Profile and three more.
+    pub first_start: bool,
+}
+
+impl LoadedState {
+    /// The active Profile.
+    pub fn profile(&self) -> &ProfileFile {
+        self.profiles
+            .get(&self.state.profiles.active)
+            .unwrap_or_else(|| self.profiles.default_profile())
+    }
 }
 
 fn is_identifier(id: &str) -> bool {
@@ -161,28 +178,61 @@ fn is_identifier(id: &str) -> bool {
             .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_')
 }
 
-/// Loads `state.json` and the active Profile. A file that fails to load gives its default,
-/// which has no Curves: every Channel stays on its Hardware curve. When `state.json` itself falls
-/// back to its default, the Profile is not loaded: its Curves would run without the Loops, so no
-/// Pump floor would apply.
+/// The relative path of the file of a Profile.
+pub fn profile_file(id: &str) -> String {
+    format!("profiles/{id}/profile.json")
+}
+
+/// Loads `state.json` and every Profile. A file that fails to load gives its default, which has
+/// no Curves: every Channel stays on its Hardware curve. When `state.json` itself falls back to
+/// its default, no Profile is loaded: their Curves would run without the Loops, so no Pump floor
+/// would apply.
 pub fn load_state(store: &StateStore) -> LoadedState {
-    let state = store.load::<DaemonState>(STATE_FILE);
-    let mut fallback = state.fallback;
-    let active = state.value.profiles.active.clone();
-    let profile = if state.source == Source::Defaults && state.fallback {
-        ProfileFile::default()
-    } else if is_identifier(&active) {
-        let loaded = store.load::<ProfileFile>(&format!("profiles/{active}/profile.json"));
-        fallback |= loaded.fallback;
-        loaded.value
+    let loaded = store.load::<DaemonState>(STATE_FILE);
+    let mut fallback = loaded.fallback;
+    let first_start = loaded.source == Source::Defaults && !loaded.fallback;
+    let mut state = loaded.value;
+    let mut map = BTreeMap::new();
+    if !(loaded.source == Source::Defaults && loaded.fallback) {
+        let names = std::fs::read_dir(store.path("profiles"))
+            .into_iter()
+            .flatten()
+            .filter_map(Result::ok)
+            .filter_map(|e| e.file_name().into_string().ok())
+            .filter(|name| is_identifier(name));
+        for name in names {
+            let profile = store.load::<ProfileFile>(&profile_file(&name));
+            fallback |= profile.fallback;
+            // A directory without a file has no Profile. A broken one stays on disk.
+            if profile.source != Source::Defaults {
+                map.insert(
+                    name.clone(),
+                    ProfileFile {
+                        id: name,
+                        ..profile.value
+                    },
+                );
+            }
+        }
+    }
+    let first_profiles = map.is_empty() && first_start;
+    let profiles = if first_profiles {
+        ProfileSet::first_start()
     } else {
-        fallback = true;
-        ProfileFile::default()
+        ProfileSet::new(map)
     };
+    if !profiles.contains(&state.profiles.active) {
+        if state.profiles.active != DEFAULT_PROFILE {
+            fallback = true;
+        }
+        state.profiles.active = DEFAULT_PROFILE.to_owned();
+        state.profiles.cause = "default".to_owned();
+    }
     LoadedState {
-        state: state.value,
-        profile,
+        state,
+        profiles,
         fallback,
+        first_start: first_profiles,
     }
 }
 
@@ -409,9 +459,9 @@ mod tests {
         let store = StateStore::new(&dir);
         let loaded = load_state(&store);
         assert!(loaded.fallback);
-        assert!(loaded.profile.channels.is_empty());
+        assert!(loaded.profile().channels.is_empty());
         let mut problems = Vec::new();
-        let config = tick_config(&loaded.state, &loaded.profile, &[], &mut problems);
+        let config = tick_config(&loaded.state, loaded.profile(), &[], &mut problems);
         assert!(config.channels.is_empty());
         assert_eq!(fs::read(dir.join("state.json")).unwrap(), b"{ not json");
         assert_eq!(fs::read(dir.join("state.json.lkg")).unwrap(), b"{ not json");
@@ -456,9 +506,9 @@ mod tests {
         }
         let loaded = load_state(&StateStore::new(&dir));
         assert!(loaded.fallback);
-        assert!(loaded.profile.channels.is_empty());
+        assert!(loaded.profile().channels.is_empty());
         let mut problems = Vec::new();
-        let config = tick_config(&loaded.state, &loaded.profile, &[], &mut problems);
+        let config = tick_config(&loaded.state, loaded.profile(), &[], &mut problems);
         assert!(config.channels.is_empty());
         fs::remove_dir_all(dir).unwrap();
     }
@@ -474,7 +524,7 @@ mod tests {
         }
         let loaded = load_state(&StateStore::new(&dir));
         assert!(loaded.fallback);
-        assert!(loaded.profile.channels.is_empty());
+        assert!(loaded.profile().channels.is_empty());
         assert_eq!(loaded.state, sample_state());
         fs::remove_dir_all(dir).unwrap();
     }

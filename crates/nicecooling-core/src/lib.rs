@@ -6,5 +6,6 @@ pub mod clock;
 pub mod curve;
 pub mod derived;
 pub mod loops;
+pub mod profile;
 pub mod tick;
 pub mod warnings;

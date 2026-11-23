@@ -222,13 +222,14 @@ pub async fn serve(
     for device in hub.leakshields() {
         leakshield::register(connection, hub, &device).await?;
     }
-    let (default_profile, name, slot) = hub.profile();
-    server
-        .at(
-            object(Kind::Profile, &default_profile),
-            profile::Profile::new(default_profile.clone(), name, slot),
-        )
-        .await?;
+    for id in hub.profile_ids() {
+        server
+            .at(
+                object(Kind::Profile, &id),
+                profile::Profile::new(hub.clone(), id.clone()),
+            )
+            .await?;
+    }
 
     let reports = hub.take_report_receiver();
     let task = tokio::spawn(manager::emit_reports(

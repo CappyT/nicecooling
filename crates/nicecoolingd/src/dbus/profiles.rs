@@ -5,10 +5,11 @@ use std::sync::Arc;
 
 use nicecooling_api::errors::Result;
 use nicecooling_api::ids::Kind;
-use zbus::object_server::SignalEmitter;
-use zbus::{OwnedObjectPath, OwnedVariant, interface};
+use zbus::message::Header;
+use zbus::object_server::{ObjectServer, SignalEmitter};
+use zbus::{Connection, OwnedObjectPath, OwnedVariant, interface};
 
-use super::{Hub, not_supported_stub, object};
+use super::{Hub, not_supported_stub, object, profile};
 
 pub struct Profiles {
     hub: Arc<Hub>,
@@ -68,10 +69,22 @@ impl Profiles {
     #[zbus(out_args("profile"))]
     async fn create_profile(
         &self,
+        #[zbus(connection)] connection: &Connection,
+        #[zbus(header)] header: Header<'_>,
+        #[zbus(object_server)] server: &ObjectServer,
         name: &str,
         copy_from: OwnedObjectPath,
     ) -> Result<OwnedObjectPath> {
-        stub("CreateProfile")
+        self.hub
+            .authorize(connection, &header, "Profiles", "CreateProfile", None)
+            .await?;
+        let id = self.hub.create_profile(name, copy_from.as_str())?;
+        let path = object(Kind::Profile, &id);
+        server
+            .at(path.clone(), profile::Profile::new(self.hub.clone(), id))
+            .await
+            .map_err(nicecooling_api::Error::ZBus)?;
+        Ok(path)
     }
 
     async fn activate_profile(&self, profile: OwnedObjectPath) -> Result<()> {

@@ -19,15 +19,20 @@ use nicecooling_hwmon::identity::DeviceIdentity;
 use nicecooling_hwmon::sysfs::Sysfs;
 use tokio::sync::{mpsc, oneshot};
 
+mod profiles;
+
+pub use profiles::{ProfileContent, ProfileView};
+
 use super::leakshield::LeakshieldInfo;
 use crate::alarms::logind::Login1;
 use crate::alarms::poweroff::{AlarmManager, CancelError, Effect, Event, Row};
 use crate::alarms::response;
 use crate::leakshield::software_sensors::Assignment;
 use crate::snapshot::{self, BiosSnapshot};
+use crate::state::profiles::DEFAULT_PROFILE;
 use crate::state::{
     CalibrationDef, ControlKind, DaemonState, PERSIST_DELAY, Persister, ProfileChannel,
-    ProfileFile, STATE_FILE, StateStore, tick_config,
+    ProfileFile, ProfileSet, STATE_FILE, SlotStore, StateStore, profile_file, tick_config,
 };
 
 /// The default Pump floor of a new Loop, in percent.
@@ -100,7 +105,7 @@ pub struct HubInit {
     pub store: StateStore,
     pub sysfs_root: PathBuf,
     pub state: DaemonState,
-    pub profile: ProfileFile,
+    pub profiles: ProfileSet,
     pub presets: Vec<Preset>,
     pub board: BoardInfo,
     pub sensors: Vec<SensorMeta>,
@@ -155,7 +160,9 @@ pub type CalibrationRow = (String, String, bool, Vec<(f64, f64)>);
 
 struct Inner {
     state: DaemonState,
-    profile: ProfileFile,
+    profiles: ProfileSet,
+    /// Profiles that a delete removed. The next flush removes their files.
+    deleted: BTreeSet<String>,
     presets: Vec<Preset>,
     board: BoardInfo,
     sensors: Vec<SensorMeta>,
@@ -172,6 +179,7 @@ type Release = (String, oneshot::Sender<std::result::Result<(), String>>);
 pub struct Hub {
     inner: Arc<Mutex<Inner>>,
     store: Arc<StateStore>,
+    slots: SlotStore,
     sysfs_root: PathBuf,
     persister: Persister,
     authz: OnceLock<crate::authz::Authz>,
@@ -346,13 +354,14 @@ impl Inner {
 
     /// What reads this sensor, or `None`.
     fn sensor_user(&self, id: &str) -> Option<String> {
-        if let Some((channel, _)) = self
-            .profile
-            .channels
-            .iter()
-            .find(|(_, c)| c.control == ControlKind::Curve && c.input.as_deref() == Some(id))
-        {
-            return Some(format!("the Curve of {channel}"));
+        for profile in self.profiles.iter() {
+            if let Some((channel, _)) = profile
+                .channels
+                .iter()
+                .find(|(_, c)| c.control == ControlKind::Curve && c.input.as_deref() == Some(id))
+            {
+                return Some(format!("the Curve of {channel} in {}", profile.id));
+            }
         }
         for l in &self.state.loops {
             if l.flow_sensor.as_deref() == Some(id) || l.water_temperature.as_deref() == Some(id) {
@@ -449,8 +458,26 @@ impl Inner {
         })
     }
 
+    /// The active Profile. A Curve change goes into it.
+    fn profile(&self) -> &ProfileFile {
+        self.profiles
+            .get(&self.state.profiles.active)
+            .unwrap_or_else(|| self.profiles.default_profile())
+    }
+
+    fn profile_mut(&mut self) -> &mut ProfileFile {
+        let id = if self.profiles.contains(&self.state.profiles.active) {
+            self.state.profiles.active.clone()
+        } else {
+            DEFAULT_PROFILE.to_owned()
+        };
+        self.profiles
+            .get_mut(&id)
+            .expect("the Default Profile always exists")
+    }
+
     fn pump_floor(&self, l: &Loop) -> f64 {
-        self.profile
+        self.profile()
             .pump_floors
             .get(&l.id)
             .copied()
@@ -475,7 +502,7 @@ impl Inner {
     fn channel_view(&self, id: &str) -> Option<ChannelView> {
         let meta = self.channels.iter().find(|c| c.id == id)?;
         let entry = self
-            .profile
+            .profile()
             .channels
             .get(id)
             .filter(|_| self.has_snapshot_entry(meta));
@@ -580,7 +607,8 @@ impl Hub {
         let store = Arc::new(init.store);
         let inner = Arc::new(Mutex::new(Inner {
             state: init.state,
-            profile: init.profile,
+            profiles: init.profiles,
+            deleted: BTreeSet::new(),
             presets: init.presets,
             board: init.board,
             sensors: init.sensors,
@@ -604,6 +632,7 @@ impl Hub {
         let (alarm_effects, alarm_rx) = mpsc::unbounded_channel();
         Arc::new(Self {
             inner,
+            slots: SlotStore::new(store.clone()),
             store,
             sysfs_root: init.sysfs_root,
             persister,
@@ -631,7 +660,7 @@ impl Hub {
         let mut inner = self.inner();
         let result = f(&mut inner)?;
         let mut problems = Vec::new();
-        let config = tick_config(&inner.state, &inner.profile, &inner.presets, &mut problems);
+        let config = tick_config(&inner.state, inner.profile(), &inner.presets, &mut problems);
         for problem in problems {
             eprintln!("nicecoolingd: {problem}");
         }
@@ -948,15 +977,6 @@ impl Hub {
         self.inner().state.profiles.clone()
     }
 
-    pub fn profile(&self) -> (String, String, u32) {
-        let inner = self.inner();
-        (
-            inner.profile.id.clone(),
-            inner.profile.name.clone(),
-            inner.profile.slot,
-        )
-    }
-
     pub fn calibration_tables(&self) -> Vec<CalibrationRow> {
         let inner = self.inner();
         inner
@@ -1076,7 +1096,7 @@ impl Hub {
         self.edit(|i| {
             i.require_controllable(id)?;
             i.require_sensor(&input)?;
-            i.profile.channels.insert(
+            i.profile_mut().channels.insert(
                 id.to_owned(),
                 ProfileChannel {
                     control: ControlKind::Curve,
@@ -1095,7 +1115,7 @@ impl Hub {
         check_percent("a Duty", duty)?;
         self.edit(|i| {
             i.require_controllable(id)?;
-            i.profile.channels.insert(
+            i.profile_mut().channels.insert(
                 id.to_owned(),
                 ProfileChannel {
                     control: ControlKind::Fixed,
@@ -1142,7 +1162,7 @@ impl Hub {
     pub fn release_now(&self, id: &str) -> std::result::Result<(), String> {
         self.restore_channel(id)?;
         self.edit(|i| {
-            i.profile.channels.remove(id);
+            i.profile_mut().channels.remove(id);
             Ok(())
         })
         .map_err(|e| e.to_string())
@@ -1271,7 +1291,7 @@ impl Hub {
         check_percent("the Pump floor", duty)?;
         self.edit(|i| {
             i.loop_mut(id)?;
-            i.profile.pump_floors.insert(id.to_owned(), duty);
+            i.profile_mut().pump_floors.insert(id.to_owned(), duty);
             Ok(())
         })
     }
@@ -1284,7 +1304,9 @@ impl Hub {
                 return Err(Error::in_use(format!("{flow} is read by {user}")));
             }
             i.state.loops.retain(|l| l.id != id);
-            i.profile.pump_floors.remove(id);
+            for profile in i.profiles.iter_mut() {
+                profile.pump_floors.remove(id);
+            }
             i.state.names.remove(&flow);
             Ok(())
         })
@@ -1363,17 +1385,23 @@ fn set_name(names: &mut BTreeMap<String, String>, id: &str, name: &str) {
 }
 
 fn flush(inner: &Mutex<Inner>, store: &StateStore) {
-    let (state, profile) = {
-        let inner = lock(inner);
-        (inner.state.clone(), inner.profile.clone())
+    let (state, profiles, deleted) = {
+        let mut inner = lock(inner);
+        let deleted = std::mem::take(&mut inner.deleted);
+        (inner.state.clone(), inner.profiles.clone(), deleted)
     };
-    let profile_file = format!("profiles/{}/profile.json", profile.id);
-    for (name, result) in [
-        (STATE_FILE, store.save(STATE_FILE, &state)),
-        (profile_file.as_str(), store.save(&profile_file, &profile)),
-    ] {
-        if let Err(e) = result {
-            eprintln!("nicecoolingd: cannot write {name}: {e}");
+    if let Err(e) = store.save(STATE_FILE, &state) {
+        eprintln!("nicecoolingd: cannot write {STATE_FILE}: {e}");
+    }
+    for profile in profiles.iter() {
+        let file = profile_file(&profile.id);
+        if let Err(e) = store.save(&file, profile) {
+            eprintln!("nicecoolingd: cannot write {file}: {e}");
+        }
+    }
+    for id in deleted.iter().filter(|id| !profiles.contains(id)) {
+        if let Err(e) = store.remove_profile(id) {
+            eprintln!("nicecoolingd: cannot remove the Profile {id}: {e}");
         }
     }
 }

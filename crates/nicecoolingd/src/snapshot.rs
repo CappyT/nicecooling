@@ -330,7 +330,7 @@ pub fn restore_bios(paths: &Paths) -> io::Result<RestoreOutcome> {
         Vec::new()
     } else {
         loaded
-            .profile
+            .profile()
             .channels
             .iter()
             .filter(|(_, c)| c.control != state::ControlKind::Hardware)

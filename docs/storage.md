@@ -19,7 +19,7 @@ systemd creates the directory with `StateDirectory=nicecooling` and `StateDirect
 | `state.json` | JSON | Global state, see below. |
 | `profiles/<profile id>/profile.json` | JSON | One Profile, see below. |
 | `leakshield/<leakshield id>/slot-<n>/report3.bin` | binary | The Leakshield settings of slot n (1 to 4): the whole report 3 with its report ID byte, as the device produced it, except the `device_profile` byte (the number n) and the CRC that follows it. Every Profile with slot n uses it. A Profile activation writes it when n differs from report 1 `active_profile`. |
-| `leakshield/<leakshield id>/slot-<n>/meta.json` | JSON | `{"schema_version":1, "firmware", "structure"}` of the stored `report3.bin`. |
+| `leakshield/<leakshield id>/slot-<n>/meta.json` | JSON | `{"schema_version":1, "firmware", "structure", "serial"}` of the stored `report3.bin`. `serial` is the text form of the Leakshield serial that produced the report. A Profile activation writes the report only to a device with that serial and that firmware. |
 | `leakshield/<leakshield id>/slot-<n>/assets/<asset id>.bin` | binary | Display assets of slot n. The asset write path is open until the reverse engineering answers it. |
 | `bios-snapshot.json` | JSON | The BIOS snapshot, see below. |
 | `lease.json` | JSON | The takeover lease: `{"schema_version":1,"created_us":<t>,"boot_id":"<from /proc/sys/kernel/random/boot_id>"}`. The file exists from before the first manual write until a restore whose read-back matches. |

@@ -10,6 +10,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use nicecooling_api::Error;
 use nicecooling_api::errors::Result;
 use nicecooling_api::ids;
+use nicecooling_core::profile::Slot;
 use nicecooling_protocol::access::{Access, WriteRefusal};
 use nicecooling_protocol::device::DeviceError;
 use nicecooling_protocol::registry::Registry;
@@ -29,6 +30,8 @@ use super::software_sensors::SoftwareSlots;
 use super::worker::{Job, WorkerParts, WriteWorker};
 use super::write::{WriteEnv, WriteError, out_of_range_field, take_backup};
 use super::{DeviceEvent, DeviceIo, blocking, clock, counters, reset_alarm};
+use crate::state::slots::SlotMeta;
+use crate::state::{SlotStore, StateStore};
 
 /// The automatic clock sync runs at most this often, so a device that ignores it is not flooded.
 const AUTO_CLOCK_GAP: Duration = Duration::from_secs(60);
@@ -166,6 +169,29 @@ fn info_of(registry: &Registry, state: &State) -> Info {
     }
 }
 
+/// The first read of a Leakshield: a device that the registry covers gets its report 3 copied
+/// into the four slots, each with its own number. This reads the device and writes nothing to it.
+fn init_slots(io: &DeviceIo, params: &AttachParams, id: &str, serial: &str, report1: &Report1) {
+    let covered = Access::new(&params.registry, report1)
+        .device_reason()
+        .is_none();
+    let slots = SlotStore::new(Arc::new(StateStore::new(&params.state_dir)));
+    if !covered || Slot::all().all(|slot| slots.exists(id, slot)) {
+        return;
+    }
+    let meta = SlotMeta::new(report1.firmware_version, report1.structure_number, serial);
+    let result = blocking(|| io.read_report3())
+        .map_err(|e| e.to_string())
+        .and_then(|report3| {
+            slots
+                .init(&params.registry, id, &report3, &meta)
+                .map_err(|e| e.to_string())
+        });
+    if let Err(e) = result {
+        eprintln!("nicecoolingd: the slots of {id} are not created: {e}");
+    }
+}
+
 impl Attached {
     /// Reads report 1 once, for the serial. Call it inside the runtime: it starts the write worker.
     pub fn open(
@@ -175,6 +201,7 @@ impl Attached {
         let report1 = blocking(|| io.read_report1())?;
         let serial = report1.serial_text();
         let id = ids::leakshield_id(&serial);
+        init_slots(&io, params, &id, &serial, &report1);
         let (events, events_rx) = mpsc::unbounded_channel();
         let last_known = Arc::new(LastKnown::open(&params.state_dir, &id));
         let worker = WriteWorker::spawn(WorkerParts {
@@ -217,6 +244,10 @@ impl Attached {
 
     pub fn serial(&self) -> &str {
         &self.serial
+    }
+
+    pub fn registry(&self) -> &Registry {
+        &self.registry
     }
 
     pub fn io(&self) -> &DeviceIo {

@@ -138,6 +138,13 @@ pub async fn start<N: Notifier + 'static>(
         None
     });
     let mut loaded = state::load_state(&store);
+    if loaded.first_start {
+        // The first start writes the Default Profile and the three more at once.
+        store.save(state::STATE_FILE, &loaded.state)?;
+        for profile in loaded.profiles.iter() {
+            store.save(&state::profile_file(&profile.id), profile)?;
+        }
+    }
     let known = state::known_prefixes(&loaded.state.identities);
     let discovery = discover_with(&sysfs, board.as_ref(), &loaded.state.names, &known)?;
     let defaults = discover_with(&sysfs, board.as_ref(), &BTreeMap::new(), &known)?;
@@ -161,7 +168,7 @@ pub async fn start<N: Notifier + 'static>(
         .filter_map(|text| Preset::from_toml(&text).ok())
         .collect();
     let mut problems = Vec::new();
-    let config = state::tick_config(&loaded.state, &loaded.profile, &presets, &mut problems);
+    let config = state::tick_config(&loaded.state, loaded.profile(), &presets, &mut problems);
     for problem in problems {
         eprintln!("nicecoolingd: {problem}");
     }
@@ -249,7 +256,8 @@ pub async fn start<N: Notifier + 'static>(
 
     let state_health = if !loaded.fallback {
         "ok"
-    } else if loaded.state == state::DaemonState::default() && loaded.profile.channels.is_empty() {
+    } else if loaded.state == state::DaemonState::default() && loaded.profile().channels.is_empty()
+    {
         "empty"
     } else {
         "last-known-good"
@@ -260,7 +268,7 @@ pub async fn start<N: Notifier + 'static>(
         store: StateStore::new(&paths.state_dir),
         sysfs_root: paths.sysfs_root.clone(),
         state: loaded.state,
-        profile: loaded.profile,
+        profiles: loaded.profiles,
         presets,
         board: BoardInfo {
             vendor: sysfs.dmi("board_vendor"),
