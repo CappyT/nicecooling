@@ -170,6 +170,14 @@ impl HistoryUi {
     }
 }
 
+/// A query that runs this long or longer shows a thin progress bar under the toolbar.
+pub const PROGRESS_DELAY: std::time::Duration = std::time::Duration::from_millis(300);
+
+/// Whether a query that started `elapsed` ago shows the progress bar.
+pub fn progress_due(elapsed: std::time::Duration) -> bool {
+    elapsed >= PROGRESS_DELAY
+}
+
 /// The result of reading the database for the selected sensors.
 #[derive(Clone, Debug, PartialEq)]
 pub enum ChartData {

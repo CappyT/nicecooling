@@ -1,6 +1,8 @@
 rust_i18n::i18n!("locales", fallback = "en");
 
 pub mod app;
+pub mod app_settings;
+pub mod autostart;
 pub mod command;
 pub mod daemon_client;
 pub mod history;

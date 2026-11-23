@@ -56,6 +56,53 @@ impl ScreenView {
                     self.send(command);
                 }
             }
+            InputKey::ProfileRename => {
+                if changes && let Some(rename) = self.profiles.rename.as_mut() {
+                    rename.1 = value;
+                } else if enter && let Some(command) = self.profiles.rename_command() {
+                    self.send(command);
+                }
+            }
+            InputKey::RuleDelay | InputKey::ProfileDwell if commits => {
+                if let Some(number) = parse(&value).filter(|n| *n >= 0.0) {
+                    let state = self.state(cx);
+                    let number = number.round() as u32;
+                    let command = if *key == InputKey::RuleDelay {
+                        self.profiles.set_timing(&state, Some(number), None)
+                    } else {
+                        self.profiles.set_timing(&state, None, Some(number))
+                    };
+                    let unchanged = matches!(
+                        &command,
+                        Command::SetRuleTiming { rule_delay_s, dwell_s }
+                            if *rule_delay_s == state.snapshot.rule_delay_s
+                                && *dwell_s == state.snapshot.dwell_s
+                    );
+                    if !unchanged {
+                        self.send(command);
+                    }
+                }
+            }
+            InputKey::RuleField(field) if changes => {
+                if let Some(rule) = self.profiles.rule_draft() {
+                    crate::screens::profiles::set_rule_field(rule, field, &value);
+                }
+            }
+            InputKey::ResponseDelay(event) if commits => {
+                if let Some(seconds) = parse(&value).filter(|n| *n >= 0.0) {
+                    let state = self.state(cx);
+                    let current = state.snapshot.responses.iter().find(|r| &r.event == event);
+                    if let Some(rule) = current
+                        && rule.delay_s != seconds.round() as u32
+                    {
+                        self.send(Command::SetAlarmResponse {
+                            event: event.clone(),
+                            response: rule.response,
+                            delay_s: seconds.round() as u32,
+                        });
+                    }
+                }
+            }
             InputKey::CurvePoint(channel, index, which) if commits => {
                 let state = self.state(cx);
                 let command = if *index == usize::MAX {
@@ -113,6 +160,8 @@ impl ScreenView {
                 loop_id: loop_id.to_owned(),
                 duty,
             });
+        } else if key == "first-run-floor" {
+            self.first_run.floor = Some(duty);
         } else if key.starts_with("fixed:") {
             let model = self.model.clone();
             let command = with_screen_input(&model, cx, |input| {

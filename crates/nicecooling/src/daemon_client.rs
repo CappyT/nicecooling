@@ -15,8 +15,9 @@ use zbus::{OwnedObjectPath, OwnedVariant as OwnedValue, Variant as Value};
 
 use crate::model::{
     AlarmDetails, AlarmEntry, BoardInfo, CalibrationTableInfo, Cause, ChannelInfo, ChannelOverride,
-    Control, CurveSpec, DaemonEvent, DerivedDef, LeakshieldInfo, Link, LoopInfo, ProfileInfo,
-    Response, SensorInfo, SensorSample, Severity, Snapshot, UnitState,
+    Control, CurveSpec, DaemonEvent, DerivedDef, FieldValue, LeakshieldInfo, Link, LoopInfo,
+    ProfileChannel, ProfileContent, ProfileInfo, Response, ResponseRule, Rule, RuleGroup,
+    SensorInfo, SensorSample, Severity, Snapshot, UnitState,
 };
 
 pub const BUS_NAME: &str = "io.github.cappyt.NiceCooling1";
@@ -33,6 +34,15 @@ const OFFLINE_POLL: Duration = Duration::from_secs(1);
 type Props = HashMap<String, OwnedValue>;
 /// One row of `GetCalibrationTables`: id, name, preset flag and the points.
 type CalibrationRow = (String, String, bool, Vec<(f64, f64)>);
+/// One row of `GetRuleGroups`: group id, target Profile, enabled, and the rules.
+type RuleGroupRow = (String, OwnedObjectPath, bool, Vec<(String, Props)>);
+/// A Rule group to send, with the parameters as variants.
+type RuleGroupOut<'a> = (
+    String,
+    OwnedObjectPath,
+    bool,
+    Vec<(String, HashMap<String, Value<'a>>)>,
+);
 /// The body of `SensorsUpdated`: the time, then `(id, value, flags)` of sensors and Channels.
 type SensorsUpdated = (u64, Vec<(String, f64, u8)>, Vec<(String, f64, u8)>);
 
@@ -198,6 +208,18 @@ impl DaemonClient {
                     state,
                 }
             }
+            (i, "WriteFailed") if i == format!("{IFACE}.Leakshield") => {
+                let (error, backup): (String, String) = body.deserialize()?;
+                let path = header
+                    .path()
+                    .map(|p| p.as_str().to_owned())
+                    .unwrap_or_default();
+                DaemonEvent::WriteFailed {
+                    leakshield: last_element(&path),
+                    error,
+                    backup,
+                }
+            }
             (i, "ExternalChange") if i == format!("{IFACE}.Leakshield") => {
                 let fields: Vec<String> = body.deserialize::<(Vec<String>,)>()?.0;
                 let path = header
@@ -311,10 +333,14 @@ impl DaemonClient {
                         mode: get(&props, "Mode").unwrap_or_default(),
                         running_action: get(&props, "RunningAction").unwrap_or_default(),
                         pressure: None,
+                        field_counts: None,
                     }),
                     Some("Profile") => snapshot.profiles.push(ProfileInfo {
                         id: get(&props, "Id").unwrap_or_default(),
                         name: get(&props, "Name").unwrap_or_default(),
+                        is_default: get(&props, "IsDefault").unwrap_or_default(),
+                        contains_release: get(&props, "ContainsRelease").unwrap_or_default(),
+                        slot: get(&props, "Slot").unwrap_or(1),
                     }),
                     _ => {}
                 }
@@ -322,7 +348,10 @@ impl DaemonClient {
         }
         snapshot.loops.sort_by(|a, b| a.id.cmp(&b.id));
         snapshot.leakshields.sort_by(|a, b| a.id.cmp(&b.id));
-        snapshot.profiles.sort_by(|a, b| a.id.cmp(&b.id));
+        // The Default Profile first, then by number: `profile_2` before `profile_10`.
+        snapshot.profiles.sort_by(|a, b| {
+            (!a.is_default, a.id.len(), &a.id).cmp(&(!b.is_default, b.id.len(), &b.id))
+        });
 
         let profiles: Props = profiles;
         let active = object_id(&profiles, "Active");
@@ -331,12 +360,95 @@ impl DaemonClient {
         snapshot.cause =
             Cause::parse(&get::<String>(&profiles, "ActivationCause").unwrap_or_default());
         snapshot.immediate_switching = get(&profiles, "ImmediateSwitching").unwrap_or_default();
+        snapshot.profile_state = get(&profiles, "ActiveState").unwrap_or_default();
+        snapshot.rule_delay_s = get(&profiles, "RuleDelaySeconds").unwrap_or_default();
+        snapshot.dwell_s = get(&profiles, "DwellSeconds").unwrap_or_default();
+        let group_state: Vec<(String, bool, u64)> =
+            get(&profiles, "RuleGroupState").unwrap_or_default();
         if let Some(active) = alarms.get("Active") {
             snapshot.alarms = decode_alarms(active);
         }
         // A daemon without Calibration tables answers with an error: keep an empty list.
         snapshot.calibration_tables = self.calibration_tables().await.unwrap_or_default();
+        snapshot.rule_groups = self.rule_groups().await.unwrap_or_default();
+        for group in &mut snapshot.rule_groups {
+            if let Some((_, holds, since_us)) = group_state.iter().find(|row| row.0 == group.id) {
+                group.holds = *holds;
+                group.since_us = *since_us;
+            }
+        }
+        snapshot.responses = self.responses().await.unwrap_or_default();
+        for profile in &snapshot.profiles {
+            if let Ok(content) = self.profile_content(&profile.id).await {
+                snapshot
+                    .profile_contents
+                    .insert(profile.id.clone(), content);
+            }
+        }
+        snapshot.daemon_version = self.daemon_version().await.unwrap_or_default();
+        for device in snapshot.leakshields.iter_mut().filter(|d| d.connected) {
+            device.field_counts = self.field_counts(&device.id).await.ok();
+        }
         Ok(snapshot)
+    }
+
+    /// `GetFields`: how many fields the device has, and how many of them are read-only.
+    async fn field_counts(&self, leakshield: &str) -> zbus::Result<(u32, u32)> {
+        let proxy = self
+            .proxy(&object("leakshield", leakshield), "Leakshield")
+            .await?;
+        let fields: Vec<(String, String, OwnedValue, bool, String)> =
+            proxy.call("GetFields", &()).await?;
+        let read_only = fields.iter().filter(|field| !field.3).count();
+        Ok((fields.len() as u32, read_only as u32))
+    }
+
+    async fn daemon_version(&self) -> zbus::Result<String> {
+        self.proxy(ROOT, "Manager")
+            .await?
+            .get_property("Version")
+            .await
+    }
+
+    /// `GetRuleGroups`, in list order.
+    pub async fn rule_groups(&self) -> zbus::Result<Vec<RuleGroup>> {
+        let proxy = self.proxy(ROOT, "Profiles").await?;
+        let rows: Vec<RuleGroupRow> = proxy.call("GetRuleGroups", &()).await?;
+        Ok(rows
+            .into_iter()
+            .map(|(id, profile, enabled, rules)| RuleGroup {
+                id,
+                profile: last_element(profile.as_str()),
+                enabled,
+                rules: rules
+                    .iter()
+                    .filter_map(|(kind, params)| rule_of(kind, params))
+                    .collect(),
+                holds: false,
+                since_us: 0,
+            })
+            .collect())
+    }
+
+    /// `GetResponses`: the alarm response of each event type.
+    pub async fn responses(&self) -> zbus::Result<Vec<ResponseRule>> {
+        let proxy = self.proxy(ROOT, "Alarms").await?;
+        let rows: Vec<(String, String, u32)> = proxy.call("GetResponses", &()).await?;
+        Ok(rows
+            .into_iter()
+            .map(|(event, response, delay_s)| ResponseRule {
+                event,
+                response: Response::parse(&response),
+                delay_s,
+            })
+            .collect())
+    }
+
+    /// `GetContent` of a Profile.
+    pub async fn profile_content(&self, id: &str) -> zbus::Result<ProfileContent> {
+        let proxy = self.proxy(&object("profile", id), "Profile").await?;
+        let content: Props = proxy.call("GetContent", &()).await?;
+        Ok(content_of(&content))
     }
 
     /// `GetCalibrationTables`: the presets of the package and the user tables.
@@ -573,6 +685,108 @@ impl DaemonClient {
     pub async fn return_to_automatic(&self) -> zbus::Result<()> {
         self.write(ROOT, "Profiles", "ReturnToAutomatic", &()).await
     }
+
+    /// `copy_from` is a Profile id, or empty for the active Profile.
+    pub async fn create_profile(&self, name: &str, copy_from: &str) -> zbus::Result<String> {
+        let source = object_path("profile", copy_from)?;
+        let path: OwnedObjectPath = self
+            .write_returning(ROOT, "Profiles", "CreateProfile", &(name, source))
+            .await?;
+        Ok(last_element(path.as_str()))
+    }
+
+    pub async fn set_profile_name(&self, id: &str, name: &str) -> zbus::Result<()> {
+        self.write(&object("profile", id), "Profile", "SetName", &(name,))
+            .await
+    }
+
+    pub async fn set_profile_slot(&self, id: &str, slot: u8) -> zbus::Result<()> {
+        self.write(&object("profile", id), "Profile", "SetSlot", &(slot,))
+            .await
+    }
+
+    pub async fn delete_profile(&self, id: &str) -> zbus::Result<()> {
+        self.write(&object("profile", id), "Profile", "Delete", &())
+            .await
+    }
+
+    pub async fn set_immediate_switching(&self, enabled: bool) -> zbus::Result<()> {
+        self.write(ROOT, "Profiles", "SetImmediateSwitching", &(enabled,))
+            .await
+    }
+
+    pub async fn set_rule_timing(&self, rule_delay_s: u32, dwell_s: u32) -> zbus::Result<()> {
+        self.write(ROOT, "Profiles", "SetRuleTiming", &(rule_delay_s, dwell_s))
+            .await
+    }
+
+    /// Replace the list of Rule groups. An empty id creates a group.
+    pub async fn set_rule_groups(&self, groups: &[RuleGroup]) -> zbus::Result<Vec<String>> {
+        let mut rows: Vec<RuleGroupOut<'_>> = Vec::new();
+        for group in groups {
+            rows.push((
+                group.id.clone(),
+                object_path("profile", &group.profile)?,
+                group.enabled,
+                group.rules.iter().map(rule_params).collect(),
+            ));
+        }
+        self.write_returning(ROOT, "Profiles", "SetRuleGroups", &(rows,))
+            .await
+    }
+
+    pub async fn set_alarm_response(
+        &self,
+        event: &str,
+        response: Response,
+        delay_s: u32,
+    ) -> zbus::Result<()> {
+        self.write(
+            ROOT,
+            "Alarms",
+            "SetResponse",
+            &(event, response.id(), delay_s),
+        )
+        .await
+    }
+
+    /// Create the first Loop and link its parts. Returns the id of the Loop.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn setup_loop(
+        &self,
+        name: &str,
+        pump_channels: &[String],
+        flow_sensor: &str,
+        table: &str,
+        water: &str,
+        leakshield: &str,
+        floor: f64,
+    ) -> zbus::Result<String> {
+        let id = self.create_loop(name).await?;
+        self.set_pump_channels(&id, pump_channels).await?;
+        if !flow_sensor.is_empty() {
+            self.set_flow_sensor(&id, flow_sensor, table).await?;
+        }
+        if !water.is_empty() {
+            self.set_water_temperature(&id, water).await?;
+        }
+        if !leakshield.is_empty() {
+            self.set_loop_leakshield(&id, leakshield).await?;
+        }
+        self.set_pump_floor(&id, floor).await?;
+        Ok(id)
+    }
+
+    /// The restore needs the polkit action `critical`.
+    pub async fn restore_backup(&self, leakshield: &str, backup: &str) -> zbus::Result<()> {
+        self.write(
+            &object("leakshield", leakshield),
+            "Leakshield",
+            "RestoreBackup",
+            &(backup,),
+        )
+        .await
+    }
 }
 
 fn last_element(path: &str) -> String {
@@ -638,6 +852,190 @@ fn channel_info(id: String, props: &Props) -> ChannelInfo {
         curve,
         fixed_duty: get(props, "FixedDuty").unwrap_or_default(),
     }
+}
+
+/// The parameters of a rule on the wire, with the keys of `docs/api.md`.
+pub fn rule_params(rule: &Rule) -> (String, HashMap<String, Value<'static>>) {
+    let mut params: HashMap<String, Value<'static>> = HashMap::new();
+    let mut put = |key: &str, value: Value<'static>| {
+        params.insert(key.to_owned(), value);
+    };
+    let kind = match rule {
+        Rule::Sensor {
+            sensor,
+            comparison,
+            value,
+            value_max,
+            hold_s,
+        } => {
+            put(
+                "sensor",
+                Value::from(object_path("sensor", sensor).unwrap_or_else(|_| root_none())),
+            );
+            put("comparison", Value::from(comparison.clone()));
+            put("value", Value::F64(*value));
+            if comparison == "in_range" {
+                put("value_max", Value::F64(*value_max));
+            }
+            put("hold_s", Value::U32(*hold_s));
+            "sensor"
+        }
+        Rule::Process {
+            names,
+            match_kind,
+            match_on,
+        } => {
+            put("names", Value::from(names.clone()));
+            put("match", Value::from(match_kind.clone()));
+            put("match_on", Value::from(match_on.clone()));
+            "process"
+        }
+        Rule::Time { days, start, end } => {
+            put("days", Value::from(days.clone()));
+            put("start", Value::U16(*start));
+            put("end", Value::U16(*end));
+            "time"
+        }
+        Rule::Interval {
+            interval_s,
+            delay_s,
+            duration_s,
+        } => {
+            put("interval_s", Value::U32(*interval_s));
+            put("delay_s", Value::U32(*delay_s));
+            put("duration_s", Value::U32(*duration_s));
+            "interval"
+        }
+    };
+    (kind.to_owned(), params)
+}
+
+fn root_none() -> OwnedObjectPath {
+    OwnedObjectPath::try_from("/").expect("the root path")
+}
+
+fn rule_of(kind: &str, params: &Props) -> Option<Rule> {
+    match kind {
+        "sensor" => Some(Rule::Sensor {
+            sensor: object_id(params, "sensor").unwrap_or_default(),
+            comparison: get(params, "comparison").unwrap_or_default(),
+            value: get(params, "value").unwrap_or_default(),
+            value_max: get(params, "value_max").unwrap_or_default(),
+            hold_s: get(params, "hold_s").unwrap_or_default(),
+        }),
+        "process" => Some(Rule::Process {
+            names: get(params, "names").unwrap_or_default(),
+            match_kind: get(params, "match").unwrap_or_else(|| "any".to_owned()),
+            match_on: get(params, "match_on").unwrap_or_else(|| "name".to_owned()),
+        }),
+        "time" => Some(Rule::Time {
+            days: get(params, "days").unwrap_or_default(),
+            start: get(params, "start").unwrap_or_default(),
+            end: get(params, "end").unwrap_or_default(),
+        }),
+        "interval" => Some(Rule::Interval {
+            interval_s: get(params, "interval_s").unwrap_or_default(),
+            delay_s: get(params, "delay_s").unwrap_or_default(),
+            duration_s: get(params, "duration_s").unwrap_or_default(),
+        }),
+        _ => None,
+    }
+}
+
+fn unwrapped<'a, 'v>(value: &'a Value<'v>) -> &'a Value<'v> {
+    let mut value = value;
+    while let Value::Variant(inner) = value {
+        value = inner;
+    }
+    value
+}
+
+/// The entries of an `a{sv}` that sits in a variant.
+fn dict_of<'a, 'v>(value: &'a Value<'v>) -> Option<Vec<(String, &'a Value<'v>)>> {
+    let Value::Dict(dict) = unwrapped(value) else {
+        return None;
+    };
+    Some(
+        dict.iter()
+            .filter_map(|(key, entry)| match unwrapped(key) {
+                Value::Str(name) => Some((name.to_string(), unwrapped(entry))),
+                _ => None,
+            })
+            .collect(),
+    )
+}
+
+fn number_of(value: &Value<'_>) -> Option<f64> {
+    Some(match unwrapped(value) {
+        Value::F64(v) => *v,
+        Value::U8(v) => f64::from(*v),
+        Value::I16(v) => f64::from(*v),
+        Value::U16(v) => f64::from(*v),
+        Value::I32(v) => f64::from(*v),
+        Value::U32(v) => f64::from(*v),
+        Value::I64(v) => *v as f64,
+        Value::U64(v) => *v as f64,
+        _ => return None,
+    })
+}
+
+/// Decode the `a{sv}` of `GetContent`: the keys of the Profile file of `docs/storage.md`.
+fn content_of(content: &Props) -> ProfileContent {
+    let mut out = ProfileContent::default();
+    if let Some(channels) = content.get("channels").and_then(|v| dict_of(v)) {
+        for (id, entry) in &channels {
+            let Some(entry) = dict_of(entry) else {
+                continue;
+            };
+            let field = |key: &str| entry.iter().find(|(name, _)| name == key).map(|(_, v)| *v);
+            let text = |key: &str| match field(key) {
+                Some(Value::Str(text)) => Some(text.to_string()),
+                _ => None,
+            };
+            let points = match field("points") {
+                Some(Value::Array(rows)) => rows
+                    .iter()
+                    .filter_map(|row| match unwrapped(row) {
+                        Value::Structure(pair) => {
+                            let fields = pair.fields();
+                            Some((number_of(fields.first()?)?, number_of(fields.get(1)?)?))
+                        }
+                        _ => None,
+                    })
+                    .collect(),
+                _ => Vec::new(),
+            };
+            out.channels.insert(
+                id.clone(),
+                ProfileChannel {
+                    control: Control::parse(&text("control").unwrap_or_default()),
+                    input: text("input").filter(|input| !input.is_empty()),
+                    points,
+                    fixed_duty: field("fixed_duty").and_then(number_of).unwrap_or_default(),
+                },
+            );
+        }
+    }
+    if let Some(devices) = content.get("leakshield_fields").and_then(|v| dict_of(v)) {
+        for (id, fields) in &devices {
+            let Some(fields) = dict_of(fields) else {
+                continue;
+            };
+            let decoded = fields
+                .iter()
+                .filter_map(|(name, value)| {
+                    let value = match value {
+                        Value::Bool(flag) => FieldValue::Flag(*flag),
+                        Value::Str(text) => FieldValue::Text(text.to_string()),
+                        other => FieldValue::Number(number_of(other)?),
+                    };
+                    Some((name.clone(), value))
+                })
+                .collect();
+            out.leakshield.insert(id.clone(), decoded);
+        }
+    }
+    out
 }
 
 /// The `details` dictionary of an Alarm: `value`, `limit`, `unit` and `sensor`.

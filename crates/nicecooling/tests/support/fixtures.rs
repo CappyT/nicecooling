@@ -16,10 +16,15 @@ pub fn online() -> AppState {
         ProfileInfo {
             id: "profile_default".into(),
             name: "Default".into(),
+            is_default: true,
+            slot: 1,
+            ..Default::default()
         },
         ProfileInfo {
             id: "profile_2".into(),
             name: "Quiet".into(),
+            slot: 2,
+            ..Default::default()
         },
     ];
     state.snapshot.active_profile = Some(profiles[1].clone());

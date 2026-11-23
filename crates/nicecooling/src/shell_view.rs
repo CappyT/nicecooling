@@ -24,6 +24,11 @@ pub struct ShellView {
     menu_open: bool,
     down_dialog_open: bool,
     notices_open: bool,
+    /// The Alarm whose countdown dialog the user hid with "Hide".
+    countdown_hidden: Option<String>,
+    countdown_focus: FocusHandle,
+    /// The Alarm that had the focus for its dialog: the focus moves once, when it opens.
+    countdown_focused: Option<String>,
     /// The screens of the pages Overview, Loops, Channels, Sensors and History.
     screens: Entity<ScreenView>,
 }
@@ -47,6 +52,9 @@ impl ShellView {
             menu_open: false,
             down_dialog_open: false,
             notices_open: false,
+            countdown_hidden: None,
+            countdown_focus: cx.focus_handle(),
+            countdown_focused: None,
         }
     }
 
@@ -429,10 +437,7 @@ impl Render for ShellView {
                 .child(Spinner::new())
                 .child(locale.tr("status.connecting"))
                 .into_any_element()
-        } else if matches!(
-            page,
-            Page::Overview | Page::Loops | Page::Channels | Page::Sensors | Page::History
-        ) {
+        } else if !matches!(page, Page::Leakshield(_)) {
             self.screens.clone().into_any_element()
         } else {
             // The other screens replace this placeholder. A screen reads `writes` to
@@ -459,6 +464,38 @@ impl Render for ShellView {
                 )
                 .into_any_element()
         };
+
+        let countdown = crate::screen_view::with_screen_input(&self.model, cx, |input| {
+            crate::screens::alarms::CountdownDialog::build(input)
+        })
+        .filter(|dialog| self.countdown_hidden.as_ref() != Some(&dialog.instance));
+        if let Some(dialog) = &countdown
+            && self.countdown_focused.as_ref() != Some(&dialog.instance)
+        {
+            self.countdown_focused = Some(dialog.instance.clone());
+            window.focus(&self.countdown_focus, cx);
+        }
+        let countdown_element = countdown.map(|dialog| {
+            let hide_view = cx.entity();
+            let (commands, command) = (self.commands.clone(), dialog.cancel_command());
+            let instance = dialog.instance.clone();
+            crate::screens::alarms_view::countdown_overlay(
+                &dialog,
+                &self.countdown_focus,
+                move |_, cx| {
+                    let _ = commands.send(command.clone());
+                    let _ = cx;
+                },
+                move |_, cx| {
+                    let instance = instance.clone();
+                    hide_view.update(cx, |this, cx| {
+                        this.countdown_hidden = Some(instance);
+                        cx.notify();
+                    });
+                },
+                &p,
+            )
+        });
 
         let menu_button = Button::new("primary-menu")
             .ghost()
@@ -514,5 +551,6 @@ impl Render for ShellView {
             .when(self.down_dialog_open, |root| {
                 root.child(self.render_down_dialog(&p, cx))
             })
+            .children(countdown_element)
     }
 }

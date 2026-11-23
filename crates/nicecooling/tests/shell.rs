@@ -17,6 +17,8 @@ fn online_state() -> AppState {
     state.snapshot.profiles = vec![ProfileInfo {
         id: "profile_2".into(),
         name: "Quiet".into(),
+        slot: 2,
+        ..Default::default()
     }];
     state.snapshot.active_profile = state.snapshot.profiles.first().cloned();
     state

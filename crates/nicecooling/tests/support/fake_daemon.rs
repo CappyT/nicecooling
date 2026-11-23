@@ -61,12 +61,26 @@ impl Details {
 
 type Table = (String, String, bool, Vec<(f64, f64)>);
 
+/// One Rule group of the fake: id, target Profile, enabled, rules.
+type Group = (
+    String,
+    OwnedObjectPath,
+    bool,
+    Vec<(String, HashMap<String, OwnedValue>)>,
+);
+
 pub struct Shared {
     /// `"<Method>(<args>) interactive=<bool>"` for each write call.
     pub calls: Mutex<Vec<String>>,
     pub deny_writes: Mutex<bool>,
     next_id: AtomicU32,
+    next_profile: AtomicU32,
+    next_group: AtomicU32,
     tables: Mutex<Vec<Table>>,
+    /// Profile id -> Leakshield slot.
+    slots: Mutex<HashMap<String, u8>>,
+    groups: Mutex<Vec<Group>>,
+    responses: Mutex<Vec<(String, String, u32)>>,
 }
 
 impl Default for Shared {
@@ -75,6 +89,27 @@ impl Default for Shared {
             calls: Mutex::default(),
             deny_writes: Mutex::default(),
             next_id: AtomicU32::new(1),
+            next_profile: AtomicU32::new(3),
+            next_group: AtomicU32::new(1),
+            slots: Mutex::new(HashMap::from([
+                ("profile_default".to_owned(), 1),
+                ("profile_2".to_owned(), 2),
+            ])),
+            groups: Mutex::default(),
+            responses: Mutex::new(
+                [
+                    ("leakshield.leak-warning", "notify"),
+                    ("leakshield.leak-alarm", "poweroff"),
+                    ("leakshield.fill-level-low-warning", "notify"),
+                    ("leakshield.fill-level-low-alarm", "notify"),
+                    ("pump-stop", "poweroff"),
+                    ("leakshield-unreachable", "notify"),
+                    ("lost-input", "notify"),
+                ]
+                .into_iter()
+                .map(|(event, response)| (event.to_owned(), response.to_owned(), 30))
+                .collect(),
+            ),
             tables: Mutex::new(vec![(
                 "alphacool_17558".into(),
                 "Alphacool 17558 flow sensor".into(),
@@ -287,7 +322,22 @@ struct Profiles {
     active: String,
     cause: String,
     immediate: bool,
+    rule_delay: u32,
+    dwell: u32,
     shared: Arc<Shared>,
+}
+
+fn object_id_of(object: &OwnedObjectPath) -> String {
+    object
+        .as_str()
+        .rsplit('/')
+        .next()
+        .unwrap_or_default()
+        .to_owned()
+}
+
+fn invalid() -> fdo::Error {
+    fdo::Error::Failed("io.github.cappyt.NiceCooling1.Error.InvalidArgument".into())
 }
 
 #[interface(name = "io.github.cappyt.NiceCooling1.Profiles")]
@@ -315,6 +365,162 @@ impl Profiles {
     #[zbus(property)]
     fn immediate_switching(&self) -> bool {
         self.immediate
+    }
+
+    #[zbus(property)]
+    fn rule_delay_seconds(&self) -> u32 {
+        self.rule_delay
+    }
+
+    #[zbus(property)]
+    fn dwell_seconds(&self) -> u32 {
+        self.dwell
+    }
+
+    #[zbus(property)]
+    fn rule_group_state(&self) -> Vec<(String, bool, u64)> {
+        self.shared
+            .groups
+            .lock()
+            .expect("groups")
+            .iter()
+            .map(|group| (group.0.clone(), false, 0))
+            .collect()
+    }
+
+    async fn create_profile(
+        &self,
+        #[zbus(header)] header: zbus::message::Header<'_>,
+        #[zbus(object_server)] server: &ObjectServer,
+        name: &str,
+        copy_from: OwnedObjectPath,
+    ) -> fdo::Result<OwnedObjectPath> {
+        let from = if copy_from.as_str() == "/" {
+            self.active.clone()
+        } else {
+            object_id_of(&copy_from)
+        };
+        self.shared
+            .record(&format!("CreateProfile({name},{from})"), &header)?;
+        let slot = self
+            .shared
+            .slots
+            .lock()
+            .expect("slots")
+            .get(&from)
+            .copied()
+            .unwrap_or(1);
+        let id = format!(
+            "profile_{}",
+            self.shared.next_profile.fetch_add(1, Ordering::Relaxed)
+        );
+        self.shared
+            .slots
+            .lock()
+            .expect("slots")
+            .insert(id.clone(), slot);
+        let object = path(&format!("profile/{id}"));
+        server
+            .at(
+                object.clone(),
+                Profile {
+                    id,
+                    name: name.to_owned(),
+                    is_default: false,
+                    shared: self.shared.clone(),
+                },
+            )
+            .await?;
+        Ok(object)
+    }
+
+    async fn set_immediate_switching(
+        &mut self,
+        #[zbus(header)] header: zbus::message::Header<'_>,
+        #[zbus(signal_emitter)] emitter: SignalEmitter<'_>,
+        enabled: bool,
+    ) -> fdo::Result<()> {
+        self.shared
+            .record(&format!("SetImmediateSwitching({enabled})"), &header)?;
+        self.immediate = enabled;
+        self.immediate_switching_changed(&emitter).await?;
+        Ok(())
+    }
+
+    async fn set_rule_timing(
+        &mut self,
+        #[zbus(header)] header: zbus::message::Header<'_>,
+        #[zbus(signal_emitter)] emitter: SignalEmitter<'_>,
+        rule_delay_s: u32,
+        dwell_s: u32,
+    ) -> fdo::Result<()> {
+        self.shared
+            .record(&format!("SetRuleTiming({rule_delay_s},{dwell_s})"), &header)?;
+        self.rule_delay = rule_delay_s;
+        self.dwell = dwell_s;
+        self.rule_delay_seconds_changed(&emitter).await?;
+        self.dwell_seconds_changed(&emitter).await?;
+        Ok(())
+    }
+
+    async fn get_rule_groups(&self) -> Vec<Group> {
+        self.shared.groups.lock().expect("groups").clone()
+    }
+
+    async fn set_rule_groups(
+        &self,
+        #[zbus(header)] header: zbus::message::Header<'_>,
+        #[zbus(signal_emitter)] emitter: SignalEmitter<'_>,
+        groups: Vec<Group>,
+    ) -> fdo::Result<Vec<String>> {
+        let summary: Vec<String> = groups
+            .iter()
+            .map(|(id, target, enabled, rules)| {
+                let kinds: Vec<String> = rules
+                    .iter()
+                    .map(|(kind, params)| {
+                        let mut keys: Vec<&str> = params.keys().map(String::as_str).collect();
+                        keys.sort_unstable();
+                        format!("{kind}:{}", keys.join("+"))
+                    })
+                    .collect();
+                format!(
+                    "{id}>{}>{enabled}>[{}]",
+                    object_id_of(target),
+                    kinds.join(",")
+                )
+            })
+            .collect();
+        self.shared
+            .record(&format!("SetRuleGroups({})", summary.join(";")), &header)?;
+        let missing = {
+            let known = self.shared.slots.lock().expect("slots");
+            groups
+                .iter()
+                .any(|group| !known.contains_key(&object_id_of(&group.1)))
+        };
+        if missing {
+            return Err(fdo::Error::Failed(
+                "io.github.cappyt.NiceCooling1.Error.NotFound".into(),
+            ));
+        }
+        let mut stored = Vec::new();
+        let mut ids = Vec::new();
+        for (id, target, enabled, rules) in groups {
+            let id = if id.is_empty() {
+                format!(
+                    "group_{}",
+                    self.shared.next_group.fetch_add(1, Ordering::Relaxed)
+                )
+            } else {
+                id
+            };
+            ids.push(id.clone());
+            stored.push((id, target, enabled, rules));
+        }
+        *self.shared.groups.lock().expect("groups") = stored;
+        self.rule_group_state_changed(&emitter).await?;
+        Ok(ids)
     }
 
     async fn activate_profile(
@@ -372,6 +578,33 @@ impl Alarms {
         self.active.clone()
     }
 
+    async fn get_responses(&self) -> Vec<(String, String, u32)> {
+        self.shared.responses.lock().expect("responses").clone()
+    }
+
+    async fn set_response(
+        &self,
+        #[zbus(header)] header: zbus::message::Header<'_>,
+        event: &str,
+        response: &str,
+        delay_s: u32,
+    ) -> fdo::Result<()> {
+        self.shared.record(
+            &format!("SetAlarmResponse({event},{response},{delay_s})"),
+            &header,
+        )?;
+        let mut responses = self.shared.responses.lock().expect("responses");
+        let row = responses
+            .iter_mut()
+            .find(|row| row.0 == event)
+            .ok_or_else(|| {
+                fdo::Error::Failed("io.github.cappyt.NiceCooling1.Error.NotFound".into())
+            })?;
+        row.1 = response.to_owned();
+        row.2 = delay_s;
+        Ok(())
+    }
+
     async fn cancel_poweroff(
         &mut self,
         #[zbus(header)] header: zbus::message::Header<'_>,
@@ -412,23 +645,157 @@ impl Alarms {
     async fn poweroff_cancelled(emitter: &SignalEmitter<'_>, instance: &str) -> zbus::Result<()>;
 }
 
-struct Named {
+struct Profile {
     id: String,
     name: String,
+    is_default: bool,
+    shared: Arc<Shared>,
 }
 
-struct Profile(Named);
+/// The Profile content of the fake: one Curve, one fixed Duty and the Leakshield settings of the slot.
+fn content(slot: u8) -> HashMap<String, OwnedValue> {
+    let own = |value: Value<'_>| OwnedValue::try_from(value).expect("value");
+    let mut pump: HashMap<String, Value<'_>> = HashMap::new();
+    pump.insert("control".into(), Value::from("curve"));
+    pump.insert("input".into(), Value::from("nct6798_temp1"));
+    pump.insert(
+        "points".into(),
+        Value::from(vec![(30.0f64, 40.0f64), (45.0, 70.0), (60.0, 100.0)]),
+    );
+    pump.insert("fixed_duty".into(), Value::F64(50.0));
+    let mut chassis: HashMap<String, Value<'_>> = HashMap::new();
+    chassis.insert("control".into(), Value::from("fixed"));
+    chassis.insert("fixed_duty".into(), Value::F64(30.0));
+    let mut channels: HashMap<String, Value<'_>> = HashMap::new();
+    channels.insert("nct6798_pwm6".into(), Value::from(pump));
+    channels.insert("nct6798_pwm2".into(), Value::from(chassis));
+    let mut fields: HashMap<String, Value<'_>> = HashMap::new();
+    fields.insert("default_mode".into(), Value::from("shield"));
+    fields.insert("display_brightness_active".into(), Value::U8(3));
+    fields.insert("display_brightness_idle".into(), Value::U8(1));
+    fields.insert("led_strip_brightness".into(), Value::F64(60.0));
+    fields.insert(
+        "fill_level_warning_threshold".into(),
+        Value::F64(f64::from(30 - slot)),
+    );
+    fields.insert("fill_level_alarm_threshold".into(), Value::F64(15.0));
+    fields.insert("leak_rate_warning_threshold".into(), Value::F64(100.0));
+    let mut devices: HashMap<String, Value<'_>> = HashMap::new();
+    devices.insert(LEAKSHIELD.into(), Value::from(fields));
+    let mut map = HashMap::new();
+    map.insert("channels".to_owned(), own(Value::from(channels)));
+    map.insert("slot".to_owned(), own(Value::U8(slot)));
+    map.insert("leakshield_fields".to_owned(), own(Value::from(devices)));
+    map
+}
 
 #[interface(name = "io.github.cappyt.NiceCooling1.Profile")]
 impl Profile {
     #[zbus(property)]
     fn id(&self) -> String {
-        self.0.id.clone()
+        self.id.clone()
     }
 
     #[zbus(property)]
     fn name(&self) -> String {
-        self.0.name.clone()
+        self.name.clone()
+    }
+
+    #[zbus(property)]
+    fn is_default(&self) -> bool {
+        self.is_default
+    }
+
+    #[zbus(property)]
+    fn contains_release(&self) -> bool {
+        false
+    }
+
+    #[zbus(property)]
+    fn slot(&self) -> u8 {
+        self.shared
+            .slots
+            .lock()
+            .expect("slots")
+            .get(&self.id)
+            .copied()
+            .unwrap_or(1)
+    }
+
+    async fn set_name(
+        &mut self,
+        #[zbus(header)] header: zbus::message::Header<'_>,
+        #[zbus(signal_emitter)] emitter: SignalEmitter<'_>,
+        name: &str,
+    ) -> fdo::Result<()> {
+        self.shared
+            .record(&format!("SetProfileName({},{name})", self.id), &header)?;
+        self.name = name.to_owned();
+        self.name_changed(&emitter).await?;
+        Ok(())
+    }
+
+    async fn set_slot(
+        &self,
+        #[zbus(header)] header: zbus::message::Header<'_>,
+        #[zbus(signal_emitter)] emitter: SignalEmitter<'_>,
+        slot: u8,
+    ) -> fdo::Result<()> {
+        self.shared
+            .record(&format!("SetProfileSlot({},{slot})", self.id), &header)?;
+        if self.is_default || !(1..=4).contains(&slot) {
+            return Err(invalid());
+        }
+        self.shared
+            .slots
+            .lock()
+            .expect("slots")
+            .insert(self.id.clone(), slot);
+        self.slot_changed(&emitter).await?;
+        Ok(())
+    }
+
+    async fn delete(
+        &self,
+        #[zbus(header)] header: zbus::message::Header<'_>,
+        #[zbus(object_server)] server: &ObjectServer,
+    ) -> fdo::Result<()> {
+        self.shared
+            .record(&format!("DeleteProfile({})", self.id), &header)?;
+        if self.is_default {
+            return Err(fdo::Error::Failed(
+                "io.github.cappyt.NiceCooling1.Error.DefaultProfile".into(),
+            ));
+        }
+        let used = self
+            .shared
+            .groups
+            .lock()
+            .expect("groups")
+            .iter()
+            .any(|group| object_id_of(&group.1) == self.id);
+        if used {
+            return Err(fdo::Error::Failed(
+                "io.github.cappyt.NiceCooling1.Error.InUse".into(),
+            ));
+        }
+        self.shared.slots.lock().expect("slots").remove(&self.id);
+        server
+            .remove::<Profile, _>(path(&format!("profile/{}", self.id)))
+            .await?;
+        Ok(())
+    }
+
+    async fn get_content(&self) -> HashMap<String, OwnedValue> {
+        let slot = self
+            .shared
+            .slots
+            .lock()
+            .expect("slots")
+            .get(&self.id)
+            .copied()
+            .unwrap_or(1);
+        content(slot)
     }
 }
 
@@ -899,6 +1266,7 @@ impl Loop {
 struct Leakshield {
     firmware: u16,
     read_only_reason: String,
+    shared: Arc<Shared>,
 }
 
 #[interface(name = "io.github.cappyt.NiceCooling1.Leakshield")]
@@ -938,8 +1306,52 @@ impl Leakshield {
         String::new()
     }
 
+    /// (field id, risk class, value, writable, reason)
+    async fn get_fields(&self) -> Vec<(String, String, OwnedValue, bool, String)> {
+        let value = |v: f64| OwnedValue::try_from(Value::F64(v)).expect("value");
+        vec![
+            (
+                "display_brightness_active".into(),
+                "low".into(),
+                value(3.0),
+                true,
+                String::new(),
+            ),
+            (
+                "led_strip_brightness".into(),
+                "low".into(),
+                value(60.0),
+                true,
+                String::new(),
+            ),
+            (
+                "default_mode".into(),
+                "safety".into(),
+                value(1.0),
+                false,
+                "not-verified".into(),
+            ),
+        ]
+    }
+
+    async fn restore_backup(
+        &self,
+        #[zbus(header)] header: zbus::message::Header<'_>,
+        backup: &str,
+    ) -> fdo::Result<()> {
+        self.shared
+            .record(&format!("RestoreBackup({LEAKSHIELD},{backup})"), &header)
+    }
+
     #[zbus(signal)]
     async fn external_change(emitter: &SignalEmitter<'_>, fields: Vec<String>) -> zbus::Result<()>;
+
+    #[zbus(signal)]
+    async fn write_failed(
+        emitter: &SignalEmitter<'_>,
+        error: &str,
+        backup: &str,
+    ) -> zbus::Result<()>;
 }
 
 #[derive(Default)]
@@ -978,6 +1390,8 @@ impl FakeDaemon {
                     active: "profile_default".into(),
                     cause: "default".into(),
                     immediate: false,
+                    rule_delay: 30,
+                    dwell: 300,
                     shared: shared.clone(),
                 },
             )
@@ -997,10 +1411,12 @@ impl FakeDaemon {
             server
                 .at(
                     path(&format!("profile/{id}")),
-                    Profile(Named {
+                    Profile {
                         id: id.into(),
                         name: name.into(),
-                    }),
+                        is_default: id == "profile_default",
+                        shared: shared.clone(),
+                    },
                 )
                 .await
                 .expect("profile");
@@ -1136,6 +1552,7 @@ impl FakeDaemon {
                 Leakshield {
                     firmware,
                     read_only_reason: reason.into(),
+                    shared: shared.clone(),
                 },
             )
             .await
@@ -1253,6 +1670,19 @@ impl FakeDaemon {
             .await
             .expect("manager");
         Manager::sensors_updated(iface.signal_emitter(), time_us, sensors, channels)
+            .await
+            .expect("signal");
+    }
+
+    /// A Leakshield write that failed after a Profile activation.
+    pub async fn emit_write_failed(&self, error: &str, backup: &str) {
+        let iface = self
+            .conn
+            .object_server()
+            .interface::<_, Leakshield>(path(&format!("leakshield/{LEAKSHIELD}")))
+            .await
+            .expect("leakshield");
+        Leakshield::write_failed(iface.signal_emitter(), error, backup)
             .await
             .expect("signal");
     }

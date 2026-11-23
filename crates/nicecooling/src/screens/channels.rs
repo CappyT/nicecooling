@@ -315,6 +315,17 @@ pub enum ChannelsState {
     Ready,
 }
 
+/// The Channel that Up or Down selects in the list: the next row, or `None` at the end.
+pub fn neighbor(rows: &[ChannelRow], down: bool) -> Option<String> {
+    let at = rows.iter().position(|row| row.selected)?;
+    let next = if down {
+        at.checked_add(1)?
+    } else {
+        at.checked_sub(1)?
+    };
+    rows.get(next).map(|row| row.id.clone())
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct ChannelRow {
     pub id: String,

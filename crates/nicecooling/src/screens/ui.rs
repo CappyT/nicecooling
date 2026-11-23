@@ -1,7 +1,7 @@
 //! Small building blocks that the screens share. They paint with the tokens of `Palette`.
 
 use gpui::prelude::*;
-use gpui::{Div, FontWeight, Hsla, SharedString, div, px};
+use gpui::{AnyElement, Div, FontWeight, Hsla, SharedString, div, px};
 use gpui_component::{h_flex, v_flex};
 
 use crate::model::Severity;
@@ -114,4 +114,56 @@ pub fn write_line(line: &FeedbackLine, p: &Palette) -> Div {
 /// The ground of a page: 12 px at the top, 24 px at the sides, 12 px between the cards.
 pub fn page() -> Div {
     v_flex().w_full().px(px(24.)).py(px(12.)).gap(px(12.))
+}
+
+/// A dialog of 440 px over a dark scrim. The caller puts it in a container with `relative()`.
+/// `body` goes under the text, `buttons` at the right of the last row.
+pub fn modal(
+    title: impl Into<SharedString>,
+    text: impl Into<SharedString>,
+    body: Vec<AnyElement>,
+    buttons: Vec<AnyElement>,
+    p: &Palette,
+) -> Div {
+    div()
+        .absolute()
+        .top_0()
+        .left_0()
+        .size_full()
+        .flex()
+        .justify_center()
+        .pt(px(120.))
+        .bg(gpui::black().opacity(0.4))
+        .child(
+            v_flex()
+                .w(px(440.))
+                .h_auto()
+                .p(px(18.))
+                .gap(px(12.))
+                .rounded(px(15.))
+                .bg(p.card)
+                .border_1()
+                .border_color(p.border)
+                .child(
+                    div()
+                        .text_size(px(18.))
+                        .font_weight(FontWeight::BOLD)
+                        .child(title.into()),
+                )
+                .child(text.into())
+                .children(body)
+                .child(h_flex().justify_end().gap(px(8.)).children(buttons)),
+        )
+}
+
+/// A row with a warning or an information line: the icon and the text.
+pub fn notice_row(text: impl Into<SharedString>, warning: bool, p: &Palette) -> Div {
+    card_row(p)
+        .bg(if warning { p.warning_tint } else { p.selected })
+        .child(
+            div()
+                .text_color(if warning { p.warning } else { p.fg_dim })
+                .child(if warning { "\u{25B2}" } else { "\u{2139}" }),
+        )
+        .child(div().flex_1().child(text.into()))
 }

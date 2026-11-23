@@ -120,6 +120,13 @@ impl ScreenView {
             ));
 
         let mut content = page().child(toolbar);
+        if self.history_progress() {
+            content = content.child(
+                gpui_component::progress::Progress::new("history-progress")
+                    .loading(true)
+                    .color(p.accent),
+            );
+        }
         if self.history.picker_open || model.state == HistoryState::Empty {
             let rows: Vec<PickRow> = self.with_input(cx, |input| {
                 picker_rows(input)

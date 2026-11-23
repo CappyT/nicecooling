@@ -129,6 +129,8 @@ profile_switched_by_rule = false
 external_change = true
 [hints]
 dismissed = []                      # ids of hints and dialogs closed with "Do not show this again"
+[sensors]
+hidden = []                         # sensor ids that the Sensors screen hides; the daemon has no hidden flag
 ```
 
 Known hint ids: `appindicator` (the tray hint) and `immediate_switching_warning` (the dialog of the Profiles screen).

@@ -2,6 +2,8 @@
 //! notifications and the history writer. Each one owns a copy of the app state.
 
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -44,6 +46,7 @@ pub fn spawn_tray(
     mut events: broadcast::Receiver<DaemonEvent>,
     commands: UnboundedSender<Command>,
     locale: Locale,
+    visible: Arc<AtomicBool>,
 ) {
     thread::spawn(move || {
         let runtime = small_runtime();
@@ -53,6 +56,7 @@ pub fn spawn_tray(
             Ok(tray) => tray,
             Err(error) => {
                 eprintln!("nicecooling: no tray icon: {error}");
+                visible.store(false, Ordering::Relaxed);
                 let _ = commands.send(Command::OpenWindow(None));
                 return;
             }
@@ -62,6 +66,7 @@ pub fn spawn_tray(
             if let Some(event) = event {
                 state.apply(&event);
             }
+            visible.store(tray.host_online(), Ordering::Relaxed);
             let view = TrayView::build(&state, now_us(), locale);
             if view != shown {
                 tray.update(view.clone());
@@ -77,7 +82,7 @@ pub fn spawn_notifications(
     mut events: broadcast::Receiver<DaemonEvent>,
     commands: UnboundedSender<Command>,
     locale: Locale,
-    prefs: NotifyPrefs,
+    prefs: Arc<Mutex<NotifyPrefs>>,
 ) {
     thread::spawn(move || {
         let runtime = small_runtime();
@@ -88,7 +93,10 @@ pub fn spawn_notifications(
             state.apply(&event);
             // The first read after a start holds the Alarms that were active before. They
             // arrive as a snapshot, not as an event, so they stay quiet.
-            for step in plan(&event, &state, now_us(), locale, prefs) {
+            let current = prefs
+                .lock()
+                .map_or_else(|poisoned| *poisoned.into_inner(), |p| *p);
+            for step in plan(&event, &state, now_us(), locale, current) {
                 if let Err(error) = notifier.apply(step) {
                     eprintln!("nicecooling: notification: {error:?}");
                 }

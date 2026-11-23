@@ -391,6 +391,7 @@ impl ScreenView {
                     let sensor = sensor.clone();
                     view.update(cx, |this, cx| {
                         this.sensors.toggle_hidden(&sensor);
+                        this.persist_hidden(cx);
                         cx.notify();
                     })
                 })

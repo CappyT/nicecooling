@@ -45,6 +45,7 @@ impl ScreenView {
             OverviewState::Empty => {
                 if let Some(empty) = &model.empty {
                     let view = cx.entity();
+                    let target = empty.open.clone();
                     content = content.child(
                         card(p)
                             .p(px(18.))
@@ -60,7 +61,7 @@ impl ScreenView {
                                     Button::new("overview-setup")
                                         .label(empty.button.clone())
                                         .on_click(move |_, _, cx| {
-                                            view.update(cx, |this, cx| this.go(Page::Loops, cx))
+                                            view.update(cx, |this, cx| this.go(target.clone(), cx))
                                         }),
                                 ),
                             ),

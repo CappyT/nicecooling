@@ -57,6 +57,14 @@ pub enum Response {
 }
 
 impl Response {
+    pub fn id(self) -> &'static str {
+        match self {
+            Self::Poweroff => "poweroff",
+            Self::Notify => "notify",
+            Self::None => "none",
+        }
+    }
+
     pub fn parse(text: &str) -> Self {
         match text {
             "poweroff" => Self::Poweroff,
@@ -122,6 +130,120 @@ impl Cause {
 pub struct ProfileInfo {
     pub id: String,
     pub name: String,
+    pub is_default: bool,
+    /// The Profile sets Mode RELEASE on its Leakshield slot.
+    pub contains_release: bool,
+    /// The Leakshield slot, 1 to 4.
+    pub slot: u8,
+}
+
+/// A value of a Leakshield field in the stored settings of a slot.
+#[derive(Clone, Debug, PartialEq)]
+pub enum FieldValue {
+    Flag(bool),
+    Number(f64),
+    Text(String),
+}
+
+/// What a Profile holds for one Channel (`docs/storage.md`, Profile file).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct ProfileChannel {
+    pub control: Control,
+    pub input: Option<String>,
+    pub points: Vec<(f64, f64)>,
+    pub fixed_duty: f64,
+}
+
+/// `GetContent` of a Profile: the Curves and the Leakshield settings of its slot.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct ProfileContent {
+    pub channels: BTreeMap<String, ProfileChannel>,
+    /// For each Leakshield id, the decoded fields of the stored settings of the slot.
+    pub leakshield: BTreeMap<String, BTreeMap<String, FieldValue>>,
+}
+
+/// A condition of a Rule group. The keys of the parameters are in `docs/api.md`.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Rule {
+    Sensor {
+        sensor: String,
+        /// `lt`, `le`, `eq`, `ge`, `gt`, `ne` or `in_range`.
+        comparison: String,
+        value: f64,
+        /// The upper bound of `in_range`.
+        value_max: f64,
+        hold_s: u32,
+    },
+    Process {
+        names: Vec<String>,
+        /// `any`, `all` or `none`.
+        match_kind: String,
+        /// `name` or `cmdline`.
+        match_on: String,
+    },
+    Time {
+        /// ISO weekdays, 1 Monday to 7 Sunday.
+        days: Vec<u8>,
+        /// Minutes after midnight.
+        start: u16,
+        end: u16,
+    },
+    Interval {
+        interval_s: u32,
+        delay_s: u32,
+        duration_s: u32,
+    },
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct RuleGroup {
+    /// Empty for a group that the daemon has not stored yet.
+    pub id: String,
+    pub profile: String,
+    pub enabled: bool,
+    pub rules: Vec<Rule>,
+    pub holds: bool,
+    /// When the group started to hold, or 0.
+    pub since_us: u64,
+}
+
+/// The alarm response of one event type: `GetResponses`.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ResponseRule {
+    pub event: String,
+    pub response: Response,
+    pub delay_s: u32,
+}
+
+/// What happened to an Alarm or a Warning, for the History card of the Alarms screen.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Outcome {
+    /// The Alarm is still active.
+    Active,
+    Notified,
+    PoweroffCancelled,
+    None,
+}
+
+/// One row of the history that the app keeps while it runs.
+#[derive(Clone, Debug, PartialEq)]
+pub struct AlarmRecord {
+    pub instance: String,
+    pub event: String,
+    pub severity: Severity,
+    pub source: String,
+    pub response: Response,
+    pub raised_us: u64,
+    pub cleared_us: Option<u64>,
+    pub outcome: Outcome,
+}
+
+/// A failed Leakshield write after a Profile activation: the backup that the restore uses.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WriteFailure {
+    pub leakshield: String,
+    pub error: String,
+    pub backup: String,
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -153,6 +275,8 @@ pub struct LeakshieldInfo {
     pub running_action: String,
     /// The pressure limits of the Mode, when the app knows them.
     pub pressure: Option<PressureLimits>,
+    /// `(fields, read-only fields)` from `GetFields`, when the daemon answered.
+    pub field_counts: Option<(u32, u32)>,
 }
 
 /// The target and the limits of the Leakshield pressure in mbar.
@@ -283,6 +407,15 @@ pub struct Snapshot {
     pub channels: BTreeMap<String, ChannelInfo>,
     pub calibration_tables: Vec<CalibrationTableInfo>,
     pub board: Option<BoardInfo>,
+    /// `applied` or `leakshield-failed`.
+    pub profile_state: String,
+    pub rule_delay_s: u32,
+    pub dwell_s: u32,
+    pub rule_groups: Vec<RuleGroup>,
+    pub responses: Vec<ResponseRule>,
+    /// `GetContent` of each Profile, by Profile id.
+    pub profile_contents: BTreeMap<String, ProfileContent>,
+    pub daemon_version: String,
 }
 
 /// One `SensorsUpdated` signal: `(id, value, flags)` for each sensor and Channel.
@@ -359,6 +492,11 @@ pub enum DaemonEvent {
         leakshield: String,
         fields: Vec<String>,
     },
+    WriteFailed {
+        leakshield: String,
+        error: String,
+        backup: String,
+    },
 }
 
 #[derive(Clone, Debug, Default)]
@@ -369,7 +507,18 @@ pub struct AppState {
     pub sensors: Option<SensorSample>,
     /// The last values that arrived. They stay while the daemon is away.
     pub last_sensors: Option<SensorSample>,
+    /// The Alarms and Warnings that the app saw since it started, newest last. The daemon keeps
+    /// no history of them.
+    pub alarm_history: Vec<AlarmRecord>,
+    /// Alarm instance -> the time of its cancelled poweroff.
+    pub cancelled: BTreeMap<String, u64>,
+    pub write_failure: Option<WriteFailure>,
+    /// The fields of the last `ExternalChange`: a Leakshield change that nicecooling did not make.
+    pub external_change: Option<Vec<String>>,
 }
+
+/// The history keeps this many rows.
+const HISTORY_LIMIT: usize = 200;
 
 impl AppState {
     pub fn apply(&mut self, event: &DaemonEvent) {
@@ -383,6 +532,22 @@ impl AppState {
             DaemonEvent::Snapshot(snapshot) => {
                 self.link = Link::Online;
                 self.snapshot = (**snapshot).clone();
+                // An Alarm that was active before the app started has no row yet.
+                let active = self.snapshot.alarms.clone();
+                for alarm in &active {
+                    self.record_raised(alarm);
+                }
+                // An Alarm that closed while the app was away.
+                for record in &mut self.alarm_history {
+                    if record.cleared_us.is_none()
+                        && !active.iter().any(|a| a.instance == record.instance)
+                    {
+                        record.cleared_us = Some(crate::app::now_us().max(record.raised_us));
+                        if record.outcome == Outcome::Active {
+                            record.outcome = Outcome::Notified;
+                        }
+                    }
+                }
             }
             DaemonEvent::Sensors(sample) => {
                 self.sensors = Some(sample.clone());
@@ -403,17 +568,44 @@ impl AppState {
                 self.snapshot
                     .alarms
                     .retain(|alarm| alarm.instance != entry.instance);
-                self.snapshot.alarms.push(AlarmEntry {
+                let entry = AlarmEntry {
                     raised_us,
                     ..entry.clone()
-                });
+                };
+                self.record_raised(&entry);
+                self.snapshot.alarms.push(entry);
             }
             DaemonEvent::AlarmCleared { instance } => {
                 self.snapshot
                     .alarms
                     .retain(|alarm| &alarm.instance != instance);
+                self.cancelled.remove(instance);
+                if let Some(record) = self
+                    .alarm_history
+                    .iter_mut()
+                    .rev()
+                    .find(|r| &r.instance == instance && r.cleared_us.is_none())
+                {
+                    record.cleared_us = Some(crate::app::now_us().max(record.raised_us));
+                    if record.outcome == Outcome::Active {
+                        record.outcome = match record.response {
+                            Response::None => Outcome::None,
+                            _ => Outcome::Notified,
+                        };
+                    }
+                }
             }
             DaemonEvent::PoweroffCancelled { instance } => {
+                self.cancelled
+                    .insert(instance.clone(), crate::app::now_us());
+                if let Some(record) = self
+                    .alarm_history
+                    .iter_mut()
+                    .rev()
+                    .find(|r| &r.instance == instance)
+                {
+                    record.outcome = Outcome::PoweroffCancelled;
+                }
                 if let Some(alarm) = self
                     .snapshot
                     .alarms
@@ -423,13 +615,64 @@ impl AppState {
                     alarm.poweroff_at_us = 0;
                 }
             }
-            DaemonEvent::ProfileActivated { profile, cause, .. } => {
+            DaemonEvent::ProfileActivated {
+                profile,
+                cause,
+                state,
+            } => {
                 self.snapshot.cause = *cause;
+                self.snapshot.profile_state = state.clone();
+                // A new activation ends the old write failure.
+                if state != "leakshield-failed" {
+                    self.write_failure = None;
+                }
+                self.external_change = None;
                 if let Some(info) = self.snapshot.profiles.iter().find(|p| &p.id == profile) {
                     self.snapshot.active_profile = Some(info.clone());
                 }
             }
-            DaemonEvent::PoweroffFailed { .. } | DaemonEvent::ExternalChange { .. } => {}
+            DaemonEvent::WriteFailed {
+                leakshield,
+                error,
+                backup,
+            } => {
+                self.write_failure = Some(WriteFailure {
+                    leakshield: leakshield.clone(),
+                    error: error.clone(),
+                    backup: backup.clone(),
+                });
+            }
+            DaemonEvent::ExternalChange { fields, .. } => {
+                self.external_change = Some(fields.clone());
+            }
+            DaemonEvent::PoweroffFailed { .. } => {}
+        }
+    }
+
+    fn record_raised(&mut self, alarm: &AlarmEntry) {
+        if self
+            .alarm_history
+            .iter()
+            .any(|r| r.instance == alarm.instance && r.cleared_us.is_none())
+        {
+            return;
+        }
+        self.alarm_history.push(AlarmRecord {
+            instance: alarm.instance.clone(),
+            event: alarm.event.clone(),
+            severity: alarm.severity,
+            source: alarm.source.clone(),
+            response: alarm.response,
+            raised_us: if alarm.raised_us == 0 {
+                crate::app::now_us()
+            } else {
+                alarm.raised_us
+            },
+            cleared_us: None,
+            outcome: Outcome::Active,
+        });
+        if self.alarm_history.len() > HISTORY_LIMIT {
+            self.alarm_history.remove(0);
         }
     }
 

@@ -26,6 +26,7 @@ fn backend() -> (Backend, Rig) {
         client: None,
         runtime: runtime.handle().clone(),
         language: Language::English,
+        settings: Default::default(),
     };
     (
         backend,

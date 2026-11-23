@@ -7,6 +7,7 @@ use gpui_component::{Root, Theme};
 use tokio::sync::broadcast;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
+use crate::app_settings::SettingsStore;
 use crate::command::Command;
 use crate::daemon_client::DaemonClient;
 use crate::i18n::{Language, Locale};
@@ -42,6 +43,8 @@ pub struct Backend {
     pub client: Option<DaemonClient>,
     pub runtime: tokio::runtime::Handle,
     pub language: Language,
+    /// The app settings. A test passes `SettingsStore::default()`: it writes no file.
+    pub settings: SettingsStore,
 }
 
 /// The state that the window draws.
@@ -56,6 +59,9 @@ pub struct AppModel {
     pub down_since_us: Option<u64>,
     /// The history database that the History screen reads.
     pub history_path: Option<std::path::PathBuf>,
+    pub settings: SettingsStore,
+    /// The first-run flow opens once, when the first read shows a daemon without a Loop.
+    first_run_offered: bool,
     connecting_since: Instant,
 }
 
@@ -69,6 +75,8 @@ impl AppModel {
             feedback: Feedback::default(),
             down_since_us: None,
             history_path: Some(crate::services::history_path()),
+            settings: SettingsStore::default(),
+            first_run_offered: false,
             connecting_since: Instant::now(),
         }
     }
@@ -77,6 +85,14 @@ impl AppModel {
     pub fn apply(&mut self, event: &DaemonEvent) {
         self.state.apply(event);
         self.now_us = now_us();
+        if let DaemonEvent::Snapshot(snapshot) = event
+            && !self.first_run_offered
+        {
+            self.first_run_offered = true;
+            if snapshot.loops.is_empty() && self.page == Page::Overview {
+                self.page = Page::FirstRun;
+            }
+        }
         match event {
             DaemonEvent::Link(Link::Offline | Link::Down) => {
                 self.down_since_us.get_or_insert(self.now_us);
@@ -128,6 +144,7 @@ pub fn init(cx: &mut App, mode: StartMode, backend: Backend) -> Entity<AppModel>
         client,
         runtime,
         language,
+        settings,
     } = backend;
     let locale = language.resolve();
     gpui_component::init(cx);
@@ -135,7 +152,11 @@ pub fn init(cx: &mut App, mode: StartMode, backend: Backend) -> Entity<AppModel>
     // Closing the window hides it: only "Quit" ends the app.
     cx.set_quit_mode(QuitMode::Explicit);
     Theme::sync_system_appearance(None, cx);
-    let model = cx.new(|_| AppModel::new(locale));
+    let model = cx.new(|_| {
+        let mut app = AppModel::new(locale);
+        app.settings = settings;
+        app
+    });
 
     cx.spawn({
         let model = model.clone();

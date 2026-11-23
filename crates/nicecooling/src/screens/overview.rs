@@ -90,6 +90,8 @@ pub struct EmptyCard {
     pub title: String,
     pub text: String,
     pub button: String,
+    /// "Set up a Loop" opens the First run flow.
+    pub open: Page,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -166,6 +168,7 @@ impl OverviewModel {
             title: locale.tr("overview.empty.title"),
             text: locale.tr("overview.empty.text"),
             button: locale.tr("overview.empty.button"),
+            open: Page::FirstRun,
         });
 
         let mut alarms: Vec<AlarmRow> = Vec::new();

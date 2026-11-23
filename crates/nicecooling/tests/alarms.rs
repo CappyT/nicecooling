@@ -1,0 +1,623 @@
+mod support;
+
+use nicecooling::command::Command;
+use nicecooling::i18n::{EN, IT};
+use nicecooling::model::{
+    AlarmDetails, AppState, DaemonEvent, Link, Outcome, Response, ResponseRule, Severity,
+};
+use nicecooling::screens::alarms::{
+    AlarmsModel, AlarmsState, AlarmsUi, CountdownDialog, DialogButton, HistoryFilter,
+    default_response,
+};
+use nicecooling::screens::format::clock;
+use nicecooling::screens::{Feedback, ScreenInput, WriteOutcome};
+use nicecooling::shell::Page;
+use support::bus::PrivateBus;
+use support::fake_daemon::{FakeDaemon, LEAKSHIELD, Options};
+use support::fixtures::{NOW_US, alarm, full};
+use support::harness::Harness;
+use support::labels;
+
+fn input<'a>(state: &'a AppState, feedback: &'a Feedback, now_us: u64) -> ScreenInput<'a> {
+    ScreenInput {
+        state,
+        now_us,
+        locale: EN,
+        down_since_us: None,
+        feedback,
+    }
+}
+
+fn model_at(state: &AppState, now_us: u64) -> AlarmsModel {
+    AlarmsModel::build(
+        &input(state, &Feedback::default(), now_us),
+        &AlarmsUi::default(),
+    )
+}
+
+fn rule(event: &str, response: Response, delay_s: u32) -> ResponseRule {
+    ResponseRule {
+        event: event.into(),
+        response,
+        delay_s,
+    }
+}
+
+/// The defaults of `docs/ui/screens/alarms.md`.
+fn with_responses() -> AppState {
+    let mut state = full();
+    state.snapshot.responses = vec![
+        rule("leakshield.leak-warning", Response::Notify, 30),
+        rule("leakshield.leak-alarm", Response::Poweroff, 30),
+        rule("pump-stop", Response::Poweroff, 30),
+        rule("leakshield-unreachable", Response::Notify, 30),
+        rule("lost-input", Response::Notify, 30),
+    ];
+    state
+}
+
+#[test]
+fn alarms_states() {
+    // Loading.
+    let mut loading = with_responses();
+    loading.link = Link::Connecting;
+    assert_eq!(model_at(&loading, NOW_US).state, AlarmsState::Loading);
+
+    // Nothing active, nothing in the history.
+    let quiet = model_at(&with_responses(), NOW_US);
+    assert_eq!(quiet.state, AlarmsState::Ready);
+    assert_eq!(quiet.active.empty.as_deref(), Some("No active Alarms"));
+    assert_eq!(
+        quiet.history.empty.as_deref(),
+        Some("No Alarm and no Warning yet.")
+    );
+    assert!(quiet.responses.enabled);
+    assert!(quiet.responses.disabled_text.is_none());
+
+    // A large leak Alarm with a countdown.
+    let mut state = with_responses();
+    let mut leak = alarm(
+        "a1",
+        "leakshield.leak-alarm",
+        LEAKSHIELD,
+        Response::Poweroff,
+        30,
+    );
+    leak.details = AlarmDetails {
+        value: Some(212.0),
+        limit: Some(250.0),
+        unit: "mbar".into(),
+        sensor: Some(format!("{LEAKSHIELD}_pressure")),
+    };
+    state.snapshot.alarms = vec![leak];
+    let at = NOW_US + 9_000_000;
+    let shown = model_at(&state, at);
+    let row = &shown.active.rows[0];
+    assert!(shown.active.empty.is_none());
+    assert_eq!(row.event, "Large leak Alarm");
+    assert_eq!(row.severity, Severity::Alarm);
+    assert_eq!(row.source, "Leakshield, Main loop");
+    assert_eq!(row.value, "212 mbar, limit 250 mbar");
+    assert_eq!(row.response, "Poweroff after 30 s");
+    assert_eq!(row.countdown.as_deref(), Some("Poweroff in 0:21"));
+    assert_eq!(row.cancel_label, "Cancel poweroff");
+    assert_eq!(
+        row.cancel,
+        Some(Command::CancelPoweroff {
+            instance: "a1".into()
+        })
+    );
+    assert_eq!(row.open, Some(Page::Leakshield(LEAKSHIELD.into())));
+
+    // The poweroff was cancelled: the row says so and has no button.
+    let mut cancelled = state.clone();
+    cancelled.snapshot.alarms[0].poweroff_at_us = 0;
+    cancelled.cancelled.insert("a1".into(), NOW_US + 5_000_000);
+    let row = &model_at(&cancelled, at).active.rows[0];
+    assert_eq!(
+        row.cancelled.as_deref(),
+        Some(
+            format!(
+                "Poweroff cancelled {}. The Alarm is still active.",
+                clock(NOW_US + 5_000_000)
+            )
+            .as_str()
+        )
+    );
+    assert!(row.cancel.is_none() && row.countdown.is_none());
+
+    // A Warning has the triangle and no countdown.
+    let mut warning = with_responses();
+    warning.snapshot.alarms = vec![alarm(
+        "w1",
+        "leakshield.leak-warning",
+        LEAKSHIELD,
+        Response::Notify,
+        0,
+    )];
+    let row = &model_at(&warning, NOW_US).active.rows[0];
+    assert_eq!(row.severity, Severity::Warning);
+    assert_eq!(row.response, "Notify");
+    assert!(row.countdown.is_none());
+
+    // The pump-stop Alarm names the Pump channel and shows rpm and Duty.
+    let mut pump = with_responses();
+    pump.snapshot.alarms = vec![alarm("p1", "pump-stop", "loop_1", Response::Poweroff, 30)];
+    pump.sensors.as_mut().unwrap().sensors[2].1 = 0.0;
+    let row = &model_at(&pump, NOW_US).active.rows[0];
+    assert_eq!(row.event, "Pump stopped");
+    assert_eq!(row.source, "Main loop: Waterpump");
+    assert_eq!(row.value, "0 rpm at Duty 62 %");
+    assert_eq!(
+        row.caption.as_deref(),
+        Some("Every Channel is at 100 %. The Alarm closes when the pump runs for 10 s.")
+    );
+
+    // Leakshield unreachable: the age of the data.
+    let mut gone = with_responses();
+    gone.snapshot.alarms = vec![alarm(
+        "u1",
+        "leakshield-unreachable",
+        LEAKSHIELD,
+        Response::Notify,
+        0,
+    )];
+    let row = &model_at(&gone, NOW_US + 14_000_000).active.rows[0];
+    assert_eq!(row.source, "Main loop: Leakshield");
+    assert_eq!(row.value, "No data for 14 s");
+
+    // The daemon is down: the app adds a row, and the response table is off.
+    let mut down = with_responses();
+    down.link = Link::Down;
+    let shown = model_at(&down, NOW_US);
+    let row = &shown.active.rows[0];
+    assert!(row.synthetic);
+    assert_eq!(row.event, "Daemon down");
+    assert_eq!(row.source, "nicecooling");
+    assert_eq!(row.value, "nicecooling protection is off.");
+    assert_eq!(row.severity, Severity::Alarm);
+    assert!(!shown.responses.enabled);
+    assert_eq!(
+        shown.responses.disabled_text.as_deref(),
+        Some("The daemon runs the alarm responses. While it does not run, no alarm response runs.")
+    );
+    let mut offline = with_responses();
+    offline.link = Link::Offline;
+    assert!(!model_at(&offline, NOW_US).responses.enabled);
+    assert!(model_at(&offline, NOW_US).active.rows.is_empty());
+
+    // The defaults: "Large leak" and "Pump stopped" power off, the others notify.
+    assert_eq!(
+        default_response("leakshield.leak-alarm"),
+        Response::Poweroff
+    );
+    assert_eq!(default_response("pump-stop"), Response::Poweroff);
+    assert_eq!(default_response("leakshield-unreachable"), Response::Notify);
+    let table = model_at(&with_responses(), NOW_US).responses;
+    assert_eq!(table.groups[0].title, "Leakshield");
+    assert_eq!(table.groups[1].title, "nicecooling");
+    assert!(
+        table
+            .groups
+            .iter()
+            .flat_map(|g| &g.rows)
+            .all(|r| !r.differs && r.reset.is_none())
+    );
+
+    // A row that differs has "Reset", and a delay of 0 s has a warning.
+    let mut changed = with_responses();
+    changed.snapshot.responses[1] = rule("leakshield.leak-alarm", Response::Poweroff, 0);
+    changed.snapshot.responses[3] = rule("leakshield-unreachable", Response::None, 30);
+    let table = model_at(&changed, NOW_US).responses;
+    let leak_row = &table.groups[0].rows[1];
+    assert!(leak_row.differs);
+    assert_eq!(
+        leak_row.delay_warning.as_deref(),
+        Some("With 0 s you cannot cancel the poweroff.")
+    );
+    assert_eq!(
+        leak_row.reset,
+        Some(Command::SetAlarmResponse {
+            event: "leakshield.leak-alarm".into(),
+            response: Response::Poweroff,
+            delay_s: 30
+        })
+    );
+    let unreachable = table.groups[1]
+        .rows
+        .iter()
+        .find(|row| row.event == "leakshield-unreachable")
+        .unwrap();
+    assert!(unreachable.differs && !unreachable.delay_enabled);
+    assert_eq!(unreachable.options.len(), 3);
+}
+
+#[test]
+fn history_keeps_what_the_app_saw() {
+    let mut state = with_responses();
+    let raise = |instance: &str, event: &str, severity: Severity, response: Response, at: u64| {
+        let mut entry = alarm(instance, event, LEAKSHIELD, response, 30);
+        entry.severity = severity;
+        entry.raised_us = at;
+        DaemonEvent::AlarmRaised(entry)
+    };
+    state.apply(&raise(
+        "w1",
+        "leakshield.leak-warning",
+        Severity::Warning,
+        Response::Notify,
+        NOW_US,
+    ));
+    state.apply(&raise(
+        "a1",
+        "leakshield.leak-alarm",
+        Severity::Alarm,
+        Response::Poweroff,
+        NOW_US,
+    ));
+    state.apply(&DaemonEvent::PoweroffCancelled {
+        instance: "a1".into(),
+    });
+    state.apply(&DaemonEvent::AlarmCleared {
+        instance: "w1".into(),
+    });
+    state.apply(&DaemonEvent::AlarmCleared {
+        instance: "a1".into(),
+    });
+    assert_eq!(state.alarm_history.len(), 2);
+    assert!(state.alarm_history.iter().all(|r| r.cleared_us.is_some()));
+    assert_eq!(state.alarm_history[0].outcome, Outcome::Notified);
+    assert_eq!(state.alarm_history[1].outcome, Outcome::PoweroffCancelled);
+
+    let feedback = Feedback::default();
+    let all = AlarmsModel::build(&input(&state, &feedback, NOW_US), &AlarmsUi::default());
+    assert!(all.history.empty.is_none());
+    assert_eq!(
+        all.history.rows[0].event, "Large leak Alarm",
+        "newest first"
+    );
+    assert_eq!(
+        all.history.rows[0].response,
+        "Poweroff cancelled by the user"
+    );
+    assert_eq!(all.history.rows[1].response, "Notified");
+    assert_eq!(all.history.rows[1].source, "Leakshield, Main loop");
+
+    let mut ui = AlarmsUi::default();
+    ui.set_filter(HistoryFilter::Warnings);
+    let warnings = AlarmsModel::build(&input(&state, &feedback, NOW_US), &ui).history;
+    assert_eq!(warnings.rows.len(), 1);
+    assert_eq!(warnings.rows[0].event, "Leak Warning");
+    assert_eq!(warnings.filter_label, "Warnings");
+    ui.set_filter(HistoryFilter::Alarms);
+    assert_eq!(
+        AlarmsModel::build(&input(&state, &feedback, NOW_US), &ui)
+            .history
+            .rows
+            .len(),
+        1
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn response_table_calls_set_response() {
+    let bus = PrivateBus::start("alarms-responses");
+    let daemon = FakeDaemon::start(bus.connect().await, Options::default()).await;
+    let mut harness = Harness::start(&bus).await;
+    harness
+        .until("the responses are known", |state| {
+            !state.snapshot.responses.is_empty()
+        })
+        .await;
+    let feedback = Feedback::default();
+    let table = AlarmsModel::build(
+        &input(&harness.state, &feedback, NOW_US),
+        &AlarmsUi::default(),
+    )
+    .responses;
+    assert_eq!(table.groups.len(), 2);
+    let pump = table.groups[1]
+        .rows
+        .iter()
+        .find(|row| row.event == "pump-stop")
+        .expect("the pump-stop row");
+    assert_eq!(pump.response, Response::Poweroff);
+    assert_eq!(pump.delay_s, 30);
+    assert_eq!(
+        pump.options
+            .iter()
+            .map(|o| o.label.as_str())
+            .collect::<Vec<_>>(),
+        ["None", "Notify", "Poweroff after a delay"]
+    );
+
+    // Notify only: the row changes at once.
+    Command::SetAlarmResponse {
+        event: "pump-stop".into(),
+        response: Response::Notify,
+        delay_s: 30,
+    }
+    .run_on_daemon(&harness.client)
+    .await
+    .expect("response");
+    // A delay of 0 s.
+    Command::SetAlarmResponse {
+        event: "leakshield.leak-alarm".into(),
+        response: Response::Poweroff,
+        delay_s: 0,
+    }
+    .run_on_daemon(&harness.client)
+    .await
+    .expect("delay");
+    assert_eq!(
+        daemon.calls(),
+        [
+            "SetAlarmResponse(pump-stop,notify,30) interactive=true",
+            "SetAlarmResponse(leakshield.leak-alarm,poweroff,0) interactive=true",
+        ]
+    );
+    // The daemon does not send a signal for a response: the app reads again on the next change.
+    let responses = harness.client.responses().await.expect("responses");
+    let state = {
+        let mut state = harness.state.clone();
+        state.snapshot.responses = responses;
+        state
+    };
+    let table =
+        AlarmsModel::build(&input(&state, &feedback, NOW_US), &AlarmsUi::default()).responses;
+    let pump = table.groups[1]
+        .rows
+        .iter()
+        .find(|r| r.event == "pump-stop")
+        .unwrap();
+    assert_eq!(pump.response, Response::Notify);
+    assert!(
+        pump.differs && pump.reset.is_some(),
+        "the row differs from its default"
+    );
+    let leak = table.groups[0]
+        .rows
+        .iter()
+        .find(|r| r.event == "leakshield.leak-alarm")
+        .unwrap();
+    assert_eq!(leak.delay_s, 0);
+    assert!(leak.delay_warning.is_some());
+
+    // "Applied" shows next to the row after a write.
+    let mut done = Feedback::default();
+    done.set(
+        "alarm-response:pump-stop".into(),
+        WriteOutcome::Applied { at_us: NOW_US },
+    );
+    let table = AlarmsModel::build(&input(&state, &done, NOW_US), &AlarmsUi::default()).responses;
+    let pump = table.groups[1]
+        .rows
+        .iter()
+        .find(|r| r.event == "pump-stop")
+        .unwrap();
+    assert!(
+        pump.write_line
+            .as_ref()
+            .unwrap()
+            .text
+            .starts_with("Applied")
+    );
+    assert_eq!(
+        Command::SetAlarmResponse {
+            event: "pump-stop".into(),
+            response: Response::None,
+            delay_s: 30
+        }
+        .feedback_key()
+        .as_deref(),
+        Some("alarm-response:pump-stop")
+    );
+
+    // The daemon refuses an unknown event.
+    let refused = Command::SetAlarmResponse {
+        event: "mystery".into(),
+        response: Response::Notify,
+        delay_s: 30,
+    }
+    .run_on_daemon(&harness.client)
+    .await;
+    assert!(refused.is_err());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn alarms_reach_the_history_from_the_daemon() {
+    let bus = PrivateBus::start("alarms-history");
+    let daemon = FakeDaemon::start(bus.connect().await, Options::default()).await;
+    let mut harness = Harness::start(&bus).await;
+    harness
+        .until("the daemon is known", |state| {
+            !state.snapshot.profiles.is_empty()
+        })
+        .await;
+    daemon
+        .raise_alarm("a1", "pump-stop", "alarm", "loop_1", "notify", 0)
+        .await;
+    harness
+        .until("the Alarm is in the history", |state| {
+            state.alarm_history.len() == 1
+        })
+        .await;
+    assert_eq!(harness.state.alarm_history[0].event, "pump-stop");
+    assert_eq!(harness.state.alarm_history[0].outcome, Outcome::Active);
+    daemon.clear_alarm("a1").await;
+    harness
+        .until("the Alarm closes", |state| {
+            state.alarm_history[0].cleared_us.is_some()
+        })
+        .await;
+    assert_eq!(harness.state.alarm_history[0].outcome, Outcome::Notified);
+}
+
+#[test]
+fn countdown_dialog_default_focus_on_cancel() {
+    let mut state = with_responses();
+    let mut leak = alarm(
+        "a1",
+        "leakshield.leak-alarm",
+        LEAKSHIELD,
+        Response::Poweroff,
+        30,
+    );
+    leak.details = AlarmDetails {
+        value: Some(212.0),
+        limit: Some(250.0),
+        unit: "mbar".into(),
+        sensor: None,
+    };
+    state.snapshot.alarms = vec![leak];
+    let feedback = Feedback::default();
+    let at = NOW_US + 9_000_000;
+    let dialog = CountdownDialog::build(&input(&state, &feedback, at)).expect("a countdown runs");
+    assert_eq!(dialog.default_focus, DialogButton::Cancel);
+    assert_eq!(dialog.title, "Large leak Alarm");
+    assert_eq!(dialog.text, "The PC powers off when the countdown ends.");
+    assert_eq!(dialog.seconds, 21);
+    assert_eq!(dialog.seconds_label, "seconds left of 30");
+    assert!((dialog.fraction - 0.7).abs() < 0.001);
+    assert_eq!(
+        (dialog.cancel.as_str(), dialog.hide.as_str()),
+        ("Cancel poweroff", "Hide")
+    );
+    assert_eq!(dialog.hint, "The countdown continues in the banner.");
+    assert_eq!(
+        dialog.rows[0],
+        ("Source".to_owned(), "Leakshield, Main loop".to_owned())
+    );
+    assert_eq!(dialog.rows[2].1, "212 mbar, limit 250 mbar");
+    assert_eq!(dialog.rows[3].1, "Poweroff after 30 s");
+    assert!(!dialog.ended && dialog.more.is_none());
+    assert_eq!(
+        dialog.cancel_command(),
+        Command::CancelPoweroff {
+            instance: "a1".into()
+        }
+    );
+
+    // Another Alarm with a shorter countdown: the dialog shows it and counts both.
+    state
+        .snapshot
+        .alarms
+        .push(alarm("a2", "pump-stop", "loop_1", Response::Poweroff, 12));
+    let dialog = CountdownDialog::build(&input(&state, &feedback, at)).unwrap();
+    assert_eq!(dialog.instance, "a2");
+    assert_eq!(dialog.title, "Pump stopped");
+    assert_eq!(dialog.more.as_deref(), Some("2 Alarms"));
+
+    // The countdown ended: the dialog says so and has no buttons.
+    let ended = CountdownDialog::build(&input(&state, &feedback, NOW_US + 40_000_000)).unwrap();
+    assert!(ended.ended);
+    assert_eq!(ended.text, "The PC powers off now.");
+
+    // No countdown, no dialog. A cancelled poweroff closes it.
+    let mut idle = with_responses();
+    idle.snapshot.alarms = vec![alarm(
+        "w1",
+        "leakshield.leak-warning",
+        LEAKSHIELD,
+        Response::Notify,
+        0,
+    )];
+    assert!(CountdownDialog::build(&input(&idle, &feedback, at)).is_none());
+    state.apply(&DaemonEvent::PoweroffCancelled {
+        instance: "a1".into(),
+    });
+    state.apply(&DaemonEvent::PoweroffCancelled {
+        instance: "a2".into(),
+    });
+    assert!(CountdownDialog::build(&input(&state, &feedback, at)).is_none());
+    let _ = IT;
+}
+
+#[test]
+fn alarms_labels() {
+    let en = labels::load("en");
+    let it = labels::load("it");
+    // The copy tables of docs/ui/screens/alarms.md.
+    let table = [
+        ("alarms.active.title", "Active", "Attivi"),
+        (
+            "alarms.active.empty",
+            "No active Alarms",
+            "Nessun Allarme attivo",
+        ),
+        (
+            "alarms.responses.title",
+            "Alarm responses",
+            "Risposte agli allarmi",
+        ),
+        ("alarms.history.title", "History", "Cronologia"),
+        (
+            "alarms.history.empty",
+            "No Alarm and no Warning yet.",
+            "Ancora nessun Allarme e nessun Avviso.",
+        ),
+        ("alarms.option.none", "None", "Nessuna"),
+        ("alarms.option.notify", "Notify", "Notifica"),
+        (
+            "alarms.option.poweroff",
+            "Poweroff after a delay",
+            "Spegni dopo un ritardo",
+        ),
+        (
+            "alarms.cancel_poweroff",
+            "Cancel poweroff",
+            "Annulla lo spegnimento",
+        ),
+        ("alarms.history.notified", "Notified", "Notificato"),
+        (
+            "alarms.history.cancelled",
+            "Poweroff cancelled by the user",
+            "Spegnimento annullato dall'utente",
+        ),
+        ("alarms.dialog.hide", "Hide", "Nascondi"),
+        ("alarms.daemon_down.title", "Daemon down", "Demone fermo"),
+        (
+            "alarms.dialog.text",
+            "The PC powers off when the countdown ends.",
+            "Il PC si spegne quando il conto alla rovescia finisce.",
+        ),
+        (
+            "alarms.dialog.hint",
+            "The countdown continues in the banner.",
+            "Il conto alla rovescia continua nel banner.",
+        ),
+        (
+            "alarms.delay_zero",
+            "With 0 s you cannot cancel the poweroff.",
+            "Con 0 s non puoi annullare lo spegnimento.",
+        ),
+        (
+            "alarms.responses.offline",
+            "The daemon runs the alarm responses. While it does not run, no alarm response runs.",
+            "Il demone esegue le risposte agli allarmi. Finché non è in esecuzione, nessuna risposta agli allarmi è attiva.",
+        ),
+        (
+            "alarms.caption.pump_stop",
+            "Every Channel is at 100 %. The Alarm closes when the pump runs for 10 s.",
+            "Ogni Canale è al 100 %. L'Allarme si chiude quando la pompa gira per 10 s.",
+        ),
+    ];
+    for (key, english, italian) in table {
+        assert_eq!(en[key], english, "English text of {key}");
+        assert_eq!(it[key], italian, "Italian text of {key}");
+    }
+    for key in en.keys().filter(|key| key.starts_with("alarms.")) {
+        assert!(it.contains_key(key), "Italian text of {key}");
+    }
+    // Every event of the response table has a title in both languages.
+    for event in [
+        "leakshield.leak-warning",
+        "leakshield.leak-alarm",
+        "pump-stop",
+        "leakshield-unreachable",
+        "lost-input",
+    ] {
+        assert_ne!(EN.event_title(event), IT.event_title(event), "{event}");
+        assert!(!EN.event_title(event).starts_with("Event "));
+    }
+}

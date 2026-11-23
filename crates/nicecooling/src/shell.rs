@@ -16,6 +16,8 @@ pub enum Page {
     Alarms,
     History,
     Settings,
+    /// The first-run flow. It has no entry in the sidebar.
+    FirstRun,
 }
 
 impl Page {
@@ -31,6 +33,7 @@ impl Page {
             Self::Alarms => "nav.alarms",
             Self::History => "nav.history",
             Self::Settings => "nav.settings",
+            Self::FirstRun => "nav.first_run",
         }
     }
 }

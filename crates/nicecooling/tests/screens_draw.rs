@@ -36,6 +36,7 @@ fn start(cx: &mut TestAppContext, language: Language) -> (gpui::Entity<AppModel>
         client: None,
         runtime: runtime.handle().clone(),
         language,
+        settings: Default::default(),
     };
     let model = cx.update(|cx| app::init(cx, StartMode::Normal, backend));
     // The history of the test: two sensors, with a gap.
@@ -89,12 +90,16 @@ fn show(cx: &mut TestAppContext, model: &gpui::Entity<AppModel>, page: Page) {
     draw(cx);
 }
 
-const PAGES: [Page; 5] = [
+const PAGES: [Page; 9] = [
     Page::Overview,
     Page::Sensors,
     Page::Channels,
     Page::Loops,
     Page::History,
+    Page::Profiles,
+    Page::Alarms,
+    Page::Settings,
+    Page::FirstRun,
 ];
 
 #[gpui::test]
@@ -215,6 +220,103 @@ fn the_history_chart_draws_series_gaps_and_markers(cx: &mut TestAppContext) {
                     view.toggle_history_sensor(extra);
                 }
             })
+            .unwrap();
+        cx.run_until_parked();
+        let mut visual = VisualTestContext::from_window(window.into(), cx);
+        visual.update(|window, cx| window.draw(cx).clear(cx));
+    }
+}
+
+#[gpui::test]
+fn the_profiles_screen_draws_groups_and_every_editor(cx: &mut TestAppContext) {
+    use gpui::AppContext as _;
+    use nicecooling::model::{Cause, ProfileInfo, Rule, RuleGroup};
+    use nicecooling::screen_view::ScreenView;
+    use nicecooling::screens::first_run::Step;
+
+    let (model, rig) = start(cx, Language::English);
+    let state = full();
+    let mut snapshot = state.snapshot.clone();
+    snapshot.profiles.push(ProfileInfo {
+        id: "profile_3".into(),
+        name: "Gaming".into(),
+        slot: 2,
+        contains_release: true,
+        ..Default::default()
+    });
+    snapshot.rule_delay_s = 30;
+    snapshot.dwell_s = 300;
+    snapshot.cause = Cause::Rule;
+    let rules = vec![
+        Rule::Sensor {
+            sensor: "nct6798_temp1".into(),
+            comparison: "in_range".into(),
+            value: 30.0,
+            value_max: 40.0,
+            hold_s: 60,
+        },
+        Rule::Process {
+            names: vec!["steam".into()],
+            match_kind: "any".into(),
+            match_on: "name".into(),
+        },
+        Rule::Time {
+            days: vec![1, 2, 3],
+            start: 1320,
+            end: 420,
+        },
+        Rule::Interval {
+            interval_s: 600,
+            delay_s: 60,
+            duration_s: 10,
+        },
+    ];
+    snapshot.rule_groups = vec![
+        RuleGroup {
+            id: "group_1".into(),
+            profile: "profile_3".into(),
+            enabled: true,
+            rules,
+            holds: true,
+            since_us: app::now_us() - 5_000_000,
+        },
+        RuleGroup {
+            id: "group_2".into(),
+            profile: "profile_2".into(),
+            enabled: false,
+            rules: Vec::new(),
+            holds: false,
+            since_us: 0,
+        },
+    ];
+    rig.events
+        .send(DaemonEvent::Snapshot(Box::new(snapshot)))
+        .unwrap();
+    cx.run_until_parked();
+    let (commands, _inbox) = mpsc::unbounded_channel();
+    let window = cx.update(|cx| {
+        cx.open_window(gpui::WindowOptions::default(), |_, cx| {
+            cx.new(|cx| ScreenView::new(model.clone(), commands.clone(), cx))
+        })
+        .expect("a window")
+    });
+    for index in [None, Some(0), Some(1)] {
+        window
+            .update(cx, |view, _, cx| view.open_group_editor(index, cx))
+            .unwrap();
+        cx.run_until_parked();
+        let mut visual = VisualTestContext::from_window(window.into(), cx);
+        visual.update(|window, cx| window.draw(cx).clear(cx));
+    }
+    for step in [
+        Step::Board,
+        Step::Loop,
+        Step::Bios,
+        Step::Leakshield,
+        Step::Done,
+    ] {
+        window
+            .update(cx, |view, _, cx| view.show_first_run_step(step, cx))
             .unwrap();
         cx.run_until_parked();
         let mut visual = VisualTestContext::from_window(window.into(), cx);

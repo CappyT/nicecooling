@@ -9,6 +9,7 @@ nav:
   alarms: Allarmi
   history: Cronologia
   settings: Impostazioni
+  first_run: Prima configurazione
   leakshield: Leakshield
   more_notices: "Altri %{count} avvisi"
 status:
@@ -439,3 +440,330 @@ history:
   search: Cerca sensori
   legend:
     extremes: "min %{min}, max %{max}"
+profiles:
+  list:
+    title: Profili
+  new: Nuovo
+  new_name: "Profilo %{n}"
+  copy_name: "%{name} copia"
+  cancel: Annulla
+  open: Apri
+  activate: Attiva a mano
+  revoke: Revoca l'attivazione manuale
+  revoke_short: Revoca
+  duplicate: Duplica
+  rename: Rinomina
+  delete_button: Elimina
+  tag:
+    active: Attivo
+    group: Attivo da un gruppo
+    manual: Attivo a mano
+  caption:
+    default: Attivo quando nessun gruppo è valido
+    active_by_group: "Attivo dal gruppo %{n}"
+    group: "Gruppo %{n}"
+    no_group: Nessun gruppo
+    slot: "Slot %{slot}"
+    release: Modalità RELEASE
+  options:
+    title: Opzioni
+    rule_delay: Ritardo regola
+    dwell: Permanenza profilo
+    immediate: Cambio immediato
+    seconds: s
+    minutes: min
+    not_used: Non usato con il Cambio immediato
+    help_delay: "Ritardo regola: un gruppo deve restare valido per questo tempo prima di attivare un Profilo."
+    help_dwell: "Permanenza profilo: un Profilo attivato da un gruppo resta attivo almeno per questo tempo."
+  curves:
+    title: Curve
+    none: Nessun Canale ha una Curva o un Duty fisso in questo Profilo.
+    fixed: "Duty fisso %{duty}"
+    curve:
+      one: "Curva, %{count} punto"
+      other: "Curva, %{count} punti"
+  leakshield:
+    title: Impostazioni del Leakshield
+    mode: Modalità
+    display: Display
+    display_value: "Luminosità %{active}, a riposo %{idle}"
+    lighting: Illuminazione
+    lighting_value: "Luminosità %{value} %"
+    thresholds: Soglie di allarme
+    thresholds_value: "Livello %{warning} % e %{alarm} %, perdita %{leak} ml/h"
+  slot:
+    label: Slot
+    value: "Slot %{slot}"
+    shared: "Condiviso con %{names}"
+  notice:
+    release: "Questo Profilo imposta la Modalità RELEASE: il Loop non ha protezione dalle perdite mentre è attivo."
+    shared_slot: "Lo slot %{slot} è condiviso con %{names}. Una modifica al Leakshield qui cambia entrambi."
+    thresholds_differ: "Le soglie di allarme sono diverse da %{count} altri slot"
+    display_brightness: La luminosità del display
+    external_change: "%{field} è cambiato fuori da nicecooling. Attivare un Profilo con un altro slot lo sovrascrive."
+  restore:
+    text: "Le Curve sono attive. La scrittura sul Leakshield è fallita."
+    button: Ripristina il backup
+  slot_dialog:
+    title: "Passare allo slot %{slot}?"
+    text: "Lo slot %{slot} ha altre impostazioni del Leakshield. Vengono scritte ora sul Leakshield."
+    confirm: Cambia slot
+  delete:
+    title: "Eliminare il Profilo '%{name}'?"
+    text: "Eliminare il Profilo '%{name}'? Le impostazioni del Leakshield del suo slot restano."
+    text_groups: "Eliminare il Profilo '%{name}'? Il gruppo %{groups} lo usa e viene eliminato con lui. Le impostazioni del Leakshield del suo slot restano."
+    confirm: Elimina il Profilo
+    default_tooltip: Il Profilo predefinito non si può eliminare.
+  immediate:
+    title: Attivare il Cambio immediato?
+    text: Con il Cambio immediato, un gruppo che cambia in fretta cambia in fretta anche il Profilo. Ogni cambio può scrivere sul Leakshield.
+    hide: Non mostrare più
+    confirm: Attiva
+  groups:
+    title: Gruppi di regole
+    add: Aggiungi gruppo
+    caption: Un gruppo è valido quando tutte le sue regole sono valide. Vince il primo gruppo valido. Trascina per cambiare l'ordine.
+    empty: Nessun gruppo. Il Profilo predefinito resta attivo finché non attivi un altro Profilo a mano.
+    manual: I gruppi di regole aspettano finché non revochi l'attivazione manuale.
+  group:
+    no_rule: "Nessuna regola: questo gruppo non è mai valido."
+    short_interval: La finestra è più corta del Ritardo regola. Il gruppo non attiva mai il suo Profilo.
+    holds_since: "Valido dalle %{time}"
+    holds_activates: "Valido, si attiva tra %{seconds} s"
+  editor:
+    activate: Attiva il Profilo
+    enabled: Attivo
+    add_rule: Aggiungi regola
+    edit: Modifica
+    remove: Rimuovi
+    delete: Elimina gruppo
+    save: Salva gruppo
+    save_rule: Salva regola
+    condition: Condizione
+  kind:
+    sensor: Sensore
+    process: Processo
+    time: Fascia oraria
+    interval: Intervallo
+  field:
+    sensor: Sensore
+    comparison: È
+    value: Valore
+    value_max: Fino a
+    hold_s: Per (s)
+    names: Nomi dei processi
+    match: Corrispondenza
+    match_on: Cerca in
+    days: Giorni
+    start: Da
+    end: A
+    interval_s: Ogni (s)
+    delay_s: Inizia dopo (s)
+    duration_s: Dura (s)
+  cmp:
+    lt: minore di
+    le: al massimo
+    eq: uguale a
+    ge: almeno
+    gt: maggiore di
+    ne: diverso da
+  cmp_select:
+    lt: minore di
+    le: al massimo
+    eq: uguale a
+    ge: almeno
+    gt: maggiore di
+    ne: diverso da
+    in_range: tra
+  match:
+    any: uno di
+    all: tutti
+    none: nessuno di
+  match_on:
+    name: Nome del processo
+    cmdline: Riga di comando
+  day:
+    d1: Lun
+    d2: Mar
+    d3: Mer
+    d4: Gio
+    d5: Ven
+    d6: Sab
+    d7: Dom
+  duration:
+    s: "%{n} s"
+    min: "%{n} min"
+  rule:
+    sensor: "Sensore %{sensor} %{comparison} %{value}"
+    sensor_between: "Sensore %{sensor} tra %{low} e %{high}"
+    for: "per %{time}"
+    process_any: "Il processo %{names} è in esecuzione"
+    process_all: "Tutti i processi %{names} sono in esecuzione"
+    process_none: "Nessun processo tra %{names} è in esecuzione"
+    time: "Fascia oraria dalle %{from} alle %{to}"
+    interval: "Ogni %{every}, da %{delay} dopo l'avvio, per %{lasts}"
+alarms:
+  active:
+    title: Attivi
+    empty: Nessun Allarme attivo
+  responses:
+    title: Risposte agli allarmi
+    offline: Il demone esegue le risposte agli allarmi. Finché non è in esecuzione, nessuna risposta agli allarmi è attiva.
+  history:
+    title: Cronologia
+    empty: Ancora nessun Allarme e nessun Avviso.
+    active: attivo
+    notified: Notificato
+    cancelled: Spegnimento annullato dall'utente
+    none: Nessuna
+    column:
+      time: Ora
+      event: Evento
+      source: Sorgente
+      duration: Durata
+      response: Risposta
+  column:
+    event: Evento
+    source: Sorgente
+    since: Dalle
+    value: Valore
+    response: Risposta all'allarme
+    delay: Ritardo
+  group:
+    nicecooling: nicecooling
+  option:
+    none: Nessuna
+    notify: Notifica
+    poweroff: Spegni dopo un ritardo
+  response:
+    none: Nessuna
+    notify: Notifica
+    poweroff_after: "Spegnimento dopo %{seconds} s"
+  filter:
+    all: Tutti
+    alarms: Allarmi
+    warnings: Avvisi
+  reset: Ripristina
+  countdown: "Spegnimento tra %{time}"
+  cancel_poweroff: Annulla lo spegnimento
+  cancelled: "Spegnimento annullato alle %{time}. L'Allarme è ancora attivo."
+  delay_zero: Con 0 s non puoi annullare lo spegnimento.
+  caption:
+    pump_stop: Ogni Canale è al 100 %. L'Allarme si chiude quando la pompa gira per 10 s.
+  value:
+    pump_stop: "%{rpm} con Duty %{duty}"
+    no_data: "Nessun dato da %{seconds} s"
+    limit: "%{value}, limite %{limit}"
+  daemon_down:
+    title: Demone fermo
+    source: nicecooling
+    text: La protezione di nicecooling è spenta.
+  dialog:
+    text: Il PC si spegne quando il conto alla rovescia finisce.
+    ended: Il PC si spegne ora.
+    seconds_of: "secondi rimasti su %{total}"
+    hide: Nascondi
+    hint: Il conto alla rovescia continua nel banner.
+    source: Sorgente
+    raised: Scattato
+    value: Valore
+    response: Risposta all'allarme
+settings:
+  language:
+    title: Lingua
+    label: Lingua
+    system: Sistema
+    en: English
+    it: Italiano
+  start:
+    title: Avvio e area di notifica
+    login: Avvia all'accesso
+    login_text: L'app parte senza finestra e mostra la sua icona nell'area di notifica.
+    tray: Icona nell'area di notifica
+    tray_off: Senza l'icona, apri la finestra dall'elenco delle app.
+  hint:
+    tray: L'icona nell'area di notifica non è visibile. Su GNOME, attiva l'estensione AppIndicator.
+    tray_link: Come attivarla
+    dismiss: Non mostrare più
+  notifications:
+    title: Notifiche
+    warnings: Avvisi
+    profile: Profilo cambiato da una regola
+    external: Modifica esterna su un Leakshield
+    note: Le notifiche degli Allarmi sono sempre attive.
+  daemon:
+    title: Demone
+    connection: Connessione
+    connected: Connesso
+    offline: Non in linea
+    down: Fermo
+    offline_text: "Avvia il demone: systemctl start nicecoolingd"
+    down_text: systemd ha fermato i riavvii del demone. La protezione di nicecooling è spenta. La Scheda usa le sue Curve hardware dall'istantanea del BIOS.
+    try_again: Riprova
+    version: Versione del demone
+    app_version: Versione dell'app
+    board: Scheda
+    state_directory: Cartella di stato
+    mismatch: "Il demone è alla versione %{daemon} e l'app alla versione %{app}. Aggiorna entrambi alla stessa versione."
+    no_board_file: "Scheda: %{board}. Nessun file Scheda: i Canali e i sensori hanno i nomi del kernel."
+  about:
+    title: Informazioni
+    name: App
+    version: Versione
+    license: Licenza
+    license_value: Non ancora decisa
+    project: Pagina del progetto
+    note: nicecooling non è un prodotto di Aqua Computer. LEAKSHIELD e aquasuite sono nomi di Aqua Computer GmbH & Co. KG.
+    firmware: nicecooling non aggiorna il firmware di nessun dispositivo.
+first_run:
+  title: Configura nicecooling
+  loop_name: Loop principale
+  offline: "nicecooling ha bisogno del suo demone. Avvialo: systemctl start nicecoolingd"
+  try_again: Riprova
+  reading: Lettura della Scheda
+  skip: Salta la configurazione
+  back: Indietro
+  next: Avanti
+  step:
+    board: Scheda
+    loop: Loop
+    bios: Istantanea del BIOS
+    leakshield: Leakshield
+    done: Fatto
+  column:
+    channel: Canale
+    rpm: Velocità
+    duty: Duty
+  board:
+    known: "%{board}. File Scheda trovato: i Canali e i sensori hanno i nomi della Scheda."
+    unknown: Nessun file Scheda per questa Scheda. I Canali e i sensori hanno i nomi del kernel. Puoi rinominarli in Canali e Sensori.
+    counts: "%{channels} Canali e %{sensors} sensori trovati."
+    no_channel: Nessun Canale trovato. nicecooling ha bisogno di un driver hwmon per il controller delle ventole di questa Scheda.
+  loop:
+    pump: Canale pompa
+    pump_needed: Il Loop ha bisogno di un Canale pompa.
+    flow: Sensore di portata
+    preset: Preset della tabella di calibrazione
+    empty_table: Tabella vuota
+    live_flow: "%{rpm} = %{flow}"
+    flow_name: Portata
+    water: Temperatura acqua
+    leakshield: Leakshield
+    no_leakshield: Senza un Leakshield, il Loop ha il suo minimo pompa e il suo Allarme di pompa ferma.
+  bios:
+    text: "Prima di controllare un Canale, nicecooling salva l'istantanea del BIOS: le Curve hardware che la tua Scheda aveva. Quando il demone si ferma, e anche dopo un crash, nicecooling riscrive l'istantanea. Se il kernel si blocca, nessun programma gira, e ogni Canale resta all'ultimo Duty."
+    no_curve: Un Canale senza Curva resta sulla sua Curva hardware. nicecooling non lo tocca.
+  leakshield:
+    known: "Firmware %{firmware}: noto. %{verified} campi su %{total} sono campi Verificati. %{read_only} campi di sicurezza sono in sola lettura finché una scrittura di verifica non riesce."
+    known_short: "Firmware %{firmware}: noto."
+    unknown: "Il firmware %{firmware} è sconosciuto. nicecooling mostra il Leakshield e non può cambiarne le impostazioni."
+    text: "nicecooling scrive solo campi Verificati. Un campo a basso rischio è verificato da una lettura plausibile. Un campo di sicurezza richiede una scrittura di verifica. È una procedura supervisionata fuori dall'app: vedi la documentazione del progetto."
+    open_fields: Apri i Campi
+  done:
+    pump: "Canale pompa: %{channels}"
+    flow: "Sensore di portata: %{sensor}"
+    water: "Temperatura acqua: %{sensor}"
+    floor: "Minimo pompa: %{value}"
+    text: "Il Loop è configurato. I suoi Canali usano ancora le Curve hardware: aggiungi una Curva in Canali."
+    overview: Apri la Panoramica
+    wizard: Apri la procedura guidata del Leakshield

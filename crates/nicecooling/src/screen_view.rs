@@ -19,9 +19,12 @@ use crate::command::Command;
 use crate::history::HistoryDb;
 use crate::model::AppState;
 use crate::screens::ScreenInput;
+use crate::screens::alarms::AlarmsUi;
 use crate::screens::channels::ChannelsUi;
+use crate::screens::first_run::FirstRunUi;
 use crate::screens::history::{ChartData, HistoryUi};
 use crate::screens::loops::LoopsUi;
+use crate::screens::profiles::ProfilesUi;
 use crate::screens::sensors::SensorsUi;
 use crate::shell::Page;
 use crate::tokens::Palette;
@@ -39,11 +42,22 @@ pub enum InputKey {
     /// `(channel, point, 0 for the Input, 1 for the Duty)`.
     CurvePoint(String, usize, usize),
     CalibrationCell(String, usize, usize),
+    ProfileRename,
+    RuleDelay,
+    ProfileDwell,
+    /// A field of the rule editor, by its API key.
+    RuleField(&'static str),
+    /// The delay of an alarm response, by event.
+    ResponseDelay(String),
 }
+
+use crate::screens::history::{PROGRESS_DELAY, progress_due};
+
+type HistoryKey = (Vec<String>, crate::screens::history::Range, i64, i64);
 
 /// The data of the History chart for one window.
 pub struct HistoryCache {
-    key: (Vec<String>, crate::screens::history::Range, i64, i64),
+    key: HistoryKey,
     loaded_at: i64,
     data: ChartData,
 }
@@ -71,6 +85,13 @@ pub struct ScreenView {
     pub(crate) channels: ChannelsUi,
     pub(crate) loops: LoopsUi,
     pub(crate) history: HistoryUi,
+    pub(crate) profiles: ProfilesUi,
+    pub(crate) alarms: AlarmsUi,
+    pub(crate) first_run: FirstRunUi,
+    /// The focus of the Rule group list: Alt+Up and Alt+Down move the selected group.
+    pub(crate) groups_focus: Option<gpui::FocusHandle>,
+    /// The focus of the Channels list: Up and Down move the selection.
+    pub(crate) channels_focus: Option<gpui::FocusHandle>,
     pub(crate) inputs: HashMap<InputKey, Entity<InputState>>,
     pub(crate) sliders: HashMap<String, Entity<SliderState>>,
     /// The sliders that the user drags now: they keep their value until the release.
@@ -84,6 +105,8 @@ pub struct ScreenView {
     /// The data of the chart, with the second it was read. The chart does not read the
     /// database at every frame.
     pub(crate) history_cache: Option<HistoryCache>,
+    /// The read that runs now, and when it started.
+    pub(crate) history_pending: Option<(HistoryKey, std::time::Instant)>,
     /// The pointer in the History chart, as a fraction of its width.
     pub(crate) hover: Option<f32>,
     pub(crate) chart_focus: Option<gpui::FocusHandle>,
@@ -102,13 +125,22 @@ impl ScreenView {
         cx: &mut Context<Self>,
     ) -> Self {
         cx.observe(&model, |_, _, cx| cx.notify()).detach();
+        let sensors = SensorsUi {
+            hidden: model.read(cx).settings.values.hidden_sensors(),
+            ..SensorsUi::default()
+        };
         Self {
             model,
             commands,
-            sensors: SensorsUi::default(),
+            sensors,
             channels: ChannelsUi::default(),
             loops: LoopsUi::default(),
             history: HistoryUi::default(),
+            profiles: ProfilesUi::default(),
+            alarms: AlarmsUi::default(),
+            first_run: FirstRunUi::default(),
+            groups_focus: Some(cx.focus_handle()),
+            channels_focus: Some(cx.focus_handle()),
             inputs: HashMap::new(),
             sliders: HashMap::new(),
             busy_sliders: BTreeSet::new(),
@@ -117,6 +149,7 @@ impl ScreenView {
             plot_focus: Some(cx.focus_handle()),
             history_db: None,
             history_cache: None,
+            history_pending: None,
             hover: None,
             chart_focus: Some(cx.focus_handle()),
             sensors_focus: Some(cx.focus_handle()),
@@ -134,10 +167,41 @@ impl ScreenView {
         self.go(Page::History, cx);
     }
 
+    /// Open the editor of a Rule group of the Profiles screen: a new group for `None`. The
+    /// editor of the first rule opens too, when the group has one.
+    pub fn open_group_editor(&mut self, index: Option<usize>, cx: &mut Context<Self>) {
+        let state = self.state(cx);
+        match index {
+            Some(index) => self.profiles.open_group(&state, index),
+            None => self.profiles.add_group(&state),
+        }
+        self.profiles.edit_rule(0);
+        self.go(Page::Profiles, cx);
+    }
+
+    /// Show a step of the First run flow.
+    pub fn show_first_run_step(
+        &mut self,
+        step: crate::screens::first_run::Step,
+        cx: &mut Context<Self>,
+    ) {
+        self.first_run.step = step;
+        self.go(Page::FirstRun, cx);
+    }
+
     /// Add a sensor to the History chart, or take it out.
     pub fn toggle_history_sensor(&mut self, sensor: &str) {
         self.history.toggle_sensor(sensor);
         self.history_cache = None;
+    }
+
+    /// Write the hidden sensors to the settings file.
+    pub(crate) fn persist_hidden(&self, cx: &mut Context<Self>) {
+        let hidden = self.sensors.hidden.clone();
+        self.model.update(cx, |app, _| {
+            app.settings
+                .update(|values| values.set_hidden_sensors(&hidden));
+        });
     }
 
     pub(crate) fn send(&self, command: Command) {
@@ -252,15 +316,16 @@ impl ScreenView {
     }
 
     /// The data of the History chart. A live window reads again after 2 s, a fixed window
-    /// when it changes.
-    pub(crate) fn history_data(&mut self, cx: &App) -> ChartData {
+    /// when it changes. The read runs in the background: the axes show at once and the lines
+    /// appear when the query ends.
+    pub(crate) fn history_data(&mut self, cx: &mut Context<Self>) -> ChartData {
         let Some(path) = self.model.read(cx).history_path.clone() else {
             return ChartData::Loaded(Vec::new());
         };
         let now = (now_us() / 1_000_000) as i64;
         let (from, to) = self.history.window(now);
         let live = self.history.follows_now();
-        let key = (
+        let key: HistoryKey = (
             self.history.selected.clone(),
             self.history.range,
             if live { 0 } else { from },
@@ -272,42 +337,64 @@ impl ScreenView {
         {
             return cache.data.clone();
         }
-        if self.history_db.is_none() {
-            match HistoryDb::open(&path) {
-                Ok(db) => {
-                    self.history_db = Some(db);
-                    self.history_error = None;
-                }
-                Err(error) => self.history_error = Some(error.to_string()),
-            }
-        }
-        let data = match (&self.history_db, &self.history_error) {
-            (Some(db), _) => {
-                let loaded: Result<Vec<_>, _> = self
-                    .history
-                    .selected
+        if self
+            .history_pending
+            .as_ref()
+            .is_none_or(|(pending, _)| *pending != key)
+        {
+            self.history_pending = Some((key.clone(), std::time::Instant::now()));
+            let selected = self.history.selected.clone();
+            let shown = path.clone();
+            let task = cx.background_executor().spawn(async move {
+                let db = HistoryDb::open(&shown).map_err(|error| error.to_string())?;
+                selected
                     .iter()
-                    .map(|id| crate::history::query::load_series(db, id, from, to, now))
-                    .collect();
-                match loaded {
-                    Ok(series) => ChartData::Loaded(series),
-                    Err(error) => ChartData::Error {
-                        path: path.display().to_string(),
-                        message: error.to_string(),
-                    },
-                }
-            }
-            (None, message) => ChartData::Error {
-                path: path.display().to_string(),
-                message: message.clone().unwrap_or_default(),
-            },
-        };
-        self.history_cache = Some(HistoryCache {
-            key,
-            loaded_at: now,
-            data: data.clone(),
-        });
-        data
+                    .map(|id| crate::history::query::load_series(&db, id, from, to, now))
+                    .collect::<Result<Vec<_>, _>>()
+                    .map_err(|error| error.to_string())
+            });
+            let started = key.clone();
+            cx.spawn(async move |this, cx| {
+                let result = task.await;
+                let _ = this.update(cx, |this, cx| {
+                    // A newer read may have replaced this one.
+                    if this.history_pending.as_ref().map(|(k, _)| k) != Some(&started) {
+                        return;
+                    }
+                    this.history_pending = None;
+                    this.history_cache = Some(HistoryCache {
+                        key: started,
+                        loaded_at: now,
+                        data: match result {
+                            Ok(series) => ChartData::Loaded(series),
+                            Err(message) => ChartData::Error {
+                                path: path.display().to_string(),
+                                message,
+                            },
+                        },
+                    });
+                    cx.notify();
+                });
+            })
+            .detach();
+            // The bar shows after 300 ms: draw again then.
+            cx.spawn(async move |this, cx| {
+                cx.background_executor().timer(PROGRESS_DELAY).await;
+                let _ = this.update(cx, |_, cx| cx.notify());
+            })
+            .detach();
+        }
+        match &self.history_cache {
+            Some(cache) if cache.key == key => cache.data.clone(),
+            _ => ChartData::Loaded(Vec::new()),
+        }
+    }
+
+    /// A query that runs for 300 ms or more shows a thin progress bar under the toolbar.
+    pub(crate) fn history_progress(&self) -> bool {
+        self.history_pending
+            .as_ref()
+            .is_some_and(|(_, started)| progress_due(started.elapsed()))
     }
 
     /// "Try again" on a database error.
@@ -315,6 +402,7 @@ impl ScreenView {
         self.history_db = None;
         self.history_error = None;
         self.history_cache = None;
+        self.history_pending = None;
         cx.notify();
     }
 
@@ -333,7 +421,11 @@ impl Render for ScreenView {
             Page::Channels => self.render_channels(&p, window, cx),
             Page::Loops => self.render_loops(&p, window, cx),
             Page::History => self.render_history(&p, window, cx),
-            _ => div().into_any_element(),
+            Page::Profiles => self.render_profiles(&p, window, cx),
+            Page::Alarms => self.render_alarms(&p, window, cx),
+            Page::Settings => self.render_settings(&p, window, cx),
+            Page::FirstRun => self.render_first_run(&p, window, cx),
+            Page::Leakshield(_) => div().into_any_element(),
         };
         v_flex()
             .id("screen")

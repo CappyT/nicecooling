@@ -9,6 +9,7 @@ nav:
   alarms: Alarms
   history: History
   settings: Settings
+  first_run: First run
   leakshield: Leakshield
   more_notices: "%{count} more notices"
 status:
@@ -439,3 +440,330 @@ history:
   search: Search sensors
   legend:
     extremes: "min %{min}, max %{max}"
+profiles:
+  list:
+    title: Profiles
+  new: New
+  new_name: "Profile %{n}"
+  copy_name: "%{name} copy"
+  cancel: Cancel
+  open: Open
+  activate: Activate manually
+  revoke: Revoke manual activation
+  revoke_short: Revoke
+  duplicate: Duplicate
+  rename: Rename
+  delete_button: Delete
+  tag:
+    active: Active
+    group: Active by group
+    manual: Active manually
+  caption:
+    default: Active when no group holds
+    active_by_group: "Active by group %{n}"
+    group: "Group %{n}"
+    no_group: No group
+    slot: "Slot %{slot}"
+    release: Mode RELEASE
+  options:
+    title: Options
+    rule_delay: Rule delay
+    dwell: Profile dwell
+    immediate: Immediate switching
+    seconds: s
+    minutes: min
+    not_used: Not used with Immediate switching
+    help_delay: "Rule delay: a group must hold for this time before it activates a Profile."
+    help_dwell: "Profile dwell: a Profile that a group activated stays active for at least this time."
+  curves:
+    title: Curves
+    none: No Channel has a Curve or a fixed Duty in this Profile.
+    fixed: "Fixed Duty %{duty}"
+    curve:
+      one: "Curve, %{count} point"
+      other: "Curve, %{count} points"
+  leakshield:
+    title: Leakshield settings
+    mode: Mode
+    display: Display
+    display_value: "Brightness %{active}, idle %{idle}"
+    lighting: Lighting
+    lighting_value: "Brightness %{value} %"
+    thresholds: Alarm thresholds
+    thresholds_value: "Fill level %{warning} % and %{alarm} %, leak %{leak} ml/h"
+  slot:
+    label: Slot
+    value: "Slot %{slot}"
+    shared: "Shared with %{names}"
+  notice:
+    release: "This Profile sets Mode RELEASE: the Loop has no leak protection while it is active."
+    shared_slot: "Slot %{slot} is shared with %{names}. A Leakshield change here changes both."
+    thresholds_differ: "Alarm thresholds differ from %{count} other slots"
+    display_brightness: Display brightness
+    external_change: "%{field} changed outside nicecooling. Activating a Profile with another slot overwrites it."
+  restore:
+    text: "The Curves are active. The Leakshield write failed."
+    button: Restore the backup
+  slot_dialog:
+    title: "Change to slot %{slot}?"
+    text: "Slot %{slot} has other Leakshield settings. They are written to the Leakshield now."
+    confirm: Change slot
+  delete:
+    title: "Delete the Profile '%{name}'?"
+    text: "Delete the Profile '%{name}'? The Leakshield settings of its slot stay."
+    text_groups: "Delete the Profile '%{name}'? Group %{groups} uses it and is deleted too. The Leakshield settings of its slot stay."
+    confirm: Delete Profile
+    default_tooltip: The Default Profile cannot be deleted.
+  immediate:
+    title: Turn on Immediate switching?
+    text: With Immediate switching, a group that changes fast also changes the Profile fast. Each change can write the Leakshield.
+    hide: Do not show this again
+    confirm: Turn on
+  groups:
+    title: Rule groups
+    add: Add group
+    caption: A group holds when all its rules hold. The first group that holds wins. Drag to change the order.
+    empty: No group. The Default Profile is active until you activate another Profile by hand.
+    manual: Rule groups wait until you revoke the manual activation.
+  group:
+    no_rule: "No rule: this group never holds."
+    short_interval: The window is shorter than the Rule delay. The group never activates its Profile.
+    holds_since: "Holds since %{time}"
+    holds_activates: "Holds, activates in %{seconds} s"
+  editor:
+    activate: Activate Profile
+    enabled: Enabled
+    add_rule: Add rule
+    edit: Edit
+    remove: Remove
+    delete: Delete group
+    save: Save group
+    save_rule: Save rule
+    condition: Condition
+  kind:
+    sensor: Sensor
+    process: Process
+    time: Time window
+    interval: Interval
+  field:
+    sensor: Sensor
+    comparison: Is
+    value: Value
+    value_max: Up to
+    hold_s: For (s)
+    names: Process names
+    match: Match
+    match_on: Match on
+    days: Days
+    start: From
+    end: To
+    interval_s: Every (s)
+    delay_s: Start after (s)
+    duration_s: Lasts (s)
+  cmp:
+    lt: less than
+    le: at most
+    eq: equal to
+    ge: at least
+    gt: more than
+    ne: not equal to
+  cmp_select:
+    lt: less than
+    le: at most
+    eq: equal to
+    ge: at least
+    gt: more than
+    ne: not equal to
+    in_range: between
+  match:
+    any: one of
+    all: all of
+    none: none of
+  match_on:
+    name: Process name
+    cmdline: Command line
+  day:
+    d1: Mon
+    d2: Tue
+    d3: Wed
+    d4: Thu
+    d5: Fri
+    d6: Sat
+    d7: Sun
+  duration:
+    s: "%{n} s"
+    min: "%{n} min"
+  rule:
+    sensor: "Sensor %{sensor} %{comparison} %{value}"
+    sensor_between: "Sensor %{sensor} between %{low} and %{high}"
+    for: "for %{time}"
+    process_any: "Process %{names} runs"
+    process_all: "All of %{names} run"
+    process_none: "None of %{names} runs"
+    time: "Time window %{from} to %{to}"
+    interval: "Every %{every}, from %{delay} after the start, for %{lasts}"
+alarms:
+  active:
+    title: Active
+    empty: No active Alarms
+  responses:
+    title: Alarm responses
+    offline: The daemon runs the alarm responses. While it does not run, no alarm response runs.
+  history:
+    title: History
+    empty: No Alarm and no Warning yet.
+    active: active
+    notified: Notified
+    cancelled: Poweroff cancelled by the user
+    none: None
+    column:
+      time: Time
+      event: Event
+      source: Source
+      duration: Duration
+      response: Response
+  column:
+    event: Event
+    source: Source
+    since: Since
+    value: Value
+    response: Alarm response
+    delay: Delay
+  group:
+    nicecooling: nicecooling
+  option:
+    none: None
+    notify: Notify
+    poweroff: Poweroff after a delay
+  response:
+    none: None
+    notify: Notify
+    poweroff_after: "Poweroff after %{seconds} s"
+  filter:
+    all: All
+    alarms: Alarms
+    warnings: Warnings
+  reset: Reset
+  countdown: "Poweroff in %{time}"
+  cancel_poweroff: Cancel poweroff
+  cancelled: "Poweroff cancelled %{time}. The Alarm is still active."
+  delay_zero: With 0 s you cannot cancel the poweroff.
+  caption:
+    pump_stop: Every Channel is at 100 %. The Alarm closes when the pump runs for 10 s.
+  value:
+    pump_stop: "%{rpm} at Duty %{duty}"
+    no_data: "No data for %{seconds} s"
+    limit: "%{value}, limit %{limit}"
+  daemon_down:
+    title: Daemon down
+    source: nicecooling
+    text: nicecooling protection is off.
+  dialog:
+    text: The PC powers off when the countdown ends.
+    ended: The PC powers off now.
+    seconds_of: "seconds left of %{total}"
+    hide: Hide
+    hint: The countdown continues in the banner.
+    source: Source
+    raised: Raised
+    value: Value
+    response: Alarm response
+settings:
+  language:
+    title: Language
+    label: Language
+    system: System
+    en: English
+    it: Italiano
+  start:
+    title: Start and tray
+    login: Start at login
+    login_text: The app starts without a window and shows its tray icon.
+    tray: Tray icon
+    tray_off: Without the tray icon, open the window from the app list.
+  hint:
+    tray: The tray icon is not visible. On GNOME, turn on the AppIndicator extension.
+    tray_link: How to turn it on
+    dismiss: Do not show this again
+  notifications:
+    title: Notifications
+    warnings: Warnings
+    profile: Profile switched by a rule
+    external: External change on a Leakshield
+    note: Alarm notifications are always on.
+  daemon:
+    title: Daemon
+    connection: Connection
+    connected: Connected
+    offline: Offline
+    down: Down
+    offline_text: "Start the daemon: systemctl start nicecoolingd"
+    down_text: systemd stopped the restarts of the daemon. nicecooling protection is off. The Board runs its Hardware curves from the BIOS snapshot.
+    try_again: Try again
+    version: Daemon version
+    app_version: App version
+    board: Board
+    state_directory: State directory
+    mismatch: "The daemon is version %{daemon} and the app is version %{app}. Update both to the same version."
+    no_board_file: "Board: %{board}. No Board file: Channels and sensors have the names of the kernel."
+  about:
+    title: About
+    name: App
+    version: Version
+    license: License
+    license_value: Not decided yet
+    project: Project page
+    note: nicecooling is not a product of Aqua Computer. LEAKSHIELD and aquasuite are names of Aqua Computer GmbH & Co. KG.
+    firmware: nicecooling does not update the firmware of any device.
+first_run:
+  title: Set up nicecooling
+  loop_name: Main loop
+  offline: "nicecooling needs its daemon. Start it: systemctl start nicecoolingd"
+  try_again: Try again
+  reading: Reading the Board
+  skip: Skip setup
+  back: Back
+  next: Next
+  step:
+    board: Board
+    loop: Loop
+    bios: BIOS snapshot
+    leakshield: Leakshield
+    done: Done
+  column:
+    channel: Channel
+    rpm: Speed
+    duty: Duty
+  board:
+    known: "%{board}. Board file found: Channels and sensors have their Board names."
+    unknown: No Board file for this Board. Channels and sensors have the names of the kernel. You can rename them in Channels and Sensors.
+    counts: "%{channels} Channels and %{sensors} sensors found."
+    no_channel: No Channel found. nicecooling needs a hwmon driver for the fan controller of this Board.
+  loop:
+    pump: Pump channel
+    pump_needed: The Loop needs a Pump channel.
+    flow: Flow sensor
+    preset: Calibration table preset
+    empty_table: Empty table
+    live_flow: "%{rpm} = %{flow}"
+    flow_name: Flow
+    water: Water temperature
+    leakshield: Leakshield
+    no_leakshield: Without a Leakshield, the Loop has its Pump floor and its pump-stop Alarm.
+  bios:
+    text: "Before nicecooling controls a Channel, it saves the BIOS snapshot: the Hardware curves that your Board had. When the daemon stops, and also after a crash, nicecooling writes the snapshot back. If the kernel hangs, no program runs, and each Channel stays at its last Duty."
+    no_curve: A Channel without a Curve stays on its Hardware curve. nicecooling does not touch it.
+  leakshield:
+    known: "Firmware %{firmware}: known. %{verified} of %{total} fields are Verified fields. %{read_only} Safety fields are read-only until a Verification write passes."
+    known_short: "Firmware %{firmware}: known."
+    unknown: "Firmware %{firmware} is unknown. nicecooling shows the Leakshield and cannot change its settings."
+    text: "nicecooling writes only Verified fields. A low-risk field is verified by a plausible read. A Safety field needs a Verification write. That is a supervised procedure outside the app: see the project documentation."
+    open_fields: Open Fields
+  done:
+    pump: "Pump channel: %{channels}"
+    flow: "Flow sensor: %{sensor}"
+    water: "Water temperature: %{sensor}"
+    floor: "Pump floor: %{value}"
+    text: "The Loop is set up. Its Channels still run their Hardware curves: add a Curve in Channels."
+    overview: Open the Overview
+    wizard: Open the Leakshield wizard

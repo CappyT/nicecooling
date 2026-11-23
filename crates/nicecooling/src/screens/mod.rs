@@ -1,8 +1,13 @@
 //! The screens of `docs/ui/screens/`. Each screen has a model that decides what shows and
 //! a view that draws it. The tests read the models.
 
+pub mod alarms;
+pub mod alarms_view;
 pub mod channels;
 pub mod channels_view;
+pub(crate) mod controls;
+pub mod first_run;
+pub mod first_run_view;
 pub mod format;
 mod handlers;
 pub mod history;
@@ -11,8 +16,12 @@ pub mod loops;
 pub mod loops_view;
 pub mod overview;
 pub mod overview_view;
+pub mod profiles;
+pub mod profiles_view;
 pub mod sensors;
 pub mod sensors_view;
+pub mod settings;
+pub mod settings_view;
 pub mod ui;
 
 use std::collections::BTreeMap;

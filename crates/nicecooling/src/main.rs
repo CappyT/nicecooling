@@ -1,7 +1,6 @@
 use nicecooling::app::{self, Backend, StartMode};
+use nicecooling::app_settings::SettingsStore;
 use nicecooling::daemon_client::DaemonClient;
-use nicecooling::i18n::Language;
-use nicecooling::notify::NotifyPrefs;
 use nicecooling::services;
 use tokio::sync::{broadcast, mpsc};
 
@@ -15,7 +14,8 @@ fn main() {
         .expect("the Tokio runtime");
     let (events_tx, events_rx) = broadcast::channel(1024);
     let (commands_tx, inbox) = mpsc::unbounded_channel();
-    let language = Language::System;
+    let settings = SettingsStore::open();
+    let language = settings.values.language();
     let locale = language.resolve();
 
     let client = match runtime.block_on(zbus::Connection::system()) {
@@ -30,12 +30,19 @@ fn main() {
         }
     };
 
-    services::spawn_tray(events_tx.subscribe(), commands_tx.clone(), locale);
+    if settings.values.tray {
+        services::spawn_tray(
+            events_tx.subscribe(),
+            commands_tx.clone(),
+            locale,
+            settings.tray_visible.clone(),
+        );
+    }
     services::spawn_notifications(
         events_tx.subscribe(),
         commands_tx.clone(),
         locale,
-        NotifyPrefs::default(),
+        settings.notify_prefs.clone(),
     );
     services::spawn_history(events_tx.subscribe(), services::history_path());
 
@@ -46,6 +53,7 @@ fn main() {
         client,
         runtime: runtime.handle().clone(),
         language,
+        settings,
     };
     gpui_platform::application().run(move |cx| {
         app::init(cx, mode, backend);

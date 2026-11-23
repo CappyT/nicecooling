@@ -124,6 +124,26 @@ impl ScreenView {
         for (index, row) in model.rows.iter().enumerate() {
             list = list.child(self.channel_row(index, row, p, cx));
         }
+        // Up and Down move the selection in the list.
+        let rows = model.rows.clone();
+        let mut list = div().id("channels-list").flex_none().child(list);
+        if let Some(focus) = self.channels_focus.clone() {
+            let keys = view.clone();
+            list = list.track_focus(&focus).on_key_down(move |event, _, cx| {
+                let down = match event.keystroke.key.as_str() {
+                    "down" => true,
+                    "up" => false,
+                    _ => return,
+                };
+                if let Some(id) = crate::screens::channels::neighbor(&rows, down) {
+                    keys.update(cx, |this, cx| {
+                        this.channels.select(&id);
+                        this.open_picker = None;
+                        cx.notify();
+                    });
+                }
+            });
+        }
         content = content.child(
             h_flex()
                 .w_full()
@@ -149,6 +169,7 @@ impl ScreenView {
     ) -> AnyElement {
         let view = cx.entity();
         let id = row.id.clone();
+        let focus = self.channels_focus.clone();
         let mut name = v_flex().flex_1().min_w_0().child(
             h_flex()
                 .gap(px(6.))
@@ -196,8 +217,11 @@ impl ScreenView {
             .border_color(p.border)
             .cursor_pointer()
             .when(row.selected, |line| line.bg(p.accent_tint))
-            .on_click(move |_, _, cx| {
+            .on_click(move |_, window, cx| {
                 let id = id.clone();
+                if let Some(focus) = &focus {
+                    window.focus(focus, cx);
+                }
                 view.update(cx, |this, cx| {
                     this.channels.select(&id);
                     this.open_picker = None;
