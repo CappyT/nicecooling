@@ -58,7 +58,7 @@ Each section ends with a checkpoint task. Section 2 ends with a gate.
   11. Ping the watchdog.
 
   A Channel without a Curve or a fixed Duty stays on its Hardware curve. After an override ends, the step limit ramps down from 100%. Verify: tests `stage_order`, `interpolation`, `clamp_both_ends`, `smoothing_5s`, `per_curve_smoothing_and_step_settings`, `step_limit_5_per_s`, `lost_input_bypasses_step_limit`, `ramp_down_from_100_after_override`, `untouched_channel_stays_on_hardware_curve`, `pump_floor_clamps_curve_and_fixed_duty`, `percent_to_raw_rounding` (50% gives 128, 0.2% gives 1), `single_write_for_constant_duty`, `corrects_changed_pwm`, `enable_0_raw_255_is_manual`, `another_writer_after_3_mismatches`, `stale_cache_1_5s_no_false_mismatch` and `resume_corrects_reset_channel` pass.
-- [x] 3.8 Implement the BIOS snapshot, the takeover lease and `--restore-bios`. Crate: `nicecoolingd`. Files: `src/snapshot.rs`, `src/lease.rs`, `src/main.rs`. This task owns the first-start snapshot. The snapshot holds every writable `pwmN*` attribute of every Channel (22 on the reference `nct6798`) and no GPU attribute. The restore order is in `docs/storage.md`. Rules:
+- [x] 3.8 Implement the BIOS snapshot, the takeover lease and `--restore-bios`. Crate: `nicecoolingd`. Files: `src/snapshot.rs`, `src/lease.rs`, `src/main.rs`. This task owns the first-start snapshot. The snapshot holds every writable `pwmN*` attribute of every Channel (on the reference `nct6798` 22 for each Channel and 28 for `pwm2`) and no GPU attribute. The restore order is in `docs/storage.md`. Rules:
   1. Write the lease before the first manual write.
   2. Remove the lease only after a restore whose read-back matches the snapshot.
   3. Refresh the snapshot only when no lease exists.
