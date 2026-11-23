@@ -5,6 +5,7 @@ Input: the output of `tshark -r <capture> -T json`. The tool reads that one file
 
 Fields that it reads: usb.bus_id, usb.device_address, usb.urb_type, usb.urb_status,
 usb.setup.bRequest, usb.setup.wValue, usb.setup.wLength, usb.data_fragment and frame.time_relative.
+It reads usb.urb_len for the length of an interrupt report.
 tshark 4.6 needs more for a real capture. A request of a HID interface has the fields usbhid.setup.*
 and usbhid.descriptor.hid.* in place of usb.setup.*. A GET_DESCRIPTOR request of the device or the
 configuration has usb.bDescriptorType and usb.DescriptorIndex in place of usb.setup.wValue. usb.bmRequestType, usb.transfer_type and
@@ -15,7 +16,7 @@ usb.bcdDevice), a configuration descriptor (usb.bInterfaceNumber, usb.bNumEndpoi
 usb.bInterfaceClass) and a HID report descriptor (usbhid.item.* and one key per item), so the tool
 reads those trees, in document order.
 
-A Leakshield is a device that sends a device descriptor with 0c70:f014, or that receives a report 2
+A Leakshield is a device that sends a device descriptor with 0c70:f014 at a nonzero address, or that receives a report 2
 command or a feature report 32. The URB status maps 0 to ACK, -32 to STALL, and -2 or -104 to
 timeout. The length of feature report 32 comes from the HID report descriptor of the bootloader.
 """
@@ -79,10 +80,10 @@ def setup_of(flat):
     hid_type = pick("usbhid.descriptor.hid.bDescriptorType")
     if request is None and hid_type is not None:
         request = GET_DESCRIPTOR
-        value = hid_type << 8 | pick("usbhid.descriptor.hid.bDescriptorIndex") or 0
+        value = hid_type << 8 | (pick("usbhid.descriptor.hid.bDescriptorIndex") or 0)
     descriptor_type = pick("usb.bDescriptorType")
     if value is None and descriptor_type is not None:
-        value = descriptor_type << 8 | pick("usb.DescriptorIndex") or 0
+        value = descriptor_type << 8 | (pick("usb.DescriptorIndex") or 0)
     return (
         request,
         value or 0,
@@ -154,7 +155,15 @@ def read_packets(path, bus_filter):
             incoming = kind == "C" and endpoint & 0x80
             outgoing = kind == "S" and not endpoint & 0x80
             if incoming or outgoing:
-                interrupts.append({"key": key, "time": time, "in": bool(incoming), "data": data})
+                interrupts.append(
+                    {
+                        "key": key,
+                        "time": time,
+                        "in": bool(incoming),
+                        "data": data,
+                        "urb_len": number(flat.get("usb.urb_len"), len(data)),
+                    }
+                )
     return controls, interrupts
 
 
@@ -172,11 +181,15 @@ def descriptor_request(transfer, kind):
 
 
 def device_descriptors(controls):
-    """(time, key) of each completed device descriptor of a Leakshield."""
+    """(time, key) of each completed device descriptor of a Leakshield at a nonzero address.
+
+    The host reads the first 8 or 18 bytes at address 0, before SET_ADDRESS. That read does not
+    name the address that the device keeps.
+    """
     found = []
     for t in controls:
         flat = first_values(t["leaves"])
-        if descriptor_request(t, DESC_DEVICE) and "usb.idVendor" in flat:
+        if t["key"][1] != 0 and descriptor_request(t, DESC_DEVICE) and "usb.idVendor" in flat:
             if (number(flat["usb.idVendor"]), number(flat.get("usb.idProduct"))) == (VENDOR_ID, PRODUCT_ID):
                 found.append((t["done"], t["key"]))
     return found
@@ -260,7 +273,10 @@ def summarize(controls, interrupts):
     if enter:
         boot = next((d for d in descriptors if d[0] > enter[0]), None)
     boot_key = boot[1] if boot else None
-    leave = cmds[-1] if cmds else None
+    leave = None
+    if boot:
+        restarts = [c for c in cmds if c[2] == 1 and c[3] == 0 and c[0] > boot[0]]
+        leave = restarts[-1] if restarts else None
     app = next((d for d in descriptors if leave and d[0] > leave[0]), None)
 
     report_length = "not observed"
@@ -306,9 +322,12 @@ def summarize(controls, interrupts):
     for i in interrupts:
         in_boot = boot and i["key"] == boot_key and boot[0] <= i["time"] and (not leave or i["time"] <= leave[0])
         if i["in"] and in_boot and i["data"][0] == 1:
-            seen.setdefault(i["data"], [i["time"], 0])[1] += 1
-    for data, (time, count) in seen.items():
-        lines.append(f"bootloader report 1: {len(data)} bytes, count {count}, first t={time:.3f}: {hexbytes(data[:64])}")
+            seen.setdefault((i["data"], i["urb_len"]), [i["time"], 0])[1] += 1
+    for (data, urb_len), (time, count) in seen.items():
+        lines.append(
+            f"bootloader report 1: URB length {urb_len} bytes, count {count}, first t={time:.3f}: "
+            f"{hexbytes(data[:64])}"
+        )
     if not seen:
         lines.append("bootloader report 1: not observed")
     return lines
