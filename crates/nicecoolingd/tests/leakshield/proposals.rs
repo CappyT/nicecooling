@@ -125,16 +125,12 @@ async fn accepted_proposal_uses_write_path() {
 
     let proposals = nicecoolingd::alarms::proposals::rows(&device.get_fields().unwrap(), &[]);
     let proposed = &proposals.iter().find(|r| r.0 == SMALL).unwrap().2;
-    let code = ["none", "signal-short", "signal-long", "key-sequence"]
-        .iter()
-        .position(|name| name == proposed)
-        .unwrap();
     assert_eq!(set_feature_count(&rig.sim.requests()), 0);
 
     device
         .set_fields(vec![(
             SMALL_LEAK_FIELD.to_owned(),
-            FieldValue::Number(code as f64),
+            FieldValue::Name(proposed.clone()),
         )])
         .await
         .unwrap();
@@ -154,7 +150,7 @@ async fn accepted_proposal_on_the_bus_meets_the_verification_rule() {
     rig.sim.change_report3(SMALL_LEAK_OFFSET, &[KEY_SEQUENCE]);
     rig.sim.clear_requests();
     let error = proxy
-        .set_fields([(SMALL_LEAK_FIELD, zbus::Variant::F64(0.0))].into())
+        .set_fields([(SMALL_LEAK_FIELD, zbus::Variant::from("none"))].into())
         .await
         .unwrap_err();
     assert_eq!(error_name(&error), format!("{ERR}.NotVerified"));

@@ -16,14 +16,14 @@ pub enum DeviceResponse {
 }
 
 impl DeviceResponse {
-    /// The value of the field: 0 none, 1 power switch short, 2 power switch long, 3 USB key
-    /// sequence.
-    pub fn from_code(code: f64) -> Option<Self> {
-        match code {
-            0.0 => Some(Self::None),
-            1.0 => Some(Self::SignalShort),
-            2.0 => Some(Self::SignalLong),
-            3.0 => Some(Self::KeySequence),
+    /// The registry name of a value of the field: `none`, `signal-short`, `signal-long` or
+    /// `key-sequence`.
+    pub fn parse(name: &str) -> Option<Self> {
+        match name {
+            "none" => Some(Self::None),
+            "signal-short" => Some(Self::SignalShort),
+            "signal-long" => Some(Self::SignalLong),
+            "key-sequence" => Some(Self::KeySequence),
             _ => None,
         }
     }
@@ -244,7 +244,7 @@ mod tests {
     fn an_unreadable_field_has_no_row() {
         let list = propose(|_| Option::None, |_| false);
         assert!(list.is_empty());
-        assert_eq!(DeviceResponse::from_code(4.0), Option::None);
-        assert_eq!(DeviceResponse::from_code(2.0), Some(SignalLong));
+        assert_eq!(DeviceResponse::parse("unknown-4"), Option::None);
+        assert_eq!(DeviceResponse::parse("signal-long"), Some(SignalLong));
     }
 }

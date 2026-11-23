@@ -11,6 +11,7 @@ use zbus::message::Header;
 use zbus::object_server::SignalEmitter;
 use zbus::{Connection, OwnedObjectPath, OwnedVariant, Variant, interface};
 
+use super::field_value::{field_value, variant_of};
 use super::hub::{Hub, LoopView};
 use super::{object, optional_object};
 use crate::alarms::proposals;
@@ -18,7 +19,6 @@ use crate::leakshield::DeviceEvent;
 use crate::leakshield::action::{self, LoopPumps};
 use crate::leakshield::attached::{Attached, Info};
 use crate::leakshield::backup::BackupSet;
-use crate::leakshield::fields::FieldValue;
 use crate::leakshield::software_sensors::{Assignment, SLOT_COUNT};
 
 /// What the hub keeps of a Leakshield: the attached device.
@@ -47,40 +47,9 @@ impl Leakshield {
     }
 }
 
-fn number(value: &Variant<'_>) -> Option<f64> {
-    Some(match value {
-        Variant::Bool(v) => f64::from(u8::from(*v)),
-        Variant::U8(v) => f64::from(*v),
-        Variant::I16(v) => f64::from(*v),
-        Variant::U16(v) => f64::from(*v),
-        Variant::I32(v) => f64::from(*v),
-        Variant::U32(v) => f64::from(*v),
-        Variant::I64(v) => *v as f64,
-        Variant::U64(v) => *v as f64,
-        Variant::F64(v) => *v,
-        Variant::Variant(inner) => return number(inner),
-        _ => return None,
-    })
-}
-
-/// A number, or an array of numbers for a field with several elements.
-fn field_value(value: &Variant<'_>) -> Option<FieldValue> {
-    match value {
-        Variant::Array(items) => items
-            .iter()
-            .map(number)
-            .collect::<Option<Vec<_>>>()
-            .map(FieldValue::List),
-        other => number(other).map(FieldValue::Number),
-    }
-}
-
-fn variant_of(value: FieldValue) -> OwnedVariant {
-    let variant = match value {
-        FieldValue::Number(n) => Variant::F64(n),
-        FieldValue::List(list) => Variant::from(list),
-    };
-    OwnedVariant::try_from(variant).expect("a number has no file descriptor")
+/// A detail of an event stays a `d` (`docs/api.md`, Leakshield events).
+fn details_variant(value: f64) -> OwnedVariant {
+    OwnedVariant::try_from(Variant::F64(value)).expect("a number has no file descriptor")
 }
 
 #[interface(name = "io.github.cappyt.NiceCooling1.Leakshield")]
@@ -150,7 +119,7 @@ impl Leakshield {
                 (
                     row.id,
                     row.risk.to_owned(),
-                    variant_of(row.value),
+                    variant_of(&row.value),
                     row.writable,
                     row.reason,
                 )
@@ -169,7 +138,9 @@ impl Leakshield {
         let mut values = Vec::with_capacity(fields.len());
         for (id, value) in fields {
             let value = field_value(&value).ok_or_else(|| {
-                nicecooling_api::Error::invalid(format!("the value of {id} is not a number"))
+                nicecooling_api::Error::invalid(format!(
+                    "the value of {id} is not a number, a name or a list of them"
+                ))
             })?;
             values.push((id, value));
         }
@@ -278,7 +249,7 @@ impl Leakshield {
                 let details = event
                     .details
                     .into_iter()
-                    .map(|(key, value)| (key.to_owned(), variant_of(FieldValue::Number(value))))
+                    .map(|(key, value)| (key.to_owned(), details_variant(value)))
                     .collect();
                 (event.time_us, event.id, details)
             })

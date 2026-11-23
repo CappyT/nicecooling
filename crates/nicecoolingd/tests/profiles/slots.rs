@@ -210,3 +210,32 @@ async fn shared_slot_shares_report3() {
         .count();
     assert_eq!(dirs, 4);
 }
+
+/// The Leakshield fields of a Profile use the types of `GetFields`: a name, a scaled number or
+/// an integer, and a list of each.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn profile_content_types_follow_the_registry_kind() {
+    let rig = Rig::start_with(with_profile_3).await;
+    let content = profile(&rig, "profile_3")
+        .await
+        .get_content()
+        .await
+        .unwrap();
+    let devices: HashMap<String, HashMap<String, OwnedVariant>> = content["leakshield_fields"]
+        .try_clone()
+        .unwrap()
+        .try_into()
+        .unwrap();
+    let fields = &devices[LEAKSHIELD];
+    let signature = |id: &str| fields[id].value_signature().to_string();
+    assert_eq!(signature("default_mode"), "s");
+    assert_eq!(signature("page_template"), "as");
+    assert_eq!(signature("display_page_time"), "d");
+    assert_eq!(signature("pump_max_speed"), "x");
+    assert_eq!(signature("page_options"), "ax");
+    let mode = String::try_from(fields["default_mode"].try_clone().unwrap()).unwrap();
+    assert!(
+        ["shield", "monitor", "release"].contains(&mode.as_str()),
+        "{mode}"
+    );
+}

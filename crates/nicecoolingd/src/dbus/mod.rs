@@ -15,6 +15,7 @@ pub mod alarms;
 pub mod board;
 pub mod channel;
 pub mod derived_sensor;
+pub mod field_value;
 pub mod hub;
 pub mod leakshield;
 pub mod loops;

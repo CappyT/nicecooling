@@ -520,7 +520,9 @@ impl Attached {
     pub async fn set_fields(&self, values: Vec<(String, FieldValue)>) -> Result<Option<Report3>> {
         let edits = fields::edits(&self.registry, values).map_err(|e| match e {
             EditError::NoSuchField(id) => Error::not_found(format!("no field {id}")),
-            EditError::BadValue(id) => Error::invalid(format!("the value of {id} is not a number")),
+            EditError::BadValue(id) => {
+                Error::invalid(format!("the value of {id} does not fit the field"))
+            }
         })?;
         if edits.is_empty() {
             return Ok(None);

@@ -100,7 +100,7 @@ async fn asset_write_refused_as_read_only() {
     let report3 = rig.sim.report3();
     let report8 = rig.sim.report8();
     let set = |id: &'static str, len: usize| {
-        proxy.set_fields([(id, Variant::from(vec![0.0_f64; len]))].into())
+        proxy.set_fields([(id, Variant::from(vec![0_i64; len]))].into())
     };
 
     // The icon and name indexes of the pages point into the assets: `code-defined`, so read-only.
@@ -135,25 +135,26 @@ async fn page_fields_through_get_and_set_fields() {
         .unwrap();
     let list = |rows: &[(String, String, zbus::OwnedVariant, bool, String)], id: &str| {
         let row = rows.iter().find(|r| r.0 == id).unwrap();
-        (
-            Vec::<f64>::try_from(row.2.try_clone().unwrap()).unwrap(),
-            row.3,
-        )
+        (row.2.try_clone().unwrap(), row.3)
     };
 
-    let (mut templates, writable) = list(&proxy.get_fields().await.unwrap(), "page_template");
+    // `page_template` is an enum list: `as`, with the name of each page template.
+    let (templates, writable) = list(&proxy.get_fields().await.unwrap(), "page_template");
+    let mut templates = Vec::<String>::try_from(templates).unwrap();
     assert_eq!(templates.len(), PAGES);
     assert!(writable);
-    templates[9] = 7.0;
+    templates[9] = "time".to_owned();
     proxy
         .set_fields([("page_template", Variant::from(templates.clone()))].into())
         .await
         .unwrap();
 
     let rows = proxy.get_fields().await.unwrap();
-    assert_eq!(list(&rows, "page_template").0, templates);
-    // `page_names` has one list of 8 bytes for each page and is not writable.
+    let (read_back, _) = list(&rows, "page_template");
+    assert_eq!(Vec::<String>::try_from(read_back).unwrap(), templates);
+    assert_eq!(rig.sim.report3()[73 + 46 * 9], 7);
+    // `page_names` has one list of 8 bytes for each page: an integer list, and not writable.
     let (names, writable) = list(&rows, "page_names");
-    assert_eq!(names.len(), PAGES * 8);
+    assert_eq!(Vec::<i64>::try_from(names).unwrap().len(), PAGES * 8);
     assert!(!writable);
 }

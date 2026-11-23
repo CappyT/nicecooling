@@ -70,7 +70,17 @@ Each active Alarm or Warning (`Alarms.Active`) and each `AlarmRaised` signal car
 ## Leakshield fields
 
 - A field id is our own snake_case name from the field registry, for example `reservoir_total_volume`. `docs/protocol/leakshield.md` lists them.
-- The variant type comes from the registry: `b` for a flag, `s` for an enum value (our own lowercase name), `d` for a scaled number, `x` for an unscaled integer, `s` for a text.
+- The variant type comes from the registry. A field with several elements (a display page, an LED controller, a device sensor) uses the array of its type.
+
+  | Kind | Registry | Variant | Several elements |
+  |---|---|---|---|
+  | enum | the field has `names` | `s`, our own lowercase kebab-case name | `as` |
+  | scaled | the field has `scale` | `d`, the raw value times the scale | `ad` |
+  | integer | every other field: limits, type only, bit masks | `x`, the raw value | `ax` |
+
+- No field is a flag or a text: a bit mask is an `x`. An enum code that the registry does not list reads as `unknown-<code>`, and `SetFields` refuses that name.
+- `SetFields` takes an enum as a name that the registry lists. A scaled field takes `d` or any integer type. An integer field takes any integer type, or a `d` with a whole value, because the app sends `d`. `b`, a name for a number, a number for an enum and a fraction for an integer field fail with `InvalidArgument`.
+- The Leakshield fields of `GetContent` of a Profile use the same variant types.
 - `SetFields` runs the write path of design D11 once for all fields. It returns after the read-back. The save-settings command (report 2) goes out 4 s after the last write; a failure then emits `WriteFailed`.
 
 ## Leakshield backups

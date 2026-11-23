@@ -9,9 +9,9 @@ use zbus::message::Header;
 use zbus::object_server::{ObjectServer, SignalEmitter};
 use zbus::{Connection, OwnedVariant, Variant, fdo, interface};
 
+use super::field_value::variant_of;
 use super::hub::{Hub, ProfileContent, ProfileView};
 use super::object;
-use crate::leakshield::fields::FieldValue;
 use crate::state::{ControlKind, ProfileChannel};
 
 pub struct Profile {
@@ -62,13 +62,6 @@ fn channel_dict(channel: &ProfileChannel) -> HashMap<String, OwnedVariant> {
     dict
 }
 
-fn field_value(value: &FieldValue) -> OwnedVariant {
-    match value {
-        FieldValue::Number(n) => variant(*n),
-        FieldValue::List(list) => variant(list.clone()),
-    }
-}
-
 /// `docs/storage.md`: the keys of `profile.json`, plus `leakshield_fields`.
 fn content_dict(content: ProfileContent) -> HashMap<String, OwnedVariant> {
     let profile = content.profile;
@@ -85,7 +78,7 @@ fn content_dict(content: ProfileContent) -> HashMap<String, OwnedVariant> {
                 id.clone(),
                 values
                     .iter()
-                    .map(|(field, value)| (field.clone(), field_value(value)))
+                    .map(|(field, value)| (field.clone(), variant_of(value)))
                     .collect(),
             )
         })

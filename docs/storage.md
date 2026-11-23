@@ -57,7 +57,7 @@ The first start creates the Default Profile `profile_default` with slot 1 and th
 | `pump_floors` | object | Map from Loop id to the Pump floor in percent. |
 | `slot` | integer | The Leakshield slot of the Profile, 1 to 4. The Default Profile has 1. Several Profiles can have the same slot. |
 
-`GetContent` returns the same keys as an `a{sv}`, plus `leakshield_fields`: for each Leakshield id, the decoded fields of the stored report 3 of the slot of the Profile.
+`GetContent` returns the same keys as an `a{sv}`, plus `leakshield_fields`: for each Leakshield id, the decoded fields of the stored report 3 of the slot of the Profile, with the variant types of `GetFields` (`api.md`, Leakshield fields).
 
 ### `bios-snapshot.json`
 
