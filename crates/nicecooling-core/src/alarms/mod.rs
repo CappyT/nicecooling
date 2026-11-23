@@ -6,6 +6,7 @@ use std::time::Duration;
 
 pub mod leakshield;
 pub mod pump_stop;
+pub mod unreachable;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Severity {
@@ -72,4 +73,6 @@ pub struct LeakshieldStatus {
     pub alarm_bits: u32,
     /// When the last report 1 arrived. `None` when none arrived yet.
     pub report1_at: Option<Duration>,
+    /// When the current run of failed Feed messages began. `None` while the Feed message works.
+    pub feed_failing_since: Option<Duration>,
 }

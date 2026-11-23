@@ -265,3 +265,68 @@ async fn restart_restarts_countdown() {
     }
     assert_eq!(calls, 1);
 }
+
+const UNREACHABLE: &str = "leakshield-unreachable";
+
+/// The Loop of the rig sends its Feed message to the Leakshield.
+fn loop_with_leakshield(_: &nicecooling_hwmon::fake::FakeSysfs, state: &std::path::Path) {
+    let text = support::STATE.replace(
+        "\"leakshield\": null",
+        &format!("\"leakshield\": \"{}\"", support::LEAKSHIELD),
+    );
+    std::fs::write(state.join("state.json"), text).unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn unreachable_rises_when_the_device_disconnects_and_closes_when_it_returns() {
+    let mut rig = Rig::start_with_clock().await;
+    let proxy = alarms(&rig).await;
+    let mut raised_signals = proxy.receive_alarm_raised().await.unwrap();
+    rig.step(3).await;
+    assert!(active(&proxy).await.is_empty());
+    rig.sim.disconnect();
+    rig.step(8).await;
+    assert!(active(&proxy).await.is_empty());
+    rig.step(3).await;
+    let rows = active(&proxy).await;
+    assert_eq!(rows.len(), 1);
+    assert_eq!(
+        (
+            rows[0].1.as_str(),
+            rows[0].2.as_str(),
+            rows[0].3.as_str(),
+            rows[0].4.as_str()
+        ),
+        (UNREACHABLE, "alarm", support::LEAKSHIELD, "notify")
+    );
+    let signal = timeout(Duration::from_secs(5), raised_signals.next())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(signal.args().unwrap().event, UNREACHABLE);
+    rig.step(30).await;
+    assert_eq!(rig.logind.call_count(), 0);
+    rig.sim.reconnect();
+    rig.step(8).await;
+    assert_eq!(active(&proxy).await.len(), 1);
+    rig.step(8).await;
+    assert!(active(&proxy).await.is_empty());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn unreachable_rises_when_the_feed_message_fails() {
+    let mut rig = Rig::start_with_clock_and(loop_with_leakshield).await;
+    let proxy = alarms(&rig).await;
+    rig.step(3).await;
+    assert!(active(&proxy).await.is_empty());
+    rig.sim.fail_bulk(true);
+    rig.step(8).await;
+    assert!(active(&proxy).await.is_empty());
+    rig.step(4).await;
+    let rows = active(&proxy).await;
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].1, UNREACHABLE);
+    rig.sim.fail_bulk(false);
+    rig.step(14).await;
+    assert!(active(&proxy).await.is_empty());
+}

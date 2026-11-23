@@ -777,6 +777,7 @@ fn stage_decodes_and_clears_leakshield_bits() {
     let status = |bits, at| LeakshieldStatus {
         alarm_bits: bits,
         report1_at: Some(at),
+        ..LeakshieldStatus::default()
     };
     let set = |h: &Harness, bits| {
         h.values
@@ -946,4 +947,21 @@ fn ramp_down_from_100_after_close() {
         tick_pump(&mut h, 3000.0);
         assert_eq!(h.duty("ch_curve"), Some(100.0 - 5.0 * f64::from(step)));
     }
+}
+
+#[test]
+fn stage_raises_unreachable_for_a_loop_whose_leakshield_sends_nothing() {
+    let mut h = pump_on_hardware();
+    for t in 0..10 {
+        h.tick();
+        assert!(
+            !h.ctx.alarms.any_active("leakshield-unreachable"),
+            "tick {t}"
+        );
+    }
+    h.tick();
+    assert_eq!(
+        h.ctx.alarms.iter().collect::<Vec<_>>(),
+        [("leakshield-unreachable", "ls_1", Severity::Alarm)]
+    );
 }

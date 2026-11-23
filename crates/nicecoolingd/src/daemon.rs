@@ -320,9 +320,11 @@ pub async fn start<N: Notifier + 'static>(
     }
     let mut leakshield_tasks = vec![tokio::spawn({
         let (devices, reporting) = (fleet.clone(), fleet.clone());
+        let (table, feed_clock) = (values.clone(), clock.clone());
         feed_link.run(
             move || devices.io_map(),
             move |id, result| {
+                table.publish_feed(id, result.is_ok(), feed_clock.now());
                 if let Some(device) = reporting.get(id) {
                     device.feed_result(&result);
                 }

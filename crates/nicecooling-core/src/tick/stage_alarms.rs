@@ -1,19 +1,23 @@
 use std::collections::BTreeMap;
 
 use super::{STALE_AFTER, Stage, TickContext};
-use crate::alarms::Severity;
 use crate::alarms::leakshield::{self, EVENTS};
 use crate::alarms::pump_stop::{PumpReading, PumpStop};
+use crate::alarms::unreachable::Unreachable;
+use crate::alarms::{LeakshieldStatus, Severity};
 use crate::loops::tach_sensor;
 
 /// The event id of the pump stop Alarm.
 pub const PUMP_STOP: &str = "pump-stop";
+/// The event id of the Alarm "Leakshield unreachable".
+pub const UNREACHABLE: &str = "leakshield-unreachable";
 
 /// Stage 3: evaluate the Alarms. It decodes the Warnings and Alarms of each Leakshield and runs
 /// the pump stop rule of each Loop.
 #[derive(Default)]
 pub struct AlarmsStage {
     pump_stop: BTreeMap<String, PumpStop>,
+    unreachable: BTreeMap<String, Unreachable>,
 }
 
 impl Stage for AlarmsStage {
@@ -45,6 +49,25 @@ impl Stage for AlarmsStage {
             }
             for (event, severity) in leakshield::decode(status.alarm_bits) {
                 alarms.raise(event, id, severity);
+            }
+        }
+
+        // The Leakshields of the sources, and those that a Loop names and no source has seen.
+        let mut known: BTreeMap<&str, LeakshieldStatus> = leakshields
+            .iter()
+            .map(|(id, s)| (id.as_str(), s.clone()))
+            .collect();
+        for setup in &config.loops {
+            if let Some(id) = &setup.config.leakshield {
+                known.entry(id).or_default();
+            }
+        }
+        for (id, status) in known {
+            let rule = self.unreachable.entry(id.to_owned()).or_default();
+            if rule.update(*now, &status) {
+                alarms.raise(UNREACHABLE, id, Severity::Alarm);
+            } else {
+                alarms.clear(UNREACHABLE, id);
             }
         }
 

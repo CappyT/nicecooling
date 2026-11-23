@@ -29,6 +29,17 @@ impl ValueTable {
         status.alarm_bits = alarm_bits;
         status.report1_at = Some(at);
     }
+
+    /// The result of one Feed message. A run of failures counts from its first failure.
+    pub fn publish_feed(&self, leakshield: &str, accepted: bool, at: Duration) {
+        let mut map = self.leakshields.lock().unwrap();
+        let status = map.entry(leakshield.to_owned()).or_default();
+        if accepted {
+            status.feed_failing_since = None;
+        } else {
+            status.feed_failing_since.get_or_insert(at);
+        }
+    }
 }
 
 impl ValueSource for ValueTable {

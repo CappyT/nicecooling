@@ -142,6 +142,11 @@ impl Rig {
         Self::build_full(false, |_, _| {}, None, Some(SimClock::default())).await
     }
 
+    /// Like `start_with_clock`, with `prepare` run on the fake tree and the state directory.
+    pub async fn start_with_clock_and(prepare: impl FnOnce(&FakeSysfs, &std::path::Path)) -> Self {
+        Self::build_full(false, prepare, None, Some(SimClock::default())).await
+    }
+
     async fn build(polkit: bool, prepare: impl FnOnce(&FakeSysfs, &std::path::Path)) -> Self {
         Self::build_full(polkit, prepare, None, None).await
     }
