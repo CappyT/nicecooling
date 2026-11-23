@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
 use super::{STALE_AFTER, Stage, TickContext};
-use crate::alarms::leakshield::{self, EVENTS};
+use crate::alarms::leakshield::{self, GROUPS};
 use crate::alarms::pump_stop::{PumpReading, PumpStop};
 use crate::alarms::unreachable::Unreachable;
 use crate::alarms::{LeakshieldStatus, Severity};
@@ -44,11 +44,11 @@ impl Stage for AlarmsStage {
             {
                 continue;
             }
-            for (event, _) in EVENTS {
-                alarms.clear(event, id);
+            for group in GROUPS {
+                alarms.clear(group.id, id);
             }
-            for (event, severity) in leakshield::decode(status.alarm_bits) {
-                alarms.raise(event, id, severity);
+            for (event, severity, bits) in leakshield::decode(status.alarm_bits) {
+                alarms.raise_bits(event, id, severity, bits);
             }
         }
 

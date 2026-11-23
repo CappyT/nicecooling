@@ -5,6 +5,7 @@ use std::collections::BTreeMap;
 use std::time::Duration;
 
 pub mod leakshield;
+pub mod proposals;
 pub mod pump_stop;
 pub mod unreachable;
 
@@ -27,15 +28,28 @@ impl Severity {
 /// The active Alarms, and the Warnings of the Leakshield, each with an event id and a source id.
 #[derive(Clone, Debug, Default)]
 pub struct ActiveAlarms {
-    active: BTreeMap<(String, String), Severity>,
+    active: BTreeMap<(String, String), (Severity, u32)>,
 }
 
 impl ActiveAlarms {
     /// Returns true when the event was not active before.
     pub fn raise(&mut self, event: &str, source: &str, severity: Severity) -> bool {
+        self.raise_bits(event, source, severity, 0)
+    }
+
+    /// Like `raise`, for an event that the bits of a device report set. An event that is active
+    /// takes the new bits.
+    pub fn raise_bits(&mut self, event: &str, source: &str, severity: Severity, bits: u32) -> bool {
         self.active
-            .insert((event.to_owned(), source.to_owned()), severity)
+            .insert((event.to_owned(), source.to_owned()), (severity, bits))
             .is_none()
+    }
+
+    /// The device bits of an active event, 0 when it has none or is not active.
+    pub fn bits(&self, event: &str, source: &str) -> u32 {
+        self.active
+            .get(&(event.to_owned(), source.to_owned()))
+            .map_or(0, |&(_, bits)| bits)
     }
 
     /// Returns true when the event was active.
@@ -62,7 +76,7 @@ impl ActiveAlarms {
     pub fn iter(&self) -> impl Iterator<Item = (&str, &str, Severity)> {
         self.active
             .iter()
-            .map(|((e, s), severity)| (e.as_str(), s.as_str(), *severity))
+            .map(|((e, s), (severity, _))| (e.as_str(), s.as_str(), *severity))
     }
 }
 

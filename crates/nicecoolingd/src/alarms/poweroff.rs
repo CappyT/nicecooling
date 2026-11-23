@@ -19,6 +19,8 @@ pub struct Event {
     pub event: String,
     pub source: String,
     pub severity: Severity,
+    /// The bits of the device report that set the event, 0 for an event without bits.
+    pub bits: u32,
 }
 
 /// One row of the property `Active`.
@@ -32,11 +34,15 @@ pub struct Row {
     pub raised_us: u64,
     /// 0 when no poweroff is pending.
     pub poweroff_at_us: u64,
+    /// The bits of the device report that set the event now, 0 for an event without bits.
+    pub bits: u32,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Effect {
     Raised(Row),
+    /// The details of an active instance changed.
+    Updated(String),
     Cleared(String),
     PoweroffCancelled(String),
     PoweroffFailed {
@@ -113,11 +119,15 @@ impl AlarmManager {
             keep
         });
         for event in active {
-            if self
+            if let Some(found) = self
                 .instances
-                .iter()
-                .any(|i| i.row.event == event.event && i.row.source == event.source)
+                .iter_mut()
+                .find(|i| i.row.event == event.event && i.row.source == event.source)
             {
+                if found.row.bits != event.bits {
+                    found.row.bits = event.bits;
+                    effects.push(Effect::Updated(found.row.instance.clone()));
+                }
                 continue;
             }
             self.next += 1;
@@ -140,6 +150,7 @@ impl AlarmManager {
                 response: response.as_str(),
                 raised_us: wall_us,
                 poweroff_at_us,
+                bits: event.bits,
             };
             effects.push(Effect::Raised(row.clone()));
             self.instances.push(Instance { row, countdown });
@@ -213,6 +224,7 @@ mod tests {
             event: name.into(),
             source: "loop_1".into(),
             severity,
+            bits: 0,
         }
     }
 
@@ -357,6 +369,26 @@ mod tests {
         run(&mut manager, 0..20, &pump_stop(), &table);
         let effects = run(&mut manager, 20..100, &[], &table);
         assert_eq!(effects, [Effect::Cleared("alarm_1".into())]);
+    }
+
+    #[test]
+    fn manager_follows_the_bits_of_an_active_event() {
+        let mut manager = AlarmManager::default();
+        let table = BTreeMap::new();
+        let leak = |bits| {
+            vec![Event {
+                bits,
+                ..event("leakshield.leak-alarm", Severity::Alarm)
+            }]
+        };
+        let raised = manager.update(Duration::ZERO, 0, &leak(1 << 5), &table);
+        assert!(matches!(&raised[0], Effect::Raised(row) if row.bits == 1 << 5));
+        assert!(manager.update(SECOND, 0, &leak(1 << 5), &table).is_empty());
+        // The second bit changes the details of the instance and starts no new one.
+        let effects = manager.update(SECOND * 2, 0, &leak((1 << 5) | (1 << 6)), &table);
+        assert_eq!(effects, [Effect::Updated("alarm_1".into())]);
+        assert_eq!(manager.rows()[0].bits, (1 << 5) | (1 << 6));
+        assert_eq!(manager.rows().len(), 1);
     }
 
     #[test]

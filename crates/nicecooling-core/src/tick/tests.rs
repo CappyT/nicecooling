@@ -815,6 +815,42 @@ fn stage_decodes_and_clears_leakshield_bits() {
     assert_eq!(h.ctx.alarms.iter().count(), 0);
 }
 
+#[test]
+fn stage_raises_one_event_for_the_bits_of_a_group() {
+    let mut h = pump_on_hardware();
+    let set = |h: &Harness, bits| {
+        h.values.1.lock().unwrap().insert(
+            "ls_1".into(),
+            LeakshieldStatus {
+                alarm_bits: bits,
+                report1_at: Some(h.clock.now()),
+                ..LeakshieldStatus::default()
+            },
+        );
+    };
+    // Bit 5 (pump runtime) and bit 6 (high pressure drop) are the large leak.
+    set(&h, 1 << 5);
+    h.tick();
+    assert_eq!(h.ctx.alarms.bits("leakshield.leak-alarm", "ls_1"), 1 << 5);
+    set(&h, (1 << 5) | (1 << 6));
+    h.tick();
+    assert_eq!(
+        h.ctx.alarms.iter().collect::<Vec<_>>(),
+        [("leakshield.leak-alarm", "ls_1", Severity::Alarm)]
+    );
+    assert_eq!(
+        h.ctx.alarms.bits("leakshield.leak-alarm", "ls_1"),
+        (1 << 5) | (1 << 6)
+    );
+    // The system Alarm takes bits 7 to 10.
+    set(&h, 1 << 9);
+    h.tick();
+    assert_eq!(
+        h.ctx.alarms.iter().collect::<Vec<_>>(),
+        [("leakshield.system-alarm", "ls_1", Severity::Alarm)]
+    );
+}
+
 /// A pump on `chip_pwm6` and a Channel of each kind: Hardware curve, Curve and fixed Duty.
 fn stopped_pump_harness() -> Harness {
     Harness::new(

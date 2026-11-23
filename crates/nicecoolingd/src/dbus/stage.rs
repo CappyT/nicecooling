@@ -117,6 +117,7 @@ impl Stage for ApiStage {
                 event: event.to_owned(),
                 source: source.to_owned(),
                 severity,
+                bits: ctx.alarms.bits(event, source),
             })
             .collect();
         self.hub.alarm_tick(ctx.now, now_us(), &active);

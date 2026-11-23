@@ -1,6 +1,5 @@
 //! The interface `Leakshield`. The device operations live in `crate::leakshield`: this file
-//! authorizes the caller, converts the arguments and replies, and emits the signals. A method
-//! that a later task owns replies `org.freedesktop.DBus.Error.NotSupported`.
+//! authorizes the caller, converts the arguments and replies, and emits the signals.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -13,7 +12,8 @@ use zbus::object_server::SignalEmitter;
 use zbus::{Connection, OwnedObjectPath, OwnedVariant, Variant, interface};
 
 use super::hub::{Hub, LoopView};
-use super::{not_supported_stub, object, optional_object};
+use super::{object, optional_object};
+use crate::alarms::proposals;
 use crate::leakshield::DeviceEvent;
 use crate::leakshield::action::{self, LoopPumps};
 use crate::leakshield::attached::{Attached, Info};
@@ -45,10 +45,6 @@ impl Leakshield {
             .authorize(connection, header, "Leakshield", method, mode)
             .await
     }
-}
-
-fn stub<T>(method: &str) -> Result<T> {
-    Err(not_supported_stub("Leakshield", method))
 }
 
 fn number(value: &Variant<'_>) -> Option<f64> {
@@ -400,7 +396,10 @@ impl Leakshield {
 
     #[zbus(out_args("proposals"))]
     async fn get_device_response_proposals(&self) -> Result<Vec<(String, String, String, String)>> {
-        stub("GetDeviceResponseProposals")
+        Ok(proposals::rows(
+            &self.device.get_fields()?,
+            &self.hub.alarm_responses(),
+        ))
     }
 
     #[zbus(signal)]

@@ -49,11 +49,19 @@ Alarms and Warnings use one identifier each. The app maps an identifier to its t
 | `no-bios-snapshot` | warning | Channel id: the kept BIOS snapshot has no entry for the Channel, so the daemon leaves it on its Hardware curve |
 | `state-fallback` | warning | empty: the state loaded from the last-known-good copy, or no copy loaded |
 | `leakshield-unknown-firmware` | warning | Leakshield id: the field registry does not cover the firmware of the device, so the daemon sends no Feed message to it. The Warning clears when the registry covers the firmware |
-| `leakshield.<name>` | warning or alarm | Leakshield id; one identifier for each Warning and Alarm that report 1 encodes, named in `docs/protocol/leakshield.md` |
+| `leakshield.fill-level-low-warning` | warning | Leakshield id: bit 0 of `alarm_bits` |
+| `leakshield.fill-level-low-alarm` | alarm | Leakshield id: bit 1 |
+| `leakshield.leak-warning` | warning | Leakshield id: bit 2 |
+| `leakshield.pump-idle-time-warning` | warning | Leakshield id: bit 3 |
+| `leakshield.leak-alarm-small` | alarm | Leakshield id: the small leak Alarm, bit 4 |
+| `leakshield.leak-alarm` | alarm | Leakshield id: the large leak Alarm, bit 5 or bit 6 |
+| `leakshield.system-alarm` | alarm | Leakshield id: the system Alarm, any of the bits 7 to 10 |
+
+The Leakshield events follow the groups of `docs/protocol/leakshield.md`. A group is one event and one alarm response: bits 5 and 6 together are one large leak instance. The alarm response table (`GetResponses`) has one row for each event of this table, not one row for each bit. The event list of the device (`GetEvents`, codes 100 to 110) keeps the name of each bit.
 
 An instance is one raise of an event for one source. Its identifier is `alarm_<n>`, and the counter restarts with the daemon. The alarm response of an instance is the response of its event when the instance rises. A change with `SetResponse` applies to the instances that rise after it. `CancelPoweroff` ends a pending countdown or retry, and the Alarm stays active. It returns `NoPoweroff` for an instance that has no pending poweroff and for an unknown instance. A response `poweroff` with `delay_s` 0 calls logind in the tick where the instance rises.
 
-Each active Alarm or Warning (`Alarms.Active`) and each `AlarmRaised` signal carries `details` (`a{sv}`) for the notification text: `value` (`d`) and `limit` (`d`) in `unit` (`s`) when the event compares a value with a limit, and `sensor` (`o`) when a sensor caused it. A key is absent when it does not apply.
+Each active Alarm or Warning (`Alarms.Active`) and each `AlarmRaised` signal carries `details` (`a{sv}`) for the notification text: `value` (`d`) and `limit` (`d`) in `unit` (`s`) when the event compares a value with a limit, and `sensor` (`o`) when a sensor caused it, and `bits` (`u`) for a Leakshield event: the bits of `alarm_bits` that are set now in the group of the event (bits 5 and 6 for the large leak). The `bits` of an active instance follow `alarm_bits`; the signal carries the bits at the raise. A key is absent when it does not apply.
 
 ## Read-only reasons
 
@@ -75,6 +83,15 @@ Each active Alarm or Warning (`Alarms.Active`) and each `AlarmRaised` signal car
 
 - `GetEvents` returns the event list of report 1, oldest first. The identifier is `leakshield.<name>`, with the names of `docs/protocol/leakshield.md` (section Event list). A code that the document does not name gives `leakshield.event-<code>`. The time is the device time in microseconds since the Unix epoch: the clock offset is not applied. `details` holds `entry_id`, `mode`, `procedure_state`, `pressure` (mbar), `pressure_leak_rate`, `volume_leak_rate`, `value_1` and `value_2`, all as `d`. A value that the device marks as "no value" is absent.
 - A Software sensor slot is a number from 1 to 12 and maps to Feed message slot 3 + n. `GetSoftwareSensors` returns all 12 slots, with `/` for an empty one. `SetSoftwareSensor` fills a slot with a sensor, or clears it with `/`. A slot outside 1 to 12 and a sensor whose unit has no device unit code fail with `InvalidArgument`. An unknown sensor fails with `NotFound`. The daemon keeps the assignment in `state.json` (`storage.md`), so a restart restores it. A stored sensor that no longer exists leaves its slot empty and stays in `state.json` until the slot is set again. The Feed message of a Loop carries the slots of its Leakshield.
+
+## Device response proposals
+
+`GetDeviceResponseProposals` returns one row for each Leakshield event that has a Device response: `leakshield.fill-level-low-warning`, `leakshield.fill-level-low-alarm`, `leakshield.leak-warning`, `leakshield.leak-alarm-small`, `leakshield.leak-alarm` and `leakshield.system-alarm`. A row is (event, current, proposed, overlap). `current` and `proposed` are `none`, `signal-short`, `signal-long` or `key-sequence`. `overlap` is empty or a warning id:
+
+- `key-sequence-on`: the current Device response is the key sequence. The Leakshield types it into the focused window. The proposal is `none`, and `signal-long` for the system Alarm.
+- `double-poweroff`: the current Device response is a signal and the alarm response of the event is poweroff. The proposal is `none`.
+
+Without an overlap, the proposal for the system Alarm is `signal-long`, and the proposal for every other event is its current Device response. A row is absent when the daemon cannot read its field (unknown firmware or structure, or a disconnected device). The method is class `read`. The daemon never writes a proposal: the user accepts one with `SetFields`, and the write path applies its normal rules.
 
 ## Leakshield slots
 

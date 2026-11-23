@@ -458,8 +458,12 @@ async fn wired_methods_do_not_reply_not_supported() {
         proxy.set_software_sensor(1, &none_path())
     );
     call!("FactoryReset", proxy.factory_reset());
+    call!(
+        "GetDeviceResponseProposals",
+        proxy.get_device_response_proposals()
+    );
 
-    assert_eq!(replies.len(), 17);
+    assert_eq!(replies.len(), 18);
     for (name, error) in replies {
         assert_ne!(error.as_deref(), Some(not_supported), "{name}");
     }

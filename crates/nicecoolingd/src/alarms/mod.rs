@@ -4,4 +4,5 @@
 
 pub mod logind;
 pub mod poweroff;
+pub mod proposals;
 pub mod response;

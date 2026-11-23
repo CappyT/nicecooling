@@ -12,7 +12,7 @@ use nicecooling_api::ids::ROOT_PATH;
 use tokio::sync::mpsc;
 use zbus::message::Header;
 use zbus::object_server::SignalEmitter;
-use zbus::{Connection, OwnedVariant, interface};
+use zbus::{Connection, OwnedVariant, Variant, interface};
 
 use super::Hub;
 use crate::alarms::logind::SD_LOGIND_SKIP_INHIBITORS;
@@ -26,6 +26,19 @@ impl Alarms {
     pub fn new(hub: Arc<Hub>) -> Self {
         Self { hub }
     }
+}
+
+/// The keys of `docs/api.md`, section Event identifiers: `bits` (`u`) holds the bits of the
+/// device report that set the event.
+fn details(bits: u32) -> HashMap<String, OwnedVariant> {
+    let mut details = HashMap::new();
+    if bits != 0 {
+        details.insert(
+            "bits".to_owned(),
+            OwnedVariant::try_from(Variant::U32(bits)).expect("a number has no file descriptor"),
+        );
+    }
+    details
 }
 
 type Active = (
@@ -55,7 +68,7 @@ impl Alarms {
                     row.response.to_owned(),
                     row.raised_us,
                     row.poweroff_at_us,
-                    HashMap::new(),
+                    details(row.bits),
                 )
             })
             .collect()
@@ -153,11 +166,12 @@ pub async fn run_effects(
                     row.source,
                     row.response.to_owned(),
                     row.poweroff_at_us,
-                    HashMap::new(),
+                    details(row.bits),
                 )
                 .await;
                 true
             }
+            Effect::Updated(_) => true,
             Effect::Cleared(instance) => {
                 let _ = Alarms::alarm_cleared(emitter, instance).await;
                 true

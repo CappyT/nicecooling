@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 
 use nicecooling_api::errors::{Error, Result};
 use nicecooling_core::alarms::Severity;
-use nicecooling_core::alarms::leakshield::EVENTS;
+use nicecooling_core::alarms::leakshield::GROUPS;
 
 use crate::state::AlarmResponse;
 
@@ -48,12 +48,15 @@ const NICECOOLING_EVENTS: [(&str, Severity); 7] = [
     ("state-fallback", Severity::Warning),
 ];
 
-/// The events that power off by default.
-const POWEROFF_BY_DEFAULT: [&str; 1] = ["pump-stop"];
+/// The events that power off by default: the pump stop and the large leak.
+const POWEROFF_BY_DEFAULT: [&str; 2] = ["pump-stop", "leakshield.leak-alarm"];
 
-/// Every event that has a row in the response table, nicecooling first.
+/// Every event that has a row in the response table, nicecooling first. The Leakshield has one
+/// row for each Warning, for the fill level Alarm and for each Alarm group, not for each bit.
 pub fn events() -> impl Iterator<Item = (&'static str, Severity)> {
-    NICECOOLING_EVENTS.into_iter().chain(EVENTS)
+    NICECOOLING_EVENTS
+        .into_iter()
+        .chain(GROUPS.into_iter().map(|g| (g.id, g.severity)))
 }
 
 pub fn default_response(event: &str) -> (Response, u32) {
@@ -111,9 +114,9 @@ mod tests {
     fn default_responses() {
         let table = BTreeMap::new();
         let rows = rows(&table);
-        assert_eq!(rows.len(), 7 + 11);
+        assert_eq!(rows.len(), 7 + 7);
         for (event, response, delay) in &rows {
-            let expected = if event == "pump-stop" {
+            let expected = if event == "pump-stop" || event == "leakshield.leak-alarm" {
                 "poweroff"
             } else {
                 "notify"

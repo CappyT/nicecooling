@@ -12,7 +12,7 @@ use support::{Rig, error_name};
 use tokio::time::timeout;
 
 const ERR: &str = "io.github.cappyt.NiceCooling1.Error";
-const PUMP_STALL: &str = "leakshield.pump-stall";
+const PUMP_STALL: &str = "leakshield.system-alarm";
 const PUMP_STALL_BIT: u32 = 1 << 8;
 const LEAK_WARNING_BIT: u32 = 1 << 2;
 
@@ -57,9 +57,18 @@ async fn default_responses() {
     let rig = Rig::start_with_clock().await;
     let proxy = alarms(&rig).await;
     let rows = proxy.get_responses().await.unwrap();
-    assert_eq!(rows.len(), 7 + 11);
+    // One row for each event and group, not for each alarm bit.
+    assert_eq!(rows.len(), 7 + 7);
+    for id in [
+        "leakshield.leak-alarm-small",
+        "leakshield.leak-alarm",
+        "leakshield.system-alarm",
+    ] {
+        assert!(rows.iter().any(|r| r.0 == id), "{id}");
+    }
+    assert!(rows.iter().all(|r| !r.0.contains("pump-stall")));
     for (event, response, delay) in &rows {
-        let expected = if event == "pump-stop" {
+        let expected = if event == "pump-stop" || event == "leakshield.leak-alarm" {
             "poweroff"
         } else {
             "notify"
@@ -82,6 +91,130 @@ async fn default_responses() {
     assert_eq!(error_name(&e), format!("{ERR}.InvalidArgument"));
     let e = proxy.set_response("no-event", "none", 0).await.unwrap_err();
     assert_eq!(error_name(&e), format!("{ERR}.NotFound"));
+}
+
+/// The `bits` detail of an active row, and its event.
+async fn event_and_bits(proxy: &AlarmsProxy<'_>) -> Vec<(String, u32)> {
+    proxy
+        .active()
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|row| {
+            let bits = row
+                .7
+                .get("bits")
+                .map(|v| u32::try_from(v.try_clone().unwrap()).unwrap())
+                .unwrap_or(0);
+            (row.1, bits)
+        })
+        .collect()
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn each_bit_raises_its_group() {
+    let mut rig = Rig::start_with_clock().await;
+    let proxy = alarms(&rig).await;
+    let expected = [
+        "fill-level-low-warning",
+        "fill-level-low-alarm",
+        "leak-warning",
+        "pump-idle-time-warning",
+        "leak-alarm-small",
+        "leak-alarm",
+        "leak-alarm",
+        "system-alarm",
+        "system-alarm",
+        "system-alarm",
+        "system-alarm",
+    ];
+    for (bit, name) in expected.into_iter().enumerate() {
+        raise(&rig, 1 << bit);
+        rig.step(2).await;
+        assert_eq!(
+            event_and_bits(&proxy).await,
+            [(format!("leakshield.{name}"), 1 << bit)],
+            "bit {bit}"
+        );
+        raise(&rig, 0);
+        rig.step(2).await;
+        assert!(active(&proxy).await.is_empty(), "bit {bit}");
+    }
+    // No bit powers off, except the large leak.
+    rig.step(40).await;
+    assert_eq!(rig.logind.call_count(), 0);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn bits_5_and_6_raise_one_large_leak() {
+    let mut rig = Rig::start_with_clock().await;
+    let proxy = alarms(&rig).await;
+    let mut raised_signals = proxy.receive_alarm_raised().await.unwrap();
+    raise(&rig, 1 << 5);
+    rig.step(2).await;
+    assert_eq!(
+        event_and_bits(&proxy).await,
+        [("leakshield.leak-alarm".to_owned(), 1 << 5)]
+    );
+    let instance = active(&proxy).await[0].0.clone();
+    // The second bit joins the instance. It does not raise another one.
+    raise(&rig, (1 << 5) | (1 << 6));
+    rig.step(2).await;
+    assert_eq!(
+        event_and_bits(&proxy).await,
+        [("leakshield.leak-alarm".to_owned(), (1 << 5) | (1 << 6))]
+    );
+    assert_eq!(active(&proxy).await[0].0, instance);
+    let signal = timeout(Duration::from_secs(5), raised_signals.next())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(signal.args().unwrap().event, "leakshield.leak-alarm");
+    assert!(
+        timeout(Duration::from_millis(300), raised_signals.next())
+            .await
+            .is_err(),
+        "one AlarmRaised signal for the group"
+    );
+    // One bit goes: the instance stays. Both go: it clears.
+    raise(&rig, 1 << 6);
+    rig.step(2).await;
+    assert_eq!(active(&proxy).await[0].0, instance);
+    raise(&rig, 0);
+    rig.step(2).await;
+    assert!(active(&proxy).await.is_empty());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn large_leak_powers_off_after_30_s_by_default() {
+    let mut rig = Rig::start_with_clock().await;
+    let proxy = alarms(&rig).await;
+    let mut raised_signals = proxy.receive_alarm_raised().await.unwrap();
+    // The user changed nothing. The first tick with the bit set is at t = 1 s.
+    raise(&rig, 1 << 6);
+    rig.step(1).await;
+    let signal = timeout(Duration::from_secs(5), raised_signals.next())
+        .await
+        .unwrap()
+        .unwrap();
+    let args = signal.args().unwrap();
+    assert_eq!(
+        (args.event.as_str(), args.response.as_str()),
+        ("leakshield.leak-alarm", "poweroff")
+    );
+    assert!(args.poweroff_at_us > 0);
+    rig.step(29).await;
+    assert_eq!(rig.logind.call_count(), 0);
+    rig.step(2).await;
+    assert_eq!(*rig.logind.calls.lock().unwrap(), [0x10]);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn small_leak_and_system_alarm_only_notify_by_default() {
+    let mut rig = Rig::start_with_clock().await;
+    raise(&rig, (1 << 4) | (1 << 7));
+    rig.step(40).await;
+    assert_eq!(rig.logind.call_count(), 0);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

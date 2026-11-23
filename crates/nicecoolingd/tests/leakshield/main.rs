@@ -11,6 +11,7 @@ mod external;
 mod feed;
 mod hotplug;
 mod mode;
+mod proposals;
 mod reset;
 mod software_sensors;
 #[path = "../support/mod.rs"]

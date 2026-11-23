@@ -169,11 +169,6 @@ async fn unfilled_interfaces_reply_not_supported() {
     assert_eq!(leakshield.serial().await.unwrap(), "20417-31072");
     assert!(leakshield.writable().await.unwrap());
     assert_eq!(leakshield.software_sensor_slots().await.unwrap(), 12);
-    stub!(
-        seen,
-        "Leakshield.GetDeviceResponseProposals",
-        leakshield.get_device_response_proposals()
-    );
 
     let profiles = ProfilesProxy::builder(&rig.client)
         .cache_properties(zbus::proxy::CacheProperties::No)
@@ -275,6 +270,7 @@ async fn unfilled_interfaces_reply_not_supported() {
         "GetSoftwareSensors",
         "SetSoftwareSensor",
         "FactoryReset",
+        "GetDeviceResponseProposals",
     ]
     .map(|m| format!("Leakshield.{m}"));
     let in_xml: BTreeSet<String> = in_xml.into_iter().filter(|m| !wired.contains(m)).collect();
