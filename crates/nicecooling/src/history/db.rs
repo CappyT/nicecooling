@@ -165,6 +165,17 @@ impl HistoryDb {
             .collect()
     }
 
+    /// The unit of a sensor series, `None` for a sensor that was never recorded.
+    pub fn series_unit(&self, sensor: &str) -> rusqlite::Result<Option<String>> {
+        self.conn
+            .query_row(
+                "SELECT unit FROM series WHERE sensor = ?1",
+                [sensor],
+                |row| row.get(0),
+            )
+            .optional()
+    }
+
     pub fn count(&self, table: &str) -> rusqlite::Result<i64> {
         let sql = match table {
             "samples" => "SELECT count(*) FROM samples",

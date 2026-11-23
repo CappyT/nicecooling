@@ -143,17 +143,13 @@ impl ShellModel {
             });
         }
         let (groups, settings) = sidebar(state, locale);
-        let enabled = state.link == Link::Online;
         Self {
             groups,
             settings,
             banners,
             more_notices,
             status: status_bar(state, now_us, locale),
-            writes: WriteGate {
-                enabled,
-                tooltip: (!enabled).then(|| locale.tr("tooltip.daemon_offline")),
-            },
+            writes: write_gate(state, locale),
             connecting: state.link == Link::Connecting,
         }
     }
@@ -165,6 +161,15 @@ impl ShellModel {
             .flat_map(|group| group.entries.iter().map(|entry| entry.page.clone()))
             .chain(std::iter::once(self.settings.page.clone()))
             .collect()
+    }
+}
+
+/// Write controls work only while the daemon is online.
+pub fn write_gate(state: &AppState, locale: Locale) -> WriteGate {
+    let enabled = state.link == Link::Online;
+    WriteGate {
+        enabled,
+        tooltip: (!enabled).then(|| locale.tr("tooltip.daemon_offline")),
     }
 }
 

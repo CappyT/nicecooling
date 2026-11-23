@@ -123,7 +123,7 @@ notification:
   poweroff:
     body: "%{source}. Il PC si spegne tra %{seconds} s."
   pump_stop:
-    body: "%{source}: un canale pompa legge 0 giri/min. Ogni Canale è al 100 %. Il PC si spegne tra %{seconds} s."
+    body: "%{source}: un canale pompa legge 0 rpm. Ogni Canale è al 100 %. Il PC si spegne tra %{seconds} s."
   leakshield_unreachable:
     body: "%{source}: nessun dato dal Leakshield da 10 s. Controlla il cavo USB."
   daemon_down:
@@ -145,3 +145,297 @@ notification:
   poweroff_failed:
     title: Spegnimento non riuscito
     body: "Il demone non ha potuto spegnere il PC: %{error}"
+feedback:
+  pending: Scrittura in corso
+  applied: "Applicato alle %{time}"
+  not_authorized: Non autorizzato. Non è cambiato nulla.
+  refused: "Non applicato: il demone ha rifiutato la modifica."
+loop:
+  with_leakshield: Leakshield
+  without_leakshield: Nessun Leakshield
+  caption: "%{leakshield}, %{pumps}"
+  pumps:
+    one: "%{count} Canale pompa"
+    other: "%{count} Canali pompa"
+diagram:
+  age: "Età del valore %{seconds} s"
+  reservoir: Livello
+  fill_level: Livello
+  blocks: Blocchi e radiatori
+  no_leakshield:
+    title: Nessun Leakshield
+    text: La pressione non è misurata.
+  state:
+    alarm: Allarme
+    warning: Avviso
+    no_value: nessun valore
+  caption:
+    target: "obiettivo %{value}"
+    below_min: "sotto il minimo %{value}"
+    above_max: "sopra il massimo %{value}"
+    no_protection: nessuna protezione
+    no_data: nessun dato
+    duty: "Duty %{value} %"
+    stopped: ferma
+    calibrated: calibrato
+    above_table: oltre la tabella
+    below_flow: "sotto %{value} L/h"
+    water: acqua
+    pumps:
+      one: "%{count} pompa"
+      other: "%{count} pompe"
+  accessible:
+    pressure: "Pressione %{value}"
+    pump: "Pompa %{value}"
+    flow: "Portata %{value}"
+    water: "Acqua %{value}"
+    fill_level: "Livello %{value}"
+overview:
+  not_live: Non in tempo reale
+  last_value: "Ultimo valore %{time}"
+  last_values: "Ultimi valori %{time}"
+  open_loop: Apri il Loop
+  open_leakshield: Apri Leakshield
+  open_profiles: Apri i Profili
+  empty:
+    title: Nessun Loop
+    text: Un Loop raggruppa una pompa, un sensore di portata, un sensore di temperatura dell'acqua e un Leakshield.
+    button: Configura un Loop
+  no_alarms: Nessun Allarme attivo
+  alarms_title: Allarmi attivi
+  temperatures_title: Temperature principali
+  profile_title: Profilo attivo
+  daemon_down:
+    title: Demone fermo
+    detail: "Dalle %{time}. Il demone esegue le risposte agli allarmi: ora non ne gira nessuna."
+  alarm_detail: "%{source}, dalle %{time}. Risposta all'allarme: %{response}."
+  response:
+    none: nessuna
+    notify: notifica
+    poweroff: spegnimento
+    poweroff_after: "spegnimento dopo %{seconds} s"
+  action_running:
+    test: Test in corso
+    measure_fill_level: Misura del livello in corso
+    deaerate: Disaerazione in corso
+    refill: Rabbocco in corso
+  pressure:
+    title: Pressione
+    subtitle: Leakshield, ultimi 10 minuti
+    limit: "Limite %{value}"
+    raised: "Allarme alle %{time}"
+  temp:
+    cpu: CPU
+    gpu: GPU
+    chipset: Chipset
+    vrm: VRM
+  profile:
+    none: Nessuno
+    by_group: Per gruppo
+    manual: Manuale
+    manual_detail: I gruppi di regole attendono finché non lo revochi.
+sensors:
+  empty: Nessun sensore trovato. Controlla che i driver hwmon della Scheda siano caricati.
+  search: Cerca sensori
+  show_hidden: Mostra i sensori nascosti
+  new_derived: Nuovo sensore derivato
+  columns:
+    sensor: Sensore
+    value: Valore
+    last_10_minutes: Ultimi 10 minuti
+    used_by: Usato da
+  group:
+    chip: Chip della Scheda
+    leakshield: Leakshield
+    gpu: GPU
+    nvme: NVMe
+    calibrated: Portata calibrata
+    derived: Sensori derivati
+  used:
+    curve: "Curva di %{name}"
+  in_use:
+    curve: Una Curva usa questo sensore.
+    loop: Un Loop usa questo sensore.
+    derived: Un sensore derivato usa questo sensore.
+  delete_refused:
+    curve: "La Curva di %{name} usa questo sensore."
+    loop: "Il Loop %{name} usa questo sensore."
+    derived: "Il sensore derivato %{name} usa questo sensore."
+  source_without_value: "Sorgente senza valore: %{name}"
+  rename: Rinomina
+  hide: Nascondi
+  show: Mostra
+  delete: Elimina
+  edit: Modifica
+  rename_refused: "Non applicato: il demone ha rifiutato il nome."
+  rename_placeholder: Nome
+  flow_no_loop: Nessun Loop legge questo sensore di portata. Impostalo come sensore di portata di un Loop per dargli una tabella di calibrazione.
+  help:
+    maximum: "Massimo: la sorgente più alta."
+    mean: "Media: la media delle sorgenti."
+    difference: "Differenza: la prima sorgente meno la seconda."
+  function:
+    maximum: Massimo
+    mean: Media
+    difference: Differenza
+  editor:
+    title_new: Nuovo sensore derivato
+    title_edit: Sensore derivato
+    name: Nome
+    function: Funzione
+    sources: Sorgenti
+    source: "Sorgente %{n}"
+    minuend: Minuendo
+    subtrahend: Sottraendo
+    add_source: Aggiungi sorgente
+    choose: Scegli un sensore
+    now: "Ora %{value}"
+    mixed_units: Tutte le sorgenti devono avere la stessa unità.
+    name_missing: Dai un nome al sensore.
+    sources_missing: Scegli ogni sorgente.
+    refused: "Non applicato: il demone ha rifiutato il sensore derivato."
+    in_use: Una Curva, un Loop o un altro sensore derivato usa questo sensore.
+    cancel: Annulla
+    save: Salva
+channels:
+  empty:
+    text: Nessun Canale trovato. nicecooling ha bisogno di un driver hwmon per il controller delle ventole di questa Scheda.
+    link: Apri le Impostazioni
+  columns:
+    channel: Canale
+    rpm: rpm
+    duty: Duty
+  pump_tag: Canale pompa
+  no_signal: nessun segnale di velocità
+  line:
+    curve: "Curva su %{input}"
+    curve_lost: "Curva, Input perso: %{input}"
+    fixed: Duty fisso
+    hardware: Curva hardware, non controllato
+  pump_stop: Pompa ferma. Ogni Canale è al 100 % finché la pompa non gira per 10 s.
+  pump_stop_readonly: La pompa è ferma. L'editor è in sola lettura.
+  lost_input_strip: "Input perso: il Canale resta al 100 % finché %{input} non torna."
+  rename: Rinomina
+  control:
+    label: Controllo
+    curve: Curva
+    fixed: Duty fisso
+    hardware: Curva hardware
+  hardware_text: nicecooling non controlla questo Canale. La Scheda applica la sua Curva hardware.
+  field:
+    input: Input
+    smoothing: Smorzamento Input
+    smoothing_unit: s di media
+    step: Limite di variazione Duty
+    step_unit: "% al s"
+    fixed: Duty
+  help:
+    smoothing: "Smorzamento Input: la Curva legge la media degli ultimi %{value} s, così un picco breve non muove la ventola."
+    step: "Limite di variazione Duty: il Duty cambia al massimo del %{value} % al secondo."
+  plot:
+    y_title: "Duty, %"
+    x_title: "Input, %{unit}"
+    now: "Ora %{input}, %{duty} %"
+    floor: "Minimo pompa %{value}: nessuna Curva scende sotto"
+    accessible: "Curva di %{name}, %{count} punti"
+  readout:
+    input: "Input %{value}"
+    smoothing: "media su %{value} s"
+    curve: "Curva %{value}"
+    duty: "Duty %{value}"
+  add_point: Aggiungi punto
+  remove_point: Rimuovi punto
+  point_input: Input
+  point_duty: Duty
+  try_again: Riprova
+  refused_curve: "Non applicato: il demone ha rifiutato la Curva."
+  refused_fixed: "Non applicato: il demone ha rifiutato il Duty fisso."
+  refused_release: "Non applicato: il demone ha rifiutato di rilasciare il Canale."
+  pump_floor_refused: "Il minimo pompa è %{value}."
+  pump_floor_note: "Minimo pompa %{value}: un Duty fisso sotto questo valore viene rifiutato."
+  bios:
+    title: Snapshot BIOS
+    text: Quando il demone si ferma, la Scheda applica la sua Curva hardware a questo Canale.
+  release:
+    title: Restituire questo Canale alla Scheda?
+    text: nicecooling ferma la sua Curva.
+    cancel: Annulla
+    confirm: Usa la Curva hardware
+loops:
+  new: Nuovo
+  new_name: "Loop %{n}"
+  none: Nessuno
+  parts: Componenti
+  part:
+    pumps: Canali pompa
+    flow: Sensore di portata
+    water: Temperatura acqua
+    leakshield: Leakshield
+  no_pump_warning: Un Loop ha bisogno di un Canale pompa. Senza, nicecooling non vede l'arresto della pompa.
+  leakshield_none: Nessuno. Pressione e livello non sono misurati e nessun Feed viene inviato.
+  pump_stopped: "Pompa ferma: %{channel} legge 0 rpm. Ogni Canale è al 100 %."
+  rename: Rinomina
+  menu: Menu del Loop
+  delete_loop: Elimina il Loop
+  delete:
+    title: "Eliminare il Loop '%{name}'?"
+    text: I suoi Canali mantengono le loro Curve. Il minimo pompa e l'Allarme di arresto pompa terminano.
+    cancel: Annulla
+    confirm: Elimina il Loop
+  floor:
+    title: Minimo pompa
+    text: Il minimo pompa è il Duty minimo del Canale pompa. Nessuna Curva e nessun Profilo scende sotto. Mantiene l'acqua in movimento quando una Curva legge una temperatura bassa.
+    zero: Con un minimo pompa dello 0 %, una Curva può fermare la pompa.
+  feed:
+    title: Feed
+    feed_pump: "Velocità pompa %{value}"
+    flow: "Portata %{value}"
+    sent: "Inviato %{seconds} s fa"
+    stale: "Ultimo Feed %{seconds} s fa"
+    never: Nessun Feed finora
+    caption: Il Leakshield usa il Feed per calcolare la pressione del Loop.
+calibration:
+  title: Tabella di calibrazione
+  x_header: Frequenza grezza (rpm)
+  y_header: Portata (L/h)
+  add_point: Aggiungi punto
+  remove_point: Rimuovi punto
+  load_preset: Carica preset
+  out_of_range: Fuori range
+  marker: "%{raw} rpm, %{flow} L/h"
+  above_last: "%{raw} rpm sono oltre l'ultimo punto. La portata è una stima."
+  table_name: "Sensore di portata di %{loop}"
+  refused: "Non applicato: il demone ha rifiutato la tabella."
+  error:
+    too_few: Una tabella di calibrazione ha bisogno di almeno 2 punti.
+    not_sorted: Le frequenze grezze devono crescere.
+  confirm:
+    title: "Sostituire la tabella con %{name}?"
+    text: I punti della tabella vengono sostituiti.
+    confirm: Sostituisci la tabella
+    cancel: Annulla
+history:
+  sensors: Sensori
+  sensors_count:
+    one: "%{count} sensore"
+    other: "%{count} sensori"
+  range:
+    1h: 1 h
+    24h: 24 h
+    48h: 48 h
+    7d: 7 g
+    30d: 30 g
+    1y: 1 a
+  back: Indietro
+  forward: Avanti
+  now: Adesso
+  reset_zoom: Reimposta lo zoom
+  aggregate_hint: "Più vecchio di 48 ore: media di 1 minuto, con minimo e massimo."
+  gap: "Nessun dato: l'app non era in esecuzione"
+  empty: Seleziona i sensori da mostrare.
+  no_data: Nessun dato in questo intervallo. L'app registra la cronologia mentre è in esecuzione.
+  error: Il database della cronologia non può essere letto.
+  retry: Riprova
+  search: Cerca sensori
+  legend:
+    extremes: "min %{min}, max %{max}"

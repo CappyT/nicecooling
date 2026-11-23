@@ -19,6 +19,7 @@ rusqlite.workspace = true
 rust-i18n.workspace = true
 serde.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "sync", "time", "macros"] }
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
 futures-util = { version = "0.3", default-features = false, features = ["std"] }
 zbus.workspace = true
 

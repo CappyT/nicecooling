@@ -145,3 +145,297 @@ notification:
   poweroff_failed:
     title: Poweroff failed
     body: "The daemon could not power off the PC: %{error}"
+feedback:
+  pending: Writing
+  applied: "Applied %{time}"
+  not_authorized: Not authorized. Nothing changed.
+  refused: "Not applied: the daemon refused the change."
+loop:
+  with_leakshield: Leakshield
+  without_leakshield: No Leakshield
+  caption: "%{leakshield}, %{pumps}"
+  pumps:
+    one: "%{count} Pump channel"
+    other: "%{count} Pump channels"
+diagram:
+  age: "Value age %{seconds} s"
+  reservoir: Fill level
+  fill_level: Fill level
+  blocks: Blocks and radiators
+  no_leakshield:
+    title: No Leakshield
+    text: Pressure is not measured.
+  state:
+    alarm: Alarm
+    warning: Warning
+    no_value: no value
+  caption:
+    target: "target %{value}"
+    below_min: "below minimum %{value}"
+    above_max: "above maximum %{value}"
+    no_protection: no protection
+    no_data: no data
+    duty: "Duty %{value} %"
+    stopped: stopped
+    calibrated: calibrated
+    above_table: above table range
+    below_flow: "below %{value} L/h"
+    water: water
+    pumps:
+      one: "%{count} pump"
+      other: "%{count} pumps"
+  accessible:
+    pressure: "Pressure %{value}"
+    pump: "Pump %{value}"
+    flow: "Flow %{value}"
+    water: "Water %{value}"
+    fill_level: "Fill level %{value}"
+overview:
+  not_live: Not live
+  last_value: "Last value %{time}"
+  last_values: "Last values %{time}"
+  open_loop: Open Loop
+  open_leakshield: Open Leakshield
+  open_profiles: Open Profiles
+  empty:
+    title: No Loop yet
+    text: A Loop groups a pump, a flow sensor, a water temperature sensor and a Leakshield.
+    button: Set up a Loop
+  no_alarms: No active Alarms
+  alarms_title: Active Alarms
+  temperatures_title: Key temperatures
+  profile_title: Active Profile
+  daemon_down:
+    title: Daemon down
+    detail: "Since %{time}. The daemon runs the alarm responses: none runs now."
+  alarm_detail: "%{source}, since %{time}. Alarm response: %{response}."
+  response:
+    none: none
+    notify: notify
+    poweroff: poweroff
+    poweroff_after: "poweroff after %{seconds} s"
+  action_running:
+    test: Test running
+    measure_fill_level: Measuring the fill level
+    deaerate: Deaerating
+    refill: Refill running
+  pressure:
+    title: Pressure
+    subtitle: Leakshield, last 10 minutes
+    limit: "Limit %{value}"
+    raised: "Alarm raised %{time}"
+  temp:
+    cpu: CPU
+    gpu: GPU
+    chipset: Chipset
+    vrm: VRM
+  profile:
+    none: None
+    by_group: By group
+    manual: Manual
+    manual_detail: Rule groups wait until you revoke it.
+sensors:
+  empty: No sensor found. Check that the hwmon drivers of the Board are loaded.
+  search: Search sensors
+  show_hidden: Show hidden sensors
+  new_derived: New Derived sensor
+  columns:
+    sensor: Sensor
+    value: Value
+    last_10_minutes: Last 10 minutes
+    used_by: Used by
+  group:
+    chip: Board chip
+    leakshield: Leakshield
+    gpu: GPU
+    nvme: NVMe
+    calibrated: Calibrated flow
+    derived: Derived sensors
+  used:
+    curve: "Curve of %{name}"
+  in_use:
+    curve: A Curve uses this sensor.
+    loop: A Loop uses this sensor.
+    derived: A Derived sensor uses this sensor.
+  delete_refused:
+    curve: "The Curve of %{name} uses this sensor."
+    loop: "The Loop %{name} uses this sensor."
+    derived: "The Derived sensor %{name} uses this sensor."
+  source_without_value: "Source without value: %{name}"
+  rename: Rename
+  hide: Hide
+  show: Show
+  delete: Delete
+  edit: Edit
+  rename_refused: "Not applied: the daemon refused the name."
+  rename_placeholder: Name
+  flow_no_loop: No Loop reads this flow sensor. Set it as the flow sensor of a Loop to give it a Calibration table.
+  help:
+    maximum: "Maximum: the highest source."
+    mean: "Mean: the average of the sources."
+    difference: "Difference: the first source minus the second."
+  function:
+    maximum: Maximum
+    mean: Mean
+    difference: Difference
+  editor:
+    title_new: New Derived sensor
+    title_edit: Derived sensor
+    name: Name
+    function: Function
+    sources: Sources
+    source: "Source %{n}"
+    minuend: Minuend
+    subtrahend: Subtrahend
+    add_source: Add source
+    choose: Choose a sensor
+    now: "Now %{value}"
+    mixed_units: All sources must have the same unit.
+    name_missing: Give the sensor a name.
+    sources_missing: Choose every source.
+    refused: "Not applied: the daemon refused the Derived sensor."
+    in_use: A Curve, a Loop or another Derived sensor uses this sensor.
+    cancel: Cancel
+    save: Save
+channels:
+  empty:
+    text: No Channel found. nicecooling needs a hwmon driver for the fan controller of this Board.
+    link: Open Settings
+  columns:
+    channel: Channel
+    rpm: rpm
+    duty: Duty
+  pump_tag: Pump channel
+  no_signal: no speed signal
+  line:
+    curve: "Curve on %{input}"
+    curve_lost: "Curve, Input lost: %{input}"
+    fixed: Fixed Duty
+    hardware: Hardware curve, not controlled
+  pump_stop: Pump stopped. Every Channel is at 100 % until the pump runs for 10 s.
+  pump_stop_readonly: The pump is stopped. The editor is read-only.
+  lost_input_strip: "Input lost: the Channel runs at 100 % until %{input} returns."
+  rename: Rename
+  control:
+    label: Control
+    curve: Curve
+    fixed: Fixed Duty
+    hardware: Hardware curve
+  hardware_text: nicecooling does not control this Channel. The Board runs its Hardware curve.
+  field:
+    input: Input
+    smoothing: Input smoothing
+    smoothing_unit: s average
+    step: Duty step limit
+    step_unit: "% per s"
+    fixed: Duty
+  help:
+    smoothing: "Input smoothing: the Curve reads the average of the last %{value} s, so a short spike does not move the fan."
+    step: "Duty step limit: the Duty changes by %{value} % per second at most."
+  plot:
+    y_title: "Duty, %"
+    x_title: "Input, %{unit}"
+    now: "Now %{input}, %{duty} %"
+    floor: "Pump floor %{value}: no Curve goes below it"
+    accessible: "Curve of %{name}, %{count} points"
+  readout:
+    input: "Input %{value}"
+    smoothing: "%{value} s average"
+    curve: "Curve %{value}"
+    duty: "Duty %{value}"
+  add_point: Add point
+  remove_point: Remove point
+  point_input: Input
+  point_duty: Duty
+  try_again: Try again
+  refused_curve: "Not applied: the daemon refused the Curve."
+  refused_fixed: "Not applied: the daemon refused the Fixed Duty."
+  refused_release: "Not applied: the daemon refused to release the Channel."
+  pump_floor_refused: "The Pump floor is %{value}."
+  pump_floor_note: "Pump floor %{value}: a Fixed Duty below it is refused."
+  bios:
+    title: BIOS snapshot
+    text: When the daemon stops, the Board runs its Hardware curve for this Channel.
+  release:
+    title: Give this Channel back to the Board?
+    text: nicecooling stops its Curve.
+    cancel: Cancel
+    confirm: Use the Hardware curve
+loops:
+  new: New
+  new_name: "Loop %{n}"
+  none: None
+  parts: Parts
+  part:
+    pumps: Pump channels
+    flow: Flow sensor
+    water: Water temperature
+    leakshield: Leakshield
+  no_pump_warning: A Loop needs a Pump channel. Without one, nicecooling cannot see a pump stop.
+  leakshield_none: None. Pressure and fill level are not measured, and no Feed is sent.
+  pump_stopped: "Pump stopped: %{channel} reads 0 rpm. Every Channel is at 100 %."
+  rename: Rename
+  menu: Loop menu
+  delete_loop: Delete Loop
+  delete:
+    title: "Delete the Loop '%{name}'?"
+    text: Its Channels keep their Curves. The Pump floor and the pump-stop Alarm stop.
+    cancel: Cancel
+    confirm: Delete Loop
+  floor:
+    title: Pump floor
+    text: The Pump floor is the minimum Duty of the Pump channel. No Curve and no Profile goes below it. It keeps the water moving when a Curve reads a low temperature.
+    zero: With a Pump floor of 0 %, a Curve can stop the pump.
+  feed:
+    title: Feed
+    feed_pump: "Pump speed %{value}"
+    flow: "Flow %{value}"
+    sent: "Sent %{seconds} s ago"
+    stale: "Last Feed %{seconds} s ago"
+    never: No Feed yet
+    caption: The Leakshield uses the Feed to compute the pressure of the Loop.
+calibration:
+  title: Calibration table
+  x_header: Raw rate (rpm)
+  y_header: Flow (L/h)
+  add_point: Add point
+  remove_point: Remove point
+  load_preset: Load preset
+  out_of_range: Out of range
+  marker: "%{raw} rpm, %{flow} L/h"
+  above_last: "%{raw} rpm is above the last point. The flow is an estimate."
+  table_name: "%{loop} flow sensor"
+  refused: "Not applied: the daemon refused the table."
+  error:
+    too_few: A Calibration table needs at least 2 points.
+    not_sorted: The raw rates must increase.
+  confirm:
+    title: "Replace the table with %{name}?"
+    text: The points of the table are replaced.
+    confirm: Replace the table
+    cancel: Cancel
+history:
+  sensors: Sensors
+  sensors_count:
+    one: "%{count} sensor"
+    other: "%{count} sensors"
+  range:
+    1h: 1 h
+    24h: 24 h
+    48h: 48 h
+    7d: 7 d
+    30d: 30 d
+    1y: 1 y
+  back: Back
+  forward: Forward
+  now: Now
+  reset_zoom: Reset zoom
+  aggregate_hint: "Older than 48 hours: 1 minute mean, with minimum and maximum."
+  gap: "No data: the app did not run"
+  empty: Select sensors to chart.
+  no_data: No data in this range. The app records the history while it runs.
+  error: The history database cannot be read.
+  retry: Try again
+  search: Search sensors
+  legend:
+    extremes: "min %{min}, max %{max}"

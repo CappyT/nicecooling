@@ -1,24 +1,88 @@
 //! A zbus server of the interface contract `io.github.cappyt.NiceCooling1`, with a small
 //! simulated installation. It implements the properties and methods that the app uses.
-//! `Alarms.Active` has the 7 fields that the XML comment lists: 5 strings and 2 times.
+//! `Alarms.Active` has the 8 fields of the XML: 5 strings, 2 times and the details.
+// The signal `AlarmRaised` has 7 arguments, and the `interface` macro adds the emitter.
+#![allow(clippy::too_many_arguments)]
 
+use std::collections::HashMap;
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 
 use nicecooling::daemon_client::{BUS_NAME, ROOT};
 use zbus::OwnedObjectPath;
 use zbus::message::Flags;
-use zbus::object_server::SignalEmitter;
+use zbus::object_server::{ObjectServer, SignalEmitter};
 use zbus::{Connection, fdo, interface};
+use zbus::{OwnedVariant as OwnedValue, Variant as Value};
 
 pub const LEAKSHIELD: &str = "leakshield_20417_31072";
 
-type ActiveRow = (String, String, String, String, String, u64, u64);
+type ActiveRow = (
+    String,
+    String,
+    String,
+    String,
+    String,
+    u64,
+    u64,
+    HashMap<String, OwnedValue>,
+);
 
-#[derive(Default)]
+/// The `details` of an Alarm for the fake: a key that is `None` stays out of the dictionary.
+#[derive(Default, Clone)]
+pub struct Details {
+    pub value: Option<f64>,
+    pub limit: Option<f64>,
+    pub unit: &'static str,
+    pub sensor: Option<&'static str>,
+}
+
+impl Details {
+    fn to_map(&self) -> HashMap<String, OwnedValue> {
+        let mut map = HashMap::new();
+        let mut put = |key: &str, value: Value<'_>| {
+            map.insert(key.to_owned(), OwnedValue::try_from(value).expect("value"));
+        };
+        if let Some(value) = self.value {
+            put("value", Value::F64(value));
+        }
+        if let Some(limit) = self.limit {
+            put("limit", Value::F64(limit));
+        }
+        if !self.unit.is_empty() {
+            put("unit", Value::from(self.unit));
+        }
+        if let Some(sensor) = self.sensor {
+            put("sensor", Value::from(path(&format!("sensor/{sensor}"))));
+        }
+        map
+    }
+}
+
+type Table = (String, String, bool, Vec<(f64, f64)>);
+
 pub struct Shared {
     /// `"<Method>(<args>) interactive=<bool>"` for each write call.
     pub calls: Mutex<Vec<String>>,
     pub deny_writes: Mutex<bool>,
+    next_id: AtomicU32,
+    tables: Mutex<Vec<Table>>,
+}
+
+impl Default for Shared {
+    fn default() -> Self {
+        Self {
+            calls: Mutex::default(),
+            deny_writes: Mutex::default(),
+            next_id: AtomicU32::new(1),
+            tables: Mutex::new(vec![(
+                "alphacool_17558".into(),
+                "Alphacool 17558 flow sensor".into(),
+                true,
+                vec![(327.0, 40.0), (369.0, 50.0), (404.0, 60.0), (700.0, 120.0)],
+            )]),
+        }
+    }
 }
 
 impl Shared {
@@ -42,7 +106,9 @@ fn path(suffix: &str) -> OwnedObjectPath {
     OwnedObjectPath::try_from(format!("{ROOT}/{suffix}")).expect("object path")
 }
 
-struct Manager;
+struct Manager {
+    shared: Arc<Shared>,
+}
 
 #[interface(name = "io.github.cappyt.NiceCooling1.Manager")]
 impl Manager {
@@ -56,6 +122,138 @@ impl Manager {
         "ok".into()
     }
 
+    async fn create_derived_sensor(
+        &self,
+        #[zbus(header)] header: zbus::message::Header<'_>,
+        #[zbus(object_server)] server: &ObjectServer,
+        name: &str,
+        r#type: &str,
+        sources: Vec<OwnedObjectPath>,
+    ) -> fdo::Result<OwnedObjectPath> {
+        let ids: Vec<&str> = sources
+            .iter()
+            .map(|p| p.as_str().rsplit('/').next().unwrap_or_default())
+            .collect();
+        self.shared.record(
+            &format!("CreateDerivedSensor({name},{},[{}])", r#type, ids.join(",")),
+            &header,
+        )?;
+        let id = format!(
+            "derived_{}",
+            self.shared.next_id.fetch_add(1, Ordering::Relaxed)
+        );
+        let object = path(&format!("sensor/{id}"));
+        server
+            .at(
+                object.clone(),
+                Sensor {
+                    id: id.clone(),
+                    name: name.into(),
+                    default_name: name.into(),
+                    kind: "temperature",
+                    unit: "degC",
+                    origin: "derived",
+                    driver: String::new(),
+                    shared: self.shared.clone(),
+                },
+            )
+            .await?;
+        server
+            .at(
+                object.clone(),
+                DerivedSensor {
+                    id,
+                    function: r#type.into(),
+                    sources,
+                    shared: self.shared.clone(),
+                },
+            )
+            .await?;
+        Ok(object)
+    }
+
+    async fn create_loop(
+        &self,
+        #[zbus(header)] header: zbus::message::Header<'_>,
+        #[zbus(object_server)] server: &ObjectServer,
+        name: &str,
+    ) -> fdo::Result<OwnedObjectPath> {
+        self.shared
+            .record(&format!("CreateLoop({name})"), &header)?;
+        let id = format!(
+            "loop_{}",
+            self.shared.next_id.fetch_add(1, Ordering::Relaxed) + 1
+        );
+        let object = path(&format!("loop/{id}"));
+        server
+            .at(
+                object.clone(),
+                Loop {
+                    id,
+                    name: name.into(),
+                    pumps: Vec::new(),
+                    flow_sensor: String::new(),
+                    table: String::new(),
+                    flow: String::new(),
+                    water: String::new(),
+                    leakshield: String::new(),
+                    floor: 40.0,
+                    shared: self.shared.clone(),
+                },
+            )
+            .await?;
+        Ok(object)
+    }
+
+    fn get_calibration_tables(&self) -> Vec<Table> {
+        self.shared.tables.lock().expect("tables").clone()
+    }
+
+    fn set_calibration_table(
+        &self,
+        #[zbus(header)] header: zbus::message::Header<'_>,
+        id: &str,
+        name: &str,
+        points: Vec<(f64, f64)>,
+    ) -> fdo::Result<String> {
+        self.shared.record(
+            &format!("SetCalibrationTable({id},{name},{points:?})"),
+            &header,
+        )?;
+        let mut tables = self.shared.tables.lock().expect("tables");
+        if tables.iter().any(|t| t.0 == id && t.2) {
+            return Err(fdo::Error::Failed(
+                "io.github.cappyt.NiceCooling1.Error.ReadOnly".into(),
+            ));
+        }
+        let id = if id.is_empty() {
+            format!(
+                "table_{}",
+                self.shared.next_id.fetch_add(1, Ordering::Relaxed)
+            )
+        } else {
+            id.to_owned()
+        };
+        tables.retain(|t| t.0 != id);
+        tables.push((id.clone(), name.into(), false, points));
+        Ok(id)
+    }
+
+    fn delete_calibration_table(
+        &self,
+        #[zbus(header)] header: zbus::message::Header<'_>,
+        id: &str,
+    ) -> fdo::Result<()> {
+        self.shared
+            .record(&format!("DeleteCalibrationTable({id})"), &header)?;
+        self.shared
+            .tables
+            .lock()
+            .expect("tables")
+            .retain(|t| t.0 != id);
+        Ok(())
+    }
+
     #[zbus(signal)]
     async fn sensors_updated(
         emitter: &SignalEmitter<'_>,
@@ -63,6 +261,26 @@ impl Manager {
         sensors: Vec<(String, f64, u8)>,
         channels: Vec<(String, f64, u8)>,
     ) -> zbus::Result<()>;
+}
+
+struct Board;
+
+#[interface(name = "io.github.cappyt.NiceCooling1.Board")]
+impl Board {
+    #[zbus(property)]
+    fn vendor(&self) -> String {
+        "ASUSTeK COMPUTER INC.".into()
+    }
+
+    #[zbus(property)]
+    fn model(&self) -> String {
+        "ROG CROSSHAIR VIII DARK HERO".into()
+    }
+
+    #[zbus(property)]
+    fn board_file(&self) -> String {
+        "asus_rog_crosshair_viii_dark_hero".into()
+    }
 }
 
 struct Profiles {
@@ -184,6 +402,7 @@ impl Alarms {
         source: &str,
         response: &str,
         poweroff_at_us: u64,
+        details: HashMap<String, OwnedValue>,
     ) -> zbus::Result<()>;
 
     #[zbus(signal)]
@@ -213,37 +432,179 @@ impl Profile {
     }
 }
 
-struct Channel(Named);
+struct Channel {
+    id: String,
+    name: String,
+    default_name: String,
+    control: String,
+    is_pump: bool,
+    curve: (OwnedObjectPath, Vec<(f64, f64)>, f64, f64),
+    fixed: f64,
+    shared: Arc<Shared>,
+}
 
 #[interface(name = "io.github.cappyt.NiceCooling1.Channel")]
 impl Channel {
     #[zbus(property)]
     fn id(&self) -> String {
-        self.0.id.clone()
+        self.id.clone()
     }
 
     #[zbus(property)]
     fn name(&self) -> String {
-        self.0.name.clone()
+        self.name.clone()
+    }
+
+    #[zbus(property)]
+    fn default_name(&self) -> String {
+        self.default_name.clone()
+    }
+
+    #[zbus(property)]
+    fn duty(&self) -> f64 {
+        62.0
+    }
+
+    #[zbus(property)]
+    fn raw(&self) -> u8 {
+        158
+    }
+
+    #[zbus(property)]
+    fn control(&self) -> String {
+        self.control.clone()
+    }
+
+    #[zbus(property, name = "Override")]
+    fn override_state(&self) -> String {
+        "none".into()
+    }
+
+    #[zbus(property)]
+    fn is_pump(&self) -> bool {
+        self.is_pump
+    }
+
+    #[zbus(property)]
+    fn manual_at_snapshot(&self) -> bool {
+        false
+    }
+
+    #[zbus(property)]
+    fn curve(&self) -> (OwnedObjectPath, Vec<(f64, f64)>, f64, f64) {
+        self.curve.clone()
+    }
+
+    #[zbus(property)]
+    fn fixed_duty(&self) -> f64 {
+        self.fixed
+    }
+
+    async fn set_name(
+        &mut self,
+        #[zbus(header)] header: zbus::message::Header<'_>,
+        #[zbus(signal_emitter)] emitter: SignalEmitter<'_>,
+        name: &str,
+    ) -> fdo::Result<()> {
+        self.shared
+            .record(&format!("SetChannelName({},{name})", self.id), &header)?;
+        self.name = if name.is_empty() {
+            self.default_name.clone()
+        } else {
+            name.to_owned()
+        };
+        self.name_changed(&emitter).await?;
+        Ok(())
+    }
+
+    async fn set_curve(
+        &mut self,
+        #[zbus(header)] header: zbus::message::Header<'_>,
+        #[zbus(signal_emitter)] emitter: SignalEmitter<'_>,
+        input: OwnedObjectPath,
+        points: Vec<(f64, f64)>,
+        smoothing_s: f64,
+        step_limit_pct_per_s: f64,
+    ) -> fdo::Result<()> {
+        let input_id = input
+            .as_str()
+            .rsplit('/')
+            .next()
+            .unwrap_or_default()
+            .to_owned();
+        self.shared.record(
+            &format!(
+                "SetCurve({},{input_id},{points:?},{smoothing_s},{step_limit_pct_per_s})",
+                self.id
+            ),
+            &header,
+        )?;
+        if points.len() < 2 {
+            return Err(fdo::Error::Failed(
+                "io.github.cappyt.NiceCooling1.Error.InvalidArgument".into(),
+            ));
+        }
+        self.curve = (input, points, smoothing_s, step_limit_pct_per_s);
+        self.control = "curve".into();
+        self.curve_changed(&emitter).await?;
+        self.control_changed(&emitter).await?;
+        Ok(())
+    }
+
+    async fn set_fixed_duty(
+        &mut self,
+        #[zbus(header)] header: zbus::message::Header<'_>,
+        #[zbus(signal_emitter)] emitter: SignalEmitter<'_>,
+        duty: f64,
+    ) -> fdo::Result<()> {
+        self.shared
+            .record(&format!("SetFixedDuty({},{duty})", self.id), &header)?;
+        self.fixed = duty;
+        self.control = "fixed".into();
+        self.fixed_duty_changed(&emitter).await?;
+        self.control_changed(&emitter).await?;
+        Ok(())
+    }
+
+    async fn release_to_hardware(
+        &mut self,
+        #[zbus(header)] header: zbus::message::Header<'_>,
+        #[zbus(signal_emitter)] emitter: SignalEmitter<'_>,
+    ) -> fdo::Result<()> {
+        self.shared
+            .record(&format!("ReleaseToHardware({})", self.id), &header)?;
+        self.control = "hardware".into();
+        self.control_changed(&emitter).await?;
+        Ok(())
     }
 }
 
 struct Sensor {
-    named: Named,
+    id: String,
+    name: String,
+    default_name: String,
     kind: &'static str,
     unit: &'static str,
+    origin: &'static str,
+    driver: String,
+    shared: Arc<Shared>,
 }
 
 #[interface(name = "io.github.cappyt.NiceCooling1.Sensor")]
 impl Sensor {
     #[zbus(property)]
     fn id(&self) -> String {
-        self.named.id.clone()
+        self.id.clone()
     }
 
     #[zbus(property)]
     fn name(&self) -> String {
-        self.named.name.clone()
+        self.name.clone()
+    }
+
+    #[zbus(property)]
+    fn default_name(&self) -> String {
+        self.default_name.clone()
     }
 
     #[zbus(property)]
@@ -255,35 +616,283 @@ impl Sensor {
     fn unit(&self) -> String {
         self.unit.into()
     }
+
+    #[zbus(property)]
+    fn origin(&self) -> String {
+        self.origin.into()
+    }
+
+    #[zbus(property)]
+    fn driver(&self) -> String {
+        self.driver.clone()
+    }
+
+    async fn set_name(
+        &mut self,
+        #[zbus(header)] header: zbus::message::Header<'_>,
+        #[zbus(signal_emitter)] emitter: SignalEmitter<'_>,
+        name: &str,
+    ) -> fdo::Result<()> {
+        self.shared
+            .record(&format!("SetSensorName({},{name})", self.id), &header)?;
+        self.name = if name.is_empty() {
+            self.default_name.clone()
+        } else {
+            name.to_owned()
+        };
+        self.name_changed(&emitter).await?;
+        Ok(())
+    }
 }
 
-struct Loop(Named);
+struct DerivedSensor {
+    id: String,
+    function: String,
+    sources: Vec<OwnedObjectPath>,
+    shared: Arc<Shared>,
+}
+
+#[interface(name = "io.github.cappyt.NiceCooling1.DerivedSensor")]
+impl DerivedSensor {
+    #[zbus(property, name = "Type")]
+    fn function(&self) -> String {
+        self.function.clone()
+    }
+
+    #[zbus(property)]
+    fn sources(&self) -> Vec<OwnedObjectPath> {
+        self.sources.clone()
+    }
+
+    async fn set_definition(
+        &mut self,
+        #[zbus(header)] header: zbus::message::Header<'_>,
+        #[zbus(signal_emitter)] emitter: SignalEmitter<'_>,
+        r#type: &str,
+        sources: Vec<OwnedObjectPath>,
+    ) -> fdo::Result<()> {
+        let ids: Vec<&str> = sources
+            .iter()
+            .map(|p| p.as_str().rsplit('/').next().unwrap_or_default())
+            .collect();
+        self.shared.record(
+            &format!(
+                "SetDerivedDefinition({},{},[{}])",
+                self.id,
+                r#type,
+                ids.join(",")
+            ),
+            &header,
+        )?;
+        self.function = r#type.into();
+        self.sources = sources;
+        self.type_changed(&emitter).await?;
+        self.sources_changed(&emitter).await?;
+        Ok(())
+    }
+
+    async fn delete(
+        &self,
+        #[zbus(header)] header: zbus::message::Header<'_>,
+        #[zbus(object_server)] server: &ObjectServer,
+    ) -> fdo::Result<()> {
+        self.shared
+            .record(&format!("DeleteDerivedSensor({})", self.id), &header)?;
+        let object = path(&format!("sensor/{}", self.id));
+        server.remove::<DerivedSensor, _>(object.clone()).await?;
+        server.remove::<Sensor, _>(object).await?;
+        Ok(())
+    }
+}
+
+struct Loop {
+    id: String,
+    name: String,
+    pumps: Vec<String>,
+    flow_sensor: String,
+    table: String,
+    flow: String,
+    water: String,
+    leakshield: String,
+    floor: f64,
+    shared: Arc<Shared>,
+}
+
+fn object_or_none(kind: &str, id: &str) -> OwnedObjectPath {
+    if id.is_empty() {
+        OwnedObjectPath::try_from("/").expect("path")
+    } else {
+        path(&format!("{kind}/{id}"))
+    }
+}
+
+fn id_of(object: &OwnedObjectPath) -> String {
+    if object.as_str() == "/" {
+        String::new()
+    } else {
+        object
+            .as_str()
+            .rsplit('/')
+            .next()
+            .unwrap_or_default()
+            .to_owned()
+    }
+}
 
 #[interface(name = "io.github.cappyt.NiceCooling1.Loop")]
 impl Loop {
     #[zbus(property)]
     fn id(&self) -> String {
-        self.0.id.clone()
+        self.id.clone()
     }
 
     #[zbus(property)]
     fn name(&self) -> String {
-        self.0.name.clone()
+        self.name.clone()
     }
 
     #[zbus(property)]
-    fn leakshield(&self) -> OwnedObjectPath {
-        path(&format!("leakshield/{LEAKSHIELD}"))
+    fn pump_channels(&self) -> Vec<OwnedObjectPath> {
+        self.pumps
+            .iter()
+            .map(|id| path(&format!("channel/{id}")))
+            .collect()
+    }
+
+    #[zbus(property)]
+    fn flow_sensor(&self) -> OwnedObjectPath {
+        object_or_none("sensor", &self.flow_sensor)
+    }
+
+    #[zbus(property)]
+    fn calibration_table(&self) -> String {
+        self.table.clone()
     }
 
     #[zbus(property)]
     fn flow(&self) -> OwnedObjectPath {
-        path("sensor/loop_1_flow")
+        object_or_none("sensor", &self.flow)
     }
 
     #[zbus(property)]
     fn water_temperature(&self) -> OwnedObjectPath {
-        path("sensor/nct6798_temp1")
+        object_or_none("sensor", &self.water)
+    }
+
+    #[zbus(property)]
+    fn leakshield(&self) -> OwnedObjectPath {
+        object_or_none("leakshield", &self.leakshield)
+    }
+
+    #[zbus(property)]
+    fn pump_floor(&self) -> f64 {
+        self.floor
+    }
+
+    async fn set_name(
+        &mut self,
+        #[zbus(header)] header: zbus::message::Header<'_>,
+        #[zbus(signal_emitter)] emitter: SignalEmitter<'_>,
+        name: &str,
+    ) -> fdo::Result<()> {
+        self.shared
+            .record(&format!("SetLoopName({},{name})", self.id), &header)?;
+        self.name = name.into();
+        self.name_changed(&emitter).await?;
+        Ok(())
+    }
+
+    async fn set_pump_channels(
+        &mut self,
+        #[zbus(header)] header: zbus::message::Header<'_>,
+        #[zbus(signal_emitter)] emitter: SignalEmitter<'_>,
+        channels: Vec<OwnedObjectPath>,
+    ) -> fdo::Result<()> {
+        let ids: Vec<String> = channels.iter().map(id_of).collect();
+        self.shared.record(
+            &format!("SetPumpChannels({},[{}])", self.id, ids.join(",")),
+            &header,
+        )?;
+        self.pumps = ids;
+        self.pump_channels_changed(&emitter).await?;
+        Ok(())
+    }
+
+    async fn set_flow_sensor(
+        &mut self,
+        #[zbus(header)] header: zbus::message::Header<'_>,
+        #[zbus(signal_emitter)] emitter: SignalEmitter<'_>,
+        sensor: OwnedObjectPath,
+        calibration_table: &str,
+    ) -> fdo::Result<()> {
+        let sensor = id_of(&sensor);
+        self.shared.record(
+            &format!("SetFlowSensor({},{sensor},{calibration_table})", self.id),
+            &header,
+        )?;
+        self.flow_sensor = sensor;
+        self.table = calibration_table.into();
+        self.flow_sensor_changed(&emitter).await?;
+        self.calibration_table_changed(&emitter).await?;
+        Ok(())
+    }
+
+    async fn set_water_temperature(
+        &mut self,
+        #[zbus(header)] header: zbus::message::Header<'_>,
+        #[zbus(signal_emitter)] emitter: SignalEmitter<'_>,
+        sensor: OwnedObjectPath,
+    ) -> fdo::Result<()> {
+        let sensor = id_of(&sensor);
+        self.shared.record(
+            &format!("SetWaterTemperature({},{sensor})", self.id),
+            &header,
+        )?;
+        self.water = sensor;
+        self.water_temperature_changed(&emitter).await?;
+        Ok(())
+    }
+
+    async fn set_leakshield(
+        &mut self,
+        #[zbus(header)] header: zbus::message::Header<'_>,
+        #[zbus(signal_emitter)] emitter: SignalEmitter<'_>,
+        leakshield: OwnedObjectPath,
+    ) -> fdo::Result<()> {
+        let leakshield = id_of(&leakshield);
+        self.shared.record(
+            &format!("SetLoopLeakshield({},{leakshield})", self.id),
+            &header,
+        )?;
+        self.leakshield = leakshield;
+        self.leakshield_changed(&emitter).await?;
+        Ok(())
+    }
+
+    async fn set_pump_floor(
+        &mut self,
+        #[zbus(header)] header: zbus::message::Header<'_>,
+        #[zbus(signal_emitter)] emitter: SignalEmitter<'_>,
+        duty: f64,
+    ) -> fdo::Result<()> {
+        self.shared
+            .record(&format!("SetPumpFloor({},{duty})", self.id), &header)?;
+        self.floor = duty;
+        self.pump_floor_changed(&emitter).await?;
+        Ok(())
+    }
+
+    async fn delete(
+        &self,
+        #[zbus(header)] header: zbus::message::Header<'_>,
+        #[zbus(object_server)] server: &ObjectServer,
+    ) -> fdo::Result<()> {
+        self.shared
+            .record(&format!("DeleteLoop({})", self.id), &header)?;
+        server
+            .remove::<Loop, _>(path(&format!("loop/{}", self.id)))
+            .await?;
+        Ok(())
     }
 }
 
@@ -319,6 +928,16 @@ impl Leakshield {
         self.read_only_reason.clone()
     }
 
+    #[zbus(property)]
+    fn mode(&self) -> String {
+        "shield".into()
+    }
+
+    #[zbus(property)]
+    fn running_action(&self) -> String {
+        String::new()
+    }
+
     #[zbus(signal)]
     async fn external_change(emitter: &SignalEmitter<'_>, fields: Vec<String>) -> zbus::Result<()>;
 }
@@ -342,7 +961,16 @@ impl FakeDaemon {
             .at(ROOT, fdo::ObjectManager)
             .await
             .expect("object manager");
-        server.at(ROOT, Manager).await.expect("manager");
+        server
+            .at(
+                ROOT,
+                Manager {
+                    shared: shared.clone(),
+                },
+            )
+            .await
+            .expect("manager");
+        server.at(path("board"), Board).await.expect("board");
         server
             .at(
                 ROOT,
@@ -380,33 +1008,100 @@ impl FakeDaemon {
         server
             .at(
                 path("channel/nct6798_pwm6"),
-                Channel(Named {
+                Channel {
                     id: "nct6798_pwm6".into(),
                     name: "Waterpump".into(),
-                }),
+                    default_name: "Waterpump".into(),
+                    control: "curve".into(),
+                    is_pump: true,
+                    curve: (
+                        path("sensor/nct6798_temp1"),
+                        vec![(30.0, 40.0), (45.0, 70.0), (60.0, 100.0)],
+                        5.0,
+                        5.0,
+                    ),
+                    fixed: 50.0,
+                    shared: shared.clone(),
+                },
             )
             .await
             .expect("channel");
-        for (id, name, kind, unit) in [
-            ("nct6798_temp1", "Water temperature", "temperature", "degC"),
-            ("loop_1_flow", "Flow", "flow", "l/h"),
+        server
+            .at(
+                path("channel/nct6798_pwm2"),
+                Channel {
+                    id: "nct6798_pwm2".into(),
+                    name: "Chassis Fan 1".into(),
+                    default_name: "Chassis Fan 1".into(),
+                    control: "hardware".into(),
+                    is_pump: false,
+                    curve: (
+                        OwnedObjectPath::try_from("/").expect("path"),
+                        Vec::new(),
+                        5.0,
+                        5.0,
+                    ),
+                    fixed: 50.0,
+                    shared: shared.clone(),
+                },
+            )
+            .await
+            .expect("channel");
+        for (id, name, kind, unit, origin, driver) in [
+            (
+                "nct6798_temp1",
+                "Water temperature",
+                "temperature",
+                "degC",
+                "hwmon",
+                "nct6798",
+            ),
+            (
+                "k10temp_tctl",
+                "CPU temperature",
+                "temperature",
+                "degC",
+                "hwmon",
+                "k10temp",
+            ),
+            (
+                "nct6798_fan6",
+                "Waterpump speed",
+                "fan",
+                "rpm",
+                "hwmon",
+                "nct6798",
+            ),
+            (
+                "asusec_fan1",
+                "Water flow",
+                "flow",
+                "rpm",
+                "hwmon",
+                "asusec",
+            ),
+            ("loop_1_flow", "Flow", "flow", "l/h", "calibrated", ""),
             (
                 "leakshield_20417_31072_pressure",
                 "Pressure",
                 "pressure",
                 "mbar",
+                "leakshield",
+                "",
             ),
         ] {
             server
                 .at(
                     path(&format!("sensor/{id}")),
                     Sensor {
-                        named: Named {
-                            id: id.into(),
-                            name: name.into(),
-                        },
+                        id: id.into(),
+                        name: name.into(),
+                        default_name: name.into(),
                         kind,
                         unit,
+                        origin,
+                        driver: driver.into(),
+                        shared: shared.clone(),
                     },
                 )
                 .await
@@ -415,10 +1110,18 @@ impl FakeDaemon {
         server
             .at(
                 path("loop/loop_1"),
-                Loop(Named {
+                Loop {
                     id: "loop_1".into(),
                     name: "Main loop".into(),
-                }),
+                    pumps: vec!["nct6798_pwm6".into()],
+                    flow_sensor: "asusec_fan1".into(),
+                    table: "alphacool_17558".into(),
+                    flow: "loop_1_flow".into(),
+                    water: "nct6798_temp1".into(),
+                    leakshield: LEAKSHIELD.into(),
+                    floor: 40.0,
+                    shared: shared.clone(),
+                },
             )
             .await
             .expect("loop");
@@ -459,6 +1162,29 @@ impl FakeDaemon {
         response: &str,
         poweroff_at_us: u64,
     ) {
+        self.raise_alarm_with_details(
+            instance,
+            event,
+            severity,
+            source,
+            response,
+            poweroff_at_us,
+            Details::default(),
+        )
+        .await;
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub async fn raise_alarm_with_details(
+        &self,
+        instance: &str,
+        event: &str,
+        severity: &str,
+        source: &str,
+        response: &str,
+        poweroff_at_us: u64,
+        details: Details,
+    ) {
         let iface = self
             .conn
             .object_server()
@@ -473,6 +1199,7 @@ impl FakeDaemon {
             response.into(),
             1,
             poweroff_at_us,
+            details.to_map(),
         ));
         iface
             .get()
@@ -488,6 +1215,7 @@ impl FakeDaemon {
             source,
             response,
             poweroff_at_us,
+            details.to_map(),
         )
         .await
         .expect("signal");

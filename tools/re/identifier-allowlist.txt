@@ -11,3 +11,6 @@ IsPump
 NotFound
 SetMode
 SetName
+
+# Type of the gpui-component text input events (the library API, not our code).
+InputEvent

@@ -35,6 +35,7 @@ fn entry(instance: &str, event: &str, severity: Severity, poweroff_at_us: u64) -
         },
         raised_us: 1,
         poweroff_at_us,
+        details: Default::default(),
     }
 }
 
@@ -149,6 +150,7 @@ fn poweroff_banner_leads_and_banners_collapse_after_three() {
         firmware: 1042,
         connected: true,
         read_only_reason: "unknown-firmware".into(),
+        ..Default::default()
     }];
     state.snapshot.immediate_switching = true;
     state.snapshot.alarms = vec![entry(

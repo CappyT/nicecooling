@@ -35,7 +35,7 @@ async fn snapshot_reads_the_objects_of_the_daemon() {
         Some("nct6798_temp1")
     );
     assert_eq!(snapshot.sensors["loop_1_flow"].unit, "l/h");
-    assert_eq!(snapshot.channels["nct6798_pwm6"], "Waterpump");
+    assert_eq!(snapshot.channels["nct6798_pwm6"].name, "Waterpump");
     assert_eq!(snapshot.leakshields[0].firmware, 1040);
     assert!(snapshot.leakshields[0].connected);
     assert!(snapshot.alarms.is_empty());
@@ -195,32 +195,52 @@ async fn sensor_and_external_change_signals_decode() {
 }
 
 #[test]
-fn decode_alarms_reads_the_row_of_the_xml_and_the_row_of_the_comment() {
+fn decode_alarms_reads_the_row_of_the_xml_with_its_details() {
+    use std::collections::HashMap;
     use zbus::{OwnedVariant, Variant};
-    // The XML signature is `a(sssssst)`: 6 strings and one time. The comment lists 7 fields.
-    let xml_row = ("a1", "pump-stop", "alarm", "loop_1", "poweroff", "", 9_u64);
-    let value = OwnedVariant::try_from(Variant::new(vec![xml_row])).expect("variant");
-    let entries = decode_alarms(&value);
-    assert_eq!(entries.len(), 1);
-    assert_eq!((entries[0].raised_us, entries[0].poweroff_at_us), (0, 9));
-    let comment_row = (
-        "a2",
+    // The XML signature is `a(ssssstta{sv})`: 5 strings, 2 times and the details.
+    let mut details: HashMap<String, OwnedVariant> = HashMap::new();
+    details.insert(
+        "value".into(),
+        OwnedVariant::try_from(Variant::from(212.0_f64)).expect("variant"),
+    );
+    details.insert(
+        "limit".into(),
+        OwnedVariant::try_from(Variant::from(250.0_f64)).expect("variant"),
+    );
+    details.insert(
+        "unit".into(),
+        OwnedVariant::try_from(Variant::from("mbar")).expect("variant"),
+    );
+    let sensor = zbus::ObjectPath::try_from(format!("{ROOT}/sensor/leak_pressure")).expect("path");
+    details.insert(
+        "sensor".into(),
+        OwnedVariant::try_from(Variant::from(sensor)).expect("variant"),
+    );
+    let row = (
+        "a1",
         "pump-stop",
         "alarm",
         "loop_1",
         "poweroff",
         5_u64,
         9_u64,
+        details,
     );
-    let value = OwnedVariant::try_from(Variant::new(vec![comment_row])).expect("variant");
+    let value = OwnedVariant::try_from(Variant::new(vec![row])).expect("variant");
     let entries = decode_alarms(&value);
+    assert_eq!(entries.len(), 1);
     assert_eq!(
         (
             entries[0].instance.as_str(),
             entries[0].raised_us,
             entries[0].poweroff_at_us
         ),
-        ("a2", 5, 9)
+        ("a1", 5, 9)
     );
-    assert!(ROOT.starts_with('/'));
+    let details = &entries[0].details;
+    assert_eq!(details.value, Some(212.0));
+    assert_eq!(details.limit, Some(250.0));
+    assert_eq!(details.unit, "mbar");
+    assert_eq!(details.sensor.as_deref(), Some("leak_pressure"));
 }

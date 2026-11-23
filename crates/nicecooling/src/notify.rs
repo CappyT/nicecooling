@@ -41,7 +41,7 @@ pub enum Level {
     Critical,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Button {
     /// The action identifier on the wire.
     pub id: &'static str,
@@ -49,7 +49,7 @@ pub struct Button {
     pub command: Command,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct NotificationSpec {
     /// A later notification with the same key replaces this one: an Alarm instance.
     pub key: String,
@@ -59,7 +59,7 @@ pub struct NotificationSpec {
     pub buttons: Vec<Button>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Plan {
     Show(NotificationSpec),
     Close(String),

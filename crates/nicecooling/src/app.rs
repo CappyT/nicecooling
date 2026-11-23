@@ -11,6 +11,7 @@ use crate::command::Command;
 use crate::daemon_client::DaemonClient;
 use crate::i18n::{Language, Locale};
 use crate::model::{AppState, DaemonEvent, Link, Severity};
+use crate::screens::{Feedback, WriteOutcome};
 use crate::shell::{Page, ShellModel};
 use crate::shell_view::ShellView;
 
@@ -49,6 +50,12 @@ pub struct AppModel {
     pub page: Page,
     pub locale: Locale,
     pub now_us: u64,
+    /// The result of the last write of each control.
+    pub feedback: Feedback,
+    /// When the daemon left the bus, for the text "Since 21:52:07".
+    pub down_since_us: Option<u64>,
+    /// The history database that the History screen reads.
+    pub history_path: Option<std::path::PathBuf>,
     connecting_since: Instant,
 }
 
@@ -59,7 +66,23 @@ impl AppModel {
             page: Page::Overview,
             locale,
             now_us: now_us(),
+            feedback: Feedback::default(),
+            down_since_us: None,
+            history_path: Some(crate::services::history_path()),
             connecting_since: Instant::now(),
+        }
+    }
+
+    /// Apply a daemon event, and note when the link went away.
+    pub fn apply(&mut self, event: &DaemonEvent) {
+        self.state.apply(event);
+        self.now_us = now_us();
+        match event {
+            DaemonEvent::Link(Link::Offline | Link::Down) => {
+                self.down_since_us.get_or_insert(self.now_us);
+            }
+            DaemonEvent::Link(_) | DaemonEvent::Snapshot(_) => self.down_since_us = None,
+            _ => {}
         }
     }
 
@@ -122,8 +145,7 @@ pub fn init(cx: &mut App, mode: StartMode, backend: Backend) -> Entity<AppModel>
                 match events.recv().await {
                     Ok(event) => cx.update(|cx| {
                         model.update(cx, |app, cx| {
-                            app.state.apply(&event);
-                            app.now_us = now_us();
+                            app.apply(&event);
                             cx.notify();
                         });
                         if needs_attention(&event) {
@@ -156,13 +178,46 @@ pub fn init(cx: &mut App, mode: StartMode, backend: Backend) -> Entity<AppModel>
                     }),
                     Command::Quit => cx.update(|cx| cx.quit()),
                     daemon_command => {
-                        if let Some(client) = client.clone() {
-                            runtime.spawn(async move {
-                                if let Err(error) = daemon_command.run_on_daemon(&client).await {
-                                    eprintln!("nicecooling: {daemon_command:?}: {error}");
-                                }
+                        let Some(client) = client.clone() else {
+                            continue;
+                        };
+                        let key = daemon_command.feedback_key();
+                        if let Some(key) = &key {
+                            cx.update(|cx| {
+                                model.update(cx, |app, cx| {
+                                    app.feedback.set(key.clone(), WriteOutcome::Pending);
+                                    cx.notify();
+                                });
                             });
                         }
+                        // Each write has its own task: a polkit prompt can last, and the
+                        // next command (a poweroff cancel) must not wait for it.
+                        let task = runtime.spawn(async move {
+                            let result = daemon_command.run_on_daemon(&client).await;
+                            if let Err(error) = &result {
+                                eprintln!("nicecooling: {daemon_command:?}: {error}");
+                            }
+                            result
+                        });
+                        let model = model.clone();
+                        cx.spawn(async move |cx| {
+                            let result = task.await;
+                            let Some(key) = key else { return };
+                            let outcome = match result {
+                                Ok(Ok(_)) => WriteOutcome::Applied { at_us: now_us() },
+                                Ok(Err(error)) => WriteOutcome::from_error(&error),
+                                Err(error) => WriteOutcome::Refused {
+                                    error: error.to_string(),
+                                },
+                            };
+                            cx.update(|cx| {
+                                model.update(cx, |app, cx| {
+                                    app.feedback.set(key, outcome);
+                                    cx.notify();
+                                });
+                            });
+                        })
+                        .detach();
                     }
                 }
             }

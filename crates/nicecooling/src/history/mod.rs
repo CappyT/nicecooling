@@ -2,6 +2,7 @@
 
 pub mod db;
 pub mod prune;
+pub mod query;
 pub mod writer;
 
 pub use db::{HistoryDb, MinuteRow, SampleRow};

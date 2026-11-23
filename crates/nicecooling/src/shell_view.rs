@@ -13,6 +13,7 @@ use tokio::sync::mpsc::UnboundedSender;
 use crate::app::AppModel;
 use crate::command::Command;
 use crate::model::{Link, Severity};
+use crate::screen_view::ScreenView;
 use crate::shell::{Banner, BannerAction, BannerStyle, NavBadge, NavEntry, Page, ShellModel};
 use crate::tokens::Palette;
 
@@ -23,6 +24,8 @@ pub struct ShellView {
     menu_open: bool,
     down_dialog_open: bool,
     notices_open: bool,
+    /// The screens of the pages Overview, Loops, Channels, Sensors and History.
+    screens: Entity<ScreenView>,
 }
 
 impl ShellView {
@@ -35,9 +38,11 @@ impl ShellView {
         let focus = cx.focus_handle();
         window.focus(&focus, cx);
         cx.observe(&model, |_, _, cx| cx.notify()).detach();
+        let screens = cx.new(|cx| ScreenView::new(model.clone(), commands.clone(), cx));
         Self {
             model,
             commands,
+            screens,
             focus,
             menu_open: false,
             down_dialog_open: false,
@@ -424,9 +429,14 @@ impl Render for ShellView {
                 .child(Spinner::new())
                 .child(locale.tr("status.connecting"))
                 .into_any_element()
+        } else if matches!(
+            page,
+            Page::Overview | Page::Loops | Page::Channels | Page::Sensors | Page::History
+        ) {
+            self.screens.clone().into_any_element()
         } else {
-            // The screens of tasks 8.5 and later replace this placeholder. A screen reads
-            // `writes` to disable its write controls.
+            // The other screens replace this placeholder. A screen reads `writes` to
+            // disable its write controls.
             let title = match &page {
                 Page::Leakshield(id) => format!("{} {id}", locale.tr(page.title_key())),
                 other => locale.tr(other.title_key()),
