@@ -453,7 +453,7 @@ Every new property emits `PropertiesChanged` when its value changes, except the 
 #### App-only items
 
 - The diff table before an activation compares `GetStoredFields` of the target slot with `GetFields`, when the target slot differs from `ActiveSlot`.
-- "Differs from other slots" compares the alarm thresholds of the slot with `GetStoredFields` of every other slot that has stored settings. "Apply to all slots" calls `SetStoredFields` for each other slot and shows one result row per slot that failed.
+- "Differs from other slots" works for each Leakshield. It compares the alarm thresholds of the slot with `GetStoredFields` of every other slot of that Leakshield that has stored settings, and shows one warning row for each Leakshield whose slots differ. With more than one Leakshield, each row names its device with the label of the app shell ("Leakshield 31072"). "Apply to all slots" applies the thresholds to every other slot of that Leakshield that has stored settings: `SetFields` for the slot that the device runs (`ActiveSlot`), `SetStoredFields` for the others. It shows one result row for each slot that failed.
 - The overlap icon of the Alarms screen uses the `overlap` of `GetDeviceResponseProposals`.
 - Overview shows the pressure target and limits from the three new sensors. The active Profile card shows its Rule group from `GetRuleGroups`.
 - First run with "Empty table" does not call `SetFlowSensor`, and a note says to build the table on the Loops screen.

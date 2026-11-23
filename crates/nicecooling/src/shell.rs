@@ -195,17 +195,11 @@ fn sidebar(state: &AppState, locale: Locale) -> (Vec<NavGroup>, NavEntry) {
     }];
 
     if !snapshot.leakshields.is_empty() {
-        let label = locale.tr("nav.leakshield");
-        let unique = snapshot.leakshields.len() == 1;
         let entries = snapshot
             .leakshields
             .iter()
             .map(|device| {
-                let text = if unique {
-                    label.clone()
-                } else {
-                    format!("{label} {}", last_digits(&device.serial, 5))
-                };
+                let text = leakshield_label(locale, snapshot, device);
                 let worst = snapshot
                     .alarms
                     .iter()
@@ -244,6 +238,21 @@ fn sidebar(state: &AppState, locale: Locale) -> (Vec<NavGroup>, NavEntry) {
         ],
     });
     (groups, entry(locale, Page::Settings, None))
+}
+
+/// The name of a Leakshield: "Leakshield" when there is one, else "Leakshield 31072" with the
+/// last 5 digits of its serial.
+pub fn leakshield_label(
+    locale: crate::i18n::Locale,
+    snapshot: &crate::model::Snapshot,
+    device: &crate::model::LeakshieldInfo,
+) -> String {
+    let label = locale.tr("nav.leakshield");
+    if snapshot.leakshields.len() == 1 {
+        label
+    } else {
+        format!("{label} {}", last_digits(&device.serial, 5))
+    }
 }
 
 fn last_digits(serial: &str, count: usize) -> String {

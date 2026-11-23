@@ -10,6 +10,7 @@ use crate::screens::format::{clock_minutes, plain, value_text};
 use crate::screens::leakshield::fields::humanize;
 use crate::screens::leakshield::refused_text;
 use crate::screens::{FeedbackLine, ScreenInput, WriteOutcome};
+use crate::shell::leakshield_label;
 
 pub const SLOTS: [u8; 4] = [1, 2, 3, 4];
 
@@ -302,32 +303,29 @@ impl ProfilesUi {
         Some(Command::ActivateProfile { id })
     }
 
-    /// "Apply to all slots": the alarm thresholds of this Profile go to every other slot that has
-    /// other thresholds. The daemon refuses the active slot and a slot that it cannot change.
+    /// "Apply to all slots": for each Leakshield, the alarm thresholds of this Profile go to every
+    /// other slot that has stored settings. The slot that the device runs gets `SetFields`, the
+    /// others `SetStoredFields`.
     pub fn apply_to_all_slots(&self, state: &AppState) -> Vec<Command> {
         let Some(profile) = self.current(state) else {
             return Vec::new();
         };
-        let Some((device, fields)) = state
-            .snapshot
-            .profile_contents
-            .get(&profile.id)
-            .and_then(slot_fields)
-        else {
+        let Some(content) = state.snapshot.profile_contents.get(&profile.id) else {
             return Vec::new();
         };
-        let values: Vec<(String, FieldValue)> = THRESHOLD_FIELDS
+        content
+            .leakshield
             .iter()
-            .filter_map(|id| Some(((*id).to_owned(), fields.get(*id)?.clone())))
-            .collect();
-        if values.len() != THRESHOLD_FIELDS.len() {
-            return Vec::new();
-        }
-        store_commands(
-            device,
-            &differing_slots(state, device, profile.slot, &values),
-            &values,
-        )
+            .filter_map(|(device, fields)| {
+                Some(slot_commands(
+                    state,
+                    device,
+                    profile.slot,
+                    &threshold_values(fields)?,
+                ))
+            })
+            .flatten()
+            .collect()
     }
 
     /// The slot select. The change of the active Profile asks first.
@@ -570,13 +568,61 @@ const THRESHOLD_FIELDS: [&str; 3] = [
     "leak_rate_warning_threshold",
 ];
 
-fn store_commands(device: &str, slots: &[u8], values: &[(String, FieldValue)]) -> Vec<Command> {
-    slots
+/// The threshold fields of a slot, when it has all of them.
+fn threshold_values(
+    fields: &std::collections::BTreeMap<String, FieldValue>,
+) -> Option<Vec<(String, FieldValue)>> {
+    let values: Vec<(String, FieldValue)> = THRESHOLD_FIELDS
         .iter()
-        .map(|slot| Command::SetStoredFields {
-            leakshield: device.to_owned(),
-            slot: *slot,
-            fields: values.to_vec(),
+        .filter_map(|id| Some(((*id).to_owned(), fields.get(*id)?.clone())))
+        .collect();
+    (values.len() == THRESHOLD_FIELDS.len()).then_some(values)
+}
+
+/// The feedback key of the write to one slot of a Leakshield.
+fn slot_key(device: &str, slot: u8, active: u8) -> String {
+    if slot == active {
+        format!("ls:{device}:slot-{slot}")
+    } else {
+        format!("stored:{device}:{slot}")
+    }
+}
+
+/// The writes that copy `values` to every other slot of a Leakshield that has stored settings.
+/// The slot that the device runs is written through the device (`SetFields`): the daemon refuses
+/// `SetStoredFields` for it.
+fn slot_commands(
+    state: &AppState,
+    device: &str,
+    slot: u8,
+    values: &[(String, FieldValue)],
+) -> Vec<Command> {
+    let Some(data) = state.snapshot.leakshield_data.get(device) else {
+        return Vec::new();
+    };
+    let active = state
+        .snapshot
+        .leakshields
+        .iter()
+        .find(|d| d.id == device)
+        .map_or(0, |d| d.active_slot);
+    data.stored
+        .keys()
+        .filter(|other| **other != slot)
+        .map(|other| {
+            if *other == active {
+                Command::SetLeakshieldFields {
+                    leakshield: device.to_owned(),
+                    control: format!("slot-{other}"),
+                    fields: values.to_vec(),
+                }
+            } else {
+                Command::SetStoredFields {
+                    leakshield: device.to_owned(),
+                    slot: *other,
+                    fields: values.to_vec(),
+                }
+            }
         })
         .collect()
 }
@@ -1195,43 +1241,63 @@ fn detail_of(input: &ScreenInput<'_>, ui: &ProfilesUi, profile: &ProfileInfo) ->
             button: None,
         });
     }
-    // Alarm thresholds of this slot against the stored settings of the other slots.
-    if let Some((device, fields)) = content.and_then(slot_fields)
-        && thresholds(locale, fields).is_some()
-    {
-        let values: Vec<(String, FieldValue)> = THRESHOLD_FIELDS
-            .iter()
-            .filter_map(|id| Some(((*id).to_owned(), fields.get(*id)?.clone())))
-            .collect();
-        let others = differing_slots(state, device, profile.slot, &values);
-        if !others.is_empty() {
-            let commands = store_commands(device, &others, &values);
-            notices.push(Notice {
-                kind: NoticeKind::Warning,
-                text: locale.fmt(
-                    "profiles.notice.thresholds_differ",
-                    &[("count", &others.len().to_string())],
-                ),
-                button: Some((locale.tr("profiles.notice.apply_all"), commands)),
-            });
-        }
-        // One row for each slot that the last "Apply to all slots" could not change.
-        for slot in SLOTS {
-            if let Some(outcome) = input.feedback.get(&format!("stored:{device}:{slot}"))
-                && outcome.is_failure()
-            {
-                let reason = match outcome {
-                    WriteOutcome::Refused { error } => refused_text(locale, error),
-                    _ => locale.tr("feedback.not_authorized"),
-                };
+    // Alarm thresholds of this slot against the stored settings of the other slots, for each
+    // Leakshield. With more than one Leakshield, each row names its device.
+    if let Some(content) = content {
+        for (device, fields) in &content.leakshield {
+            let Some(values) = threshold_values(fields) else {
+                continue;
+            };
+            let prefix = snapshot
+                .leakshields
+                .iter()
+                .find(|d| &d.id == device)
+                .filter(|_| snapshot.leakshields.len() > 1)
+                .map(|d| format!("{}: ", leakshield_label(locale, snapshot, d)))
+                .unwrap_or_default();
+            let others = differing_slots(state, device, profile.slot, &values);
+            if !others.is_empty() {
                 notices.push(Notice {
                     kind: NoticeKind::Warning,
-                    text: locale.fmt(
-                        "profiles.notice.slot_failed",
-                        &[("slot", &slot.to_string()), ("reason", &reason)],
+                    text: format!(
+                        "{prefix}{}",
+                        locale.fmt(
+                            "profiles.notice.thresholds_differ",
+                            &[("count", &others.len().to_string())],
+                        )
                     ),
-                    button: None,
+                    button: Some((
+                        locale.tr("profiles.notice.apply_all"),
+                        slot_commands(state, device, profile.slot, &values),
+                    )),
                 });
+            }
+            // One row for each slot that the last "Apply to all slots" could not change.
+            let active = snapshot
+                .leakshields
+                .iter()
+                .find(|d| &d.id == device)
+                .map_or(0, |d| d.active_slot);
+            for slot in SLOTS {
+                if let Some(outcome) = input.feedback.get(&slot_key(device, slot, active))
+                    && outcome.is_failure()
+                {
+                    let reason = match outcome {
+                        WriteOutcome::Refused { error } => refused_text(locale, error),
+                        _ => locale.tr("feedback.not_authorized"),
+                    };
+                    notices.push(Notice {
+                        kind: NoticeKind::Warning,
+                        text: format!(
+                            "{prefix}{}",
+                            locale.fmt(
+                                "profiles.notice.slot_failed",
+                                &[("slot", &slot.to_string()), ("reason", &reason)],
+                            )
+                        ),
+                        button: None,
+                    });
+                }
             }
         }
     }

@@ -1508,7 +1508,8 @@ fn differs_from_other_slots_uses_stored_fields() {
     assert_eq!(notice.kind, NoticeKind::Warning);
     let (label, commands) = notice.button.clone().expect("the button");
     assert_eq!(label, "Apply to all slots");
-    assert_eq!(commands.len(), 1);
+    // Every other slot with stored settings: slots 2 and 4. Slot 3 has none.
+    assert_eq!(commands.len(), 2);
     // The other Profiles and their content play no part: no content for slot 2 is needed.
     assert!(!state.snapshot.profile_contents.contains_key("profile_2"));
 
@@ -1589,7 +1590,7 @@ async fn apply_to_all_slots_calls_set_stored_fields() {
 #[tokio::test(flavor = "multi_thread")]
 async fn apply_to_all_slots_shows_failed_slot() {
     let bus = PrivateBus::start("profiles-apply-failed");
-    let _daemon = FakeDaemon::start(bus.connect().await, Options::default()).await;
+    let daemon = FakeDaemon::start(bus.connect().await, Options::default()).await;
     let mut harness = Harness::start(&bus).await;
     harness
         .until("the stored slots are known", |state| {
@@ -1601,7 +1602,9 @@ async fn apply_to_all_slots_shows_failed_slot() {
                 && state.snapshot.profile_contents.contains_key("profile_2")
         })
         .await;
-    // Profile "Quiet" has the slot 2. Slot 1 is the active slot: the daemon refuses it.
+    // Profile "Quiet" has the slot 2. Slot 1 runs on the device: it is written with `SetFields`,
+    // slot 4 with `SetStoredFields`. The administrator denies both.
+    daemon.deny_writes(true);
     let ui = select(&harness.state, "profile_2");
     let commands = ui.apply_to_all_slots(&harness.state);
     let mut feedback = Feedback::default();
@@ -1627,7 +1630,10 @@ async fn apply_to_all_slots_shows_failed_slot() {
         .collect();
     assert_eq!(
         failed,
-        ["Slot 1: not changed. Not applied: the daemon refused the change."]
+        [
+            "Slot 1: not changed. Not authorized. Nothing changed.",
+            "Slot 4: not changed. Not authorized. Nothing changed."
+        ]
     );
     // Italian.
     let italian = ProfilesModel::build(
@@ -1682,4 +1688,138 @@ fn active_profile_shows_rule_group() {
             .rule_group
             .is_none()
     );
+}
+
+// Review 11 (adversarial).
+const SECOND: &str = "leakshield_30000_1";
+
+fn thresholds(warning: f64) -> std::collections::BTreeMap<String, FieldValue> {
+    [
+        ("fill_level_warning_threshold", warning),
+        ("fill_level_alarm_threshold", 15.0),
+        ("leak_rate_warning_threshold", 100.0),
+    ]
+    .into_iter()
+    .map(|(id, value)| (id.to_owned(), FieldValue::Number(value)))
+    .collect()
+}
+
+/// Two Leakshields. Only the second has a stored slot whose thresholds differ.
+fn two_devices() -> AppState {
+    let mut state = with_slots();
+    let mut second = state.snapshot.leakshields[0].clone();
+    second.id = SECOND.into();
+    second.serial = "30000".into();
+    state.snapshot.leakshields.push(second);
+    // The first device: every stored slot equals the Profile.
+    state.snapshot.leakshield_data.insert(
+        LEAKSHIELD.into(),
+        device_like(stored_slots(&[(1, 60.0), (2, 60.0)])),
+    );
+    state.snapshot.leakshield_data.insert(
+        SECOND.into(),
+        device_like(stored_slots(&[(1, 60.0), (2, 50.0)])),
+    );
+    state.snapshot.profile_contents.insert(
+        "profile_default".into(),
+        ProfileContent {
+            leakshield: [
+                (LEAKSHIELD.to_owned(), thresholds(60.0)),
+                (SECOND.to_owned(), thresholds(60.0)),
+            ]
+            .into(),
+            ..Default::default()
+        },
+    );
+    state
+}
+
+#[test]
+fn review_apply_to_all_slots_covers_every_leakshield() {
+    let state = two_devices();
+    let commands = ProfilesUi::default().apply_to_all_slots(&state);
+    // Slot 2 of the second Leakshield differs: it must get a SetStoredFields.
+    assert!(
+        commands.iter().any(|c| matches!(
+            c,
+            Command::SetStoredFields { leakshield, slot: 2, .. } if leakshield == SECOND
+        )),
+        "commands: {commands:?}"
+    );
+}
+
+#[test]
+fn review_two_leakshields_name_their_device_in_the_warning() {
+    let state = two_devices();
+    let notices = model(&state, &ProfilesUi::default())
+        .detail
+        .unwrap()
+        .notices;
+    let differ: Vec<&str> = notices
+        .iter()
+        .filter(|n| n.text.contains("Alarm thresholds differ"))
+        .map(|n| n.text.as_str())
+        .collect();
+    // Only the second Leakshield has a slot with other thresholds.
+    assert_eq!(
+        differ,
+        ["Leakshield 30000: Alarm thresholds differ from 1 other slots"]
+    );
+    // With one Leakshield the row has no device name.
+    let one = with_slots();
+    let notices = model(&one, &ProfilesUi::default()).detail.unwrap().notices;
+    assert!(notices.iter().all(|n| !n.text.contains("Leakshield")));
+}
+
+#[test]
+fn apply_to_all_slots_writes_the_active_slot_through_the_device() {
+    let mut state = two_devices();
+    // The second device runs slot 2.
+    state.snapshot.leakshields[1].active_slot = 2;
+    let commands = ProfilesUi::default().apply_to_all_slots(&state);
+    let second: Vec<&Command> = commands
+        .iter()
+        .filter(|c| matches!(c,
+            Command::SetStoredFields { leakshield, .. } | Command::SetLeakshieldFields { leakshield, .. }
+            if leakshield == SECOND))
+        .collect();
+    assert_eq!(second.len(), 1);
+    assert!(
+        matches!(second[0], Command::SetLeakshieldFields { fields, .. } if fields.len() == 3),
+        "{second:?}"
+    );
+    // The first device runs slot 1, the slot of the Profile: its other slots are stored writes.
+    assert!(commands.iter().any(|c| matches!(
+        c,
+        Command::SetStoredFields { leakshield, slot: 2, .. } if leakshield == LEAKSHIELD
+    )));
+}
+
+#[test]
+fn one_failed_slot_row_for_each_leakshield() {
+    let mut state = two_devices();
+    state.snapshot.leakshields[1].active_slot = 2;
+    let mut feedback = Feedback::default();
+    feedback.set(
+        format!("stored:{LEAKSHIELD}:2"),
+        nicecooling::screens::WriteOutcome::Refused {
+            error: "NotVerified".into(),
+        },
+    );
+    feedback.set(
+        format!("ls:{SECOND}:slot-2"),
+        nicecooling::screens::WriteOutcome::NotAuthorized,
+    );
+    let shown = ProfilesModel::build(&input(&state, &feedback, NOW_US), &ProfilesUi::default());
+    let rows: Vec<String> = shown
+        .detail
+        .unwrap()
+        .notices
+        .into_iter()
+        .map(|n| n.text)
+        .filter(|text| text.contains(": Slot "))
+        .collect();
+    assert_eq!(rows.len(), 2, "{rows:?}");
+    assert!(rows[0].starts_with("Leakshield 31072: Slot 2: not changed."));
+    assert!(rows[1].starts_with("Leakshield 30000: Slot 2: not changed."));
 }
