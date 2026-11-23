@@ -41,7 +41,7 @@ type Group = (String, OwnedObjectPath, bool, Vec<WireRule>);
 // Every method here asks `write`, also for a Profile that holds Mode RELEASE: the owner accepted
 // that a Profile save needs no admin password, although `SetMode` release does (ADR-0007).
 
-fn profile_id(path: &OwnedObjectPath) -> Result<String> {
+fn profile_of_path(path: &OwnedObjectPath) -> Result<String> {
     ids::id_from_path(Kind::Profile, path.as_str())
         .map(str::to_owned)
         .ok_or_else(|| Error::invalid(format!("{path} is not a Profile object path")))
@@ -50,7 +50,7 @@ fn profile_id(path: &OwnedObjectPath) -> Result<String> {
 fn decode_group((id, target, enabled, rules): Group) -> Result<RuleGroupDef> {
     Ok(RuleGroupDef {
         id,
-        profile: profile_id(&target)?,
+        profile: profile_of_path(&target)?,
         enabled,
         rules: rules
             .into_iter()
@@ -123,7 +123,7 @@ impl Profiles {
     ) -> Result<()> {
         self.authorize(connection, &header, "ActivateProfile")
             .await?;
-        self.hub.activate_manually(&profile_id(&profile)?)
+        self.hub.activate_manually(&profile_of_path(&profile)?)
     }
 
     async fn return_to_automatic(
@@ -232,7 +232,7 @@ pub async fn run_events(
                 let _ = iface.activation_cause_changed(emitter).await;
                 let _ = iface.active_state_changed(emitter).await;
             }
-            ProfileEvent::RuleGroups => {
+            ProfileEvent::GroupStates => {
                 let _ = iface.get().await.rule_group_state_changed(emitter).await;
             }
             ProfileEvent::Activated {

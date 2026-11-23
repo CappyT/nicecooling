@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 
 /// The system local time that a time rule reads.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct LocalTime {
+pub struct DayTime {
     /// ISO weekday: 1 Monday to 7 Sunday.
     pub weekday: u8,
     /// Minutes after midnight, 0 to 1439.
@@ -36,7 +36,7 @@ impl TimeRule {
         self.days.contains(&day)
     }
 
-    pub fn holds(&self, now: LocalTime) -> bool {
+    pub fn holds(&self, now: DayTime) -> bool {
         if self.start <= self.end {
             return self.has_day(now.weekday) && (self.start..self.end).contains(&now.minute);
         }
@@ -51,8 +51,8 @@ impl TimeRule {
 mod tests {
     use super::*;
 
-    fn at(weekday: u8, hour: u16, minute: u16) -> LocalTime {
-        LocalTime {
+    fn at(weekday: u8, hour: u16, minute: u16) -> DayTime {
+        DayTime {
             weekday,
             minute: hour * 60 + minute,
         }

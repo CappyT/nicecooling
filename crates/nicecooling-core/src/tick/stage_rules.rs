@@ -3,7 +3,7 @@ use std::time::Duration;
 use super::{Stage, TickConfig, TickContext};
 use crate::profile::Cause;
 use crate::rules::group::{EdgeTracker, Group, GroupState, Inputs, RuleGroupDef};
-use crate::rules::time::LocalTime;
+use crate::rules::time::DayTime;
 use crate::rules::winner::{GroupView, Selector, Timing};
 
 /// The daemon side of the Rule groups: where the groups, the timing and the manual activations
@@ -40,7 +40,7 @@ pub struct HostInput {
     pub groups: Option<Vec<RuleGroupDef>>,
     pub timing: Option<Timing>,
     pub manual: Option<ManualCommand>,
-    pub local: LocalTime,
+    pub local: DayTime,
     /// The wall clock in microseconds since the Unix epoch.
     pub wall_us: u64,
 }
@@ -183,7 +183,7 @@ mod tests {
                     ..Timing::default()
                 }),
                 manual: None,
-                local: LocalTime {
+                local: DayTime {
                     weekday: 1,
                     minute: 0,
                 },

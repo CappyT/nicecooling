@@ -2,31 +2,31 @@
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use nicecooling_core::rules::time::LocalTime;
+use nicecooling_core::rules::time::DayTime;
 
 /// The local weekday and minute of a Unix time, as the C library has them for the time zone of
 /// the system.
-pub fn local_time(unix_s: i64) -> LocalTime {
+pub fn local_time(unix_s: i64) -> DayTime {
     let seconds: libc::time_t = unix_s as libc::time_t;
     // SAFETY: `localtime_r` writes only to the `tm` that we give it. A zeroed `tm` is valid.
     let tm = unsafe {
         let mut tm: libc::tm = std::mem::zeroed();
         if libc::localtime_r(&seconds, &mut tm).is_null() {
-            return LocalTime {
+            return DayTime {
                 weekday: 1,
                 minute: 0,
             };
         }
         tm
     };
-    LocalTime {
+    DayTime {
         // `tm_wday` counts from Sunday = 0. ISO has Sunday = 7.
         weekday: if tm.tm_wday == 0 { 7 } else { tm.tm_wday as u8 },
         minute: (tm.tm_hour * 60 + tm.tm_min) as u16,
     }
 }
 
-pub fn now() -> (u64, LocalTime) {
+pub fn now() -> (u64, DayTime) {
     let elapsed = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default();

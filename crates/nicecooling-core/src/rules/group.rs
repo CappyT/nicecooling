@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use super::interval::{IntervalRule, IntervalState};
 use super::process::{ProcessList, ProcessRule};
 use super::sensor::{SensorRule, SensorState};
-use super::time::{LocalTime, TimeRule};
+use super::time::{DayTime, TimeRule};
 
 /// A rule with its kind. In `state.json` it is `{"kind": ..., "params": {...}}`.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -53,7 +53,7 @@ pub struct Inputs<'a> {
     /// Sensor values that are not stale.
     pub values: &'a BTreeMap<String, f64>,
     pub processes: &'a ProcessList,
-    pub local: LocalTime,
+    pub local: DayTime,
 }
 
 #[derive(Clone, Debug)]
@@ -232,7 +232,7 @@ mod tests {
             now: Duration::ZERO,
             values: &values,
             processes: &processes,
-            local: LocalTime {
+            local: DayTime {
                 weekday: day,
                 minute: 600,
             },
@@ -279,7 +279,7 @@ mod tests {
         });
         let mut group = group(true, vec![process("game"), sensor]);
         let values = BTreeMap::from([("t".to_owned(), 60.0)]);
-        let local = LocalTime {
+        let local = DayTime {
             weekday: 1,
             minute: 0,
         };
@@ -320,7 +320,7 @@ mod tests {
                 now: Duration::from_secs(t),
                 values: &values,
                 processes: &processes,
-                local: LocalTime {
+                local: DayTime {
                     weekday: 1,
                     minute: 0,
                 },

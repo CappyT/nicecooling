@@ -178,7 +178,7 @@ impl Hub {
             .iter()
             .map(|s| (s.id.clone(), s.holds, s.since_us))
             .collect();
-        let _ = self.profile_events.send(ProfileEvent::RuleGroups);
+        let _ = self.profile_events.send(ProfileEvent::GroupStates);
     }
 }
 
