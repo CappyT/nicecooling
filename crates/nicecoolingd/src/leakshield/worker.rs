@@ -3,6 +3,7 @@
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use nicecooling_core::profile::Slot;
 use nicecooling_protocol::registry::Registry;
 use nicecooling_protocol::report1::Report1;
 use nicecooling_protocol::report3::Report3;
@@ -15,7 +16,9 @@ use super::factory_reset::factory_reset;
 use super::save_settings;
 use super::write::{FieldEdit, WriteEnv, WriteError, Written, restore, write_fields, write_stored};
 use super::{DeviceEvent, DeviceIo, blocking};
-use crate::profiles::spacing::{Decision, Spacing};
+use crate::profiles::activate::{Decision, Failure, decide};
+use crate::profiles::spacing::{Decision as Timing, Spacing};
+use crate::state::SlotStore;
 
 pub enum Job {
     /// `report1` is the latest report 1: it gives the firmware and the structure.
@@ -30,14 +33,42 @@ pub enum Job {
     FactoryReset {
         report1: Report1,
     },
-    /// A Profile activation: the stored report 3 of a slot, written as stored. The worker spaces
-    /// these writes (`profiles::spacing`).
+    /// The write of a Profile request that the worker decided on (`ProfileRequest`).
     ProfileWrite {
         report1: Report1,
         report3: Report3,
     },
-    /// A newer Profile activation needs no write: the Profile write that waits is dropped.
-    CancelProfileWrite,
+}
+
+/// A Profile activation for one Leakshield (design D14). The worker decides on it when it arrives
+/// and reads the slot again when the write goes out, so a change of the slot while the request
+/// waits is not lost.
+pub struct ProfileRequest {
+    pub slot: Slot,
+    pub slots: SlotStore,
+    /// The id of the Leakshield: the name of its slot directory.
+    pub leakshield: String,
+    pub serial: String,
+}
+
+/// How a Profile request ended. `report1` is the one that the decision read.
+#[derive(Debug)]
+pub struct ProfileDone {
+    pub decision: Decision,
+    pub report1: Report1,
+}
+
+/// The result of a Profile request. A newer request that replaces it gives `Superseded`.
+pub type ProfileTicket = oneshot::Receiver<Result<ProfileDone, Failure>>;
+
+struct ProfileMessage {
+    request: ProfileRequest,
+    reply: oneshot::Sender<Result<ProfileDone, Failure>>,
+}
+
+enum Queued {
+    Job(Box<Message>),
+    Profile(ProfileMessage),
 }
 
 struct Message {
@@ -60,7 +91,7 @@ pub struct WorkerParts {
 /// Handle of the worker task. The task ends when the last handle is dropped.
 #[derive(Clone)]
 pub struct WriteWorker {
-    queue: mpsc::UnboundedSender<Message>,
+    queue: mpsc::UnboundedSender<Queued>,
     slot: Arc<Semaphore>,
 }
 
@@ -88,7 +119,7 @@ impl WriteWorker {
             reply,
             permit: Some(permit),
         };
-        if self.queue.send(message).is_err() {
+        if self.queue.send(Queued::Job(Box::new(message))).is_err() {
             return Err(WriteError::Disconnected { backup: None });
         }
         result
@@ -98,38 +129,20 @@ impl WriteWorker {
 }
 
 impl WriteWorker {
-    /// Drops the Profile write that waits for its time. The request that comes later decides
-    /// what the device holds.
-    pub async fn cancel_profile_write(&self) {
-        let (reply, result) = oneshot::channel();
-        let message = Message {
-            job: Job::CancelProfileWrite,
-            reply,
-            permit: None,
-        };
-        if self.queue.send(message).is_ok() {
-            let _ = result.await;
+    /// Queues a Profile request. The queue keeps the order of the calls, so the request of the
+    /// newest activation is the last one. A request that is still waiting for its time is dropped
+    /// when a newer one arrives, whatever the newer one does.
+    pub fn request_profile(&self, request: ProfileRequest) -> ProfileTicket {
+        let (reply, ticket) = oneshot::channel();
+        let message = Queued::Profile(ProfileMessage { request, reply });
+        if let Err(mpsc::error::SendError(Queued::Profile(lost))) = self.queue.send(message) {
+            let _ = lost
+                .reply
+                .send(Err(Failure::Write(WriteError::Disconnected {
+                    backup: None,
+                })));
         }
-    }
-
-    /// A Profile write does not use the queue of one: it follows the writes that wait.
-    pub async fn submit_profile(
-        &self,
-        report1: Report1,
-        report3: Report3,
-    ) -> Result<Written, WriteError> {
-        let (reply, result) = oneshot::channel();
-        let message = Message {
-            job: Job::ProfileWrite { report1, report3 },
-            reply,
-            permit: None,
-        };
-        if self.queue.send(message).is_err() {
-            return Err(WriteError::Disconnected { backup: None });
-        }
-        result
-            .await
-            .unwrap_or(Err(WriteError::Disconnected { backup: None }))
+        ticket
     }
 }
 
@@ -163,7 +176,6 @@ fn execute(parts: &WorkerParts, job: Job) -> Result<Written, WriteError> {
         Job::Restore { report1, backup } => restore(&env, &report1, &backup, now_us()),
         Job::FactoryReset { report1 } => factory_reset(&env, &report1, now_us()),
         Job::ProfileWrite { report1, report3 } => write_stored(&env, &report1, &report3, now_us()),
-        Job::CancelProfileWrite => Err(WriteError::Superseded),
     };
     if let Ok(written) = &result
         && let Err(e) = last.set(written.report3.clone())
@@ -187,8 +199,11 @@ fn send_save_settings(parts: &WorkerParts, backup: &str) {
 }
 
 /// Runs a job and plans the save-settings command that follows a write.
-fn run_job(parts: &WorkerParts, message: Message, save: &mut Option<(Instant, String)>) {
-    let Message { job, reply, permit } = message;
+fn run_job(
+    parts: &WorkerParts,
+    job: Job,
+    save: &mut Option<(Instant, String)>,
+) -> Result<Written, WriteError> {
     // The factory reset takes the settings from the device: no save-settings command follows.
     let saves = !matches!(job, Job::FactoryReset { .. });
     let result = blocking(|| execute(parts, job));
@@ -203,22 +218,117 @@ fn run_job(parts: &WorkerParts, message: Message, save: &mut Option<(Instant, St
     {
         *save = Some((Instant::now() + parts.save_delay, backup.clone()));
     }
+    result
+}
+
+fn run_message(parts: &WorkerParts, message: Message, save: &mut Option<(Instant, String)>) {
+    let Message { job, reply, permit } = message;
+    let result = run_job(parts, job, save);
     // The queue is free before the caller sees the result.
     drop(permit);
     let _ = reply.send(result);
 }
 
-/// A Profile write request that a newer one replaced.
-fn supersede(message: Message) {
-    let _ = message.reply.send(Err(WriteError::Superseded));
+/// Reads report 1 and the stored slot now, and decides what the request does to the device.
+fn decide_profile(
+    parts: &WorkerParts,
+    request: &ProfileRequest,
+) -> Result<(Report1, Decision), Failure> {
+    let report1 =
+        blocking(|| parts.io.read_report1()).map_err(|e| Failure::Unreachable(e.to_string()))?;
+    let stored = request
+        .slots
+        .load(&request.leakshield, request.slot)
+        .ok()
+        .flatten();
+    let decision = decide(
+        &parts.registry,
+        &request.serial,
+        &report1,
+        request.slot,
+        stored,
+    )?;
+    Ok((report1, decision))
 }
 
-async fn run(parts: WorkerParts, mut queue: mpsc::UnboundedReceiver<Message>) {
+/// Writes the report 3 that a decision chose, and answers the request.
+fn write_profile(
+    parts: &WorkerParts,
+    reply: oneshot::Sender<Result<ProfileDone, Failure>>,
+    report1: Report1,
+    report3: Box<Report3>,
+    save: &mut Option<(Instant, String)>,
+    spacing: &mut Spacing,
+) {
+    spacing.wrote(Instant::now());
+    let job = Job::ProfileWrite {
+        report1: report1.clone(),
+        report3: (*report3).clone(),
+    };
+    let result = run_job(parts, job, save)
+        .map(|_| ProfileDone {
+            decision: Decision::Write(report3),
+            report1,
+        })
+        .map_err(Failure::Write);
+    let _ = reply.send(result);
+}
+
+/// Ends a Profile request that is due: decides again, so that the write has the slot as it is
+/// now.
+fn finish_profile(
+    parts: &WorkerParts,
+    message: ProfileMessage,
+    save: &mut Option<(Instant, String)>,
+    spacing: &mut Spacing,
+) {
+    let ProfileMessage { request, reply } = message;
+    match decide_profile(parts, &request) {
+        Ok((report1, Decision::Write(report3))) => {
+            write_profile(parts, reply, report1, report3, save, spacing);
+        }
+        Ok((report1, decision)) => {
+            let _ = reply.send(Ok(ProfileDone { decision, report1 }));
+        }
+        Err(failure) => {
+            let _ = reply.send(Err(failure));
+        }
+    }
+}
+
+/// A request arrives. The older request that waits goes first, so that a request that fails or
+/// needs no write still cancels it. A write goes out at once or waits (`profiles::spacing`).
+fn start_profile(
+    parts: &WorkerParts,
+    message: ProfileMessage,
+    waiting: &mut Option<(Instant, ProfileMessage)>,
+    save: &mut Option<(Instant, String)>,
+    spacing: &mut Spacing,
+) {
+    if let Some((_, old)) = waiting.take() {
+        let _ = old.reply.send(Err(Failure::Superseded));
+    }
+    let now = Instant::now();
+    match decide_profile(parts, &message.request) {
+        Ok((report1, Decision::Write(report3))) => match spacing.request(now) {
+            Timing::WriteAt(at) if at > now => *waiting = Some((at, message)),
+            _ => write_profile(parts, message.reply, report1, report3, save, spacing),
+        },
+        Ok((report1, decision)) => {
+            let _ = message.reply.send(Ok(ProfileDone { decision, report1 }));
+        }
+        Err(failure) => {
+            let _ = message.reply.send(Err(failure));
+        }
+    }
+}
+
+async fn run(parts: WorkerParts, mut queue: mpsc::UnboundedReceiver<Queued>) {
     // The time of the save-settings command, and the backup that a failure points at.
     let mut save: Option<(Instant, String)> = None;
-    // The spacing of the Profile writes, and the newest Profile write that waits.
+    // The spacing of the Profile writes, and the newest Profile request that waits.
     let mut spacing = Spacing::default();
-    let mut waiting: Option<(Instant, Message)> = None;
+    let mut waiting: Option<(Instant, ProfileMessage)> = None;
     loop {
         let wake = [save.as_ref().map(|s| s.0), waiting.as_ref().map(|w| w.0)]
             .into_iter()
@@ -233,8 +343,7 @@ async fn run(parts: WorkerParts, mut queue: mpsc::UnboundedReceiver<Message>) {
                     if waiting.as_ref().is_some_and(|w| w.0 <= now)
                         && let Some((_, message)) = waiting.take()
                     {
-                        spacing.wrote(now);
-                        run_job(&parts, message, &mut save);
+                        finish_profile(&parts, message, &mut save, &mut spacing);
                     }
                     if save.as_ref().is_some_and(|s| s.0 <= now)
                         && let Some((_, backup)) = save.take()
@@ -255,27 +364,11 @@ async fn run(parts: WorkerParts, mut queue: mpsc::UnboundedReceiver<Message>) {
             }
             return;
         };
-        match message.job {
-            Job::CancelProfileWrite => {
-                if let Some((_, old)) = waiting.take() {
-                    supersede(old);
-                }
-                supersede(message);
+        match message {
+            Queued::Job(message) => run_message(&parts, *message, &mut save),
+            Queued::Profile(message) => {
+                start_profile(&parts, message, &mut waiting, &mut save, &mut spacing);
             }
-            Job::ProfileWrite { .. } => {
-                let now = Instant::now();
-                if let Some((_, old)) = waiting.take() {
-                    supersede(old);
-                }
-                match spacing.request(now) {
-                    Decision::WriteAt(at) if at > now => waiting = Some((at, message)),
-                    _ => {
-                        spacing.wrote(now);
-                        run_job(&parts, message, &mut save);
-                    }
-                }
-            }
-            _ => run_job(&parts, message, &mut save),
         }
     }
 }

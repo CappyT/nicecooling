@@ -3,6 +3,7 @@
 
 mod activate;
 mod docs;
+mod ordering;
 mod rules;
 mod slots;
 #[path = "../support/mod.rs"]
@@ -46,6 +47,28 @@ pub fn with_profile_3(_: &nicecooling_hwmon::fake::FakeSysfs, state: &std::path:
         state.join("state.json"),
         r#"{"schema_version": 1, "profiles": {"default": "profile_default",
             "active": "profile_3", "cause": "manual", "immediate_switching": false,
+            "rule_delay_s": 30, "dwell_s": 300}}"#,
+    )
+    .unwrap();
+    for (id, slot) in [("profile_2", 2), ("profile_3", 3), ("profile_4", 4)] {
+        std::fs::create_dir_all(state.join("profiles").join(id)).unwrap();
+        std::fs::write(
+            state.join("profiles").join(id).join("profile.json"),
+            format!(
+                r#"{{"schema_version": 1, "id": "{id}", "name": "Profile {slot}", "slot": {slot}}}"#
+            ),
+        )
+        .unwrap();
+    }
+}
+
+/// A state directory whose Default Profile is active by the default cause, with Profiles 2, 3 and
+/// 4 in their slots.
+pub fn automatic(_: &nicecooling_hwmon::fake::FakeSysfs, state: &std::path::Path) {
+    std::fs::write(
+        state.join("state.json"),
+        r#"{"schema_version": 1, "profiles": {"default": "profile_default",
+            "active": "profile_default", "cause": "default", "immediate_switching": false,
             "rule_delay_s": 30, "dwell_s": 300}}"#,
     )
     .unwrap();

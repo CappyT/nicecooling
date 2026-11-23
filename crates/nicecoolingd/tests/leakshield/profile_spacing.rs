@@ -8,13 +8,16 @@ use nicecooling_core::profile::Slot;
 use nicecooling_protocol::report3::Report3;
 use nicecooling_protocol::sim::Request;
 use nicecoolingd::leakshield::save_settings::SAVE_SETTINGS_DELAY;
-use nicecoolingd::leakshield::worker::{WorkerParts, WriteWorker};
-use nicecoolingd::leakshield::write::WriteError;
-use nicecoolingd::state::slots::with_slot_number;
+use nicecoolingd::leakshield::worker::{ProfileRequest, WorkerParts, WriteWorker};
+use nicecoolingd::profiles::activate::{Decision, Failure};
+use nicecoolingd::state::slots::SlotMeta;
+use nicecoolingd::state::{SlotStore, StateStore};
 use tokio::sync::mpsc;
 use tokio::time::{Instant, sleep};
 
-use crate::Rig;
+use crate::{LEAKSHIELD_ID, Rig, SERIAL};
+
+const DISPLAY_PAGE_TIME: usize = 63;
 
 fn start(rig: &Rig) -> WriteWorker {
     let (events, _rx) = mpsc::unbounded_channel();
@@ -28,10 +31,38 @@ fn start(rig: &Rig) -> WriteWorker {
     })
 }
 
-/// The report 3 of the device with the number of `slot`.
-fn stored(rig: &Rig, slot: u32) -> Report3 {
-    let device = Report3::decode(&rig.sim.report3()).unwrap();
-    with_slot_number(&rig.registry, &device, Slot::new(slot).unwrap()).unwrap()
+/// The four slots of the device, each with its own number.
+fn slots(rig: &Rig) -> SlotStore {
+    let store = SlotStore::new(Arc::new(StateStore::new(&rig.dir)));
+    let report1 = rig.io.read_report1().unwrap();
+    let report3 = Report3::decode(&rig.sim.report3()).unwrap();
+    let meta = SlotMeta::new(report1.firmware_version, report1.structure_number, SERIAL);
+    store
+        .init(&rig.registry, LEAKSHIELD_ID, &report3, &meta)
+        .unwrap();
+    store
+}
+
+fn slot_file(rig: &Rig, n: u32) -> std::path::PathBuf {
+    rig.dir
+        .join("leakshield")
+        .join(LEAKSHIELD_ID)
+        .join(format!("slot-{n}"))
+        .join("report3.bin")
+}
+
+fn request(slots: &SlotStore, slot: u32) -> ProfileRequest {
+    ProfileRequest {
+        slot: Slot::new(slot).unwrap(),
+        slots: slots.clone(),
+        leakshield: LEAKSHIELD_ID.to_owned(),
+        serial: SERIAL.to_owned(),
+    }
+}
+
+/// The device reports the number of the slot that it holds, as the real device does.
+fn device_holds(rig: &Rig, slot: u8) {
+    rig.sim.edit_report1(|r| r.active_profile = slot);
 }
 
 fn writes(rig: &Rig) -> usize {
@@ -42,21 +73,31 @@ fn writes(rig: &Rig) -> usize {
         .count()
 }
 
-async fn submit(rig: &Rig, worker: &WriteWorker, slot: u32) -> Result<Instant, WriteError> {
-    let report1 = rig.io.read_report1().unwrap();
-    worker
-        .submit_profile(report1, stored(rig, slot))
-        .await
-        .map(|_| Instant::now())
+/// Asks for `slot` and waits for the end. Returns the time of the end.
+async fn submit(
+    rig: &Rig,
+    worker: &WriteWorker,
+    slots: &SlotStore,
+    slot: u32,
+) -> Result<Instant, Failure> {
+    let ticket = worker.request_profile(request(slots, slot));
+    let done = ticket.await.unwrap();
+    // The simulated device keeps its report 1: it follows the write here.
+    if let Ok(done) = &done
+        && matches!(done.decision, Decision::Write(_))
+    {
+        device_holds(rig, slot as u8);
+    }
+    done.map(|_| Instant::now())
 }
 
 #[tokio::test(start_paused = true)]
 async fn write_at_once_when_idle() {
     let rig = Rig::new("spacing-idle");
-    let worker = start(&rig);
+    let (worker, slots) = (start(&rig), slots(&rig));
     let start = Instant::now();
 
-    let done = submit(&rig, &worker, 2).await.unwrap();
+    let done = submit(&rig, &worker, &slots, 2).await.unwrap();
 
     assert_eq!(done - start, Duration::ZERO);
     assert_eq!(writes(&rig), 1);
@@ -64,7 +105,7 @@ async fn write_at_once_when_idle() {
     // The last profile write is older than 2 s: the next one goes out at once as well.
     sleep(Duration::from_millis(2001)).await;
     let before = Instant::now();
-    let done = submit(&rig, &worker, 3).await.unwrap();
+    let done = submit(&rig, &worker, &slots, 3).await.unwrap();
     assert_eq!(done - before, Duration::ZERO);
     assert_eq!(writes(&rig), 2);
 }
@@ -72,17 +113,15 @@ async fn write_at_once_when_idle() {
 #[tokio::test(start_paused = true)]
 async fn request_within_2s_waits_until_1500ms_after_last_write() {
     let rig = Rig::new("spacing-wait");
-    let worker = start(&rig);
+    let (worker, slots) = (start(&rig), slots(&rig));
     let start = Instant::now();
-    submit(&rig, &worker, 2).await.unwrap();
+    submit(&rig, &worker, &slots, 2).await.unwrap();
 
     sleep(Duration::from_millis(500)).await;
     let second = tokio::spawn({
-        let (rig_sim, worker) = (rig.sim.clone(), worker.clone());
-        let report1 = rig.io.read_report1().unwrap();
-        let report3 = stored(&rig, 3);
+        let (rig_sim, ticket) = (rig.sim.clone(), worker.request_profile(request(&slots, 3)));
         async move {
-            let result = worker.submit_profile(report1, report3).await;
+            let result = ticket.await.unwrap();
             (result.is_ok(), Instant::now(), rig_sim.report3()[747])
         }
     });
@@ -101,28 +140,23 @@ async fn request_within_2s_waits_until_1500ms_after_last_write() {
 #[tokio::test(start_paused = true)]
 async fn only_newest_waiting_request_is_written() {
     let rig = Rig::new("spacing-newest");
-    let worker = start(&rig);
+    let (worker, slots) = (start(&rig), slots(&rig));
     let start = Instant::now();
-    submit(&rig, &worker, 1).await.unwrap();
+    submit(&rig, &worker, &slots, 2).await.unwrap();
 
     let mut waiting = Vec::new();
-    for slot in [2, 3, 4] {
+    for slot in [3, 1, 4] {
         sleep(Duration::from_millis(100)).await;
-        let report1 = rig.io.read_report1().unwrap();
-        let report3 = stored(&rig, slot);
-        let worker = worker.clone();
+        let ticket = worker.request_profile(request(&slots, slot));
         waiting.push(tokio::spawn(async move {
-            worker
-                .submit_profile(report1, report3)
-                .await
-                .map(|_| Instant::now())
+            ticket.await.unwrap().map(|_| Instant::now())
         }));
     }
     let results = futures_util::future::join_all(waiting).await;
 
     // The two older requests are dropped. The newest goes out 1.5 s after the first write.
-    assert!(matches!(results[0], Ok(Err(WriteError::Superseded))));
-    assert!(matches!(results[1], Ok(Err(WriteError::Superseded))));
+    assert!(matches!(results[0], Ok(Err(Failure::Superseded))));
+    assert!(matches!(results[1], Ok(Err(Failure::Superseded))));
     let done = *results[2].as_ref().unwrap().as_ref().unwrap();
     assert_eq!(done - start, Duration::from_millis(1500));
     assert_eq!(writes(&rig), 2);
@@ -130,36 +164,66 @@ async fn only_newest_waiting_request_is_written() {
 }
 
 #[tokio::test(start_paused = true)]
-async fn a_cancel_drops_the_waiting_request() {
-    let rig = Rig::new("spacing-cancel");
-    let worker = start(&rig);
-    submit(&rig, &worker, 1).await.unwrap();
-    let waiting = tokio::spawn({
-        let worker = worker.clone();
-        let report1 = rig.io.read_report1().unwrap();
-        let report3 = stored(&rig, 3);
-        async move { worker.submit_profile(report1, report3).await }
-    });
+async fn a_request_that_needs_no_write_drops_the_waiting_request() {
+    let rig = Rig::new("spacing-keep");
+    let (worker, slots) = (start(&rig), slots(&rig));
+    submit(&rig, &worker, &slots, 2).await.unwrap();
+    let waiting = worker.request_profile(request(&slots, 3));
     sleep(Duration::from_millis(200)).await;
 
-    worker.cancel_profile_write().await;
+    // The device holds slot 2 already: this request keeps it.
+    let kept = worker.request_profile(request(&slots, 2)).await.unwrap();
 
-    assert!(matches!(
-        waiting.await.unwrap(),
-        Err(WriteError::Superseded)
-    ));
+    assert!(matches!(waiting.await.unwrap(), Err(Failure::Superseded)));
+    assert!(matches!(kept.unwrap().decision, Decision::Keep));
     sleep(Duration::from_secs(10)).await;
     assert_eq!(writes(&rig), 1);
 }
 
 #[tokio::test(start_paused = true)]
+async fn a_request_that_fails_drops_the_waiting_request() {
+    let rig = Rig::new("spacing-fail");
+    let (worker, slots) = (start(&rig), slots(&rig));
+    submit(&rig, &worker, &slots, 2).await.unwrap();
+    std::fs::remove_file(slot_file(&rig, 4)).unwrap();
+    let waiting = worker.request_profile(request(&slots, 3));
+    sleep(Duration::from_millis(200)).await;
+
+    let failed = worker.request_profile(request(&slots, 4)).await.unwrap();
+
+    assert!(matches!(failed, Err(Failure::NoSlot)));
+    assert!(matches!(waiting.await.unwrap(), Err(Failure::Superseded)));
+    sleep(Duration::from_secs(10)).await;
+    assert_eq!(writes(&rig), 1);
+    assert_eq!(rig.sim.report3()[747], 2);
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_waiting_request_writes_the_slot_as_it_is_when_the_write_goes_out() {
+    let rig = Rig::new("spacing-fresh-slot");
+    let (worker, slots) = (start(&rig), slots(&rig));
+    submit(&rig, &worker, &slots, 2).await.unwrap();
+    let waiting = worker.request_profile(request(&slots, 3));
+    sleep(Duration::from_millis(200)).await;
+
+    // The slot changes while the request waits.
+    let mut report = Report3::decode(&std::fs::read(slot_file(&rig, 3)).unwrap()).unwrap();
+    report.set_bytes(DISPLAY_PAGE_TIME, &[0x01, 0x2C]);
+    std::fs::write(slot_file(&rig, 3), report.encode()).unwrap();
+    waiting.await.unwrap().unwrap();
+
+    assert_eq!(&rig.sim.report3()[DISPLAY_PAGE_TIME..][..2], [0x01, 0x2C]);
+    assert_eq!(rig.sim.report3()[747], 3);
+}
+
+#[tokio::test(start_paused = true)]
 async fn save_settings_4s_after_last_profile_write() {
     let rig = Rig::new("spacing-save");
-    let worker = start(&rig);
-    submit(&rig, &worker, 2).await.unwrap();
+    let (worker, slots) = (start(&rig), slots(&rig));
+    submit(&rig, &worker, &slots, 2).await.unwrap();
     // The second write comes after the gap of 2 s, 2.5 s after the first.
     sleep(Duration::from_millis(2500)).await;
-    submit(&rig, &worker, 3).await.unwrap();
+    submit(&rig, &worker, &slots, 3).await.unwrap();
 
     // 4 s after the first write: no command, because the second write moved it back.
     sleep(Duration::from_millis(1600)).await;

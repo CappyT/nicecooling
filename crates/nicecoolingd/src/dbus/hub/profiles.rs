@@ -10,12 +10,13 @@ use nicecooling_api::ids::{self, Kind};
 use nicecooling_core::profile::{Cause, Slot};
 use nicecooling_core::tick::TickConfig;
 
-use super::{Hub, check_name};
-use crate::profiles::activate::{Failure, apply_slot};
+use super::{Hub, Inner, check_name};
+use crate::profiles::activate::Failure;
 use nicecooling_protocol::report3::Report3;
 
 use crate::leakshield::Attached;
 use crate::leakshield::fields::{self, FieldValue};
+use crate::leakshield::worker::ProfileTicket;
 use crate::state::ProfileFile;
 use crate::state::profiles::{DEFAULT_PROFILE, ProfileError};
 use crate::state::slots::SlotMeta;
@@ -42,6 +43,14 @@ pub enum ProfileEvent {
         cause: &'static str,
         state: &'static str,
     },
+}
+
+/// The Leakshield part of one activation: the request of each device, in the worker queue.
+struct Activation {
+    number: u64,
+    profile: String,
+    cause: Cause,
+    tickets: Vec<(Arc<Attached>, ProfileTicket)>,
 }
 
 /// The Mode code of RELEASE in the `default_mode` field.
@@ -215,41 +224,79 @@ impl Hub {
     /// and the Leakshield part runs in the background (`profiles::activate`). The caller keeps the
     /// rule state, if there is one.
     pub fn activate_profile(self: &Arc<Self>, id: &str, cause: Cause) -> Result<TickConfig> {
-        let config = {
+        let (config, activation) = {
             let mut inner = self.inner();
             if !inner.profiles.contains(id) {
                 return Err(Error::not_found(format!("no Profile {id}")));
             }
             inner.state.profiles.active = id.to_owned();
             inner.state.profiles.cause = cause.as_str().to_owned();
-            inner.active_state = "applied";
-            self.queue_config(&inner)
+            let config = self.queue_config(&inner);
+            (config, self.begin_activation(&mut inner, id, cause))
         };
         self.persister.changed();
         let _ = self.profile_events.send(ProfileEvent::Switched);
-        self.apply_slot_in_background(id.to_owned(), cause);
+        self.spawn_activation_report(activation);
         Ok(config)
     }
 
-    /// Writes the slot of the active Profile to every Leakshield that needs it, and reports.
-    fn apply_slot_in_background(self: &Arc<Self>, profile: String, cause: Cause) {
+    /// `SetSlot` on the active Profile runs the same switch for the new slot.
+    pub fn reapply_active_slot(self: &Arc<Self>) {
+        let activation = {
+            let mut inner = self.inner();
+            let profile = inner.state.profiles.active.clone();
+            let cause = match inner.state.profiles.cause.as_str() {
+                "manual" => Cause::Manual,
+                "rule" => Cause::Rule,
+                _ => Cause::Default,
+            };
+            self.begin_activation(&mut inner, &profile, cause)
+        };
+        self.spawn_activation_report(activation);
+    }
+
+    /// Queues the slot of `profile` for every Leakshield, while the caller holds the state. Two
+    /// activations queue in the order that they changed the state, and the worker of each device
+    /// keeps that order.
+    fn begin_activation(&self, inner: &mut Inner, profile: &str, cause: Cause) -> Activation {
+        inner.active_state = "applied";
+        inner.activation += 1;
+        let slot = inner.profiles.get(profile).and_then(|p| Slot::new(p.slot));
+        let tickets =
+            slot.into_iter()
+                .flat_map(|slot| {
+                    inner.leakshields.iter().map(move |device| {
+                        (device.clone(), device.request_profile(slot, &self.slots))
+                    })
+                })
+                .collect();
+        Activation {
+            number: inner.activation,
+            profile: profile.to_owned(),
+            cause,
+            tickets,
+        }
+    }
+
+    /// Waits for the Leakshield part of an activation and reports how it ended.
+    fn spawn_activation_report(self: &Arc<Self>, activation: Activation) {
         let hub = self.clone();
         self.runtime.spawn(async move {
-            let (slot, leakshields) = {
-                let inner = hub.inner();
-                let slot = inner.profiles.get(&profile).and_then(|p| Slot::new(p.slot));
-                (slot, inner.leakshields.clone())
-            };
+            let Activation {
+                number,
+                profile,
+                cause,
+                tickets,
+            } = activation;
             let mut failed = false;
-            if let Some(slot) = slot {
-                for device in leakshields {
-                    match apply_slot(&device, &hub.slots, slot).await {
-                        Ok(_) => {}
-                        Err(Failure::Superseded) => return,
-                        Err(e) => {
-                            eprintln!("nicecoolingd: the Leakshield {}: {e}", device.id());
-                            failed = true;
-                        }
+            for (device, ticket) in tickets {
+                match device.finish_profile(ticket).await {
+                    Ok(_) => {}
+                    // A newer activation reports for itself.
+                    Err(Failure::Superseded) => return,
+                    Err(e) => {
+                        eprintln!("nicecoolingd: the Leakshield {}: {e}", device.id());
+                        failed = true;
                     }
                 }
             }
@@ -260,8 +307,7 @@ impl Hub {
             };
             {
                 let mut inner = hub.inner();
-                // A newer activation reports for itself.
-                if inner.state.profiles.active != profile {
+                if inner.activation != number {
                     return;
                 }
                 inner.active_state = state;
@@ -272,23 +318,6 @@ impl Hub {
                 state,
             });
         });
-    }
-
-    /// `SetSlot` on the active Profile runs the same switch for the new slot.
-    pub fn reapply_active_slot(self: &Arc<Self>) {
-        let (profile, cause) = {
-            let mut inner = self.inner();
-            inner.active_state = "applied";
-            (
-                inner.state.profiles.active.clone(),
-                match inner.state.profiles.cause.as_str() {
-                    "manual" => Cause::Manual,
-                    "rule" => Cause::Rule,
-                    _ => Cause::Default,
-                },
-            )
-        };
-        self.apply_slot_in_background(profile, cause);
     }
 
     /// A Leakshield setting that the user changed in nicecooling goes into the slot of the active

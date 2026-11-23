@@ -147,6 +147,21 @@ The daemon SHALL write a Profile switch that needs a Leakshield write at once wh
 - **WHEN** the daemon writes a report 3 for a Profile switch
 - **THEN** it sends one save-settings command 4 seconds after that write
 
+### Requirement: Leakshield write order
+Profile requests SHALL reach the Leakshield in the order of the activations. A newer request SHALL cancel the request that waits, also when the newer request fails or needs no write. A request that waits SHALL write the slot as it is when the write goes out.
+
+#### Scenario: Close activations end on the active slot
+- **WHEN** the user activates Profile A and then Profile B within 2 seconds
+- **THEN** the Leakshield ends on the slot of Profile B
+
+#### Scenario: Newer request fails
+- **WHEN** a request waits for its write and a newer request fails because its slot has no stored report 3
+- **THEN** the daemon drops the request that waits and writes nothing more
+
+#### Scenario: Slot changes while the request waits
+- **WHEN** the user changes a Leakshield setting while a Profile write waits
+- **THEN** the write that goes out carries the change, and the device and the slot hold the same value
+
 ### Requirement: Overwrite external changes
 Activating a Profile whose slot number differs from the number of the device SHALL write the settings of the slot over a Leakshield setting that another tool changed.
 

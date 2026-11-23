@@ -33,7 +33,7 @@ pub enum Failure {
     FirmwareMismatch,
     SerialMismatch,
     Write(WriteError),
-    /// A newer request replaced this one (task 7.5). It reports the result.
+    /// A newer request replaced this one. The newer request reports the result.
     Superseded,
 }
 
@@ -80,30 +80,14 @@ pub fn decide(
     Ok(Decision::Write(Box::new(stored.report3)))
 }
 
-/// Applies `slot` to one Leakshield. It writes also while an Action runs and in any Mode.
+/// Applies `slot` to one Leakshield and waits for the end of it. It writes also while an Action
+/// runs and in any Mode.
 pub async fn apply_slot(
     device: &Attached,
     slots: &SlotStore,
     slot: Slot,
 ) -> Result<Decision, Failure> {
-    let report1 = device
-        .fresh_report1()
-        .map_err(|e| Failure::Unreachable(e.to_string()))?;
-    let stored = slots.load(&device.id(), slot).ok().flatten();
-    let decision = decide(device.registry(), device.serial(), &report1, slot, stored)?;
-    match &decision {
-        Decision::Write(report3) => {
-            device
-                .write_stored_report3(report1, (**report3).clone())
-                .await
-                .map_err(|e| match e {
-                    WriteError::Superseded => Failure::Superseded,
-                    other => Failure::Write(other),
-                })?;
-        }
-        // The device has the number that this request asks for. An older request that still
-        // waits for its time must not change it.
-        Decision::Keep => device.cancel_profile_write().await,
-    }
-    Ok(decision)
+    device
+        .finish_profile(device.request_profile(slot, slots))
+        .await
 }

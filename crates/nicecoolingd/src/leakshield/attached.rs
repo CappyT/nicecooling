@@ -27,9 +27,10 @@ use super::external::{ExternalDetector, LastKnown};
 use super::fields::{self, EditError, FieldRow, FieldValue};
 use super::mode::{self, COMMAND_DELAY, Mode};
 use super::software_sensors::SoftwareSlots;
-use super::worker::{Job, WorkerParts, WriteWorker};
-use super::write::{WriteEnv, WriteError, Written, out_of_range_field, take_backup};
+use super::worker::{Job, ProfileRequest, ProfileTicket, WorkerParts, WriteWorker};
+use super::write::{WriteEnv, WriteError, out_of_range_field, take_backup};
 use super::{DeviceEvent, DeviceIo, blocking, clock, counters, reset_alarm};
+use crate::profiles::activate::{Decision, Failure};
 use crate::state::slots::SlotMeta;
 use crate::state::{SlotStore, StateStore};
 
@@ -148,7 +149,6 @@ fn write_error(error: WriteError) -> Error {
         WriteError::NotSupported => {
             Error::not_supported("the registry of this firmware lacks the command")
         }
-        WriteError::Superseded => failed("a newer Profile write replaced this one"),
     }
 }
 
@@ -534,21 +534,34 @@ impl Attached {
         Ok(Some(written.report3))
     }
 
-    /// A Profile activation: the worker writes the stored report 3 as stored (design D14).
-    pub async fn write_stored_report3(
+    /// A Profile activation (design D14). It queues the request now, so that the requests of
+    /// two activations reach the worker in the order of the calls. The worker decides, and reads
+    /// the slot when the write goes out.
+    pub fn request_profile(&self, slot: Slot, slots: &SlotStore) -> ProfileTicket {
+        self.worker.request_profile(ProfileRequest {
+            slot,
+            slots: slots.clone(),
+            leakshield: self.id(),
+            serial: self.serial().to_owned(),
+        })
+    }
+
+    /// Waits for the end of a Profile request and takes the report 1 that its decision read.
+    pub async fn finish_profile(
         &self,
-        report1: Report1,
-        report3: Report3,
-    ) -> std::result::Result<Written, WriteError> {
-        self.worker.submit_profile(report1, report3).await
+        ticket: ProfileTicket,
+    ) -> std::result::Result<Decision, Failure> {
+        match ticket.await {
+            Ok(Ok(done)) => {
+                self.apply(done.report1, now_unix());
+                Ok(done.decision)
+            }
+            Ok(Err(failure)) => Err(failure),
+            Err(_) => Err(Failure::Write(WriteError::Disconnected { backup: None })),
+        }
     }
 
     /// Returns the report 3 that the read-back returned.
-    /// A newer activation needs no write: the Profile write that waits goes away.
-    pub async fn cancel_profile_write(&self) {
-        self.worker.cancel_profile_write().await;
-    }
-
     pub async fn restore_backup(&self, backup: &str) -> Result<Report3> {
         let report1 = self.fresh_report1()?;
         let written = self

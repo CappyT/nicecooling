@@ -169,6 +169,8 @@ struct Inner {
     active_state: &'static str,
     /// What the rules stage of the tick has not read yet.
     rule_queue: rules::RuleQueue,
+    /// The number of the newest activation. Only the newest one reports its end.
+    activation: u64,
     /// (group id, holds, since in microseconds), as the last tick published them.
     rule_states: Vec<(String, bool, u64)>,
     presets: Vec<Preset>,
@@ -629,6 +631,7 @@ impl Hub {
             active_state: "applied",
             rule_queue: rules::RuleQueue::first(),
             rule_states: Vec::new(),
+            activation: 0,
             presets: init.presets,
             board: init.board,
             sensors: init.sensors,
