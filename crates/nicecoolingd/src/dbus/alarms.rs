@@ -262,7 +262,7 @@ pub async fn run_effects(
                 let _ = Alarms::poweroff_failed(emitter, instance, error).await;
                 false
             }
-            Effect::CallPoweroff(_) => false,
+            Effect::CallPoweroff(_) | Effect::CallFailedAfterClear(_) => false,
         };
         if changed {
             let _ = iface.get().await.active_changed(emitter).await;

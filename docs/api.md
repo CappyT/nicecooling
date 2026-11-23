@@ -114,7 +114,7 @@ Each active Alarm or Warning (`Alarms.Active`) and each `AlarmRaised` signal car
   | `poweroff-requested` | The call to logind went out. The app shows "PC powered off". |
   | `poweroff-failed` | The call to logind failed. A retry gives `poweroff-requested`. |
 
-- Changes: `poweroff-pending` goes to `poweroff-cancelled`, `poweroff-stopped` or `poweroff-requested`. `poweroff-requested` goes to `poweroff-failed` on `PoweroffFailed`. `poweroff-failed` goes to `poweroff-requested` on the retry, to `poweroff-cancelled` on a cancel in the retry wait, and to `poweroff-stopped` on a clear.
+- Changes: `poweroff-pending` goes to `poweroff-cancelled`, `poweroff-stopped` or `poweroff-requested`. `poweroff-requested` goes to `poweroff-failed` on `PoweroffFailed`, and also when the call fails after its instance cleared (no retry follows, and `cleared_us` stays). `poweroff-failed` goes to `poweroff-requested` on the retry, to `poweroff-cancelled` on a cancel in the retry wait, and to `poweroff-stopped` on a clear.
 - At start, the daemon closes every row of an earlier start that has `cleared_us` 0. `cleared_us` becomes the start time of this daemon and the row is marked closed by restart (`closed_by_restart` in the file, and the detail `closed_by_restart` in `GetHistory`). An instance that is still active rises again as a new instance.
 - A change to `poweroff-requested` is on disk before the call to logind.
 - The file is `alarm-history.json` (`storage.md`).

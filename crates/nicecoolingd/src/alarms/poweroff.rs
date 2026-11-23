@@ -53,6 +53,9 @@ pub enum Effect {
         instance: String,
         error: String,
     },
+    /// The call to logind failed after its instance cleared. No retry follows and no signal goes
+    /// out: only the history learns that the PC stays on.
+    CallFailedAfterClear(String),
     /// Call logind. The caller reports the result with `poweroff_result`.
     CallPoweroff(String),
 }
@@ -196,7 +199,12 @@ impl AlarmManager {
             .iter_mut()
             .find(|i| i.row.instance == instance && i.countdown == Countdown::Calling)
         else {
-            return Vec::new();
+            let gone = !self.instances.iter().any(|i| i.row.instance == instance);
+            return if gone && result.is_err() {
+                vec![Effect::CallFailedAfterClear(instance.to_owned())]
+            } else {
+                Vec::new()
+            };
         };
         match result {
             Ok(()) => {

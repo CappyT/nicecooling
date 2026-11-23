@@ -427,7 +427,7 @@ Every new property emits `PropertiesChanged` when its value changes, except the 
 - Outcomes:
   - At the raise: response `none` gives `none`, `notify` gives `notified`, `poweroff` gives `poweroff-pending`.
   - From `poweroff-pending`: `CancelPoweroff` gives `poweroff-cancelled`, a clear before the call gives `poweroff-stopped`, the call to logind gives `poweroff-requested`.
-  - From `poweroff-requested`: `PoweroffFailed` gives `poweroff-failed`.
+  - From `poweroff-requested`: `PoweroffFailed` gives `poweroff-failed`. A call that fails after its instance cleared (the Alarm cleared while logind had not answered) gives `poweroff-failed` too. No retry follows, because the instance is gone, and `cleared_us` stays.
   - From `poweroff-failed`: the retry gives `poweroff-requested`, a cancel in the retry wait gives `poweroff-cancelled`, a clear gives `poweroff-stopped`.
   - `none`, `notified`, `poweroff-cancelled` and `poweroff-stopped` are final. The app shows `poweroff-requested` as "PC powered off".
 - At start, the daemon closes every row of an earlier start that has `cleared_us` 0: `cleared_us` becomes the start time of this daemon and `closed_by_restart` becomes true. `GetHistory` shows it as the detail `closed_by_restart` (`b`, true) of the row, and only on such a row. An instance that is still active rises again as a new instance.

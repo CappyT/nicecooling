@@ -186,7 +186,7 @@ impl History {
             Effect::PoweroffCancelled(instance) => {
                 self.go(instance, &[PENDING, FAILED], CANCELLED);
             }
-            Effect::PoweroffFailed { instance, .. } => {
+            Effect::PoweroffFailed { instance, .. } | Effect::CallFailedAfterClear(instance) => {
                 self.go(instance, &[REQUESTED], FAILED);
             }
             Effect::CallPoweroff(instance) => {
