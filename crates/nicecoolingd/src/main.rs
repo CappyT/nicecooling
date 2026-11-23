@@ -13,6 +13,8 @@ use nicecoolingd::watchdog::SystemdNotifier;
 
 struct Args {
     restore_bios: bool,
+    /// The fan control runs, and no Leakshield is attached or written.
+    no_leakshield: bool,
     paths: Paths,
     /// Where the hidraw nodes of the Leakshield are.
     dev_root: PathBuf,
@@ -20,10 +22,11 @@ struct Args {
 
 /// `--sysfs-root`, `--dev-root`, `--state-dir`, `--boards-dir` and `--calibration-dir` point the
 /// daemon at a fake tree. The unit does not use them. The USB enumeration always uses the real
-/// bus.
+/// bus, unless `--no-leakshield` turns it off.
 fn parse_args() -> Result<Args, String> {
     let mut args = Args {
         restore_bios: false,
+        no_leakshield: false,
         paths: Paths::default(),
         dev_root: "/dev".into(),
     };
@@ -36,6 +39,7 @@ fn parse_args() -> Result<Args, String> {
         };
         match arg.as_str() {
             "--restore-bios" => args.restore_bios = true,
+            "--no-leakshield" => args.no_leakshield = true,
             "--sysfs-root" => args.paths.sysfs_root = path(&arg)?,
             "--dev-root" => args.dev_root = path(&arg)?,
             "--state-dir" => args.paths.state_dir = path(&arg)?,
@@ -112,7 +116,9 @@ fn main() -> ExitCode {
 
 async fn serve(args: Args) -> ExitCode {
     let mut options = Options::new(args.paths.clone());
-    options.usb = Some(NusbBus::new(args.paths.sysfs_root, args.dev_root));
+    if !args.no_leakshield {
+        options.usb = Some(NusbBus::new(args.paths.sysfs_root, args.dev_root));
+    }
     let mut daemon =
         match daemon::start(&options, Arc::new(TokioClock::new()), SystemdNotifier).await {
             Ok(daemon) => daemon,
