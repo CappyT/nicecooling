@@ -169,28 +169,74 @@ mod tests {
         assert_eq!(addresses, [0x4000, 0x4400, 0x4800, 0x4C00, 0x9000, 0x9400]);
     }
 
+    /// CRC-16/USB, bitwise and apart from `crc.rs`: polynomial 0x8005 reflected, init and final
+    /// XOR 0xFFFF.
+    fn crc16_usb_bitwise(data: &[u8]) -> u16 {
+        let mut crc = 0xFFFFu16;
+        for &byte in data {
+            crc ^= u16::from(byte);
+            for _ in 0..8 {
+                crc = if crc & 1 == 1 {
+                    (crc >> 1) ^ 0xA001
+                } else {
+                    crc >> 1
+                };
+            }
+        }
+        crc ^ 0xFFFF
+    }
+
+    fn pattern_chunk(address: u32) -> Chunk {
+        let mut data = [0; CHUNK_SIZE];
+        for (i, byte) in data.iter_mut().enumerate() {
+            *byte = (i % 251) as u8;
+        }
+        Chunk { address, data }
+    }
+
     #[test]
     fn frame_layout_bytes() {
-        let chunk = &chunks(&image(&[(0x4000, 2000)]))[0];
+        let chunk = pattern_chunk(0x4000);
         let frame = chunk.frame();
         assert_eq!(
             frame[..16],
             [0x20, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0x40, 0, 0, 0, 0x04, 0]
         );
         assert_eq!(frame[16..16 + CHUNK_SIZE], chunk.data);
+        // Computed apart from the code: bitwise CRC-16/USB of bytes 1-1039 of this frame.
+        assert_eq!(frame[1040..], [0xF0, 0x58]);
+        assert_eq!(crc16_usb_bitwise(&frame[1..1040]), 0xF058);
+        // The same bitwise function gives the CRC of the report 2 restart frame (F443).
+        assert_eq!(crc16_usb_bitwise(&[0, 0, 0, 1, 0, 0, 0, 1]), 0xF443);
     }
 
     #[test]
     fn crc_covers_bytes_after_id() {
-        let frame = chunks(&image(&[(0x4000, 2000)]))[0].frame();
-        let stored = u16::from_be_bytes([frame[1040], frame[1041]]);
-        assert_eq!(stored, crc16_usb(&frame[1..1040]));
-        let mut other_id = frame;
-        other_id[0] = 0x21;
-        assert_eq!(crc16_usb(&other_id[1..1040]), stored);
-        let mut other_data = frame;
-        other_data[1039] ^= 1;
-        assert_ne!(crc16_usb(&other_data[1..1040]), stored);
+        let base = pattern_chunk(0x4000);
+        let mut other_address = pattern_chunk(0x4400);
+        other_address.data = base.data;
+        let mut first_data = pattern_chunk(0x4000);
+        first_data.data[0] ^= 1;
+        let mut final_byte = pattern_chunk(0x4000);
+        final_byte.data[CHUNK_SIZE - 1] ^= 1;
+
+        let base_crc = u16::from_be_bytes(base.frame()[1040..].try_into().unwrap());
+        for chunk in [&base, &other_address, &first_data, &final_byte] {
+            let frame = chunk.frame();
+            let stored = u16::from_be_bytes([frame[1040], frame[1041]]);
+            assert_eq!(stored, crc16_usb_bitwise(&frame[1..1040]));
+            assert_ne!(
+                stored,
+                crc16_usb_bitwise(&frame[..1040]),
+                "the ID is not covered"
+            );
+            assert_ne!(
+                stored,
+                crc16_usb_bitwise(&frame[1..1039]),
+                "the last data byte is covered"
+            );
+            assert_eq!(chunk == &base, stored == base_crc);
+        }
     }
 
     #[test]
