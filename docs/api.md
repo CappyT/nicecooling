@@ -100,13 +100,28 @@ A Rule group has an identifier, a target Profile, an `enabled` flag and an order
 - The interval rule holds from `delay_s` to `delay_s + duration_s` after the start of each period of `interval_s`. A window that ends after the period is cut at the period end. The first period starts when the daemon starts or when `SetRuleGroups` saves the rule.
 - A window that is shorter than the Rule delay never activates its Profile, unless Immediate switching is on.
 
+## Limits
+
+A write above a limit fails with `InvalidArgument`. Every limit is checked in the daemon.
+
+| Item | Limit |
+|---|---|
+| Points of a Curve | 2 to 8 (the limit of the Curve editor, `docs/ui/widgets.md`) |
+| Points of a Calibration table | 2 to 64 |
+| Name of a sensor, Channel, Loop, Derived sensor or Calibration table | up to 64 characters |
+| Derived sensors | up to 64 |
+| Loops | up to 16 |
+| Calibration tables of the user | up to 32 (presets do not count) |
+
+All numbers in a Curve or a Calibration table are finite. A Duty is a percent from 0 to 100.
+
 ## Errors
 
 Error names have the prefix `io.github.cappyt.NiceCooling1.Error.`. polkit denials use `org.freedesktop.DBus.Error.AccessDenied`.
 
 | Error | When |
 |---|---|
-| `InvalidArgument` | A value out of range, an unknown identifier type, a Curve with fewer than 2 points or points not sorted by Input. |
+| `InvalidArgument` | A value out of range or above a limit, an unknown identifier type, a Curve with fewer than 2 points, points not sorted by Input, or a number that is not finite. |
 | `NotFound` | An object or an identifier does not exist. |
 | `InUse` | A delete of a sensor, Calibration table or Profile that something else uses. A Rule group that targets a Profile uses it. |
 | `DefaultProfile` | A delete of the Default Profile. |

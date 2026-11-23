@@ -872,3 +872,136 @@ async fn a_channel_without_a_snapshot_entry_stays_on_its_hardware_curve() {
         .await
         .unwrap();
 }
+
+fn invalid() -> Result<(), String> {
+    Err(format!("{ERR}.InvalidArgument"))
+}
+
+fn ok_or_name<T>(r: zbus::Result<T>) -> Result<(), String> {
+    r.map(drop).map_err(|e| error_name(&e))
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn point_and_name_limits_are_refused_at_the_boundary() {
+    let mut rig = Rig::start().await;
+    rig.tick_in_background();
+    let pwm1 = channel(&rig, "nct6798_pwm1").await;
+    let manager = manager(&rig).await;
+    let input = path(Kind::Sensor, "k10temp_temp1");
+
+    // A Curve has 2 to 8 points.
+    let curve = |n: usize| -> Vec<(f64, f64)> { (0..n).map(|i| (i as f64, 50.0)).collect() };
+    assert_eq!(
+        ok_or_name(pwm1.set_curve(&input, &curve(9), 0.0, 5.0).await),
+        invalid()
+    );
+    assert_eq!(
+        ok_or_name(pwm1.set_curve(&input, &curve(1), 0.0, 5.0).await),
+        invalid()
+    );
+    assert_eq!(
+        ok_or_name(pwm1.set_curve(&input, &curve(8), 0.0, 5.0).await),
+        Ok(())
+    );
+    assert_eq!(
+        ok_or_name(pwm1.set_curve(&input, &curve(2), 0.0, 5.0).await),
+        Ok(())
+    );
+
+    // A Calibration table has 2 to 64 points.
+    let table = |n: usize| -> Vec<(f64, f64)> { (1..=n).map(|i| (i as f64, i as f64)).collect() };
+    assert_eq!(
+        ok_or_name(manager.set_calibration_table("", "t", &table(65)).await),
+        invalid()
+    );
+    assert_eq!(
+        ok_or_name(manager.set_calibration_table("", "t", &table(1)).await),
+        invalid()
+    );
+    assert_eq!(
+        ok_or_name(manager.set_calibration_table("", "t", &table(64)).await),
+        Ok(())
+    );
+
+    // A name has up to 64 characters, not bytes.
+    let (long, edge, wide) = ("x".repeat(65), "x".repeat(64), "\u{e9}".repeat(64));
+    let sensor = SensorProxy::builder(&rig.client)
+        .path(input.clone())
+        .cache_properties(zbus::proxy::CacheProperties::No)
+        .build()
+        .await
+        .unwrap();
+    let l = loop_proxy(&rig, "loop_1").await;
+    assert_eq!(ok_or_name(pwm1.set_name(&long).await), invalid());
+    assert_eq!(ok_or_name(sensor.set_name(&long).await), invalid());
+    assert_eq!(ok_or_name(l.set_name(&long).await), invalid());
+    assert_eq!(ok_or_name(manager.create_loop(&long).await), invalid());
+    assert_eq!(
+        ok_or_name(
+            manager
+                .create_derived_sensor(&long, "maximum", std::slice::from_ref(&input))
+                .await
+        ),
+        invalid()
+    );
+    assert_eq!(
+        ok_or_name(manager.set_calibration_table("", &long, &table(2)).await),
+        invalid()
+    );
+    assert_eq!(ok_or_name(pwm1.set_name(&edge).await), Ok(()));
+    assert_eq!(ok_or_name(pwm1.set_name(&wide).await), Ok(()));
+    assert_eq!(pwm1.name().await.unwrap(), wide);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn object_count_limits_are_refused_at_the_boundary() {
+    let mut rig = Rig::start().await;
+    rig.tick_in_background();
+    let manager = manager(&rig).await;
+    let input = path(Kind::Sensor, "k10temp_temp1");
+
+    // 16 Loops: loop_1 exists.
+    for _ in 1..16 {
+        manager.create_loop("l").await.unwrap();
+    }
+    assert_eq!(ok_or_name(manager.create_loop("l").await), invalid());
+    loop_proxy(&rig, "loop_16").await.delete().await.unwrap();
+    manager.create_loop("l").await.unwrap();
+
+    // 64 Derived sensors.
+    for _ in 0..64 {
+        manager
+            .create_derived_sensor("d", "maximum", std::slice::from_ref(&input))
+            .await
+            .unwrap();
+    }
+    assert_eq!(
+        ok_or_name(
+            manager
+                .create_derived_sensor("d", "maximum", std::slice::from_ref(&input))
+                .await
+        ),
+        invalid()
+    );
+
+    // 32 user Calibration tables. The presets do not count.
+    for _ in 0..32 {
+        manager
+            .set_calibration_table("", "t", &[(1.0, 1.0), (2.0, 2.0)])
+            .await
+            .unwrap();
+    }
+    assert_eq!(
+        ok_or_name(
+            manager
+                .set_calibration_table("", "t", &[(1.0, 1.0), (2.0, 2.0)])
+                .await
+        ),
+        invalid()
+    );
+    // A write to an existing table is not a new one.
+    manager
+        .set_calibration_table("table_1", "again", &[(1.0, 1.0), (3.0, 3.0)])
+        .await
+        .unwrap();
+}

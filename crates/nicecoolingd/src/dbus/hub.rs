@@ -29,6 +29,15 @@ use crate::state::{
 /// The default Pump floor of a new Loop, in percent.
 pub const DEFAULT_PUMP_FLOOR: f64 = 40.0;
 
+/// The limits of the API (`docs/api.md`). A write above a limit is `InvalidArgument`.
+pub const MIN_POINTS: usize = 2;
+pub const MAX_CURVE_POINTS: usize = 8;
+pub const MAX_TABLE_POINTS: usize = 64;
+pub const MAX_NAME_CHARS: usize = 64;
+pub const MAX_DERIVED_SENSORS: usize = 64;
+pub const MAX_LOOPS: usize = 16;
+pub const MAX_CALIBRATION_TABLES: usize = 32;
+
 #[derive(Clone, Debug, Default)]
 pub struct BoardInfo {
     pub vendor: String,
@@ -212,6 +221,34 @@ pub fn derived_kind_name(kind: DerivedKind) -> &'static str {
         DerivedKind::Maximum => "maximum",
         DerivedKind::Mean => "mean",
         DerivedKind::Difference => "difference",
+    }
+}
+
+fn check_name(name: &str) -> Result<()> {
+    if name.chars().count() > MAX_NAME_CHARS {
+        Err(Error::invalid(format!(
+            "a name has at most {MAX_NAME_CHARS} characters"
+        )))
+    } else {
+        Ok(())
+    }
+}
+
+fn check_point_count(what: &str, count: usize, max: usize) -> Result<()> {
+    if (MIN_POINTS..=max).contains(&count) {
+        Ok(())
+    } else {
+        Err(Error::invalid(format!(
+            "{what} has {MIN_POINTS} to {max} points"
+        )))
+    }
+}
+
+fn check_count(what: &str, count: usize, max: usize) -> Result<()> {
+    if count < max {
+        Ok(())
+    } else {
+        Err(Error::invalid(format!("at most {max} {what}")))
     }
 }
 
@@ -790,6 +827,7 @@ impl Hub {
     // Writes.
 
     pub fn set_sensor_name(&self, id: &str, name: &str) -> Result<()> {
+        check_name(name)?;
         self.edit(|i| {
             i.require_sensor(id)?;
             set_name(&mut i.state.names, id, name);
@@ -800,7 +838,13 @@ impl Hub {
     /// Returns the id of the new Derived sensor.
     pub fn create_derived(&self, name: &str, kind: &str, sources: &[String]) -> Result<String> {
         let kind = derived_kind(kind)?;
+        check_name(name)?;
         self.edit(|i| {
+            check_count(
+                "Derived sensors",
+                i.state.derived_sensors.len(),
+                MAX_DERIVED_SENSORS,
+            )?;
             i.check_derived(None, kind, sources)?;
             let id = ids::derived_sensor_id(ids::next_number(
                 "derived_",
@@ -852,6 +896,7 @@ impl Hub {
     }
 
     pub fn set_channel_name(&self, id: &str, name: &str) -> Result<()> {
+        check_name(name)?;
         self.edit(|i| {
             i.require_channel(id)?;
             set_name(&mut i.state.names, id, name);
@@ -868,6 +913,7 @@ impl Hub {
         step_limit: f64,
     ) -> Result<()> {
         let input = sensor_id_of(input)?;
+        check_point_count("a Curve", points.len(), MAX_CURVE_POINTS)?;
         Curve::new(input.clone(), points.clone())
             .and_then(|mut curve| curve.set_limits(Some(smoothing_s), Some(step_limit)))
             .map_err(|e| Error::invalid(e.to_string()))?;
@@ -947,7 +993,9 @@ impl Hub {
     }
 
     pub fn create_loop(&self, name: &str) -> Result<String> {
+        check_name(name)?;
         self.edit(|i| {
+            check_count("Loops", i.state.loops.len(), MAX_LOOPS)?;
             let id = ids::loop_id(ids::next_number(
                 "loop_",
                 i.state.loops.iter().map(|l| l.id.as_str()),
@@ -971,6 +1019,7 @@ impl Hub {
     }
 
     pub fn set_loop_name(&self, id: &str, name: &str) -> Result<()> {
+        check_name(name)?;
         self.edit(|i| {
             i.loop_mut(id)?.name = name.to_owned();
             Ok(())
@@ -1091,12 +1140,19 @@ impl Hub {
         name: &str,
         points: Vec<(f64, f64)>,
     ) -> Result<String> {
+        check_name(name)?;
+        check_point_count("a Calibration table", points.len(), MAX_TABLE_POINTS)?;
         CalibrationTable::new(points.clone()).map_err(|e| Error::invalid(e.to_string()))?;
         self.edit(|i| {
             if i.presets.iter().any(|p| p.id == id) {
                 return Err(Error::read_only("preset"));
             }
             if id.is_empty() {
+                check_count(
+                    "Calibration tables",
+                    i.state.calibration_tables.len(),
+                    MAX_CALIBRATION_TABLES,
+                )?;
                 let id = ids::table_id(ids::next_number(
                     "table_",
                     i.state.calibration_tables.iter().map(|t| t.id.as_str()),
