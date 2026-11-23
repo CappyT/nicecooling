@@ -6,7 +6,7 @@ The app runs as the user, in the graphical session. It talks to the daemon on th
 
 ## Install
 
-There is no package yet: the RPM comes with section 10 of the OpenSpec change. Until then, install by hand from the repository. Run the commands in the repository root, on Fedora with GNOME.
+The RPM installs the files below, and `README.md` gives its install and rollback steps. To install by hand instead, run the commands in the repository root, on Fedora with GNOME.
 
 1. Build: `cargo build --release -p nicecoolingd -p nicecooling`.
 2. Install the daemon and its files:
