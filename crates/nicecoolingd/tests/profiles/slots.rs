@@ -388,15 +388,9 @@ async fn set_stored_fields_works_disconnected() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn set_stored_fields_active_slot_invalid_argument() {
-    let rig = Rig::start().await;
+    let rig = Rig::start_on_slot(3, |_, _| {}).await;
     let proxy = leakshield(&rig).await;
-    rig.sim.edit_report1(|r| r.active_profile = 3);
-    for _ in 0..200 {
-        if proxy.active_slot().await.unwrap() == 3 {
-            break;
-        }
-        tokio::time::sleep(Duration::from_millis(25)).await;
-    }
+    assert_eq!(proxy.active_slot().await.unwrap(), 3);
     let before = std::fs::read(slot_file(&rig, 3)).unwrap();
 
     let error = error_of(proxy.set_stored_fields(3, set(WRITABLE, 25.0)).await);

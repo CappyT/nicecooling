@@ -134,21 +134,21 @@ impl Rig {
 
     /// The daemon attaches the Leakshields of `usb` instead of a device in the options.
     pub async fn start_with_usb(usb: sim_usb::SimUsb) -> Self {
-        Self::build_full(false, |_, _| {}, Some(usb), None).await
+        Self::build_full(false, |_, _| {}, Some(usb), None, None).await
     }
 
     /// The tick runs on a simulated clock: `step` advances it and runs one tick.
     pub async fn start_with_clock() -> Self {
-        Self::build_full(false, |_, _| {}, None, Some(SimClock::default())).await
+        Self::build_full(false, |_, _| {}, None, Some(SimClock::default()), None).await
     }
 
     /// Like `start_with_clock`, with `prepare` run on the fake tree and the state directory.
     pub async fn start_with_clock_and(prepare: impl FnOnce(&FakeSysfs, &std::path::Path)) -> Self {
-        Self::build_full(false, prepare, None, Some(SimClock::default())).await
+        Self::build_full(false, prepare, None, Some(SimClock::default()), None).await
     }
 
     async fn build(polkit: bool, prepare: impl FnOnce(&FakeSysfs, &std::path::Path)) -> Self {
-        Self::build_full(polkit, prepare, None, None).await
+        Self::build_full(polkit, prepare, None, None, None).await
     }
 
     /// Stops the daemon after it wrote its state, and starts a new one on the same state
@@ -183,11 +183,21 @@ impl Rig {
         tokio::time::sleep(Duration::from_millis(150)).await;
     }
 
+    /// The device runs `slot` from the start: report 1 `active_profile` and report 3
+    /// `device_profile` agree, and the daemon reads both at its start.
+    pub async fn start_on_slot(
+        slot: u8,
+        prepare: impl FnOnce(&FakeSysfs, &std::path::Path),
+    ) -> Self {
+        Self::build_full(false, prepare, None, None, Some(slot)).await
+    }
+
     async fn build_full(
         polkit: bool,
         prepare: impl FnOnce(&FakeSysfs, &std::path::Path),
         usb: Option<sim_usb::SimUsb>,
         clock: Option<SimClock>,
+        device_slot: Option<u8>,
     ) -> Self {
         let with_loop = true;
         let fake = sim_tree();
@@ -218,6 +228,9 @@ impl Rig {
         // The fixture clock is from the day of the dump. A clock far from now makes the daemon set it.
         let now = clock::device_seconds(attached::now_unix()).unwrap();
         sim.edit_report1(|r| r.device_clock = now);
+        if let Some(slot) = device_slot {
+            sim.set_device_slot(slot);
+        }
         match usb {
             Some(usb) => {
                 options.usb = Some(Arc::new(usb));

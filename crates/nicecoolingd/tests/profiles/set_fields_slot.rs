@@ -2,7 +2,6 @@
 //! active Profile (design D14).
 
 use std::collections::HashMap;
-use std::time::Duration;
 
 use nicecooling_api::ids::Kind;
 use nicecooling_api::leakshield::LeakshieldProxy;
@@ -59,19 +58,11 @@ async fn set_fields_after_failed_switch_keeps_the_stored_edit() {
     assert_eq!(stored(&proxy, 1).await, 40.0);
 }
 
-/// The device button runs slot 3 while the active Profile has slot 2: the write goes into slot 3.
+/// The device runs slot 4 while the active Profile has slot 3: the write goes into slot 4.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn set_fields_stores_into_the_slot_the_device_runs() {
-    let rig = Rig::start_with(crate::with_profile_3).await;
+    let rig = Rig::start_on_slot(4, crate::with_profile_3).await;
     let proxy = leakshield(&rig).await;
-    rig.sim.edit_report1(|r| r.active_profile = 4);
-    for _ in 0..200 {
-        if proxy.active_slot().await.unwrap() == 4 {
-            break;
-        }
-        tokio::time::sleep(Duration::from_millis(25)).await;
-    }
-    assert_eq!(proxy.active_slot().await.unwrap(), 4);
     // The active Profile is profile_3, with slot 3.
     let before = stored(&proxy, 3).await;
 

@@ -379,6 +379,17 @@ impl SimDevice {
         state.report1 = report.encode();
     }
 
+    /// The device runs profile `slot`: report 1 `active_profile` and report 3 `device_profile`
+    /// both say so, as on a real device. Call it before the daemon reads the device.
+    pub fn set_device_slot(&self, slot: u8) {
+        let mut state = self.state();
+        let mut report =
+            Report3::decode(&state.report3).expect("the device holds a valid report 3");
+        report.set_bytes(REPORT3_STRUCT_END, &[slot]);
+        state.report3 = report.encode();
+        state.edit_report1(|r| r.active_profile = slot);
+    }
+
     /// Sets `alarm_bits` and latches every bit that is set: the device holds a latched bit until
     /// command 11 (`reset_alarm`), also after the bit in `alarm_bits` goes. `edit_report1` does
     /// not latch.
