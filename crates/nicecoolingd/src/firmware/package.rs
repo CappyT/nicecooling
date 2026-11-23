@@ -293,16 +293,21 @@ impl PackageReader {
 
     /// The Leakshield rows, ordered by id.
     pub async fn list(&self, file: File) -> Result<Vec<ImageRow>, PackageError> {
-        self.list_source(Source::from_file(file)?).await
+        self.run(move || Source::from_file(file), |conn| rows(&conn))
+            .await
     }
 
     /// One Leakshield row with its data.
     pub async fn read(&self, file: File, id: i64) -> Result<(ImageRow, Vec<u8>), PackageError> {
-        self.read_source(Source::from_file(file)?, id).await
+        self.run(
+            move || Source::from_file(file),
+            move |conn| read_row(&conn, id),
+        )
+        .await
     }
 
     pub async fn list_source(&self, source: Source) -> Result<Vec<ImageRow>, PackageError> {
-        self.run(source, |conn| rows(&conn)).await
+        self.run(move || Ok(source), |conn| rows(&conn)).await
     }
 
     pub async fn read_source(
@@ -310,12 +315,15 @@ impl PackageReader {
         source: Source,
         id: i64,
     ) -> Result<(ImageRow, Vec<u8>), PackageError> {
-        self.run(source, move |conn| read_row(&conn, id)).await
+        self.run(move || Ok(source), move |conn| read_row(&conn, id))
+            .await
     }
 
+    /// `source` runs on the blocking thread, after the slot is taken and inside the time limit: the
+    /// check of a descriptor can block too.
     async fn run<T: Send + 'static>(
         &self,
-        source: Source,
+        source: impl FnOnce() -> Result<Source, PackageError> + Send + 'static,
         job: impl FnOnce(Connection) -> Result<T, PackageError> + Send + 'static,
     ) -> Result<T, PackageError> {
         let permit = self
@@ -326,7 +334,7 @@ impl PackageReader {
         let deadline = Instant::now() + self.limit;
         let task = tokio::task::spawn_blocking(move || {
             let _permit = permit;
-            job(open(source, deadline)?)
+            job(open(source()?, deadline)?)
         });
         match tokio::time::timeout(self.limit, task).await {
             Ok(Ok(result)) => result,
@@ -987,5 +995,49 @@ mod tests {
                 .get::<_, i64>(0))
                 .is_err()
         );
+    }
+
+    #[tokio::test]
+    async fn descriptor_check_waits_for_the_slot() {
+        let dir = dir("fstatslot");
+        let bytes = bytes_of(&dir);
+        let fifo = dir.join("pipe");
+        rustix::fs::mknodat(
+            rustix::fs::CWD,
+            &fifo,
+            rustix::fs::FileType::Fifo,
+            rustix::fs::Mode::RUSR | rustix::fs::Mode::WUSR,
+            0,
+        )
+        .unwrap();
+        let open_fifo = || {
+            fs::OpenOptions::new()
+                .read(true)
+                .custom_flags(libc::O_NONBLOCK)
+                .open(&fifo)
+                .unwrap()
+        };
+        let reader = PackageReader::default();
+        let (release, gate) = mpsc::channel();
+        let slow = Source::new(
+            Gated {
+                release: gate,
+                inner: Cursor::new(bytes.clone()),
+            },
+            bytes.len() as u64,
+        );
+        let first = tokio::spawn({
+            let reader = reader.clone();
+            async move { reader.list_source(slow).await }
+        });
+        wait_until_busy(&reader).await;
+        // The descriptor check is part of the parse: it runs after the slot is taken.
+        assert_eq!(reader.list(open_fifo()).await, Err(PackageError::Busy));
+        release.send(()).unwrap();
+        first.await.unwrap().unwrap();
+        assert!(matches!(
+            reader.list(open_fifo()).await,
+            Err(PackageError::InvalidArgument(_))
+        ));
     }
 }
