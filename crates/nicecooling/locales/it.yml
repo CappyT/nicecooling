@@ -720,7 +720,7 @@ settings:
     name: App
     version: Versione
     license: Licenza
-    license_value: Non ancora decisa
+    license_value: GPL-3.0-or-later
     project: Pagina del progetto
     note: nicecooling non è un prodotto di Aqua Computer. LEAKSHIELD e aquasuite sono nomi di Aqua Computer GmbH & Co. KG.
     firmware: nicecooling non aggiorna il firmware di nessun dispositivo.
