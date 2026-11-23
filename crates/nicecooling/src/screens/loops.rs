@@ -500,7 +500,8 @@ fn feed_card(input: &ScreenInput<'_>, info: &LoopInfo) -> FeedCard {
         .and_then(|id| state.snapshot.leakshields.iter().find(|d| &d.id == id));
     let feed = device.map(|d| d.last_feed).unwrap_or_default();
     let feed_state = device.map_or(FeedState::Off, |d| d.feed_state);
-    let sent_once = feed.time_us != 0;
+    // `waiting` is "Not sent yet", also when `LastFeed` still holds a send from before.
+    let sent_once = feed.time_us != 0 && feed_state != FeedState::Waiting;
     let (feed_pump, flow) = if sent_once {
         (Some(feed.feed_pump), Some(feed.flow_lph))
     } else {

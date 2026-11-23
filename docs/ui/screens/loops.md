@@ -30,7 +30,7 @@ Detail column, from the top:
 | Daemon offline | Offline banner. Pickers and the slider are disabled |
 | No Pump channel | Warning row in "Parts": "A Loop needs a Pump channel. Without one, nicecooling cannot see a pump stop." |
 | Pump floor at 0 % | Warning under the slider: "With a Pump floor of 0 %, a Curve can stop the pump." |
-| Feed not sent yet | `FeedState` is `waiting`, or `off` with no send yet (`LastFeed` is zero). The values show "--" and the age text is "Not sent yet" |
+| Feed not sent yet | `FeedState` is `waiting` (whatever `LastFeed` holds: after a reconnect it can keep an older send), or `off` with no send yet (`LastFeed` is zero). The values show "--" and the age text is "Not sent yet" |
 | Feed stale | The age is in the Warning color after 5 s, and while `FeedState` is `failing` or `off`: "Last Feed 12 s ago" |
 | Flow out of range | The live marker of the Calibration table is in the dashed part. Text: "671 rpm is above the last point. The flow is an estimate." |
 | Alarm | A pump-stop Alarm shows as a red row at the top of the detail: "Pump stopped: Waterpump reads 0 rpm. Every Channel is at 100 %." |

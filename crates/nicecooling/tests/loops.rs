@@ -711,3 +711,17 @@ async fn feed_card_reads_the_properties_of_the_daemon() {
     assert_eq!(device.last_feed, LastFeed::default());
     drop(daemon);
 }
+
+// Review 11 (adversarial): docs/ui/screens/loops.md says `waiting` shows "Not sent yet". After a
+// reconnect the Feed is `waiting` again while `LastFeed` keeps the old send.
+#[test]
+fn review_feed_waiting_after_an_old_send() {
+    let mut state = full();
+    state.snapshot.leakshields[0].feed_state = FeedState::Waiting;
+    state.snapshot.leakshields[0].last_feed = LastFeed {
+        time_us: NOW_US - 600_000_000,
+        feed_pump: 2840.0,
+        flow_lph: 115.0,
+    };
+    assert_eq!(feed_card_at(&state, NOW_US).sent, "Not sent yet");
+}
