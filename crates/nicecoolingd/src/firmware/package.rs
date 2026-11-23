@@ -120,21 +120,34 @@ fn open(source: Source) -> Result<Connection, PackageError> {
     let len = usize::try_from(source.len).map_err(|_| invalid("the file is too large"))?;
     conn.deserialize_read_exact(MAIN_DB, source.reader, len, true)
         .map_err(sql)?;
-    let kind: Option<String> = conn
-        .query_row(
-            "SELECT type FROM sqlite_schema WHERE name = 'firmware'",
-            [],
-            |row| row.get(0),
-        )
-        .map(Some)
-        .or_else(|e| match e {
-            rusqlite::Error::QueryReturnedNoRows => Ok(None),
-            e => Err(sql(e)),
-        })?;
-    if kind.as_deref() != Some("table") {
-        return Err(invalid("the database has no table firmware"));
-    }
+    check_table(&conn)?;
     Ok(conn)
+}
+
+/// `firmware` must be a plain table. SQLite builds the schema from the `sql` column, so that column
+/// decides: a view and a virtual table have another statement, whatever the `type` column says.
+fn check_table(conn: &Connection) -> Result<(), PackageError> {
+    let mut statement = conn
+        .prepare("SELECT type, sql FROM sqlite_schema WHERE name = 'firmware'")
+        .map_err(sql)?;
+    let entries = statement
+        .query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?))
+        })
+        .map_err(sql)?
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(sql)?;
+    match entries.as_slice() {
+        [(kind, Some(statement))]
+            if kind == "table"
+                && statement
+                    .get(..12)
+                    .is_some_and(|head| head.eq_ignore_ascii_case("CREATE TABLE")) =>
+        {
+            Ok(())
+        }
+        _ => Err(invalid("the database has no plain table firmware")),
+    }
 }
 
 fn row_of(row: &rusqlite::Row<'_>) -> rusqlite::Result<Result<ImageRow, PackageError>> {
@@ -762,6 +775,46 @@ mod tests {
         assert_eq!(
             reader.read(open_file(&path), 27).await,
             Err(PackageError::NotFound)
+        );
+    }
+
+    #[tokio::test]
+    async fn view_with_the_type_table_is_refused() {
+        let dir = dir("viewtype");
+        let path = plain(
+            &dir,
+            "CREATE TABLE base (id INTEGER PRIMARY KEY, version INTEGER, bootloader INTEGER, \
+             hardware INTEGER, device TEXT, data BLOB);\
+             INSERT INTO base VALUES (26, 1022, 100, 1000, 'leakshield_EN', x'00');\
+             CREATE VIEW firmware AS SELECT * FROM base;\
+             PRAGMA writable_schema=ON;\
+             UPDATE sqlite_schema SET type='table' WHERE name='firmware';",
+        );
+        let result = PackageReader::default().list(open_file(&path)).await;
+        assert!(
+            matches!(result, Err(PackageError::InvalidArgument(_))),
+            "{result:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn virtual_table_is_refused() {
+        let dir = dir("vtab");
+        let path = plain(
+            &dir,
+            "CREATE VIRTUAL TABLE firmware USING fts4(id, version, bootloader, hardware, device, data);\
+             INSERT INTO firmware VALUES (26, 1022, 100, 1000, 'leakshield_EN', x'00');",
+        );
+        let result = PackageReader::default().list(open_file(&path)).await;
+        assert!(
+            matches!(result, Err(PackageError::InvalidArgument(_))),
+            "{result:?}"
+        );
+        let opened = open(Source::from_file(open_file(&path)).unwrap());
+        assert!(
+            matches!(&opened, Err(PackageError::InvalidArgument(why)) if why.contains("plain table")),
+            "the refusal comes from the table check: {:?}",
+            opened.err()
         );
     }
 }
