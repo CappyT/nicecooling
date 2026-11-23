@@ -85,6 +85,21 @@ impl Group {
         Self { def, states }
     }
 
+    /// The group after an edit. A rule that equals a rule of `old` keeps its state: the hold time
+    /// of a sensor rule and the period of an interval rule. Any other rule starts again.
+    pub fn edited(mut old: Group, def: RuleGroupDef, now: Duration) -> Self {
+        let mut group = Self::new(def, now);
+        let mut taken = vec![false; old.def.rules.len()];
+        for (rule, state) in group.def.rules.iter().zip(&mut group.states) {
+            let same = (0..taken.len()).find(|i| !taken[*i] && old.def.rules[*i] == *rule);
+            if let Some(i) = same {
+                taken[i] = true;
+                *state = std::mem::replace(&mut old.states[i], RuleState::Stateless);
+            }
+        }
+        group
+    }
+
     pub fn def(&self) -> &RuleGroupDef {
         &self.def
     }

@@ -65,8 +65,9 @@ impl RulesStage {
     }
 }
 
-/// A group that did not change keeps its state. A new or changed group starts its Rule delay,
-/// its hold times and its interval period again.
+/// A group that did not change keeps its state. In an edited group, each rule that did not
+/// change keeps its hold time and its interval period. A new or changed rule starts again, and
+/// so does the Rule delay of a new or edited group.
 fn replace_groups(
     groups: &mut Vec<Group>,
     selector: Option<&mut Selector>,
@@ -76,16 +77,22 @@ fn replace_groups(
     let mut old = std::mem::take(groups);
     let mut selector = selector;
     for def in defs {
-        let kept = old
+        let previous = old
             .iter()
-            .position(|g| g.def() == &def)
+            .position(|g| g.def().id == def.id)
             .map(|i| old.swap_remove(i));
-        groups.push(kept.unwrap_or_else(|| {
-            if let Some(selector) = selector.as_deref_mut() {
-                selector.timers_mut().reset(&def.id);
+        groups.push(match previous {
+            Some(group) if group.def() == &def => group,
+            previous => {
+                if let Some(selector) = selector.as_deref_mut() {
+                    selector.timers_mut().reset(&def.id);
+                }
+                match previous {
+                    Some(group) => Group::edited(group, def, now),
+                    None => Group::new(def, now),
+                }
             }
-            Group::new(def, now)
-        }));
+        });
     }
 }
 
@@ -343,6 +350,110 @@ mod tests {
             run(&mut stage, &log, 434, 2),
             [("profile_2".to_owned(), Cause::Rule)]
         );
+    }
+
+    /// The user adds a rule to the winning group. Its sensor rule did not change and the sensor
+    /// still meets it, so the group still holds: the hold time of the sensor rule does not start
+    /// again.
+    #[test]
+    fn an_edit_of_a_winning_group_with_a_hold_time_keeps_it_active() {
+        use crate::rules::sensor::{Comparison, SensorRule};
+        let sensor = RuleDef::Sensor(SensorRule {
+            sensor: "sensor_1".into(),
+            comparison: Comparison::Gt,
+            value: 40.0,
+            value_max: None,
+            hold_s: 60,
+        });
+        let group = |rules: Vec<RuleDef>| RuleGroupDef {
+            id: "group_1".into(),
+            profile: "profile_2".into(),
+            enabled: true,
+            rules,
+        };
+        let (mut stage, log) = scripted(vec![HostInput {
+            groups: Some(vec![group(vec![sensor.clone()])]),
+            ..start()
+        }]);
+        let mut ctx = TickContext::default();
+        ctx.values.insert("sensor_1".into(), 50.0);
+        let mut tick = |stage: &mut RulesStage, from: u64, ticks: u64| {
+            for t in from..from + ticks {
+                ctx.now = Duration::from_secs(t);
+                stage.run(&mut ctx);
+            }
+        };
+        // 60 s of hold time and 30 s of Rule delay.
+        tick(&mut stage, 0, 100);
+        assert_eq!(
+            log.lock().unwrap().as_slice(),
+            [("profile_2".to_owned(), Cause::Rule)]
+        );
+
+        // The dwell is over. The new time rule holds for the whole week.
+        edit(
+            &mut stage,
+            &log,
+            group(vec![sensor, weekly("x", "x", 0, 1440).rules.remove(0)]),
+        );
+        tick(&mut stage, 400, 200);
+
+        assert_eq!(log.lock().unwrap()[1..].to_vec(), []);
+    }
+
+    /// An edit keeps the interval phase of a rule that did not change, wherever the rule sits in
+    /// the new list. A changed rule starts its first period at the edit.
+    #[test]
+    fn an_edit_keeps_the_interval_phase_of_a_rule_that_did_not_change() {
+        use crate::rules::group::Inputs;
+        use crate::rules::interval::IntervalRule;
+        use crate::rules::process::ProcessList;
+        let interval = |delay_s| {
+            RuleDef::Interval(IntervalRule {
+                interval_s: 100,
+                delay_s,
+                duration_s: 20,
+            })
+        };
+        let group = |rules: Vec<RuleDef>| RuleGroupDef {
+            id: "group_1".into(),
+            profile: "profile_2".into(),
+            enabled: true,
+            rules,
+        };
+        let always = || weekly("x", "x", 0, 1440).rules.remove(0);
+        let (mut stage, log) = scripted(vec![HostInput {
+            groups: Some(vec![group(vec![interval(50)])]),
+            ..start()
+        }]);
+        run(&mut stage, &log, 0, 1);
+        let holds = |stage: &mut RulesStage, t: u64| {
+            let (values, processes) = (Default::default(), ProcessList::default());
+            stage.groups[0].holds(&Inputs {
+                now: Duration::from_secs(t),
+                values: &values,
+                processes: &processes,
+                local: DayTime {
+                    weekday: 1,
+                    minute: 0,
+                },
+            })
+        };
+
+        // The edit at 130 s adds a rule before the interval rule. The periods still start at 0 s.
+        edit(&mut stage, &log, group(vec![always(), interval(50)]));
+        run(&mut stage, &log, 130, 1);
+        assert!(holds(&mut stage, 155), "position 55 of the window 50 to 70");
+        assert!(!holds(&mut stage, 175));
+
+        // The edit at 230 s changes the interval rule: its first period starts at 230 s.
+        edit(&mut stage, &log, group(vec![always(), interval(60)]));
+        run(&mut stage, &log, 230, 1);
+        assert!(
+            !holds(&mut stage, 260),
+            "position 30 of the window 60 to 80, the old phase has 60"
+        );
+        assert!(holds(&mut stage, 295), "position 65 of the window 60 to 80");
     }
 
     #[test]

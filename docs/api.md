@@ -108,7 +108,7 @@ A Rule group has an identifier, a target Profile, an `enabled` flag and an order
 - A group holds when it is enabled and all its rules hold. A group without rules never holds.
 - The first group in list order that holds activates its Profile. Rule delay, Profile dwell and Immediate switching apply to the group (design D14). When no group holds, the Default Profile is active.
 - `SetRuleGroups` replaces the whole list. An empty group id creates a group. It returns the group ids in list order. A target Profile that does not exist fails with `NotFound`. An unknown kind, a missing key or a value out of range fails with `InvalidArgument`.
-- An edit of the winning group through `SetRuleGroups` keeps it active without a new Rule delay while it holds. The timer of an edited group restarts when the group stops holding.
+- An edit of the winning group through `SetRuleGroups` keeps it active without a new Rule delay while it holds. The timer of an edited group restarts when the group stops holding. Every rule that equals a rule of the same group before the edit keeps its state: the hold time of a sensor rule and the period of an interval rule. A new or changed rule starts again.
 - Hotkeys are not a rule kind. Wayland has no standard global shortcut.
 - The property `RuleGroupState` gives, for each group, whether it holds and since when (`a(sbt)`: group id, holds, since in microseconds, 0 when it does not hold). It changes only when a group starts or stops holding.
 
@@ -129,7 +129,7 @@ A Rule group has an identifier, a target Profile, an `enabled` flag and an order
 | interval | `duration_s` | `u` | The time that the rule holds, at least 1. |
 
 - With `match_on` `name`, a process name matches when it equals, without case, the `comm` or the basename of `/proc/<pid>/exe` of a running process. With `match_on` `cmdline`, it matches when it is a substring, without case, of `/proc/<pid>/cmdline`. The daemon reads the process list once per second.
-- The interval rule holds from `delay_s` to `delay_s + duration_s` after the start of each period of `interval_s`. A window that ends after the period is cut at the period end. The first period starts when the daemon starts or when `SetRuleGroups` saves the rule.
+- The interval rule holds from `delay_s` to `delay_s + duration_s` after the start of each period of `interval_s`. A window that ends after the period is cut at the period end. The first period starts when the daemon starts or when `SetRuleGroups` saves a new or changed rule.
 - A window that is shorter than the Rule delay never activates its Profile, unless Immediate switching is on.
 
 ## Limits

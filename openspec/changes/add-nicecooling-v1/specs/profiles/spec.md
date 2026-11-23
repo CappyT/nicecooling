@@ -247,7 +247,7 @@ A Rule group SHALL activate its Profile only when it becomes the winning group. 
 - **THEN** the daemon does not write the settings of the slot over the change
 
 ### Requirement: Rule delay
-Each Rule group SHALL have its own Rule delay timer. The winning group SHALL be the first group in list order that has held for the Rule delay. The Rule delay SHALL be a setting that applies to every group. Its default SHALL be 30 seconds. An edit of the winning group SHALL keep it active without a new Rule delay while it still holds. The timer of an edited group SHALL restart only when the group stops holding.
+Each Rule group SHALL have its own Rule delay timer. The winning group SHALL be the first group in list order that has held for the Rule delay. The Rule delay SHALL apply to every group and default to 30 seconds. An edit of the winning group SHALL keep it active without a new Rule delay while it still holds. The timer of an edited group SHALL restart only when the group stops holding. An edit SHALL keep the hold time and the interval phase of each rule that it does not change.
 
 #### Scenario: Group holds
 - **WHEN** a group holds for 30 seconds with the default Rule delay
@@ -268,6 +268,10 @@ Each Rule group SHALL have its own Rule delay timer. The winning group SHALL be 
 #### Scenario: Edit stops the winning group
 - **WHEN** the user edits the winning group so that it does not hold
 - **THEN** its timer resets and the group needs the whole Rule delay when it holds again
+
+#### Scenario: Edit keeps an unchanged rule
+- **WHEN** the user edits a group and keeps a sensor rule that has met its comparison for 40 seconds of its 60 seconds hold time
+- **THEN** that rule holds after 20 more seconds, and a new or changed rule starts its hold time again
 
 #### Scenario: Later group is ready first
 - **WHEN** the third group has held for 30 seconds and the first group has held for 10 seconds

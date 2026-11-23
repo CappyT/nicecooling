@@ -153,7 +153,7 @@ The `sensor` rule with the comparison `in_range` has the key `value_max`. The ke
 
 A time range that ends before it starts crosses midnight and belongs to the day of its start. In group 2, Saturday 01:00 belongs to Friday.
 
-An interval window that ends after the period is cut at the end of the period. The first period starts when the daemon starts, or when `SetRuleGroups` saves the rule.
+An interval window that ends after the period is cut at the end of the period. The first period starts when the daemon starts, or when `SetRuleGroups` saves a new or changed rule.
 
 ### Timing
 
