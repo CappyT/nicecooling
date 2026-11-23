@@ -6,10 +6,11 @@ use std::fs::File;
 use std::io::{self, Read};
 use std::os::unix::fs::FileExt;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use nicecooling_protocol::firmware::bootloader::Language;
 use rusqlite::config::DbConfig;
+use rusqlite::limits::Limit;
 use rusqlite::types::ValueRef;
 use rusqlite::{Connection, MAIN_DB};
 use tokio::sync::Semaphore;
@@ -20,6 +21,12 @@ pub const MAX_FILE_BYTES: u64 = 16 << 20;
 pub const MAX_DATA_BYTES: i64 = 4 << 20;
 /// The time that one parse may take. A descriptor on a FUSE mount can block the read.
 pub const READ_LIMIT: Duration = Duration::from_secs(10);
+
+/// The largest string or BLOB that SQLite builds, also inside an expression of the schema. It
+/// holds a row of `MAX_DATA_BYTES` read as UTF-8 from a UTF-16 database (1.5 times more).
+const MAX_VALUE_BYTES: i32 = 8 << 20;
+/// SQLite calls the progress handler after this many virtual machine instructions.
+const PROGRESS_STEP: i32 = 1000;
 
 const DEVICES: [&str; 2] = ["leakshield_EN", "leakshield_DE"];
 
@@ -110,9 +117,14 @@ impl Source {
 }
 
 /// Opens the database from memory: read-only, with `trusted_schema` off and the defensive mode.
-/// It refuses a file that has no table `firmware`. A view of that name is not a table.
-fn open(source: Source) -> Result<Connection, PackageError> {
+/// A value above `MAX_VALUE_BYTES` fails, and so does a statement that runs after `deadline`: the
+/// thread then ends and frees the slot. It refuses a file that has no plain table `firmware`.
+fn open(source: Source, deadline: Instant) -> Result<Connection, PackageError> {
     let mut conn = Connection::open_in_memory().map_err(sql)?;
+    conn.set_limit(Limit::SQLITE_LIMIT_LENGTH, MAX_VALUE_BYTES)
+        .map_err(sql)?;
+    conn.progress_handler(PROGRESS_STEP, Some(move || Instant::now() >= deadline))
+        .map_err(sql)?;
     conn.set_db_config(DbConfig::SQLITE_DBCONFIG_TRUSTED_SCHEMA, false)
         .map_err(sql)?;
     conn.set_db_config(DbConfig::SQLITE_DBCONFIG_DEFENSIVE, true)
@@ -121,6 +133,7 @@ fn open(source: Source) -> Result<Connection, PackageError> {
     conn.deserialize_read_exact(MAIN_DB, source.reader, len, true)
         .map_err(sql)?;
     check_table(&conn)?;
+    check_columns(&conn)?;
     Ok(conn)
 }
 
@@ -147,6 +160,25 @@ fn check_table(conn: &Connection) -> Result<(), PackageError> {
             Ok(())
         }
         _ => Err(invalid("the database has no plain table firmware")),
+    }
+}
+
+/// No column of `firmware` may be generated or hidden: SQLite evaluates the expression of a
+/// generated column for every row, and the expression is code of the file.
+fn check_columns(conn: &Connection) -> Result<(), PackageError> {
+    let mut statement = conn
+        .prepare("SELECT name, hidden FROM pragma_table_xinfo('firmware')")
+        .map_err(sql)?;
+    let columns = statement
+        .query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+        })
+        .map_err(sql)?
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(sql)?;
+    match columns.iter().find(|(_, hidden)| *hidden != 0) {
+        Some((name, _)) => Err(invalid(format!("the column {name} is generated or hidden"))),
+        None => Ok(()),
     }
 }
 
@@ -291,9 +323,10 @@ impl PackageReader {
             .clone()
             .try_acquire_owned()
             .map_err(|_| PackageError::Busy)?;
+        let deadline = Instant::now() + self.limit;
         let task = tokio::task::spawn_blocking(move || {
             let _permit = permit;
-            job(open(source)?)
+            job(open(source, deadline)?)
         });
         match tokio::time::timeout(self.limit, task).await {
             Ok(Ok(result)) => result,
@@ -310,6 +343,7 @@ mod tests {
     use std::os::unix::fs::OpenOptionsExt;
     use std::path::{Path, PathBuf};
     use std::sync::mpsc;
+    use std::time::Instant;
 
     use rusqlite::types::Value;
     use sha2::{Digest, Sha256};
@@ -631,7 +665,7 @@ mod tests {
 
     fn connection(dir: &Path) -> Connection {
         let path = database(dir, &leakshield_rows());
-        open(Source::from_file(open_file(&path)).unwrap()).unwrap()
+        open(Source::from_file(open_file(&path)).unwrap(), far()).unwrap()
     }
 
     #[test]
@@ -814,7 +848,7 @@ mod tests {
             matches!(result, Err(PackageError::InvalidArgument(_))),
             "{result:?}"
         );
-        let opened = open(Source::from_file(open_file(&path)).unwrap());
+        let opened = open(Source::from_file(open_file(&path)).unwrap(), far());
         assert!(
             matches!(&opened, Err(PackageError::InvalidArgument(why)) if why.contains("plain table")),
             "the refusal comes from the table check: {:?}",
@@ -838,6 +872,120 @@ mod tests {
         assert_eq!(
             reader.read(open_file(&path), 26).await,
             Err(PackageError::NotFound)
+        );
+    }
+
+    fn far() -> Instant {
+        Instant::now() + READ_LIMIT
+    }
+
+    /// A schema expression runs inside the root daemon. A file of a few KiB must not make SQLite
+    /// allocate far above the file bound.
+    #[tokio::test]
+    async fn generated_column_memory_stays_bounded() {
+        let dir = dir("genmem");
+        let path = plain(
+            &dir,
+            "CREATE TABLE firmware (id INTEGER PRIMARY KEY, \
+             version INTEGER GENERATED ALWAYS AS (length(hex(zeroblob(60000000))) % 1000 + 1000), \
+             bootloader INTEGER, hardware INTEGER, device TEXT, data BLOB);\
+             INSERT INTO firmware (id, bootloader, hardware, device, data) \
+             VALUES (26, 100, 1000, 'leakshield_EN', x'00');",
+        );
+        unsafe { rusqlite::ffi::sqlite3_memory_highwater(1) };
+        let rows = PackageReader::default().list(open_file(&path)).await;
+        let peak = unsafe { rusqlite::ffi::sqlite3_memory_highwater(0) };
+        // Other tests of this process hold up to about 30 MiB. The expression alone needs 120 MB.
+        assert!(peak < 64 << 20, "SQLite peak {peak} bytes, result {rows:?}");
+    }
+
+    #[tokio::test]
+    async fn generated_column_is_refused() {
+        let dir = dir("gencol");
+        for kind in ["VIRTUAL", "STORED"] {
+            let path = plain(
+                &dir,
+                &format!(
+                    "DROP TABLE IF EXISTS firmware; \
+                     CREATE TABLE firmware (id INTEGER PRIMARY KEY, \
+                     version INTEGER GENERATED ALWAYS AS (1022) {kind}, \
+                     bootloader INTEGER, hardware INTEGER, device TEXT, data BLOB);"
+                ),
+            );
+            let result = PackageReader::default().list(open_file(&path)).await;
+            assert!(
+                matches!(result, Err(PackageError::InvalidArgument(_))),
+                "{kind}: {result:?}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn sql_work_stops_at_the_limit() {
+        let dir = dir("gencpu");
+        let path = plain(
+            &dir,
+            "CREATE TABLE firmware (id INTEGER PRIMARY KEY, \
+             version INTEGER GENERATED ALWAYS AS (length(hex(zeroblob(20000000 + id))) % 1000 + 1000), \
+             bootloader INTEGER, hardware INTEGER, device TEXT, data BLOB);\
+             WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 5) \
+             INSERT INTO firmware (id, bootloader, hardware, device, data) \
+             SELECT i, 100, 1000, 'leakshield_EN', x'00' FROM n;",
+        );
+        let reader = PackageReader::with_limit(Duration::from_millis(100));
+        let result = reader.list(open_file(&path)).await;
+        assert!(
+            matches!(result, Err(PackageError::InvalidArgument(_))),
+            "{:?}",
+            result.map(|r| r.len())
+        );
+        let timed_out = Instant::now();
+        while reader.slot.available_permits() == 0 {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+        assert!(
+            timed_out.elapsed() < Duration::from_millis(500),
+            "the slot stayed busy"
+        );
+    }
+
+    #[test]
+    fn progress_handler_interrupts_a_long_statement() {
+        let dir = dir("progress");
+        let path = dir.join("many.database");
+        let source = Connection::open(&path).unwrap();
+        source
+            .execute_batch(
+                "CREATE TABLE firmware (id INTEGER PRIMARY KEY, version INTEGER, bootloader INTEGER, \
+                 hardware INTEGER, device TEXT, data BLOB);\
+                 WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 100000) \
+                 INSERT INTO firmware SELECT i, 1, 1, 1, 'leakshield_EN', x'00' FROM n;",
+            )
+            .unwrap();
+        drop(source);
+        let slow = open(Source::from_file(open_file(&path)).unwrap(), far()).unwrap();
+        assert_eq!(rows(&slow).unwrap().len(), 100_000);
+        let late = open(Source::from_file(open_file(&path)).unwrap(), Instant::now()).unwrap();
+        let result = rows(&late);
+        assert!(
+            matches!(result, Err(PackageError::InvalidArgument(_))),
+            "{:?}",
+            result.map(|r| r.len())
+        );
+    }
+
+    #[test]
+    fn value_length_is_limited() {
+        let conn = connection(&dir("length"));
+        assert_eq!(
+            conn.limit(rusqlite::limits::Limit::SQLITE_LIMIT_LENGTH)
+                .unwrap(),
+            8 << 20
+        );
+        assert!(
+            conn.query_row("SELECT length(hex(zeroblob(5000000)))", [], |r| r
+                .get::<_, i64>(0))
+                .is_err()
         );
     }
 }
