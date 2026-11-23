@@ -422,6 +422,69 @@ fn derived_and_flow_values_reach_the_curve() {
 }
 
 #[test]
+fn non_finite_input_is_lost_input_and_recovers() {
+    for bad in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+        let mut h = Harness::new(one_channel(curve("t", 0.0, 5.0)), Duration::ZERO);
+        h.set("t", 40.0);
+        h.tick();
+        h.set("t", bad);
+        h.tick();
+        assert_eq!(h.duty("ch"), Some(100.0), "{bad}");
+        assert!(h.ctx.channels["ch"].lost_input, "{bad}");
+        assert_eq!(h.chip.lock().unwrap().actual("ch").raw, 255, "{bad}");
+        h.set("t", 40.0);
+        h.tick();
+        assert_eq!(h.duty("ch"), Some(95.0), "{bad}");
+    }
+}
+
+#[test]
+fn non_finite_derived_value_is_lost_input() {
+    use crate::derived::{DerivedKind, DerivedSensor};
+
+    let config = TickConfig {
+        channels: vec![setup("ch", curve("derived_1", 0.0, 5.0))],
+        derived: vec![DerivedSensor {
+            id: "derived_1".into(),
+            name: "Mean".into(),
+            kind: DerivedKind::Mean,
+            sources: vec!["a".into(), "b".into()],
+        }],
+        ..TickConfig::default()
+    };
+    let mut h = Harness::new(config, Duration::ZERO);
+    h.set("a", 1e308);
+    h.set("b", 1e308);
+    h.tick();
+    assert!(!h.ctx.values.contains_key("derived_1"));
+    assert_eq!(h.duty("ch"), Some(100.0));
+}
+
+#[test]
+fn non_finite_fixed_duty_is_full_speed_and_never_stored() {
+    for bad in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+        let mut h = Harness::new(one_channel(Control::Fixed(bad)), Duration::ZERO);
+        h.ticks(2);
+        assert_eq!(h.duty("ch"), Some(100.0), "{bad}");
+        assert_eq!(h.ctx.channels["ch"].last_duty, Some(100.0), "{bad}");
+        assert_eq!(h.chip.lock().unwrap().actual("ch").raw, 255, "{bad}");
+        // A fixed Duty of 40 takes over: the step limit walks down from 100.
+        h.ctx.config = one_channel(Control::Fixed(40.0));
+        h.tick();
+        assert_eq!(h.duty("ch"), Some(95.0), "{bad}");
+    }
+}
+
+#[test]
+fn step_stage_replaces_a_non_finite_previous_duty() {
+    let mut h = Harness::new(one_channel(Control::Fixed(40.0)), Duration::ZERO);
+    h.tick();
+    h.ctx.channels.get_mut("ch").unwrap().last_duty = Some(f64::NAN);
+    h.tick();
+    assert_eq!(h.duty("ch"), Some(40.0));
+}
+
+#[test]
 fn single_write_for_constant_duty() {
     let mut h = Harness::new(one_channel(curve("t", 0.0, 5.0)), Duration::ZERO);
     for _ in 0..10 {

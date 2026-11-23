@@ -5,6 +5,9 @@ pub const DEFAULT_SMOOTHING_S: f64 = 5.0;
 /// The default Duty step limit, in percent per second.
 pub const DEFAULT_STEP_LIMIT: f64 = 5.0;
 
+/// The Duty that every fail-safe path of the tick uses, in percent.
+pub const FAIL_SAFE_DUTY: f64 = 100.0;
+
 /// The widest Input moving average, in seconds.
 pub const MAX_SMOOTHING_S: f64 = 600.0;
 
@@ -22,6 +25,7 @@ pub struct Curve {
 #[derive(Debug, PartialEq, Eq)]
 pub enum CurveError {
     TooFewPoints,
+    NotFinite,
     NotSorted,
     DutyOutOfRange,
     SmoothingOutOfRange,
@@ -32,6 +36,7 @@ impl fmt::Display for CurveError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::TooFewPoints => write!(f, "a Curve needs at least 2 points"),
+            Self::NotFinite => write!(f, "the points must be finite numbers"),
             Self::NotSorted => write!(f, "the points must increase in Input"),
             Self::DutyOutOfRange => write!(f, "a Duty is a percent from 0 to 100"),
             Self::SmoothingOutOfRange => {
@@ -48,6 +53,9 @@ impl Curve {
     pub fn new(input: impl Into<String>, points: Vec<(f64, f64)>) -> Result<Self, CurveError> {
         if points.len() < 2 {
             return Err(CurveError::TooFewPoints);
+        }
+        if points.iter().any(|p| !p.0.is_finite() || !p.1.is_finite()) {
+            return Err(CurveError::NotFinite);
         }
         if points.windows(2).any(|w| w[0].0 >= w[1].0) {
             return Err(CurveError::NotSorted);
@@ -87,7 +95,7 @@ impl Curve {
     }
 
     /// The Duty for an Input value. It is linear between points and equals the
-    /// Duty of the nearest point outside them.
+    /// Duty of the nearest point outside them. A NaN Input gives 100.
     pub fn duty_at(&self, input: f64) -> f64 {
         let first = self.points[0];
         let last = self.points[self.points.len() - 1];
@@ -97,7 +105,9 @@ impl Curve {
         if input >= last.0 {
             return last.1;
         }
-        let w = self.points.windows(2).find(|w| input <= w[1].0).unwrap();
+        let Some(w) = self.points.windows(2).find(|w| input <= w[1].0) else {
+            return FAIL_SAFE_DUTY;
+        };
         w[0].1 + (input - w[0].0) * (w[1].1 - w[0].1) / (w[1].0 - w[0].0)
     }
 }
@@ -144,6 +154,28 @@ mod tests {
         assert_eq!(c.set_limits(Some(600.0), Some(1e9)), Ok(()));
         assert_eq!((c.smoothing_s, c.step_limit), (600.0, 1e9));
         assert_eq!(c.set_limits(None, None), Ok(()));
+    }
+
+    #[test]
+    fn rejects_non_finite_points() {
+        for bad in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+            for points in [
+                vec![(bad, 10.0), (60.0, 20.0)],
+                vec![(40.0, 10.0), (bad, 20.0)],
+                vec![(40.0, bad), (60.0, 20.0)],
+                vec![(40.0, 10.0), (60.0, bad)],
+            ] {
+                assert!(Curve::new("t", points.clone()).is_err(), "{points:?}");
+            }
+        }
+        assert_eq!(
+            Curve::new("t", vec![(f64::NAN, 10.0), (f64::NAN, 20.0)]),
+            Err(CurveError::NotFinite)
+        );
+        assert_eq!(
+            Curve::new("t", vec![(f64::NEG_INFINITY, 20.0), (80.0, 100.0)]),
+            Err(CurveError::NotFinite)
+        );
     }
 
     #[test]

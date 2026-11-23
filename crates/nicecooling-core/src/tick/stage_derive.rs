@@ -16,7 +16,7 @@ impl Stage for DeriveStage {
             .map(|d| (d.id.clone(), d.value(&ctx.values)))
             .collect();
         for (id, value) in derived {
-            if let Some(value) = value {
+            if let Some(value) = value.filter(|v| v.is_finite()) {
                 ctx.values.insert(id, value);
             }
         }
@@ -33,7 +33,9 @@ impl Stage for DeriveStage {
             if flow.out_of_range {
                 ctx.out_of_range.insert(id.clone());
             }
-            ctx.values.insert(id, flow.lph);
+            if flow.lph.is_finite() {
+                ctx.values.insert(id, flow.lph);
+            }
         }
     }
 }

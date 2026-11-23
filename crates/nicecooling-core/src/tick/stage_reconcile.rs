@@ -35,7 +35,11 @@ pub trait ChannelIo: Send {
 }
 
 /// Duty to raw value: `round(duty * 255 / 100)`, half away from zero, clamped to 0-255.
+/// A Duty that is not finite is full speed.
 pub fn percent_to_raw(duty: f64) -> u8 {
+    if !duty.is_finite() {
+        return 255;
+    }
     (duty * 255.0 / 100.0).round().clamp(0.0, 255.0) as u8
 }
 
@@ -164,6 +168,13 @@ mod tests {
         assert_eq!(percent_to_raw(100.0), 255);
         assert_eq!(percent_to_raw(150.0), 255);
         assert_eq!(percent_to_raw(-5.0), 0);
+    }
+
+    #[test]
+    fn non_finite_duty_is_full_speed() {
+        for duty in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+            assert_eq!(percent_to_raw(duty), 255, "{duty}");
+        }
     }
 
     #[test]

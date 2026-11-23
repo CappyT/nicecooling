@@ -483,3 +483,80 @@ async fn late_chip_sensor_appears_on_the_bus() {
         .unwrap();
     assert_eq!(sensor.id().await.unwrap(), "asusec_late_temp1");
 }
+
+/// Runs `n` ticks on a separate task. `true` when a tick panicked.
+async fn ticks_panic(rig: &mut Rig, n: u64) -> bool {
+    let mut daemon = rig.daemon.take().expect("the daemon ticks in the background");
+    match tokio::spawn(async move {
+        daemon.run(Some(n)).await;
+        daemon
+    })
+    .await
+    {
+        Ok(daemon) => {
+            rig.daemon = Some(daemon);
+            false
+        }
+        Err(e) => e.is_panic(),
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn non_finite_curve_points_are_refused_and_the_fan_keeps_running() {
+    let mut rig = Rig::start().await;
+    rig.ticks(2).await;
+    let input = path(Kind::Sensor, "k10temp_temp1");
+    for id in ["nct6798_pwm1", "nct6798_pwm2"] {
+        let channel = channel(&rig, id).await;
+        for bad in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+            for points in [
+                [(bad, 20.0), (80.0, 100.0)],
+                [(bad, 50.0), (bad, 60.0)],
+                [(20.0, bad), (80.0, 100.0)],
+            ] {
+                let e = channel
+                    .set_curve(&input, &points, 0.0, 100.0)
+                    .await
+                    .unwrap_err();
+                assert_eq!(error_name(&e), format!("{ERR}.InvalidArgument"), "{points:?}");
+            }
+        }
+        assert!(!ticks_panic(&mut rig, 3).await, "the tick panicked");
+        assert!(channel.raw().await.unwrap() > 0, "{id} stopped");
+    }
+    let pwm1 = channel(&rig, "nct6798_pwm1").await;
+    pwm1.set_fixed_duty(100.0).await.unwrap();
+    // The step limit is 5 points for each tick, from the 63.75% of the Curve.
+    rig.ticks(10).await;
+    assert_eq!(pwm1.raw().await.unwrap(), 255);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn non_finite_calibration_points_are_refused() {
+    let mut rig = Rig::start().await;
+    rig.ticks(2).await;
+    let manager = manager(&rig).await;
+    for bad in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+        for points in [
+            [(100.0, bad), (200.0, bad)],
+            [(bad, 10.0), (200.0, 20.0)],
+            [(100.0, 10.0), (bad, 20.0)],
+        ] {
+            let e = manager
+                .set_calibration_table("", "bad", &points)
+                .await
+                .unwrap_err();
+            assert_eq!(error_name(&e), format!("{ERR}.InvalidArgument"), "{points:?}");
+        }
+    }
+    assert!(!ticks_panic(&mut rig, 2).await, "the tick panicked");
+    assert!(
+        manager
+            .get_calibration_tables()
+            .await
+            .unwrap()
+            .iter()
+            .all(|t| t.2),
+        "a user table was stored"
+    );
+}

@@ -1,4 +1,4 @@
-use super::{Control, Stage, TickContext};
+use super::{Control, Stage, TickContext, finite_or_full};
 use crate::curve::DEFAULT_STEP_LIMIT;
 
 /// Stage 6: apply the Duty step limit.
@@ -20,9 +20,11 @@ impl Stage for StepStage {
             let Some(tick) = ctx.channels.get_mut(&setup.id) else {
                 continue;
             };
-            let Some(target) = tick.target else { continue };
-            tick.duty = Some(match tick.last_duty {
-                Some(last) => last + (target - last).clamp(-limit, limit),
+            let Some(target) = tick.target.map(finite_or_full) else {
+                continue;
+            };
+            tick.duty = Some(match tick.last_duty.filter(|l| l.is_finite()) {
+                Some(last) => finite_or_full(last + (target - last).clamp(-limit, limit)),
                 None => target,
             });
         }

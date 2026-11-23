@@ -25,6 +25,15 @@ mod tests;
 
 pub use stage_reconcile::{ChannelIo, Readback, percent_to_raw};
 
+/// A Duty that is not finite is full speed: a fan at 100% is the safe failure.
+pub(crate) fn finite_or_full(duty: f64) -> f64 {
+    if duty.is_finite() {
+        duty
+    } else {
+        crate::curve::FAIL_SAFE_DUTY
+    }
+}
+
 /// A value older than this counts as no value.
 pub const STALE_AFTER: Duration = Duration::from_secs(3);
 

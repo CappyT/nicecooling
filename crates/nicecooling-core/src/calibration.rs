@@ -19,6 +19,7 @@ pub struct CalibrationTable {
 #[derive(Debug, PartialEq, Eq)]
 pub enum CalibrationError {
     TooFewPoints,
+    NotFinite,
     NotSorted,
     Parse(String),
 }
@@ -27,6 +28,7 @@ impl fmt::Display for CalibrationError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::TooFewPoints => write!(f, "a Calibration table needs at least 2 points"),
+            Self::NotFinite => write!(f, "the points must be finite numbers"),
             Self::NotSorted => write!(f, "the points must increase in rpm"),
             Self::Parse(m) => write!(f, "invalid preset: {m}"),
         }
@@ -55,6 +57,9 @@ impl CalibrationTable {
     pub fn new(points: Vec<(f64, f64)>) -> Result<Self, CalibrationError> {
         if points.len() < 2 {
             return Err(CalibrationError::TooFewPoints);
+        }
+        if points.iter().any(|p| !p.0.is_finite() || !p.1.is_finite()) {
+            return Err(CalibrationError::NotFinite);
         }
         if points.windows(2).any(|w| w[0].0 >= w[1].0) {
             return Err(CalibrationError::NotSorted);
@@ -176,6 +181,24 @@ mod tests {
         let flow = preset().table.flow(671.0);
         assert!((flow.lph - 115.2).abs() < 0.1, "got {}", flow.lph);
         assert!(!flow.out_of_range);
+    }
+
+    #[test]
+    fn table_rejects_non_finite_points() {
+        for bad in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+            for points in [
+                vec![(bad, 1.0), (200.0, 2.0)],
+                vec![(100.0, 1.0), (bad, 2.0)],
+                vec![(100.0, bad), (200.0, 2.0)],
+                vec![(100.0, 1.0), (200.0, bad)],
+            ] {
+                assert_eq!(
+                    CalibrationTable::new(points.clone()),
+                    Err(CalibrationError::NotFinite),
+                    "{points:?}"
+                );
+            }
+        }
     }
 
     #[test]

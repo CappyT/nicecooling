@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, VecDeque};
 use std::time::Duration;
 
-use super::{Control, Stage, TickContext};
+use super::{Control, Stage, TickContext, finite_or_full};
 
 /// Stage 5: compute each Curve from its smoothed Input.
 /// A fixed Duty is its own target. A Channel on its Hardware curve has none.
@@ -23,7 +23,7 @@ impl Stage for CurveStage {
                 Control::Hardware => {
                     self.windows.remove(&setup.id);
                 }
-                Control::Fixed(duty) => tick.target = Some(*duty),
+                Control::Fixed(duty) => tick.target = Some(finite_or_full(*duty)),
                 Control::Curve(curve) => {
                     let window = self.windows.entry(setup.id.clone()).or_default();
                     let Some(value) = ctx.values.get(&curve.input) else {
@@ -37,7 +37,7 @@ impl Stage for CurveStage {
                         window.pop_front();
                     }
                     let mean = window.iter().map(|s| s.1).sum::<f64>() / window.len() as f64;
-                    tick.target = Some(curve.duty_at(mean));
+                    tick.target = Some(finite_or_full(curve.duty_at(mean)));
                 }
             }
         }
