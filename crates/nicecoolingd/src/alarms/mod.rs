@@ -2,6 +2,7 @@
 //! This module turns the active ones into instances with an alarm response, runs the countdown
 //! of a poweroff and calls logind.
 
+pub mod history;
 pub mod logind;
 pub mod poweroff;
 pub mod proposals;

@@ -87,6 +87,8 @@ pub struct Shared {
     slots: Mutex<HashMap<String, u8>>,
     groups: Mutex<Vec<Group>>,
     responses: Mutex<Vec<(String, String, u32)>>,
+    /// The rows of `GetHistory`, newest raise first.
+    pub history: Mutex<Vec<nicecooling_api::alarms::HistoryRow>>,
 }
 
 impl Default for Shared {
@@ -102,6 +104,7 @@ impl Default for Shared {
                 ("profile_2".to_owned(), 2),
             ])),
             groups: Mutex::default(),
+            history: Mutex::default(),
             responses: Mutex::new(
                 [
                     ("leakshield.leak-warning", "notify"),
@@ -609,6 +612,23 @@ impl Alarms {
         row.1 = response.to_owned();
         row.2 = delay_s;
         Ok(())
+    }
+
+    async fn get_history(
+        &self,
+        since_us: u64,
+        limit: u32,
+    ) -> Vec<nicecooling_api::alarms::HistoryRow> {
+        let rows = self.shared.history.lock().expect("history");
+        let rows = rows
+            .iter()
+            .filter(|row| row.6 == 0 || row.6 >= since_us)
+            .cloned();
+        if limit == 0 {
+            rows.collect()
+        } else {
+            rows.take(limit as usize).collect()
+        }
     }
 
     async fn cancel_poweroff(

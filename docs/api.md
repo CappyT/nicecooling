@@ -99,7 +99,7 @@ Each active Alarm or Warning (`Alarms.Active`) and each `AlarmRaised` signal car
 
 ## Alarm history
 
-- `Alarms.GetHistory(since_us, limit)` is class `read`. It returns `a(sssssttsa{sv})`: instance, event, severity, source, response, raised_us, cleared_us, outcome, details. `cleared_us` is 0 while the instance is active. `details` has the keys of `Active`.
+- `Alarms.GetHistory(since_us, limit)` is class `read`. It returns `a(sssssttsa{sv})`: instance, event, severity, source, response, raised_us, cleared_us, outcome, details. `cleared_us` is 0 while the instance is active. `details` has the keys of `Active`. A row that a daemon restart closed also has the key `closed_by_restart` (`b`, true). Other rows do not have it.
 - It returns the rows that were active at or after `since_us`: `cleared_us` is 0 or at least `since_us`. The newest raise comes first. It returns at most `limit` rows, and `limit` 0 means no limit.
 - The history keeps the last 1000 Alarm rows and the last 1000 Warning rows. Each group drops its oldest row. A Warning that flaps does not push Alarms out.
 - The outcome of a row:
@@ -115,7 +115,7 @@ Each active Alarm or Warning (`Alarms.Active`) and each `AlarmRaised` signal car
   | `poweroff-failed` | The call to logind failed. A retry gives `poweroff-requested`. |
 
 - Changes: `poweroff-pending` goes to `poweroff-cancelled`, `poweroff-stopped` or `poweroff-requested`. `poweroff-requested` goes to `poweroff-failed` on `PoweroffFailed`. `poweroff-failed` goes to `poweroff-requested` on the retry, to `poweroff-cancelled` on a cancel in the retry wait, and to `poweroff-stopped` on a clear.
-- At start, the daemon closes every row of an earlier start that has `cleared_us` 0. `cleared_us` becomes the start time of this daemon and the row is marked closed by restart (`closed_by_restart` in the file). An instance that is still active rises again as a new instance.
+- At start, the daemon closes every row of an earlier start that has `cleared_us` 0. `cleared_us` becomes the start time of this daemon and the row is marked closed by restart (`closed_by_restart` in the file, and the detail `closed_by_restart` in `GetHistory`). An instance that is still active rises again as a new instance.
 - A change to `poweroff-requested` is on disk before the call to logind.
 - The file is `alarm-history.json` (`storage.md`).
 

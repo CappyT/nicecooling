@@ -15,6 +15,7 @@ use zbus::object_server::SignalEmitter;
 use zbus::{Connection, OwnedVariant, Variant, interface};
 
 use super::Hub;
+use crate::alarms::history::Detail;
 use crate::alarms::logind::{CALL_TIMEOUT, SD_LOGIND_SKIP_INHIBITORS, call_poweroff};
 use crate::alarms::poweroff::Effect;
 
@@ -55,6 +56,31 @@ type Active = (
     HashMap<String, OwnedVariant>,
 );
 
+type History = (
+    String,
+    String,
+    String,
+    String,
+    String,
+    u64,
+    u64,
+    String,
+    HashMap<String, OwnedVariant>,
+);
+
+fn detail_variant(detail: Detail) -> OwnedVariant {
+    let variant = match detail {
+        Detail::Double(value) => Variant::F64(value),
+        Detail::Unsigned(value) => Variant::U32(value),
+        Detail::Text(value) => Variant::from(value),
+        Detail::Object(path) => match zbus::ObjectPath::try_from(path) {
+            Ok(path) => Variant::from(path),
+            Err(_) => Variant::from(""),
+        },
+    };
+    OwnedVariant::try_from(variant).expect("a variant has no file descriptor")
+}
+
 #[interface(name = "io.github.cappyt.NiceCooling1.Alarms")]
 impl Alarms {
     #[zbus(property)]
@@ -94,6 +120,39 @@ impl Alarms {
             .authorize(connection, &header, "Alarms", "SetResponse", None)
             .await?;
         self.hub.set_alarm_response(event, response, delay_s)
+    }
+
+    #[zbus(out_args("rows"))]
+    async fn get_history(&self, since_us: u64, limit: u32) -> Vec<History> {
+        self.hub
+            .alarm_history(since_us, limit)
+            .into_iter()
+            .map(|row| {
+                let mut details: HashMap<String, OwnedVariant> = row
+                    .details
+                    .into_iter()
+                    .map(|(key, detail)| (key, detail_variant(detail)))
+                    .collect();
+                if row.closed_by_restart {
+                    details.insert(
+                        "closed_by_restart".to_owned(),
+                        OwnedVariant::try_from(Variant::Bool(true))
+                            .expect("a bool has no file descriptor"),
+                    );
+                }
+                (
+                    row.instance,
+                    row.event,
+                    row.severity,
+                    row.source,
+                    row.response,
+                    row.raised_us,
+                    row.cleared_us,
+                    row.outcome,
+                    details,
+                )
+            })
+            .collect()
     }
 
     async fn cancel_poweroff(

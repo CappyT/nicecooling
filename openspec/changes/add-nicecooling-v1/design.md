@@ -430,7 +430,7 @@ Every new property emits `PropertiesChanged` when its value changes, except the 
   - From `poweroff-requested`: `PoweroffFailed` gives `poweroff-failed`.
   - From `poweroff-failed`: the retry gives `poweroff-requested`, a cancel in the retry wait gives `poweroff-cancelled`, a clear gives `poweroff-stopped`.
   - `none`, `notified`, `poweroff-cancelled` and `poweroff-stopped` are final. The app shows `poweroff-requested` as "PC powered off".
-- At start, the daemon closes every row of an earlier start that has `cleared_us` 0: `cleared_us` becomes the start time of this daemon and `closed_by_restart` becomes true. An instance that is still active rises again as a new instance.
+- At start, the daemon closes every row of an earlier start that has `cleared_us` 0: `cleared_us` becomes the start time of this daemon and `closed_by_restart` becomes true. `GetHistory` shows it as the detail `closed_by_restart` (`b`, true) of the row, and only on such a row. An instance that is still active rises again as a new instance.
 - `GetHistory` returns the rows that were active at or after `since_us` (`cleared_us` 0 or at least `since_us`), newest raise first, at most `limit` rows. `limit` 0 means no limit.
 
 #### Alarm response per Leakshield

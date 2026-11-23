@@ -685,3 +685,258 @@ async fn reset_alarms_closes_the_alarm_and_stops_the_countdown() {
     rig.step(60).await;
     assert_eq!(rig.logind.call_count(), 0);
 }
+
+// The Alarm history (design D18).
+
+const CLEAR: fn(&mut nicecooling_protocol::report1::Report1) = |r| {
+    r.alarm_bits = 0;
+    r.alarm_bits_latched = 0;
+};
+
+async fn history(proxy: &AlarmsProxy<'_>) -> Vec<nicecooling_api::alarms::HistoryRow> {
+    proxy.get_history(0, 0).await.unwrap()
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn history_row_on_raise_and_clear() {
+    let mut rig = Rig::start_with_clock().await;
+    let proxy = alarms(&rig).await;
+    rig.sim.set_alarm_bits(LEAK_WARNING_BIT);
+    rig.step(2).await;
+
+    let rows = history(&proxy).await;
+    assert_eq!(rows.len(), 1);
+    let row = &rows[0];
+    assert_eq!(
+        (
+            row.1.as_str(),
+            row.2.as_str(),
+            row.4.as_str(),
+            row.7.as_str()
+        ),
+        ("leakshield.leak-warning", "warning", "notify", "notified")
+    );
+    assert_eq!(row.3, support::LEAKSHIELD);
+    assert_ne!(row.5, 0, "raised_us");
+    assert_eq!(row.6, 0, "active");
+    assert!(!row.8.contains_key("closed_by_restart"));
+    assert_eq!(
+        u32::try_from(row.8["bits"].try_clone().unwrap()).unwrap(),
+        LEAK_WARNING_BIT
+    );
+
+    rig.sim.edit_report1(CLEAR);
+    rig.step(3).await;
+    let rows = history(&proxy).await;
+    assert_eq!(rows.len(), 1);
+    assert!(rows[0].6 >= rows[0].5, "cleared_us after raised_us");
+    assert_ne!(rows[0].6, 0);
+    // A `since_us` after the clear leaves the row out.
+    assert!(
+        proxy
+            .get_history(rows[0].6 + 1, 0)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    assert_eq!(proxy.get_history(rows[0].6, 0).await.unwrap().len(), 1);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn history_survives_restart() {
+    let mut rig = Rig::start_with_clock().await;
+    rig.sim.set_alarm_bits(LEAK_WARNING_BIT);
+    rig.step(2).await;
+    rig.sim.edit_report1(CLEAR);
+    rig.step(3).await;
+    let before = rig.daemon.as_ref().unwrap().hub.alarm_history(0, 0);
+    assert_eq!(before.len(), 1);
+
+    rig.restart_daemon().await;
+
+    let after = rig.daemon.as_ref().unwrap().hub.alarm_history(0, 0);
+    assert_eq!(after, before);
+    assert!(rig.state.join("alarm-history.json").exists());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn open_row_closed_by_restart() {
+    let mut rig = Rig::start_with_clock().await;
+    rig.sim.set_alarm_bits(LEAK_WARNING_BIT);
+    rig.step(2).await;
+    let old = rig.daemon.as_ref().unwrap().hub.alarm_history(0, 0);
+    assert_eq!(old[0].cleared_us, 0);
+
+    // The daemon restarts while the Warning is active.
+    rig.restart_daemon().await;
+    let hub = rig.daemon.as_ref().unwrap().hub.clone();
+    let closed = hub.alarm_history(0, 0);
+    assert_eq!(closed.len(), 1);
+    assert!(closed[0].closed_by_restart);
+    assert!(closed[0].cleared_us >= closed[0].raised_us);
+    assert_eq!(closed[0].outcome, "notified");
+
+    // The Warning is still active: it rises again as a new instance.
+    rig.step(2).await;
+    let rows = hub.alarm_history(0, 0);
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[0].cleared_us, 0);
+    assert!(!rows[0].closed_by_restart);
+    assert_ne!(rows[0].instance, rows[1].instance);
+    assert!(rows[1].closed_by_restart);
+}
+
+/// A logind that copies the history file at the time of the call.
+struct FileLogin1 {
+    file: std::path::PathBuf,
+    seen: Arc<std::sync::Mutex<Vec<String>>>,
+}
+
+impl Login1 for FileLogin1 {
+    fn power_off_with_flags(&self, _flags: u64) -> CallFuture {
+        let text = std::fs::read_to_string(&self.file).unwrap_or_default();
+        self.seen.lock().unwrap().push(text);
+        Box::pin(async { Ok(()) })
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn poweroff_requested_on_disk_before_logind_call() {
+    let mut rig = Rig::start_with_clock().await;
+    rig.restart_daemon().await;
+    let hub = rig.daemon.as_ref().unwrap().hub.clone();
+    let seen = Arc::new(std::sync::Mutex::new(Vec::new()));
+    hub.set_login1(Arc::new(FileLogin1 {
+        file: rig.state.join("alarm-history.json"),
+        seen: seen.clone(),
+    }));
+    let rx = hub.take_alarm_receiver().unwrap();
+    tokio::spawn(run_effects(rig.server.clone(), hub.clone(), rx));
+    hub.set_alarm_response(PUMP_STALL, "poweroff", 2).unwrap();
+    raise(&rig, PUMP_STALL_BIT);
+
+    rig.step(5).await;
+    for _ in 0..100 {
+        if !seen.lock().unwrap().is_empty() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+
+    let seen = seen.lock().unwrap();
+    assert_eq!(seen.len(), 1, "one call to logind");
+    assert!(
+        seen[0].contains("\"outcome\": \"poweroff-requested\""),
+        "the file had no poweroff-requested row at the call: {}",
+        seen[0]
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn history_outcome_cancelled() {
+    let mut rig = Rig::start_with_clock().await;
+    let proxy = alarms(&rig).await;
+    // The default response of the large leak is poweroff after 30 s.
+    rig.sim.set_alarm_bits(LEAK_BIT);
+    rig.step(5).await;
+    let rows = history(&proxy).await;
+    assert_eq!(rows[0].7, "poweroff-pending");
+
+    proxy.cancel_poweroff(&rows[0].0).await.unwrap();
+
+    assert_eq!(history(&proxy).await[0].7, "poweroff-cancelled");
+    // The Alarm clears: a final outcome does not change.
+    rig.sim.edit_report1(CLEAR);
+    rig.step(3).await;
+    let rows = history(&proxy).await;
+    assert_eq!(rows[0].7, "poweroff-cancelled");
+    assert_ne!(rows[0].6, 0);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn history_outcome_stopped() {
+    let mut rig = Rig::start_with_clock().await;
+    let proxy = alarms(&rig).await;
+    rig.sim.set_alarm_bits(LEAK_BIT);
+    rig.step(5).await;
+    assert_eq!(history(&proxy).await[0].7, "poweroff-pending");
+
+    rig.sim.edit_report1(CLEAR);
+    rig.step(3).await;
+
+    let rows = history(&proxy).await;
+    assert_eq!(rows[0].7, "poweroff-stopped");
+    assert_ne!(rows[0].6, 0);
+    assert_eq!(rig.logind.call_count(), 0);
+}
+
+/// A logind that fails the first call and accepts the next.
+struct FlakyLogin1(AtomicUsize);
+
+impl Login1 for FlakyLogin1 {
+    fn power_off_with_flags(&self, _flags: u64) -> CallFuture {
+        let first = self.0.fetch_add(1, Ordering::SeqCst) == 0;
+        Box::pin(async move {
+            if first {
+                Err("blocked".to_owned())
+            } else {
+                Ok(())
+            }
+        })
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn history_outcome_failed_then_retry() {
+    let mut rig = Rig::start_with_clock().await;
+    rig.restart_daemon().await;
+    let hub = rig.daemon.as_ref().unwrap().hub.clone();
+    hub.set_login1(Arc::new(FlakyLogin1(AtomicUsize::new(0))));
+    let rx = hub.take_alarm_receiver().unwrap();
+    tokio::spawn(run_effects(rig.server.clone(), hub.clone(), rx));
+    hub.set_alarm_response(PUMP_STALL, "poweroff", 2).unwrap();
+    raise(&rig, PUMP_STALL_BIT);
+    rig.step(4).await;
+    for _ in 0..100 {
+        if hub.alarm_history(0, 0)[0].outcome == "poweroff-failed" {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    assert_eq!(hub.alarm_history(0, 0)[0].outcome, "poweroff-failed");
+
+    // The retry comes 5 s after the failure, and logind accepts it.
+    rig.step(8).await;
+    for _ in 0..100 {
+        if hub.alarm_history(0, 0)[0].outcome == "poweroff-requested" {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    assert_eq!(hub.alarm_history(0, 0)[0].outcome, "poweroff-requested");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn history_closed_row_carries_closed_by_restart() {
+    // The state directory holds a row that an earlier daemon left open.
+    let rig = Rig::start_with(|_, state| {
+        std::fs::write(
+            state.join("alarm-history.json"),
+            r#"{"schema_version": 1, "rows": [{"instance": "alarm_1_1",
+                "event": "pump-stop", "severity": "alarm", "source": "loop_1",
+                "response": "poweroff", "raised_us": 1000, "cleared_us": 0,
+                "outcome": "poweroff-pending", "closed_by_restart": false, "details": {}}]}"#,
+        )
+        .unwrap();
+    })
+    .await;
+    let proxy = alarms(&rig).await;
+
+    let rows = history(&proxy).await;
+
+    assert_eq!(rows.len(), 1);
+    assert_ne!(rows[0].6, 0, "the restart closed the row");
+    // The outcome of the row does not change: the restart is not a clear of the instance.
+    assert_eq!(rows[0].7, "poweroff-pending");
+    assert!(bool::try_from(rows[0].8["closed_by_restart"].try_clone().unwrap()).unwrap());
+}

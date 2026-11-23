@@ -491,6 +491,15 @@
       <arg name="response" type="s" direction="in"/>
       <arg name="delay_s" type="u" direction="in"/>
     </method>
+    <!-- The instances that were active at or after since_us (cleared_us 0 or at least since_us), newest raise first, at most limit rows
+         (0 means all). Row: (instance id, event id, severity, source id, response, raised us, cleared us or 0, outcome, details). details has the
+         keys of Active and, on a row that a daemon restart closed, closed_by_restart (b, true). -->
+    <method name="GetHistory">
+      <annotation name="io.github.cappyt.NiceCooling1.Authorization" value="read"/>
+      <arg name="since_us" type="t" direction="in"/>
+      <arg name="limit" type="u" direction="in"/>
+      <arg name="rows" type="a(sssssttsa{sv})" direction="out"/>
+    </method>
     <method name="CancelPoweroff">
       <annotation name="io.github.cappyt.NiceCooling1.Authorization" value="cancel-poweroff"/>
       <arg name="instance" type="s" direction="in"/>

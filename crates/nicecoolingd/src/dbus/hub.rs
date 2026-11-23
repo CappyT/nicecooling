@@ -26,6 +26,7 @@ pub use profiles::{ProfileContent, ProfileEvent, ProfileView};
 pub use rules::HubRules;
 
 use super::leakshield::LeakshieldInfo;
+use crate::alarms::history::{HistoryRow, HistoryStore, SAVE_EVERY};
 use crate::alarms::logind::Login1;
 use crate::alarms::poweroff::{AlarmManager, CancelError, Effect, Event, Row};
 use crate::alarms::response;
@@ -209,6 +210,7 @@ pub struct Hub {
     profile_events: mpsc::UnboundedSender<ProfileEvent>,
     profile_rx: Mutex<Option<mpsc::UnboundedReceiver<ProfileEvent>>>,
     alarms: Mutex<AlarmManager>,
+    history: HistoryStore,
     alarm_effects: mpsc::UnboundedSender<Effect>,
     alarm_rx: Mutex<Option<mpsc::UnboundedReceiver<Effect>>>,
     login1: OnceLock<Arc<dyn Login1>>,
@@ -667,6 +669,8 @@ impl Hub {
             let (inner, store) = (inner.clone(), store.clone());
             move || flush(&inner, &store)
         });
+        let started_us = wall_us();
+        let history = HistoryStore::open(store.clone(), started_us, SAVE_EVERY);
         let (reports, report_rx) = mpsc::channel(32);
         let (alarm_effects, alarm_rx) = mpsc::unbounded_channel();
         let (profile_events, profile_rx) = mpsc::unbounded_channel();
@@ -684,7 +688,8 @@ impl Hub {
             report_rx: Mutex::new(Some(report_rx)),
             profile_events,
             profile_rx: Mutex::new(Some(profile_rx)),
-            alarms: Mutex::new(AlarmManager::new(wall_us())),
+            alarms: Mutex::new(AlarmManager::new(started_us)),
+            history,
             alarm_effects,
             alarm_rx: Mutex::new(Some(alarm_rx)),
             login1: OnceLock::new(),
@@ -811,6 +816,7 @@ impl Hub {
     /// Writes the state files now. The daemon calls it before it exits.
     pub fn flush_now(&self) {
         flush(&self.inner, &self.store);
+        self.history.save_now();
     }
 
     pub fn spawn(&self, future: impl std::future::Future<Output = ()> + Send + 'static) {
@@ -855,9 +861,22 @@ impl Hub {
     pub fn alarm_tick(&self, now: Duration, wall_us: u64, active: &[Event]) {
         let responses = self.inner().state.alarm_responses.clone();
         let effects = lock(&self.alarms).update(now, wall_us, active, &responses);
+        self.run_alarm_effects(effects, wall_us);
+    }
+
+    /// Records the effects in the history, then hands them to the task that emits them. A change
+    /// to `poweroff-requested` is on disk before the call to logind starts.
+    fn run_alarm_effects(&self, effects: Vec<Effect>, wall_us: u64) {
+        let rows = lock(&self.alarms).rows();
+        self.history.apply(&effects, &rows, wall_us);
         for effect in effects {
             let _ = self.alarm_effects.send(effect);
         }
+    }
+
+    /// The history rows that were active at or after `since_us`, newest first (`GetHistory`).
+    pub fn alarm_history(&self, since_us: u64, limit: u32) -> Vec<HistoryRow> {
+        self.history.query(since_us, limit)
     }
 
     pub fn alarm_rows(&self) -> Vec<Row> {
@@ -866,9 +885,7 @@ impl Hub {
 
     pub fn poweroff_result(&self, instance: &str, result: std::result::Result<(), String>) {
         let effects = lock(&self.alarms).poweroff_result(instance, result);
-        for effect in effects {
-            let _ = self.alarm_effects.send(effect);
-        }
+        self.run_alarm_effects(effects, wall_us());
     }
 
     pub fn alarm_responses(&self) -> Vec<(String, String, u32)> {
@@ -897,7 +914,7 @@ impl Hub {
                 "{instance} already called logind: the PC powers off"
             )),
         })?;
-        let _ = self.alarm_effects.send(effect);
+        self.run_alarm_effects(vec![effect], wall_us());
         Ok(())
     }
 

@@ -16,6 +16,19 @@ pub type ActiveAlarm = (
     HashMap<String, OwnedValue>,
 );
 
+/// (instance id, event id, severity, source id, response, raised us, cleared us, outcome, details)
+pub type HistoryRow = (
+    String,
+    String,
+    String,
+    String,
+    String,
+    u64,
+    u64,
+    String,
+    HashMap<String, OwnedValue>,
+);
+
 #[zbus::proxy(
     interface = "io.github.cappyt.NiceCooling1.Alarms",
     default_service = "io.github.cappyt.NiceCooling1",
@@ -28,6 +41,7 @@ pub trait Alarms {
     /// (event id, response, delay s)
     fn get_responses(&self) -> zbus::Result<Vec<(String, String, u32)>>;
     fn set_response(&self, event: &str, response: &str, delay_s: u32) -> zbus::Result<()>;
+    fn get_history(&self, since_us: u64, limit: u32) -> zbus::Result<Vec<HistoryRow>>;
     fn cancel_poweroff(&self, instance: &str) -> zbus::Result<()>;
 
     #[zbus(signal)]
