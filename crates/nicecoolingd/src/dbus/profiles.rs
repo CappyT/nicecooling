@@ -1,18 +1,19 @@
-//! The interface `Profiles` on the root object. Tasks 7.x fill the methods in.
+//! The interface `Profiles` on the root object.
 
-use std::collections::HashMap;
 use std::sync::Arc;
 
+use nicecooling_api::Error;
 use nicecooling_api::errors::Result;
 use nicecooling_api::ids::{self, Kind};
-use nicecooling_core::profile::Cause;
+use nicecooling_core::rules::group::RuleGroupDef;
 use tokio::sync::mpsc;
 use zbus::message::Header;
 use zbus::object_server::{ObjectServer, SignalEmitter};
-use zbus::{Connection, OwnedObjectPath, OwnedVariant, interface};
+use zbus::{Connection, OwnedObjectPath, interface};
 
 use super::hub::ProfileEvent;
-use super::{Hub, not_supported_stub, object, profile};
+use super::rule_params::{WireRule, decode_rule, encode_rule};
+use super::{Hub, object, profile};
 
 pub struct Profiles {
     hub: Arc<Hub>,
@@ -22,16 +23,39 @@ impl Profiles {
     pub fn new(hub: Arc<Hub>) -> Self {
         Self { hub }
     }
+
+    async fn authorize(
+        &self,
+        connection: &Connection,
+        header: &Header<'_>,
+        method: &str,
+    ) -> Result<()> {
+        self.hub
+            .authorize(connection, header, "Profiles", method, None)
+            .await
+    }
 }
 
-fn stub<T>(method: &str) -> Result<T> {
-    Err(not_supported_stub("Profiles", method))
+type Group = (String, OwnedObjectPath, bool, Vec<WireRule>);
+
+fn profile_id(path: &OwnedObjectPath) -> Result<String> {
+    ids::id_from_path(Kind::Profile, path.as_str())
+        .map(str::to_owned)
+        .ok_or_else(|| Error::invalid(format!("{path} is not a Profile object path")))
 }
 
-type Rule = (String, HashMap<String, OwnedVariant>);
-type Group = (String, OwnedObjectPath, bool, Vec<Rule>);
+fn decode_group((id, target, enabled, rules): Group) -> Result<RuleGroupDef> {
+    Ok(RuleGroupDef {
+        id,
+        profile: profile_id(&target)?,
+        enabled,
+        rules: rules
+            .into_iter()
+            .map(|(kind, params)| decode_rule(&kind, params))
+            .collect::<Result<_>>()?,
+    })
+}
 
-#[allow(unused_variables)]
 #[interface(name = "io.github.cappyt.NiceCooling1.Profiles")]
 impl Profiles {
     #[zbus(property)]
@@ -78,15 +102,13 @@ impl Profiles {
         name: &str,
         copy_from: OwnedObjectPath,
     ) -> Result<OwnedObjectPath> {
-        self.hub
-            .authorize(connection, &header, "Profiles", "CreateProfile", None)
-            .await?;
+        self.authorize(connection, &header, "CreateProfile").await?;
         let id = self.hub.create_profile(name, copy_from.as_str())?;
         let path = object(Kind::Profile, &id);
         server
             .at(path.clone(), profile::Profile::new(self.hub.clone(), id))
             .await
-            .map_err(nicecooling_api::Error::ZBus)?;
+            .map_err(Error::ZBus)?;
         Ok(path)
     }
 
@@ -96,41 +118,86 @@ impl Profiles {
         #[zbus(header)] header: Header<'_>,
         profile: OwnedObjectPath,
     ) -> Result<()> {
-        self.hub
-            .authorize(connection, &header, "Profiles", "ActivateProfile", None)
+        self.authorize(connection, &header, "ActivateProfile")
             .await?;
-        let id = ids::id_from_path(Kind::Profile, profile.as_str()).ok_or_else(|| {
-            nicecooling_api::Error::invalid(format!("{profile} is not a Profile path"))
-        })?;
-        self.hub.activate_profile(id, Cause::Manual)?;
+        self.hub.activate_manually(&profile_id(&profile)?)
+    }
+
+    async fn return_to_automatic(
+        &self,
+        #[zbus(connection)] connection: &Connection,
+        #[zbus(header)] header: Header<'_>,
+    ) -> Result<()> {
+        self.authorize(connection, &header, "ReturnToAutomatic")
+            .await?;
+        self.hub.return_to_automatic();
         Ok(())
     }
 
-    async fn return_to_automatic(&self) -> Result<()> {
-        stub("ReturnToAutomatic")
+    async fn set_immediate_switching(
+        &self,
+        #[zbus(connection)] connection: &Connection,
+        #[zbus(header)] header: Header<'_>,
+        #[zbus(signal_emitter)] emitter: SignalEmitter<'_>,
+        enabled: bool,
+    ) -> Result<()> {
+        self.authorize(connection, &header, "SetImmediateSwitching")
+            .await?;
+        self.hub.set_immediate_switching(enabled);
+        let _ = self.immediate_switching_changed(&emitter).await;
+        Ok(())
     }
 
-    async fn set_immediate_switching(&self, enabled: bool) -> Result<()> {
-        stub("SetImmediateSwitching")
-    }
-
-    async fn set_rule_timing(&self, rule_delay_s: u32, dwell_s: u32) -> Result<()> {
-        stub("SetRuleTiming")
+    async fn set_rule_timing(
+        &self,
+        #[zbus(connection)] connection: &Connection,
+        #[zbus(header)] header: Header<'_>,
+        #[zbus(signal_emitter)] emitter: SignalEmitter<'_>,
+        rule_delay_s: u32,
+        dwell_s: u32,
+    ) -> Result<()> {
+        self.authorize(connection, &header, "SetRuleTiming").await?;
+        self.hub.set_rule_timing(rule_delay_s, dwell_s);
+        let _ = self.rule_delay_seconds_changed(&emitter).await;
+        let _ = self.dwell_seconds_changed(&emitter).await;
+        Ok(())
     }
 
     #[zbus(property)]
     fn rule_group_state(&self) -> Vec<(String, bool, u64)> {
-        Vec::new()
+        self.hub.rule_group_states()
     }
 
     #[zbus(out_args("groups"))]
     async fn get_rule_groups(&self) -> Result<Vec<Group>> {
-        stub("GetRuleGroups")
+        Ok(self
+            .hub
+            .rule_groups()
+            .into_iter()
+            .map(|group| {
+                (
+                    group.id,
+                    object(Kind::Profile, &group.profile),
+                    group.enabled,
+                    group.rules.iter().map(encode_rule).collect(),
+                )
+            })
+            .collect())
     }
 
     #[zbus(out_args("ids"))]
-    async fn set_rule_groups(&self, groups: Vec<Group>) -> Result<Vec<String>> {
-        stub("SetRuleGroups")
+    async fn set_rule_groups(
+        &self,
+        #[zbus(connection)] connection: &Connection,
+        #[zbus(header)] header: Header<'_>,
+        groups: Vec<Group>,
+    ) -> Result<Vec<String>> {
+        self.authorize(connection, &header, "SetRuleGroups").await?;
+        let groups = groups
+            .into_iter()
+            .map(decode_group)
+            .collect::<Result<Vec<_>>>()?;
+        self.hub.set_rule_groups(groups)
     }
 
     #[zbus(signal)]
@@ -142,7 +209,8 @@ impl Profiles {
     ) -> zbus::Result<()>;
 }
 
-/// Emits the signals and the property changes of the activations. One task, in order.
+/// Emits the signals and the property changes of the activations and of the Rule groups. One
+/// task, in order.
 pub async fn run_events(
     connection: Connection,
     hub: Arc<Hub>,
@@ -160,6 +228,9 @@ pub async fn run_events(
                 let _ = iface.active_changed(emitter).await;
                 let _ = iface.activation_cause_changed(emitter).await;
                 let _ = iface.active_state_changed(emitter).await;
+            }
+            ProfileEvent::RuleGroups => {
+                let _ = iface.get().await.rule_group_state_changed(emitter).await;
             }
             ProfileEvent::Activated {
                 profile,

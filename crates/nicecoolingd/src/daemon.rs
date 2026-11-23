@@ -9,6 +9,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use nicecooling_core::calibration::Preset;
 use nicecooling_core::clock::Clock;
 use nicecooling_core::tick::Pipeline;
+use nicecooling_core::tick::stage_rules::RulesStage;
 use nicecooling_hwmon::board::select_board_for;
 use nicecooling_hwmon::discovery::discover_with;
 use nicecooling_hwmon::sysfs::Sysfs;
@@ -17,13 +18,14 @@ use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 
 use crate::dbus::stage::ApiStage;
-use crate::dbus::{BoardInfo, ChannelMeta, Hub, HubInit, SensorMeta, sensor_meta};
+use crate::dbus::{BoardInfo, ChannelMeta, Hub, HubInit, HubRules, SensorMeta, sensor_meta};
 use crate::fleet::{Attacher, Fleet, OPEN_RETRY_DELAY, UsbAttach};
 use crate::leakshield::feed::feed_channel_checked;
 use crate::leakshield::save_settings::SAVE_SETTINGS_DELAY;
 use crate::leakshield::{AttachParams, Attached, DeviceIo, external};
 use crate::lease::Lease;
 use crate::rescan::{self, Rescan};
+use crate::rules::proc_scan::{self, ProcFs};
 use crate::snapshot::{self, SnapshotBoard};
 use crate::sources::hotplug::UsbPath;
 use crate::sources::hwmon::{Source, chip_readers, spawn_source};
@@ -80,6 +82,9 @@ pub struct Options {
     pub external_period: Duration,
     /// The time between two scans for hwmon chips that load after the start.
     pub rescan_period: Duration,
+    /// The `/proc` tree that the process rules read. `None` starts no scan, so a test never
+    /// reads the real `/proc`. `main` sets `/proc`.
+    pub proc_root: Option<PathBuf>,
 }
 
 impl Options {
@@ -98,6 +103,7 @@ impl Options {
             save_settings_delay: SAVE_SETTINGS_DELAY,
             external_period: external::POLL_PERIOD,
             rescan_period: rescan::RESCAN_PERIOD,
+            proc_root: None,
         }
     }
 }
@@ -316,7 +322,11 @@ pub async fn start<N: Notifier + 'static>(
 
     let io = SysfsChannels::new(&discovery.channels, lease, options.boot_id.clone())
         .with_snapshot(snapshot::read_snapshot(&store));
-    let mut pipeline = Pipeline::standard(Box::new(values.clone()), Box::new(io));
+    let mut pipeline = Pipeline::standard_with_rules(
+        Box::new(values.clone()),
+        Box::new(io),
+        RulesStage::new(Box::new(HubRules::new(hub.clone()))),
+    );
     let (feed_stage, feed_link) =
         feed_channel_checked(fleet.software_lookup(), fleet.covered_lookup());
     pipeline.push(Box::new(feed_stage));
@@ -339,6 +349,13 @@ pub async fn start<N: Notifier + 'static>(
             },
         )
     })];
+    if let Some(root) = &options.proc_root {
+        leakshield_tasks.push(proc_scan::spawn(
+            Arc::new(ProcFs::new(root)),
+            values.clone(),
+            proc_scan::SCAN_PERIOD,
+        ));
+    }
     leakshield_tasks.extend(
         leakshields
             .iter()

@@ -2,6 +2,7 @@
 //! the simulated Leakshield. No test touches a real device, `/proc`, `/sys` or logind.
 
 mod activate;
+mod rules;
 mod slots;
 #[path = "../support/mod.rs"]
 mod support;

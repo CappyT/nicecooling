@@ -4150,6 +4150,7 @@ version = "0.1.0"
 dependencies = [
  "futures-core",
  "futures-util",
+ "libc",
  "nicecooling-api",
  "nicecooling-core",
  "nicecooling-hwmon",

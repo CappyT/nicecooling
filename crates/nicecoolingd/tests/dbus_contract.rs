@@ -10,9 +10,7 @@ use nicecooling_api::manager::ManagerProxy;
 use nicecooling_api::profile::ProfileProxy;
 use nicecooling_api::profiles::ProfilesProxy;
 use nicecooling_api::{INTERFACE_PREFIX, INTERFACE_XML};
-use support::{Rig, error_name, path};
-
-const NOT_SUPPORTED: &str = "org.freedesktop.DBus.Error.NotSupported";
+use support::{Rig, path};
 
 /// The members of each interface, as comparable text. Names of in and out arguments, types and
 /// the `EmitsChangedSignal` annotation count. Comments, the standard interfaces and the
@@ -143,27 +141,15 @@ async fn introspection_matches_xml() {
     );
 }
 
-/// Calls a method of a stub interface and checks the reply.
-macro_rules! stub {
-    ($seen:expr, $name:literal, $call:expr) => {{
-        $seen.insert($name.to_owned());
-        let error = $call.await.expect_err(concat!($name, " must fail"));
-        assert_eq!(error_name(&error), NOT_SUPPORTED, "{}", $name);
-    }};
-}
-
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn unfilled_interfaces_reply_not_supported() {
+async fn leakshield_and_profile_properties_read() {
     let rig = Rig::start().await;
-    let mut seen = BTreeSet::new();
-
     let leakshield = LeakshieldProxy::builder(&rig.client)
         .path(path(Kind::Leakshield, support::LEAKSHIELD))
         .cache_properties(zbus::proxy::CacheProperties::No)
         .build()
         .await
         .unwrap();
-    // The properties work.
     assert_eq!(leakshield.serial().await.unwrap(), "20417-31072");
     assert!(leakshield.writable().await.unwrap());
     assert_eq!(leakshield.software_sensor_slots().await.unwrap(), 12);
@@ -178,27 +164,7 @@ async fn unfilled_interfaces_reply_not_supported() {
         path(Kind::Profile, "profile_default")
     );
     assert_eq!(profiles.rule_delay_seconds().await.unwrap(), 30);
-    stub!(
-        seen,
-        "Profiles.ReturnToAutomatic",
-        profiles.return_to_automatic()
-    );
-    stub!(
-        seen,
-        "Profiles.SetImmediateSwitching",
-        profiles.set_immediate_switching(true)
-    );
-    stub!(
-        seen,
-        "Profiles.SetRuleTiming",
-        profiles.set_rule_timing(1, 1)
-    );
-    stub!(seen, "Profiles.GetRuleGroups", profiles.get_rule_groups());
-    stub!(
-        seen,
-        "Profiles.SetRuleGroups",
-        profiles.set_rule_groups(Vec::new())
-    );
+    assert_eq!(profiles.dwell_seconds().await.unwrap(), 300);
 
     let profile = ProfileProxy::builder(&rig.client)
         .path(path(Kind::Profile, "profile_default"))
@@ -208,69 +174,4 @@ async fn unfilled_interfaces_reply_not_supported() {
         .unwrap();
     assert!(profile.is_default().await.unwrap());
     assert_eq!(profile.slot().await.unwrap(), 1);
-
-    // Every method of the three interfaces is in the list, and nothing else, except the wired ones.
-    let doc = roxmltree::Document::parse_with_options(
-        INTERFACE_XML,
-        roxmltree::ParsingOptions {
-            allow_dtd: true,
-            ..Default::default()
-        },
-    )
-    .unwrap();
-    let in_xml: BTreeSet<String> = doc
-        .descendants()
-        .filter(|n| n.has_tag_name("interface"))
-        .filter_map(|i| {
-            let name = i
-                .attribute("name")?
-                .strip_prefix(&format!("{INTERFACE_PREFIX}."))?;
-            ["Leakshield", "Profiles", "Profile"]
-                .contains(&name)
-                .then(|| (name.to_owned(), i))
-        })
-        .flat_map(|(name, i)| {
-            i.children()
-                .filter(|m| m.has_tag_name("method"))
-                .map(move |m| format!("{name}.{}", m.attribute("name").unwrap()))
-        })
-        .collect();
-    // The methods that the Leakshield tests cover (`tests/leakshield/`) are wired.
-    let wired = [
-        "GetFields",
-        "SetFields",
-        "SetMode",
-        "StartAction",
-        "CancelAction",
-        "SyncClock",
-        "ListBackups",
-        "CreateBackup",
-        "GetBackup",
-        "ImportBackup",
-        "RestoreBackup",
-        "ResetAlarms",
-        "ResetRefillHistory",
-        "ResetServiceCounter",
-        "GetEvents",
-        "GetSoftwareSensors",
-        "SetSoftwareSensor",
-        "FactoryReset",
-        "GetDeviceResponseProposals",
-    ]
-    .map(|m| format!("Leakshield.{m}"))
-    .into_iter()
-    .chain(
-        [
-            "Profiles.CreateProfile",
-            "Profiles.ActivateProfile",
-            "Profile.SetName",
-            "Profile.SetSlot",
-            "Profile.Delete",
-            "Profile.GetContent",
-        ]
-        .map(str::to_owned),
-    )
-    .collect::<Vec<_>>();
-    let in_xml: BTreeSet<String> = in_xml.into_iter().filter(|m| !wired.contains(m)).collect();
-    assert_eq!(seen, in_xml);
 }

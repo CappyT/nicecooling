@@ -18,9 +18,11 @@ struct Args {
     paths: Paths,
     /// Where the hidraw nodes of the Leakshield are.
     dev_root: PathBuf,
+    /// The process tree that the process rules read.
+    proc_root: PathBuf,
 }
 
-/// `--sysfs-root`, `--dev-root`, `--state-dir`, `--boards-dir` and `--calibration-dir` point the
+/// `--sysfs-root`, `--dev-root`, `--proc-root`, `--state-dir`, `--boards-dir` and `--calibration-dir` point the
 /// daemon at a fake tree. The unit does not use them. The USB enumeration always uses the real
 /// bus, unless `--no-leakshield` turns it off.
 fn parse_args() -> Result<Args, String> {
@@ -29,6 +31,7 @@ fn parse_args() -> Result<Args, String> {
         no_leakshield: false,
         paths: Paths::default(),
         dev_root: "/dev".into(),
+        proc_root: "/proc".into(),
     };
     let mut it = std::env::args().skip(1);
     while let Some(arg) = it.next() {
@@ -42,6 +45,7 @@ fn parse_args() -> Result<Args, String> {
             "--no-leakshield" => args.no_leakshield = true,
             "--sysfs-root" => args.paths.sysfs_root = path(&arg)?,
             "--dev-root" => args.dev_root = path(&arg)?,
+            "--proc-root" => args.proc_root = path(&arg)?,
             "--state-dir" => args.paths.state_dir = path(&arg)?,
             "--boards-dir" => args.paths.boards_dir = path(&arg)?,
             "--calibration-dir" => args.paths.calibration_dir = path(&arg)?,
@@ -116,6 +120,7 @@ fn main() -> ExitCode {
 
 async fn serve(args: Args) -> ExitCode {
     let mut options = Options::new(args.paths.clone());
+    options.proc_root = Some(args.proc_root);
     if !args.no_leakshield {
         options.usb = Some(NusbBus::new(args.paths.sysfs_root, args.dev_root));
     }

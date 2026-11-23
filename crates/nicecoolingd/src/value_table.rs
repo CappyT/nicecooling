@@ -3,6 +3,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use nicecooling_core::alarms::LeakshieldStatus;
+use nicecooling_core::rules::process::ProcessList;
 use nicecooling_core::tick::{Reading, ValueSource};
 
 /// The latest timestamped value of each sensor, and what the sources know of each Leakshield.
@@ -12,6 +13,7 @@ use nicecooling_core::tick::{Reading, ValueSource};
 pub struct ValueTable {
     values: Arc<Mutex<BTreeMap<String, Reading>>>,
     leakshields: Arc<Mutex<BTreeMap<String, LeakshieldStatus>>>,
+    processes: Arc<Mutex<ProcessList>>,
 }
 
 impl ValueTable {
@@ -20,6 +22,11 @@ impl ValueTable {
             .lock()
             .unwrap()
             .insert(sensor.to_owned(), Reading { value, at });
+    }
+
+    /// The result of a scan of the process list.
+    pub fn publish_processes(&self, list: ProcessList) {
+        *self.processes.lock().unwrap() = list;
     }
 
     /// A report 1 of a Leakshield arrived.
@@ -56,5 +63,9 @@ impl ValueSource for ValueTable {
 
     fn leakshields(&self) -> BTreeMap<String, LeakshieldStatus> {
         self.leakshields.lock().unwrap().clone()
+    }
+
+    fn processes(&self) -> ProcessList {
+        self.processes.lock().unwrap().clone()
     }
 }

@@ -35,6 +35,8 @@ pub enum ProfileEvent {
     /// `Active` and `ActivationCause` changed.
     Switched,
     /// The Leakshield part of an activation ended. `state` is `applied` or `leakshield-failed`.
+    /// `RuleGroupState` changed.
+    RuleGroups,
     Activated {
         profile: String,
         cause: &'static str,
@@ -166,6 +168,12 @@ impl Hub {
             }
             if i.state.profiles.active == id {
                 return Err(Error::in_use(format!("{id} is the active Profile")));
+            }
+            if let Some(group) = i.state.rule_groups.iter().find(|g| g.profile == id) {
+                return Err(Error::in_use(format!(
+                    "the Rule group {} targets {id}",
+                    group.id
+                )));
             }
             i.profiles.delete(id).map_err(|e| profile_error(e, id))?;
             i.deleted.insert(id.to_owned());

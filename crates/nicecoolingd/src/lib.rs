@@ -9,6 +9,7 @@ pub mod leakshield;
 pub mod lease;
 pub mod profiles;
 pub mod rescan;
+pub mod rules;
 pub mod snapshot;
 pub mod sources;
 pub mod state;

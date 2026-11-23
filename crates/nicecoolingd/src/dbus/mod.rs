@@ -23,10 +23,11 @@ pub mod loops;
 pub mod manager;
 pub mod profile;
 pub mod profiles;
+pub mod rule_params;
 pub mod sensor;
 pub mod stage;
 
-pub use hub::{BoardInfo, ChannelMeta, Hub, HubInit, SensorMeta};
+pub use hub::{BoardInfo, ChannelMeta, Hub, HubInit, HubRules, SensorMeta};
 pub use leakshield::LeakshieldInfo;
 
 /// The reply of a method that a later task fills in.

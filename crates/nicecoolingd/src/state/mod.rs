@@ -10,6 +10,7 @@ use nicecooling_core::calibration::{CalibrationTable, Preset};
 use nicecooling_core::curve::Curve;
 use nicecooling_core::derived::DerivedSensor;
 use nicecooling_core::loops::Loop;
+use nicecooling_core::rules::group::RuleGroupDef;
 use nicecooling_core::tick::{ChannelSetup, Control, LoopSetup, TickConfig};
 use nicecooling_hwmon::discovery::Discovery;
 use nicecooling_hwmon::identity::DeviceIdentity;
@@ -84,8 +85,8 @@ pub struct DaemonState {
     pub calibration_tables: Vec<CalibrationDef>,
     pub loops: Vec<Loop>,
     pub alarm_responses: BTreeMap<String, AlarmResponse>,
-    /// Typed by tasks 7.x.
-    pub rule_groups: Vec<serde_json::Value>,
+    /// Ordered: the first group has the highest priority.
+    pub rule_groups: Vec<RuleGroupDef>,
     /// Leakshield id -> Software sensor slot (1 to 12) -> sensor id.
     pub software_sensors: BTreeMap<String, BTreeMap<u16, String>>,
     pub profiles: ProfilesState,

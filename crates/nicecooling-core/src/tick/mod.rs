@@ -9,6 +9,7 @@ use crate::calibration::CalibrationTable;
 use crate::curve::Curve;
 use crate::derived::DerivedSensor;
 use crate::loops::Loop;
+use crate::rules::process::ProcessList;
 use crate::warnings::Warnings;
 
 pub mod stage_alarms;
@@ -52,6 +53,11 @@ pub trait ValueSource: Send {
     /// What the sources know of each Leakshield, by Leakshield id.
     fn leakshields(&self) -> BTreeMap<String, LeakshieldStatus> {
         BTreeMap::new()
+    }
+
+    /// The running processes, as the last scan of `/proc` saw them.
+    fn processes(&self) -> ProcessList {
+        ProcessList::default()
     }
 }
 
@@ -112,6 +118,8 @@ pub struct TickContext {
     pub alarms: ActiveAlarms,
     /// The Leakshields as the sources last saw them. Stage 1.
     pub leakshields: BTreeMap<String, LeakshieldStatus>,
+    /// The running processes. Stage 1.
+    pub processes: ProcessList,
     /// Device errors of this tick, as text.
     pub errors: Vec<String>,
 }
@@ -165,12 +173,21 @@ impl Pipeline {
     /// Stages 1 to 9. The daemon appends stage 10, the Feed message (it needs the devices), and
     /// stage 11, the watchdog ping.
     pub fn standard(source: Box<dyn ValueSource>, io: Box<dyn ChannelIo>) -> Self {
+        Self::standard_with_rules(source, io, stage_rules::RulesStage::default())
+    }
+
+    /// Like `standard`, with the Rule groups of the daemon in stage 4.
+    pub fn standard_with_rules(
+        source: Box<dyn ValueSource>,
+        io: Box<dyn ChannelIo>,
+        rules: stage_rules::RulesStage,
+    ) -> Self {
         let channels = io.channel_ids();
         Self::new(vec![
             Box::new(stage_read::ReadStage::new(source)),
             Box::new(stage_derive::DeriveStage),
             Box::new(stage_alarms::AlarmsStage::default()),
-            Box::new(stage_rules::RulesStage),
+            Box::new(rules),
             Box::new(stage_curve::CurveStage::default()),
             Box::new(stage_step::StepStage),
             Box::new(stage_floor::FloorStage),

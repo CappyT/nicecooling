@@ -20,8 +20,10 @@ use nicecooling_hwmon::sysfs::Sysfs;
 use tokio::sync::{mpsc, oneshot};
 
 mod profiles;
+mod rules;
 
 pub use profiles::{ProfileContent, ProfileEvent, ProfileView};
+pub use rules::HubRules;
 
 use super::leakshield::LeakshieldInfo;
 use crate::alarms::logind::Login1;
@@ -165,6 +167,10 @@ struct Inner {
     deleted: BTreeSet<String>,
     /// `applied` or `leakshield-failed`: how the last activation ended.
     active_state: &'static str,
+    /// What the rules stage of the tick has not read yet.
+    rule_queue: rules::RuleQueue,
+    /// (group id, holds, since in microseconds), as the last tick published them.
+    rule_states: Vec<(String, bool, u64)>,
     presets: Vec<Preset>,
     board: BoardInfo,
     sensors: Vec<SensorMeta>,
@@ -371,6 +377,13 @@ impl Inner {
             if l.flow_sensor.as_deref() == Some(id) || l.water_temperature.as_deref() == Some(id) {
                 return Some(format!("the Loop {}", l.id));
             }
+        }
+        if let Some(group) = self.state.rule_groups.iter().find(|g| {
+            g.rules.iter().any(
+                |r| matches!(r, nicecooling_core::rules::group::RuleDef::Sensor(s) if s.sensor == id),
+            )
+        }) {
+            return Some(format!("a rule of the Rule group {}", group.id));
         }
         self.state
             .derived_sensors
@@ -614,6 +627,8 @@ impl Hub {
             profiles: init.profiles,
             deleted: BTreeSet::new(),
             active_state: "applied",
+            rule_queue: rules::RuleQueue::default(),
+            rule_states: Vec::new(),
             presets: init.presets,
             board: init.board,
             sensors: init.sensors,
@@ -671,6 +686,13 @@ impl Hub {
         drop(inner);
         self.persister.changed();
         Ok(result)
+    }
+
+    /// Runs a change of the state that needs no new tick configuration, and persists it.
+    fn change<R>(&self, f: impl FnOnce(&mut Inner) -> R) -> R {
+        let result = f(&mut self.inner());
+        self.persister.changed();
+        result
     }
 
     /// Builds the tick configuration of the active Profile and queues it for the tick.

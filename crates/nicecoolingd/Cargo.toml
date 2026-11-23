@@ -13,6 +13,7 @@ test-support = []
 
 [dependencies]
 futures-core = "0.3"
+libc.workspace = true
 nicecooling-api.workspace = true
 nicecooling-core.workspace = true
 nicecooling-hwmon.workspace = true
