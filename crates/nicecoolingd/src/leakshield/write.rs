@@ -59,6 +59,8 @@ pub enum WriteError {
     BackupMismatch(&'static str),
     /// The registry of the firmware lacks the command.
     NotSupported,
+    /// A newer Profile write replaced this one before it went out.
+    Superseded,
 }
 
 impl fmt::Display for WriteError {
@@ -75,6 +77,7 @@ impl fmt::Display for WriteError {
             Self::NoSuchBackup => write!(f, "no such backup"),
             Self::BackupMismatch(why) => write!(f, "backup does not fit the device: {why}"),
             Self::NotSupported => write!(f, "the registry of this firmware lacks the command"),
+            Self::Superseded => write!(f, "a newer Profile write replaced this one"),
         }
     }
 }

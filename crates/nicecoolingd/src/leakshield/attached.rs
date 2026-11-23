@@ -148,6 +148,7 @@ fn write_error(error: WriteError) -> Error {
         WriteError::NotSupported => {
             Error::not_supported("the registry of this firmware lacks the command")
         }
+        WriteError::Superseded => failed("a newer Profile write replaced this one"),
     }
 }
 
@@ -543,6 +544,11 @@ impl Attached {
     }
 
     /// Returns the report 3 that the read-back returned.
+    /// A newer activation needs no write: the Profile write that waits goes away.
+    pub async fn cancel_profile_write(&self) {
+        self.worker.cancel_profile_write().await;
+    }
+
     pub async fn restore_backup(&self, backup: &str) -> Result<Report3> {
         let report1 = self.fresh_report1()?;
         let written = self

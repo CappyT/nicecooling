@@ -15,6 +15,7 @@ use super::factory_reset::factory_reset;
 use super::save_settings;
 use super::write::{FieldEdit, WriteEnv, WriteError, Written, restore, write_fields, write_stored};
 use super::{DeviceEvent, DeviceIo, blocking};
+use crate::profiles::spacing::{Decision, Spacing};
 
 pub enum Job {
     /// `report1` is the latest report 1: it gives the firmware and the structure.
@@ -29,11 +30,14 @@ pub enum Job {
     FactoryReset {
         report1: Report1,
     },
-    /// A Profile activation: the stored report 3 of a slot, written as stored.
+    /// A Profile activation: the stored report 3 of a slot, written as stored. The worker spaces
+    /// these writes (`profiles::spacing`).
     ProfileWrite {
         report1: Report1,
         report3: Report3,
     },
+    /// A newer Profile activation needs no write: the Profile write that waits is dropped.
+    CancelProfileWrite,
 }
 
 struct Message {
@@ -94,6 +98,20 @@ impl WriteWorker {
 }
 
 impl WriteWorker {
+    /// Drops the Profile write that waits for its time. The request that comes later decides
+    /// what the device holds.
+    pub async fn cancel_profile_write(&self) {
+        let (reply, result) = oneshot::channel();
+        let message = Message {
+            job: Job::CancelProfileWrite,
+            reply,
+            permit: None,
+        };
+        if self.queue.send(message).is_ok() {
+            let _ = result.await;
+        }
+    }
+
     /// A Profile write does not use the queue of one: it follows the writes that wait.
     pub async fn submit_profile(
         &self,
@@ -145,6 +163,7 @@ fn execute(parts: &WorkerParts, job: Job) -> Result<Written, WriteError> {
         Job::Restore { report1, backup } => restore(&env, &report1, &backup, now_us()),
         Job::FactoryReset { report1 } => factory_reset(&env, &report1, now_us()),
         Job::ProfileWrite { report1, report3 } => write_stored(&env, &report1, &report3, now_us()),
+        Job::CancelProfileWrite => Err(WriteError::Superseded),
     };
     if let Ok(written) = &result
         && let Err(e) = last.set(written.report3.clone())
@@ -167,15 +186,59 @@ fn send_save_settings(parts: &WorkerParts, backup: &str) {
     }
 }
 
+/// Runs a job and plans the save-settings command that follows a write.
+fn run_job(parts: &WorkerParts, message: Message, save: &mut Option<(Instant, String)>) {
+    let Message { job, reply, permit } = message;
+    // The factory reset takes the settings from the device: no save-settings command follows.
+    let saves = !matches!(job, Job::FactoryReset { .. });
+    let result = blocking(|| execute(parts, job));
+    // A write that failed its read-back still changed report 3 on the device.
+    let backup = match &result {
+        Ok(written) => Some(&written.backup),
+        Err(WriteError::VerifyFailed { backup, .. }) => Some(backup),
+        Err(_) => None,
+    };
+    if let Some(backup) = backup
+        && saves
+    {
+        *save = Some((Instant::now() + parts.save_delay, backup.clone()));
+    }
+    // The queue is free before the caller sees the result.
+    drop(permit);
+    let _ = reply.send(result);
+}
+
+/// A Profile write request that a newer one replaced.
+fn supersede(message: Message) {
+    let _ = message.reply.send(Err(WriteError::Superseded));
+}
+
 async fn run(parts: WorkerParts, mut queue: mpsc::UnboundedReceiver<Message>) {
     // The time of the save-settings command, and the backup that a failure points at.
-    let mut pending: Option<(Instant, String)> = None;
+    let mut save: Option<(Instant, String)> = None;
+    // The spacing of the Profile writes, and the newest Profile write that waits.
+    let mut spacing = Spacing::default();
+    let mut waiting: Option<(Instant, Message)> = None;
     loop {
-        let message = match &pending {
-            Some((deadline, _)) => tokio::select! {
+        let wake = [save.as_ref().map(|s| s.0), waiting.as_ref().map(|w| w.0)]
+            .into_iter()
+            .flatten()
+            .min();
+        let message = match wake {
+            Some(at) => tokio::select! {
                 message = queue.recv() => message,
-                () = tokio::time::sleep_until(*deadline) => {
-                    if let Some((_, backup)) = pending.take() {
+                () = tokio::time::sleep_until(at) => {
+                    let now = Instant::now();
+                    // A Profile write first: it moves the save-settings command back.
+                    if waiting.as_ref().is_some_and(|w| w.0 <= now)
+                        && let Some((_, message)) = waiting.take()
+                    {
+                        spacing.wrote(now);
+                        run_job(&parts, message, &mut save);
+                    }
+                    if save.as_ref().is_some_and(|s| s.0 <= now)
+                        && let Some((_, backup)) = save.take()
+                    {
                         blocking(|| send_save_settings(&parts, &backup));
                     }
                     continue;
@@ -183,30 +246,36 @@ async fn run(parts: WorkerParts, mut queue: mpsc::UnboundedReceiver<Message>) {
             },
             None => queue.recv().await,
         };
-        let Some(Message { job, reply, permit }) = message else {
-            // The last handle is gone (daemon stop, detach). The command is still due.
-            if let Some((deadline, backup)) = pending.take() {
+        let Some(message) = message else {
+            // The last handle is gone (daemon stop, detach). The command is still due. A Profile
+            // write that waits goes with the device.
+            if let Some((deadline, backup)) = save.take() {
                 tokio::time::sleep_until(deadline).await;
                 blocking(|| send_save_settings(&parts, &backup));
             }
             return;
         };
-        // The factory reset takes the settings from the device: no save-settings command follows.
-        let saves = !matches!(job, Job::FactoryReset { .. });
-        let result = blocking(|| execute(&parts, job));
-        // A write that failed its read-back still changed report 3 on the device.
-        let backup = match &result {
-            Ok(written) => Some(&written.backup),
-            Err(WriteError::VerifyFailed { backup, .. }) => Some(backup),
-            Err(_) => None,
-        };
-        if let Some(backup) = backup
-            && saves
-        {
-            pending = Some((Instant::now() + parts.save_delay, backup.clone()));
+        match message.job {
+            Job::CancelProfileWrite => {
+                if let Some((_, old)) = waiting.take() {
+                    supersede(old);
+                }
+                supersede(message);
+            }
+            Job::ProfileWrite { .. } => {
+                let now = Instant::now();
+                if let Some((_, old)) = waiting.take() {
+                    supersede(old);
+                }
+                match spacing.request(now) {
+                    Decision::WriteAt(at) if at > now => waiting = Some((at, message)),
+                    _ => {
+                        spacing.wrote(now);
+                        run_job(&parts, message, &mut save);
+                    }
+                }
+            }
+            _ => run_job(&parts, message, &mut save),
         }
-        // The queue is free before the caller sees the result.
-        drop(permit);
-        let _ = reply.send(result);
     }
 }

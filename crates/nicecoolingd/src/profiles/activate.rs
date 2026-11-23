@@ -91,11 +91,19 @@ pub async fn apply_slot(
         .map_err(|e| Failure::Unreachable(e.to_string()))?;
     let stored = slots.load(&device.id(), slot).ok().flatten();
     let decision = decide(device.registry(), device.serial(), &report1, slot, stored)?;
-    if let Decision::Write(report3) = &decision {
-        device
-            .write_stored_report3(report1, (**report3).clone())
-            .await
-            .map_err(Failure::Write)?;
+    match &decision {
+        Decision::Write(report3) => {
+            device
+                .write_stored_report3(report1, (**report3).clone())
+                .await
+                .map_err(|e| match e {
+                    WriteError::Superseded => Failure::Superseded,
+                    other => Failure::Write(other),
+                })?;
+        }
+        // The device has the number that this request asks for. An older request that still
+        // waits for its time must not change it.
+        Decision::Keep => device.cancel_profile_write().await,
     }
     Ok(decision)
 }

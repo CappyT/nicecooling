@@ -11,6 +11,7 @@ mod external;
 mod feed;
 mod hotplug;
 mod mode;
+mod profile_spacing;
 mod profile_write;
 mod proposals;
 mod reset;
