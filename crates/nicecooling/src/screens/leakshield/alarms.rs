@@ -140,14 +140,14 @@ impl AlarmsUi {
     ) -> Option<Command> {
         let def = EVENTS.iter().find(|e| e.event == event)?;
         let field = def.response_field.to_owned();
-        if !DEVICE_RESPONSES.contains(&response) || !Device::new(input, id).access(&field).writable
-        {
+        let code = DEVICE_RESPONSES.iter().position(|r| *r == response)?;
+        if !Device::new(input, id).access(&field).writable {
             return None;
         }
         Some(fields_command(
             id,
             &format!("response:{event}"),
-            vec![(field, FieldValue::Text(response.to_owned()))],
+            vec![(field, FieldValue::Number(code as f64))],
         ))
     }
 
@@ -377,9 +377,13 @@ impl AlarmsModel {
             });
             let device_ctl = device.field(&response_field).map(|field| {
                 let current = match &field.value {
-                    FieldValue::Text(text) => text.clone(),
-                    _ => "none".to_owned(),
-                };
+                    FieldValue::Number(code) if *code >= 0.0 => DEVICE_RESPONSES
+                        .get(*code as usize)
+                        .copied()
+                        .unwrap_or("none"),
+                    _ => "none",
+                }
+                .to_owned();
                 DeviceCtl {
                     field: response_field.clone(),
                     options: DEVICE_RESPONSES

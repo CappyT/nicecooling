@@ -120,12 +120,12 @@ fn default_fields() -> Vec<Field> {
         safety("fill_level_warning_threshold", Fv::Num(60.0)),
         safety("fill_level_alarm_threshold", Fv::Num(20.0)),
         safety("leak_rate_warning_threshold", Fv::Num(150.0)),
-        safety("fill_level_warning_response_action", text("none")),
-        safety("fill_level_alarm_response_action", text("none")),
-        safety("leak_rate_warning_response_action", text("none")),
-        safety("leak_rate_alarm_1_response_action", text("none")),
-        safety("leak_rate_alarm_2_response_action", text("signal-long")),
-        locked("system_alarm_response_action", text("none")),
+        safety("fill_level_warning_response_action", Fv::Num(0.0)),
+        safety("fill_level_alarm_response_action", Fv::Num(0.0)),
+        safety("leak_rate_warning_response_action", Fv::Num(0.0)),
+        safety("leak_rate_alarm_1_response_action", Fv::Num(0.0)),
+        safety("leak_rate_alarm_2_response_action", Fv::Num(2.0)),
+        locked("system_alarm_response_action", Fv::Num(0.0)),
         safety("standby_conditions", Fv::Num(11.0)),
         num("sensor_log_interval", 1.0),
         field("sensor_unit", "low", Fv::List(vec![0.0; 20]), true),
@@ -659,7 +659,9 @@ impl Leakshield {
             .find(|field| field.id == response_field)
             .map(|field| &field.value)
         {
-            Some(Fv::Text(text)) => text.clone(),
+            Some(Fv::Num(code)) => {
+                ["none", "signal-short", "signal-long", "key-sequence"][*code as usize].to_owned()
+            }
             _ => "none".to_owned(),
         };
         ALARMS

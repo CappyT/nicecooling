@@ -963,6 +963,18 @@ fn leakshield_alarms_states() {
     // The Device response, and the sound for a Warning only.
     let large = row(&model, "leak-alarm").device.as_ref().unwrap();
     assert_eq!(large.current, "signal-long");
+    let mut sent = with_leakshield();
+    let data = sent.snapshot.leakshield_data.get_mut(LEAKSHIELD).unwrap();
+    for f in &mut data.fields {
+        if f.id == "leak_rate_alarm_2_response_action" {
+            f.value = FieldValue::Number(3.0);
+        }
+    }
+    let model = alarms(&sent, &Feedback::default());
+    assert_eq!(
+        row(&model, "leak-alarm").device.as_ref().unwrap().current,
+        "key-sequence"
+    );
     assert_eq!(
         large
             .options
@@ -2925,10 +2937,14 @@ async fn software_sensor_and_alarm_writes_reach_the_fake_daemon() {
         .expect("a command");
     run(&harness, &response).await;
     assert_eq!(
+        daemon.calls().last().unwrap(),
+        "SetFields(leak_rate_warning_response_action=3) interactive=true"
+    );
+    assert_eq!(
         daemon
             .stored_field("leak_rate_warning_response_action")
             .await,
-        Some(Fv::Text("key-sequence".into()))
+        Some(Fv::Num(3.0))
     );
     let refreshed = harness.client.leakshield_data(LEAKSHIELD).await;
     assert_eq!(refreshed.number("leak_rate_warning_threshold"), Some(120.0));
