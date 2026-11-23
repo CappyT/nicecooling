@@ -14,9 +14,12 @@ use nicecooling_api::channel::ChannelProxy;
 use nicecooling_api::manager::ManagerProxy;
 use nicecooling_core::tick::percent_to_raw;
 use nicecooling_hwmon::fake::FakeSysfs;
+use nicecooling_protocol::feed::FeedMessage;
+use nicecooling_protocol::sim::SimDevice;
 use nicecoolingd::authz::TestAuthorizer;
 use nicecoolingd::daemon::{self, Options, Paths};
 use nicecoolingd::dbus;
+use nicecoolingd::leakshield::{DeviceIo, attached, clock};
 use nicecoolingd::tick_runner::TokioClock;
 use nicecoolingd::watchdog::Notifier;
 
@@ -39,6 +42,14 @@ const PROFILE: &str = r#"{
   "pump_floors": {}, "slot": 1
 }"#;
 
+/// `loop_1` pumps with `nct6798_pwm6` (4821 rpm) and measures its flow on `nct6798_fan3` (629 rpm).
+const STATE: &str = r#"{
+  "schema_version": 1,
+  "loops": [{"id": "loop_1", "name": "Main loop", "pump_channels": ["nct6798_pwm6"],
+             "flow_sensor": "nct6798_fan3", "calibration_table": "alphacool_17558",
+             "water_temperature": null, "leakshield": "leakshield_20417_31072", "pump_floor": 40}]
+}"#;
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn smoke() {
     let fake = FakeSysfs::reference_board();
@@ -46,6 +57,7 @@ async fn smoke() {
     let state = std::env::temp_dir().join(format!("nicecooling-smoke-{}", std::process::id()));
     fs::create_dir_all(state.join("profiles/profile_default")).unwrap();
     fs::write(state.join("profiles/profile_default/profile.json"), PROFILE).unwrap();
+    fs::write(state.join("state.json"), STATE).unwrap();
 
     let mut options = Options::new(Paths {
         sysfs_root: fake.root().to_owned(),
@@ -56,6 +68,11 @@ async fn smoke() {
     options.tick_period = Duration::from_millis(50);
     options.source_period = Duration::from_millis(50);
     options.boot_id = "test-boot".into();
+    // The simulated Leakshield. Its clock is right, so the daemon sends no clock command.
+    let sim = SimDevice::fw1022();
+    let now = clock::device_seconds(attached::now_unix()).unwrap();
+    sim.edit_report1(|r| r.device_clock = now);
+    options.leakshields = vec![DeviceIo::new(Arc::new(sim.clone()), Arc::new(sim.clone()))];
     let pings = Arc::new(AtomicUsize::new(0));
     let mut daemon = daemon::start(&options, Arc::new(TokioClock::new()), Pings(pings.clone()))
         .await
@@ -138,5 +155,31 @@ async fn smoke() {
             .is_active("lost-input", "nct6798_pwm1")
     );
     assert_eq!(daemon.runner.context().values["k10temp_temp1"], 61.875);
+
+    // The Feed message of the Loop goes to the simulated Leakshield: the pump speed in slot 0
+    // and the calibrated flow in slot 1 (L/h with one decimal).
+    let flow = daemon.runner.context().values["loop_1_flow"];
+    assert!(flow > 0.0);
+    let mut sent = Vec::new();
+    for _ in 0..100 {
+        sent = sim.bulk_messages();
+        if !sent.is_empty() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert!(
+        !sent.is_empty(),
+        "the Feed message did not reach the device"
+    );
+    let message = FeedMessage::decode(sent.last().unwrap()).unwrap();
+    assert_eq!((message.value(0), message.unit(0)), (4821, 3));
+    assert_eq!(
+        (message.value(1), message.unit(1)),
+        ((flow * 10.0).round() as i16, 12)
+    );
+    // The device was read, and the clock command did not go out.
+    assert!(sim.commands().is_empty());
+    assert_eq!(daemon.leakshields.len(), 1);
     fs::remove_dir_all(state).unwrap();
 }

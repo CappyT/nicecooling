@@ -17,13 +17,14 @@ pub const SLOT_FLOW: usize = 1;
 type Messages = BTreeMap<String, FeedMessage>;
 
 /// Sensor id of the tachometer of a Pump channel: `nct6798_pwm6` -> `nct6798_fan6`.
-fn tach_sensor(channel: &str) -> Option<String> {
+pub(crate) fn tach_sensor(channel: &str) -> Option<String> {
     let (chip, number) = channel.rsplit_once("_pwm")?;
     Some(format!("{chip}_fan{number}"))
 }
 
 /// Pump speed in rpm and flow in L/h of a Loop. The pump speed is the highest tachometer value of
-/// its Pump channels. The flow is the value of its flow sensor, which the tick already calibrated.
+/// its Pump channels. The flow is the calibrated flow of the Loop (`<loop>_flow`, stage 2), not
+/// the raw rpm of its flow sensor.
 pub fn feed_for_loop(setup: &LoopSetup, values: &BTreeMap<String, f64>) -> FeedMessage {
     let mut message = FeedMessage::default();
     let speed = setup
@@ -39,11 +40,8 @@ pub fn feed_for_loop(setup: &LoopSetup, values: &BTreeMap<String, f64>) -> FeedM
     if let Some(rpm) = speed {
         message.set(SLOT_PUMP_SPEED, rpm.round() as i16, UNIT_SPEED_RPM);
     }
-    let flow = setup
-        .config
-        .flow_sensor
-        .as_ref()
-        .and_then(|s| values.get(s))
+    let flow = values
+        .get(&setup.config.flow_id())
         .filter(|v| v.is_finite());
     if let Some(lph) = flow {
         message.set(SLOT_FLOW, (lph * 10.0).round() as i16, UNIT_LITERS_PER_HOUR);

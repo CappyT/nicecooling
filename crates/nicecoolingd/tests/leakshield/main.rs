@@ -1,10 +1,16 @@
-//! Leakshield device access, write path, backups, Feed message and external change detection,
-//! all on the simulated device. No test touches a real device, `/dev`, `/sys` or the USB bus.
+//! Leakshield device access, write path, backups, Feed message, external change detection, the
+//! clock, Mode and Action, and the D-Bus API, all on the simulated device. No test touches a real device, `/dev`, `/sys` or the USB bus.
 
 mod access;
+mod action;
+mod api;
 mod backup;
+mod clock;
 mod external;
 mod feed;
+mod mode;
+#[path = "../support/mod.rs"]
+mod support;
 mod write;
 
 use std::path::PathBuf;
@@ -13,9 +19,10 @@ use std::sync::Arc;
 use nicecooling_protocol::device::{BulkTransport, HidTransport};
 use nicecooling_protocol::registry::Registry;
 use nicecooling_protocol::sim::SimDevice;
-use nicecoolingd::leakshield::DeviceIo;
 use nicecoolingd::leakshield::backup::Backups;
 use nicecoolingd::leakshield::external::LastKnown;
+use nicecoolingd::leakshield::save_settings::SAVE_SETTINGS_DELAY;
+use nicecoolingd::leakshield::{AttachParams, Attached, DeviceIo};
 
 pub const SERIAL: &str = "20417-31072";
 pub const LEAKSHIELD_ID: &str = "leakshield_20417_31072";
@@ -49,6 +56,19 @@ impl Rig {
             last_known: Arc::new(LastKnown::open(&dir, LEAKSHIELD_ID)),
             dir,
         }
+    }
+
+    /// The device as the daemon attaches it. Call it inside a runtime.
+    pub fn attached(&self) -> Arc<Attached> {
+        Attached::open(
+            self.io.clone(),
+            &AttachParams {
+                state_dir: self.dir.clone(),
+                registry: Arc::clone(&self.registry),
+                save_delay: SAVE_SETTINGS_DELAY,
+            },
+        )
+        .unwrap()
     }
 
     pub fn backups(&self) -> Backups {

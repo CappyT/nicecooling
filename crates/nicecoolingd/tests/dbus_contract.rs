@@ -170,20 +170,6 @@ async fn unfilled_interfaces_reply_not_supported() {
     assert_eq!(leakshield.serial().await.unwrap(), "20417-31072");
     assert!(leakshield.writable().await.unwrap());
     assert_eq!(leakshield.software_sensor_slots().await.unwrap(), 12);
-    stub!(seen, "Leakshield.GetFields", leakshield.get_fields());
-    stub!(
-        seen,
-        "Leakshield.SetFields",
-        leakshield.set_fields(Default::default())
-    );
-    stub!(seen, "Leakshield.SetMode", leakshield.set_mode("shield"));
-    stub!(
-        seen,
-        "Leakshield.StartAction",
-        leakshield.start_action("test")
-    );
-    stub!(seen, "Leakshield.CancelAction", leakshield.cancel_action());
-    stub!(seen, "Leakshield.SyncClock", leakshield.sync_clock());
     stub!(
         seen,
         "Leakshield.ResetRefillHistory",
@@ -204,19 +190,6 @@ async fn unfilled_interfaces_reply_not_supported() {
         seen,
         "Leakshield.SetSoftwareSensor",
         leakshield.set_software_sensor(1, &none)
-    );
-    stub!(seen, "Leakshield.ListBackups", leakshield.list_backups());
-    stub!(seen, "Leakshield.CreateBackup", leakshield.create_backup());
-    stub!(seen, "Leakshield.GetBackup", leakshield.get_backup("b"));
-    stub!(
-        seen,
-        "Leakshield.ImportBackup",
-        leakshield.import_backup(&[], &[], &[])
-    );
-    stub!(
-        seen,
-        "Leakshield.RestoreBackup",
-        leakshield.restore_backup("b")
     );
     stub!(seen, "Leakshield.FactoryReset", leakshield.factory_reset());
     stub!(
@@ -294,7 +267,7 @@ async fn unfilled_interfaces_reply_not_supported() {
     );
     stub!(seen, "Alarms.CancelPoweroff", alarms.cancel_poweroff("x"));
 
-    // Every method of the four interfaces is in the list, and nothing else.
+    // Every method of the four interfaces is in the list, and nothing else, except the wired ones.
     let doc = roxmltree::Document::parse_with_options(
         INTERFACE_XML,
         roxmltree::ParsingOptions {
@@ -320,5 +293,21 @@ async fn unfilled_interfaces_reply_not_supported() {
                 .map(move |m| format!("{name}.{}", m.attribute("name").unwrap()))
         })
         .collect();
+    // The methods that the Leakshield tests cover (`tests/leakshield/api.rs`) are wired.
+    let wired = [
+        "GetFields",
+        "SetFields",
+        "SetMode",
+        "StartAction",
+        "CancelAction",
+        "SyncClock",
+        "ListBackups",
+        "CreateBackup",
+        "GetBackup",
+        "ImportBackup",
+        "RestoreBackup",
+    ]
+    .map(|m| format!("Leakshield.{m}"));
+    let in_xml: BTreeSet<String> = in_xml.into_iter().filter(|m| !wired.contains(m)).collect();
     assert_eq!(seen, in_xml);
 }

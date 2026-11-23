@@ -13,7 +13,7 @@ fn loop_with(leakshield: Option<&str>) -> LoopSetup {
             id: "loop_1".to_owned(),
             name: "Loop".to_owned(),
             pump_channels: vec!["nct6798_pwm6".to_owned()],
-            flow_sensor: Some("loop_1_flow".to_owned()),
+            flow_sensor: Some("nct6798_fan3".to_owned()),
             calibration_table: None,
             water_temperature: None,
             leakshield: leakshield.map(str::to_owned),
@@ -29,6 +29,8 @@ fn context(setup: LoopSetup) -> TickContext {
         ..TickConfig::default()
     });
     ctx.values.insert("nct6798_fan6".to_owned(), 2000.0);
+    ctx.values.insert("nct6798_fan3".to_owned(), 629.0);
+    // The calibrated flow of the Loop, from stage 2.
     ctx.values.insert("loop_1_flow".to_owned(), 115.0);
     ctx
 }

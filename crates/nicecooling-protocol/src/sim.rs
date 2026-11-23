@@ -47,6 +47,8 @@ struct Faults {
 }
 
 struct State {
+    /// The Mode that the device returns to when an Action ends (1 to 3).
+    base_mode: Option<i16>,
     report1: Vec<u8>,
     report3: Vec<u8>,
     report5: Vec<u8>,
@@ -56,6 +58,50 @@ struct State {
     log: Vec<Request>,
     outputs: Vec<Vec<u8>>,
     bulk: Vec<Vec<u8>>,
+}
+
+/// Report 2 command `set_mode` and the codes that it takes (`docs/protocol/leakshield.md`).
+const COMMAND_SET_MODE: u32 = 12;
+const COMMAND_SET_CLOCK: u32 = 37000;
+
+impl State {
+    fn edit_report1(&mut self, edit: impl FnOnce(&mut Report1)) {
+        let mut report = Report1::decode(&self.report1).expect("the device holds a valid report 1");
+        edit(&mut report);
+        self.report1 = report.encode();
+    }
+
+    fn finish_action(&mut self) {
+        if let Some(mode) = self.base_mode {
+            self.edit_report1(|r| r.mode = mode);
+        }
+    }
+
+    /// What the device does with a command: Mode and Action codes, cancel (code 0) and the clock.
+    fn apply(&mut self, command: Report2) {
+        match (command.command, command.parameter) {
+            (COMMAND_SET_MODE, 0) => self.finish_action(),
+            (COMMAND_SET_MODE, code @ 1..=3) => {
+                self.base_mode = Some(code as i16);
+                // A running Action keeps the report until it ends.
+                if !(4..=7).contains(&Report1::decode(&self.report1).map_or(0, |r| r.mode)) {
+                    self.edit_report1(|r| r.mode = code as i16);
+                }
+            }
+            (COMMAND_SET_MODE, code @ 4..=7) => {
+                let current = Report1::decode(&self.report1).map_or(0, |r| r.mode);
+                if (1..=3).contains(&current) {
+                    self.base_mode = Some(current);
+                }
+                self.edit_report1(|r| r.mode = code as i16);
+            }
+            (COMMAND_SET_CLOCK, seconds) => self.edit_report1(|r| {
+                r.device_clock = seconds;
+                r.status_bits |= 1 << 2;
+            }),
+            _ => {}
+        }
+    }
 }
 
 /// A shared handle: clones see the same device, so a test keeps one while the code under test
@@ -74,6 +120,7 @@ impl SimDevice {
     /// The reference device: the fw1022 dumps.
     pub fn fw1022() -> Self {
         Self(Arc::new(Mutex::new(State {
+            base_mode: None,
             report1: REPORT1.to_vec(),
             report3: REPORT3.to_vec(),
             report5: REPORT5.to_vec(),
@@ -144,6 +191,12 @@ impl SimDevice {
             Report1::decode(&state.report1).expect("the device holds a valid report 1");
         edit(&mut report);
         state.report1 = report.encode();
+    }
+
+    /// The running Action ends: report 1 shows the Mode again.
+    pub fn finish_action(&self) {
+        let mut state = self.state();
+        state.finish_action();
     }
 
     pub fn disconnect(&self) {
@@ -254,8 +307,9 @@ impl HidTransport for SimDevice {
         if state.faults.output {
             return Err(io_error("output report failed"));
         }
-        Report2::decode(report).map_err(|_| io_error("bad report 2"))?;
+        let command = Report2::decode(report).map_err(|_| io_error("bad report 2"))?;
         state.outputs.push(report.to_vec());
+        state.apply(command);
         Ok(())
     }
 }

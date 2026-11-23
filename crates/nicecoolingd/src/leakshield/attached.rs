@@ -1,0 +1,469 @@
+//! One attached Leakshield: its device access, the state that report 1 gives and the operations
+//! of the `Leakshield` interface. The D-Bus layer only authorizes and converts.
+
+use std::fmt;
+use std::io;
+use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+
+use nicecooling_api::Error;
+use nicecooling_api::errors::Result;
+use nicecooling_api::ids;
+use nicecooling_protocol::access::{Access, WriteRefusal};
+use nicecooling_protocol::device::DeviceError;
+use nicecooling_protocol::registry::Registry;
+use nicecooling_protocol::report1::Report1;
+use nicecooling_protocol::report2::Report2;
+use tokio::sync::{mpsc, watch};
+use tokio::task::JoinHandle;
+
+use super::action::{self, Action};
+use super::backup::{BackupEntry, BackupSet, Backups, ImportError, Reason};
+use super::external::{ExternalDetector, LastKnown};
+use super::fields::{self, EditError, FieldRow, FieldValue};
+use super::mode::{self, COMMAND_DELAY, Mode};
+use super::worker::{Job, WorkerParts, WriteWorker};
+use super::write::{WriteEnv, WriteError, take_backup};
+use super::{DeviceEvent, DeviceIo, blocking, clock};
+
+/// The automatic clock sync runs at most this often, so a device that ignores it is not flooded.
+const AUTO_CLOCK_GAP: Duration = Duration::from_secs(60);
+
+pub struct AttachParams {
+    /// `/var/lib/nicecooling`.
+    pub state_dir: PathBuf,
+    pub registry: Arc<Registry>,
+    /// The time between the last report 3 write and the save-settings command.
+    pub save_delay: Duration,
+}
+
+/// What the properties of the interface show. A change of it emits `PropertiesChanged`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Info {
+    pub firmware: u16,
+    pub structure: u16,
+    pub connected: bool,
+    /// Empty when the Leakshield is writable.
+    pub read_only_reason: String,
+    /// `shield`, `monitor`, `release`, or empty while unknown.
+    pub mode: String,
+    /// `test`, `measure-fill-level`, `deaerate`, `refill`, or empty.
+    pub running_action: String,
+}
+
+struct State {
+    report1: Report1,
+    connected: bool,
+    mode: Option<Mode>,
+    running: Option<Action>,
+    clock_offset: i64,
+}
+
+pub struct Attached {
+    id: String,
+    serial: String,
+    io: DeviceIo,
+    registry: Arc<Registry>,
+    backups: Backups,
+    last_known: Arc<LastKnown>,
+    worker: WriteWorker,
+    state: Mutex<State>,
+    info: watch::Sender<Info>,
+    events: mpsc::UnboundedSender<DeviceEvent>,
+    events_rx: Mutex<Option<mpsc::UnboundedReceiver<DeviceEvent>>>,
+    last_auto_clock: Mutex<Option<Instant>>,
+}
+
+impl fmt::Debug for Attached {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Attached").field("id", &self.id).finish()
+    }
+}
+
+pub fn now_unix() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs() as i64)
+}
+
+fn now_us() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |d| d.as_micros() as u64)
+}
+
+fn failed(message: impl Into<String>) -> Error {
+    Error::ZBus(zbus::fdo::Error::Failed(message.into()).into())
+}
+
+fn device_error(error: DeviceError) -> Error {
+    match error {
+        DeviceError::Disconnected => Error::Disconnected("the Leakshield is not connected".into()),
+        other => failed(other.to_string()),
+    }
+}
+
+fn io_error(error: io::Error) -> Error {
+    match error.kind() {
+        io::ErrorKind::NotFound => Error::not_found("no such backup"),
+        io::ErrorKind::InvalidInput => Error::invalid(error.to_string()),
+        _ => failed(error.to_string()),
+    }
+}
+
+/// The reply of a failed write (`docs/api.md`, Errors).
+fn write_error(error: WriteError) -> Error {
+    match error {
+        WriteError::Refused(WriteRefusal::ReadOnly(reason)) => Error::read_only(reason.as_str()),
+        WriteError::Refused(WriteRefusal::NotVerified(field)) => Error::NotVerified(field),
+        WriteError::Refused(WriteRefusal::UnknownField(field)) => {
+            Error::not_found(format!("no field {field}"))
+        }
+        WriteError::OutOfRange { field } => {
+            Error::invalid(format!("the value of {field} is out of range"))
+        }
+        WriteError::Busy => Error::Busy("a write is queued".into()),
+        WriteError::DeviceChanged => {
+            Error::DeviceChanged("report 3 changed since the first read".into())
+        }
+        WriteError::VerifyFailed { backup, .. } => Error::VerifyFailed(backup),
+        WriteError::Disconnected { .. } => {
+            Error::Disconnected("the Leakshield is not connected".into())
+        }
+        WriteError::NoSuchBackup => Error::not_found("no such backup"),
+        WriteError::BackupMismatch(why) => {
+            Error::invalid(format!("the backup does not fit: {why}"))
+        }
+        WriteError::Backup(e) => io_error(e),
+        WriteError::Device { error, .. } => device_error(error),
+    }
+}
+
+fn info_of(registry: &Registry, state: &State) -> Info {
+    let read_only_reason = if !state.connected {
+        "disconnected"
+    } else {
+        Access::new(registry, &state.report1)
+            .device_reason()
+            .map_or("", |r| r.as_str())
+    };
+    Info {
+        firmware: state.report1.firmware_version,
+        structure: state.report1.structure_number,
+        connected: state.connected,
+        read_only_reason: read_only_reason.to_owned(),
+        mode: state.mode.map_or("", Mode::as_str).to_owned(),
+        running_action: state.running.map_or("", Action::as_str).to_owned(),
+    }
+}
+
+impl Attached {
+    /// Reads report 1 once, for the serial. Call it inside the runtime: it starts the write worker.
+    pub fn open(
+        io: DeviceIo,
+        params: &AttachParams,
+    ) -> std::result::Result<Arc<Self>, DeviceError> {
+        let report1 = blocking(|| io.read_report1())?;
+        let serial = report1.serial_text();
+        let id = ids::leakshield_id(&serial);
+        let (events, events_rx) = mpsc::unbounded_channel();
+        let last_known = Arc::new(LastKnown::open(&params.state_dir, &id));
+        let worker = WriteWorker::spawn(WorkerParts {
+            io: io.clone(),
+            registry: Arc::clone(&params.registry),
+            backups: Backups::new(&params.state_dir, &serial),
+            last_known: Arc::clone(&last_known),
+            events: events.clone(),
+            save_delay: params.save_delay,
+        });
+        let (mode, running) = action::interpret(report1.mode, None);
+        let state = State {
+            clock_offset: clock::offset(&report1, now_unix()),
+            report1,
+            connected: true,
+            mode,
+            running,
+        };
+        let (info, _) = watch::channel(info_of(&params.registry, &state));
+        Ok(Arc::new(Self {
+            backups: Backups::new(&params.state_dir, &serial),
+            id,
+            serial,
+            io,
+            registry: Arc::clone(&params.registry),
+            last_known,
+            worker,
+            state: Mutex::new(state),
+            info,
+            events,
+            events_rx: Mutex::new(Some(events_rx)),
+            last_auto_clock: Mutex::new(None),
+        }))
+    }
+
+    pub fn id(&self) -> String {
+        self.id.clone()
+    }
+
+    pub fn serial(&self) -> &str {
+        &self.serial
+    }
+
+    pub fn io(&self) -> &DeviceIo {
+        &self.io
+    }
+
+    pub fn info(&self) -> Info {
+        self.info.borrow().clone()
+    }
+
+    pub fn subscribe(&self) -> watch::Receiver<Info> {
+        self.info.subscribe()
+    }
+
+    /// Device time minus PC time at the last report 1, in seconds.
+    pub fn clock_offset(&self) -> i64 {
+        self.state.lock().unwrap().clock_offset
+    }
+
+    /// The receiving end of the device events, for the signals. The first call gets it.
+    pub fn take_events(&self) -> Option<mpsc::UnboundedReceiver<DeviceEvent>> {
+        self.events_rx.lock().unwrap().take()
+    }
+
+    /// Checks report 3 every `period` and sends `ExternalChange` events.
+    pub fn spawn_external_detection(&self, period: Duration) -> JoinHandle<()> {
+        let detector = ExternalDetector::new(
+            self.io.clone(),
+            Arc::clone(&self.registry),
+            Arc::clone(&self.last_known),
+        );
+        tokio::spawn(detector.run(period, self.events.clone()))
+    }
+
+    fn apply(&self, report1: Report1, now: i64) {
+        let mut state = self.state.lock().unwrap();
+        (state.mode, state.running) = action::interpret(report1.mode, state.mode);
+        state.clock_offset = clock::offset(&report1, now);
+        state.report1 = report1;
+        state.connected = true;
+        let info = info_of(&self.registry, &state);
+        drop(state);
+        self.info.send_if_modified(|current| {
+            let changed = *current != info;
+            *current = info;
+            changed
+        });
+    }
+
+    fn mark_disconnected(&self) {
+        let mut state = self.state.lock().unwrap();
+        state.connected = false;
+        let info = info_of(&self.registry, &state);
+        drop(state);
+        self.info.send_if_modified(|current| {
+            let changed = *current != info;
+            *current = info;
+            changed
+        });
+    }
+
+    /// The result of a Feed message send. A vanished device shows at once.
+    pub fn feed_result(&self, result: &std::result::Result<(), DeviceError>) {
+        if matches!(result, Err(DeviceError::Disconnected)) {
+            self.mark_disconnected();
+        }
+    }
+
+    /// Reads report 1, updates the state and runs the automatic clock sync. Blocks on the device.
+    /// Returns the report, or `None` when the device did not answer.
+    pub fn poll(&self, now: i64) -> Option<Report1> {
+        match blocking(|| self.io.read_report1()) {
+            Ok(report1) => {
+                self.apply(report1.clone(), now);
+                self.auto_clock(&report1, now);
+                Some(report1)
+            }
+            Err(DeviceError::Disconnected) => {
+                self.mark_disconnected();
+                None
+            }
+            Err(_) => None,
+        }
+    }
+
+    fn auto_clock(&self, report1: &Report1, now: i64) {
+        if Access::new(&self.registry, report1)
+            .device_reason()
+            .is_some()
+        {
+            return;
+        }
+        let mut last = self.last_auto_clock.lock().unwrap();
+        if last.is_some_and(|t| t.elapsed() < AUTO_CLOCK_GAP) {
+            return;
+        }
+        match blocking(|| clock::auto_sync(&self.io, &self.registry, report1, now)) {
+            Ok(true) => *last = Some(Instant::now()),
+            Ok(false) => {}
+            Err(e) => eprintln!(
+                "nicecoolingd: the automatic clock sync of {} failed: {e}",
+                self.id
+            ),
+        }
+    }
+
+    fn fresh_report1(&self) -> Result<Report1> {
+        match blocking(|| self.io.read_report1()) {
+            Ok(report1) => {
+                self.apply(report1.clone(), now_unix());
+                Ok(report1)
+            }
+            Err(e) => {
+                if matches!(e, DeviceError::Disconnected) {
+                    self.mark_disconnected();
+                }
+                Err(device_error(e))
+            }
+        }
+    }
+
+    fn require_writable(&self, report1: &Report1) -> Result<()> {
+        match Access::new(&self.registry, report1).device_reason() {
+            Some(reason) => Err(Error::read_only(reason.as_str())),
+            None => Ok(()),
+        }
+    }
+
+    /// Sends one report 2 command. A registry without it gives `NotSupported`.
+    fn send(&self, command: Option<Report2>, delay: Duration) -> Result<()> {
+        let command = command.ok_or_else(|| {
+            Error::not_supported("the registry of this firmware lacks the command")
+        })?;
+        let report1 = self.fresh_report1()?;
+        self.require_writable(&report1)?;
+        blocking(|| {
+            std::thread::sleep(delay);
+            self.io.send_command(command)
+        })
+        .map_err(device_error)?;
+        // The device shows the result in its next report 1.
+        let _ = self.fresh_report1();
+        Ok(())
+    }
+
+    pub fn set_mode(&self, mode: &str) -> Result<()> {
+        let mode = Mode::parse(mode)
+            .ok_or_else(|| Error::invalid(format!("{mode:?} is not shield, monitor or release")))?;
+        self.send(
+            mode::set_mode_command(&self.registry, mode.code()),
+            COMMAND_DELAY,
+        )
+    }
+
+    /// `refill_blocked` tells whether a Pump channel of the Loop of this Leakshield runs. It is
+    /// asked only for a Refill.
+    pub fn start_action(&self, action: &str, refill_blocked: impl FnOnce() -> bool) -> Result<()> {
+        let action = Action::parse(action).ok_or_else(|| {
+            Error::invalid(format!(
+                "{action:?} is not test, measure-fill-level, deaerate or refill"
+            ))
+        })?;
+        if action == Action::Refill && refill_blocked() {
+            return Err(Error::PumpRunning(
+                "a Pump channel of the Loop reads above 0 rpm: start the Refill with the device button while the PC is in standby"
+                    .into(),
+            ));
+        }
+        self.send(
+            mode::set_mode_command(&self.registry, action.code()),
+            COMMAND_DELAY,
+        )
+    }
+
+    pub fn cancel_action(&self) -> Result<()> {
+        self.send(mode::cancel_command(&self.registry), COMMAND_DELAY)
+    }
+
+    /// Sets the device clock from the PC clock, whatever the offset.
+    pub fn sync_clock(&self, now: i64) -> Result<()> {
+        self.send(clock::command(&self.registry, now), Duration::ZERO)
+    }
+
+    pub fn get_fields(&self) -> Result<Vec<FieldRow>> {
+        let report1 = self.fresh_report1()?;
+        let report3 = blocking(|| self.io.read_report3()).map_err(device_error)?;
+        Ok(fields::rows(&self.registry, &report1, &report3))
+    }
+
+    /// One write path run for all fields. Returns after the read-back.
+    pub async fn set_fields(&self, values: Vec<(String, FieldValue)>) -> Result<()> {
+        let edits = fields::edits(&self.registry, values).map_err(|e| match e {
+            EditError::NoSuchField(id) => Error::not_found(format!("no field {id}")),
+            EditError::BadValue(id) => Error::invalid(format!("the value of {id} is not a number")),
+        })?;
+        if edits.is_empty() {
+            return Ok(());
+        }
+        let report1 = self.fresh_report1()?;
+        self.worker
+            .submit(Job::Write { report1, edits })
+            .await
+            .map_err(write_error)?;
+        Ok(())
+    }
+
+    pub async fn restore_backup(&self, backup: &str) -> Result<()> {
+        let report1 = self.fresh_report1()?;
+        self.worker
+            .submit(Job::Restore {
+                report1,
+                backup: backup.to_owned(),
+            })
+            .await
+            .map_err(write_error)?;
+        Ok(())
+    }
+
+    pub fn list_backups(&self) -> Result<Vec<BackupEntry>> {
+        self.backups.list().map_err(io_error)
+    }
+
+    /// Backs up reports 3, 5 and 8. It waits for a write that runs.
+    pub fn create_backup(&self) -> Result<String> {
+        let report1 = self.fresh_report1()?;
+        let env = WriteEnv {
+            io: &self.io,
+            registry: &self.registry,
+            backups: &self.backups,
+        };
+        blocking(|| {
+            let _exclusive = self.last_known.lock();
+            take_backup(&env, &report1, Reason::Manual, now_us())
+        })
+        .map_err(write_error)
+    }
+
+    pub fn get_backup(&self, backup: &str) -> Result<BackupSet> {
+        self.backups.get(backup).map_err(io_error)
+    }
+
+    /// Saves reports of a client as a backup. It needs the structure id of the device.
+    pub fn import_backup(&self, set: &BackupSet) -> Result<String> {
+        let (structure, firmware) = {
+            let state = self.state.lock().unwrap();
+            (
+                state.report1.structure_number,
+                state.report1.firmware_version,
+            )
+        };
+        self.backups
+            .import(set, structure, firmware, now_us())
+            .map(|saved| saved.id)
+            .map_err(|e| match e {
+                ImportError::Io(e) => io_error(e),
+                other => Error::invalid(other.to_string()),
+            })
+    }
+}

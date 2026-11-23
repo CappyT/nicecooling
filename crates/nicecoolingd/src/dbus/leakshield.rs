@@ -1,39 +1,48 @@
-//! The interface `Leakshield`. Tasks 5.x fill the methods in. Until then each method replies
-//! `org.freedesktop.DBus.Error.NotSupported`, and the properties come from a `LeakshieldInfo`.
+//! The interface `Leakshield`. The device operations live in `crate::leakshield`: this file
+//! authorizes the caller, converts the arguments and replies, and emits the signals. A method
+//! that a later task owns replies `org.freedesktop.DBus.Error.NotSupported`.
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use nicecooling_api::errors::Result;
-use nicecooling_api::ids;
-use zbus::{OwnedObjectPath, OwnedVariant, interface};
+use nicecooling_api::ids::Kind;
+use tokio::sync::mpsc;
+use zbus::message::Header;
+use zbus::object_server::SignalEmitter;
+use zbus::{Connection, OwnedObjectPath, OwnedVariant, Variant, interface};
 
-use super::not_supported_stub;
+use super::hub::{Hub, LoopView};
+use super::{not_supported_stub, object};
+use crate::leakshield::DeviceEvent;
+use crate::leakshield::action::{self, LoopPumps};
+use crate::leakshield::attached::{Attached, Info, now_unix};
+use crate::leakshield::backup::BackupSet;
+use crate::leakshield::fields::FieldValue;
 
-/// What the daemon knows of a Leakshield before the device access exists.
-#[derive(Clone, Debug)]
-pub struct LeakshieldInfo {
-    pub serial: String,
-    pub firmware: u16,
-    pub structure: u16,
-    pub connected: bool,
-    /// Empty when the Leakshield is writable.
-    pub read_only_reason: String,
-    pub mode: String,
-}
-
-impl LeakshieldInfo {
-    pub fn id(&self) -> String {
-        ids::leakshield_id(&self.serial)
-    }
-}
+/// What the hub keeps of a Leakshield: the attached device.
+pub type LeakshieldInfo = Arc<Attached>;
 
 pub struct Leakshield {
-    info: LeakshieldInfo,
+    hub: Arc<Hub>,
+    device: Arc<Attached>,
 }
 
 impl Leakshield {
-    pub fn new(info: LeakshieldInfo) -> Self {
-        Self { info }
+    pub fn new(hub: Arc<Hub>, device: Arc<Attached>) -> Self {
+        Self { hub, device }
+    }
+
+    async fn authorize(
+        &self,
+        connection: &Connection,
+        header: &Header<'_>,
+        method: &str,
+        mode: Option<&str>,
+    ) -> Result<()> {
+        self.hub
+            .authorize(connection, header, "Leakshield", method, mode)
+            .await
     }
 }
 
@@ -41,57 +50,93 @@ fn stub<T>(method: &str) -> Result<T> {
     Err(not_supported_stub("Leakshield", method))
 }
 
+fn number(value: &Variant<'_>) -> Option<f64> {
+    Some(match value {
+        Variant::Bool(v) => f64::from(u8::from(*v)),
+        Variant::U8(v) => f64::from(*v),
+        Variant::I16(v) => f64::from(*v),
+        Variant::U16(v) => f64::from(*v),
+        Variant::I32(v) => f64::from(*v),
+        Variant::U32(v) => f64::from(*v),
+        Variant::I64(v) => *v as f64,
+        Variant::U64(v) => *v as f64,
+        Variant::F64(v) => *v,
+        Variant::Variant(inner) => return number(inner),
+        _ => return None,
+    })
+}
+
+/// A number, or an array of numbers for a field with several elements.
+fn field_value(value: &Variant<'_>) -> Option<FieldValue> {
+    match value {
+        Variant::Array(items) => items
+            .iter()
+            .map(number)
+            .collect::<Option<Vec<_>>>()
+            .map(FieldValue::List),
+        other => number(other).map(FieldValue::Number),
+    }
+}
+
+fn variant_of(value: FieldValue) -> OwnedVariant {
+    let variant = match value {
+        FieldValue::Number(n) => Variant::F64(n),
+        FieldValue::List(list) => Variant::from(list),
+    };
+    OwnedVariant::try_from(variant).expect("a number has no file descriptor")
+}
+
 #[allow(unused_variables)]
 #[interface(name = "io.github.cappyt.NiceCooling1.Leakshield")]
 impl Leakshield {
     #[zbus(property(emits_changed_signal = "const"))]
     fn id(&self) -> String {
-        self.info.id()
+        self.device.id()
     }
 
     #[zbus(property(emits_changed_signal = "const"))]
     fn serial(&self) -> String {
-        self.info.serial.clone()
+        self.device.serial().to_owned()
     }
 
     #[zbus(property)]
     fn firmware(&self) -> u16 {
-        self.info.firmware
+        self.device.info().firmware
     }
 
     #[zbus(property)]
     fn structure(&self) -> u16 {
-        self.info.structure
+        self.device.info().structure
     }
 
     #[zbus(property)]
     fn connected(&self) -> bool {
-        self.info.connected
+        self.device.info().connected
     }
 
     #[zbus(property)]
     fn writable(&self) -> bool {
-        self.info.read_only_reason.is_empty()
+        self.device.info().read_only_reason.is_empty()
     }
 
     #[zbus(property)]
     fn read_only_reason(&self) -> String {
-        self.info.read_only_reason.clone()
+        self.device.info().read_only_reason
     }
 
     #[zbus(property)]
     fn mode(&self) -> String {
-        self.info.mode.clone()
+        self.device.info().mode
     }
 
     #[zbus(property)]
     fn running_action(&self) -> String {
-        String::new()
+        self.device.info().running_action
     }
 
     #[zbus(property(emits_changed_signal = "false"))]
     fn clock_offset(&self) -> i64 {
-        0
+        self.device.clock_offset()
     }
 
     #[zbus(property)]
@@ -101,27 +146,97 @@ impl Leakshield {
 
     #[zbus(out_args("fields"))]
     async fn get_fields(&self) -> Result<Vec<(String, String, OwnedVariant, bool, String)>> {
-        stub("GetFields")
+        Ok(self
+            .device
+            .get_fields()?
+            .into_iter()
+            .map(|row| {
+                (
+                    row.id,
+                    row.risk.to_owned(),
+                    variant_of(row.value),
+                    row.writable,
+                    row.reason,
+                )
+            })
+            .collect())
     }
 
-    async fn set_fields(&self, fields: HashMap<String, OwnedVariant>) -> Result<()> {
-        stub("SetFields")
+    async fn set_fields(
+        &self,
+        #[zbus(connection)] connection: &Connection,
+        #[zbus(header)] header: Header<'_>,
+        fields: HashMap<String, OwnedVariant>,
+    ) -> Result<()> {
+        self.authorize(connection, &header, "SetFields", None)
+            .await?;
+        let mut values = Vec::with_capacity(fields.len());
+        for (id, value) in fields {
+            let value = field_value(&value).ok_or_else(|| {
+                nicecooling_api::Error::invalid(format!("the value of {id} is not a number"))
+            })?;
+            values.push((id, value));
+        }
+        values.sort_by(|a, b| a.0.cmp(&b.0));
+        self.device.set_fields(values).await
     }
 
-    async fn set_mode(&self, mode: &str) -> Result<()> {
-        stub("SetMode")
+    async fn set_mode(
+        &self,
+        #[zbus(connection)] connection: &Connection,
+        #[zbus(header)] header: Header<'_>,
+        mode: &str,
+    ) -> Result<()> {
+        self.authorize(connection, &header, "SetMode", Some(mode))
+            .await?;
+        self.device.set_mode(mode)
     }
 
-    async fn start_action(&self, action: &str) -> Result<()> {
-        stub("StartAction")
+    async fn start_action(
+        &self,
+        #[zbus(connection)] connection: &Connection,
+        #[zbus(header)] header: Header<'_>,
+        action: &str,
+    ) -> Result<()> {
+        self.authorize(connection, &header, "StartAction", None)
+            .await?;
+        let id = self.device.id();
+        self.device.start_action(action, || {
+            let hub = &self.hub;
+            let loops: Vec<LoopView> = hub
+                .loop_ids()
+                .iter()
+                .filter_map(|l| hub.loop_view(l))
+                .collect();
+            action::refill_blocked(
+                &id,
+                loops.iter().map(|l| LoopPumps {
+                    leakshield: l.leakshield.as_deref(),
+                    pump_channels: &l.pump_channels,
+                }),
+                |sensor| hub.sensor(sensor).and_then(|s| s.value),
+            )
+        })
     }
 
-    async fn cancel_action(&self) -> Result<()> {
-        stub("CancelAction")
+    async fn cancel_action(
+        &self,
+        #[zbus(connection)] connection: &Connection,
+        #[zbus(header)] header: Header<'_>,
+    ) -> Result<()> {
+        self.authorize(connection, &header, "CancelAction", None)
+            .await?;
+        self.device.cancel_action()
     }
 
-    async fn sync_clock(&self) -> Result<()> {
-        stub("SyncClock")
+    async fn sync_clock(
+        &self,
+        #[zbus(connection)] connection: &Connection,
+        #[zbus(header)] header: Header<'_>,
+    ) -> Result<()> {
+        self.authorize(connection, &header, "SyncClock", None)
+            .await?;
+        self.device.sync_clock(now_unix())
     }
 
     async fn reset_refill_history(&self) -> Result<()> {
@@ -148,31 +263,58 @@ impl Leakshield {
 
     #[zbus(out_args("backups"))]
     async fn list_backups(&self) -> Result<Vec<(String, u64, String, u16, String)>> {
-        stub("ListBackups")
+        Ok(self
+            .device
+            .list_backups()?
+            .into_iter()
+            .map(|b| (b.id, b.created_us, b.sha256, b.firmware, b.reason))
+            .collect())
     }
 
     #[zbus(out_args("backup"))]
-    async fn create_backup(&self) -> Result<String> {
-        stub("CreateBackup")
+    async fn create_backup(
+        &self,
+        #[zbus(connection)] connection: &Connection,
+        #[zbus(header)] header: Header<'_>,
+    ) -> Result<String> {
+        self.authorize(connection, &header, "CreateBackup", None)
+            .await?;
+        self.device.create_backup()
     }
 
     #[zbus(out_args("report3", "report5", "report8"))]
     async fn get_backup(&self, backup: &str) -> Result<(Vec<u8>, Vec<u8>, Vec<u8>)> {
-        stub("GetBackup")
+        let set = self.device.get_backup(backup)?;
+        Ok((set.report3, set.report5, set.report8))
     }
 
     #[zbus(out_args("backup"))]
     async fn import_backup(
         &self,
+        #[zbus(connection)] connection: &Connection,
+        #[zbus(header)] header: Header<'_>,
         report3: Vec<u8>,
         report5: Vec<u8>,
         report8: Vec<u8>,
     ) -> Result<String> {
-        stub("ImportBackup")
+        self.authorize(connection, &header, "ImportBackup", None)
+            .await?;
+        self.device.import_backup(&BackupSet {
+            report3,
+            report5,
+            report8,
+        })
     }
 
-    async fn restore_backup(&self, backup: &str) -> Result<()> {
-        stub("RestoreBackup")
+    async fn restore_backup(
+        &self,
+        #[zbus(connection)] connection: &Connection,
+        #[zbus(header)] header: Header<'_>,
+        backup: &str,
+    ) -> Result<()> {
+        self.authorize(connection, &header, "RestoreBackup", None)
+            .await?;
+        self.device.restore_backup(backup).await
     }
 
     async fn factory_reset(&self) -> Result<()> {
@@ -185,15 +327,98 @@ impl Leakshield {
     }
 
     #[zbus(signal)]
-    async fn external_change(
-        emitter: &zbus::object_server::SignalEmitter<'_>,
-        fields: Vec<String>,
-    ) -> zbus::Result<()>;
+    async fn external_change(emitter: &SignalEmitter<'_>, fields: Vec<String>) -> zbus::Result<()>;
 
     #[zbus(signal)]
     async fn write_failed(
-        emitter: &zbus::object_server::SignalEmitter<'_>,
+        emitter: &SignalEmitter<'_>,
         error: String,
         backup: String,
     ) -> zbus::Result<()>;
+}
+
+/// Puts the object of a device on the bus and starts the task that emits its signals.
+pub(crate) async fn register(
+    connection: &Connection,
+    hub: &Arc<Hub>,
+    device: &Arc<Attached>,
+) -> zbus::Result<()> {
+    let path = object(Kind::Leakshield, &device.id());
+    connection
+        .object_server()
+        .at(path.clone(), Leakshield::new(hub.clone(), device.clone()))
+        .await?;
+    // The task holds the receivers only, so it ends when the device goes.
+    hub.spawn(emit(
+        connection.clone(),
+        path,
+        device.subscribe(),
+        device.take_events(),
+    ));
+    Ok(())
+}
+
+async fn next_event(
+    events: &mut Option<mpsc::UnboundedReceiver<DeviceEvent>>,
+) -> Option<DeviceEvent> {
+    match events {
+        Some(rx) => rx.recv().await,
+        None => std::future::pending().await,
+    }
+}
+
+async fn emit(
+    connection: Connection,
+    path: OwnedObjectPath,
+    mut info: tokio::sync::watch::Receiver<Info>,
+    mut events: Option<mpsc::UnboundedReceiver<DeviceEvent>>,
+) {
+    let mut last = info.borrow_and_update().clone();
+    loop {
+        let Ok(iface) = connection
+            .object_server()
+            .interface::<_, Leakshield>(path.clone())
+            .await
+        else {
+            return;
+        };
+        let emitter = iface.signal_emitter();
+        tokio::select! {
+            changed = info.changed() => {
+                if changed.is_err() {
+                    return;
+                }
+                let now = info.borrow_and_update().clone();
+                let this = iface.get().await;
+                if now.firmware != last.firmware {
+                    let _ = this.firmware_changed(emitter).await;
+                }
+                if now.connected != last.connected {
+                    let _ = this.connected_changed(emitter).await;
+                }
+                if now.read_only_reason != last.read_only_reason {
+                    let _ = this.writable_changed(emitter).await;
+                    let _ = this.read_only_reason_changed(emitter).await;
+                }
+                if now.mode != last.mode {
+                    let _ = this.mode_changed(emitter).await;
+                }
+                if now.running_action != last.running_action {
+                    let _ = this.running_action_changed(emitter).await;
+                }
+                last = now;
+            }
+            event = next_event(&mut events) => {
+                match event {
+                    Some(DeviceEvent::WriteFailed { error, backup }) => {
+                        let _ = Leakshield::write_failed(emitter, error, backup).await;
+                    }
+                    Some(DeviceEvent::ExternalChange { fields }) => {
+                        let _ = Leakshield::external_change(emitter, fields).await;
+                    }
+                    None => events = None,
+                }
+            }
+        }
+    }
 }

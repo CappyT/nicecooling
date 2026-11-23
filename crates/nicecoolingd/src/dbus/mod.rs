@@ -1,5 +1,5 @@
 //! The D-Bus API `io.github.cappyt.NiceCooling1` (`docs/api.md`). One file for each interface of
-//! the XML contract. `Leakshield`, `Profiles`, `Profile` and `Alarms` answer
+//! the XML contract. `Profiles`, `Profile` and `Alarms` and some methods of `Leakshield` answer
 //! `org.freedesktop.DBus.Error.NotSupported` until the tasks that own them fill them in.
 
 use std::sync::Arc;
@@ -204,13 +204,8 @@ pub async fn serve(
     for id in hub.loop_ids() {
         register_loop(server, hub, &id).await?;
     }
-    for info in hub.leakshields() {
-        server
-            .at(
-                object(Kind::Leakshield, &info.id()),
-                leakshield::Leakshield::new(info),
-            )
-            .await?;
+    for device in hub.leakshields() {
+        leakshield::register(connection, hub, &device).await?;
     }
     let (default_profile, name, slot) = hub.profile();
     server

@@ -13,7 +13,6 @@ use crate::warnings::Warnings;
 pub mod stage_alarms;
 pub mod stage_curve;
 pub mod stage_derive;
-pub mod stage_feed;
 pub mod stage_floor;
 pub mod stage_override;
 pub mod stage_read;
@@ -144,7 +143,8 @@ impl Pipeline {
         Self { stages }
     }
 
-    /// Stages 1 to 10. The daemon appends stage 11, the watchdog ping.
+    /// Stages 1 to 9. The daemon appends stage 10, the Feed message (it needs the devices), and
+    /// stage 11, the watchdog ping.
     pub fn standard(source: Box<dyn ValueSource>, io: Box<dyn ChannelIo>) -> Self {
         Self::new(vec![
             Box::new(stage_read::ReadStage::new(source)),
@@ -156,7 +156,6 @@ impl Pipeline {
             Box::new(stage_floor::FloorStage),
             Box::new(stage_override::OverrideStage),
             Box::new(stage_reconcile::ReconcileStage::new(io)),
-            Box::new(stage_feed::FeedStage),
         ])
     }
 

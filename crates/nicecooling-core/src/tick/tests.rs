@@ -217,8 +217,7 @@ fn stage_order() {
             "step",
             "floor",
             "override",
-            "reconcile",
-            "feed"
+            "reconcile"
         ]
     );
 

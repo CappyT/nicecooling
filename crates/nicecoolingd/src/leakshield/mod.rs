@@ -1,5 +1,6 @@
 //! Leakshield device handling: the I/O wrapper, backups, the write path and its worker, the Feed
-//! message and external change detection. The D-Bus API wires these in task 5.10.
+//! message, external change detection, the clock, Mode and Action. `attached` joins them for the
+//! D-Bus API.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -12,12 +13,19 @@ use nicecooling_protocol::report3::{REPORT3_SIZE, Report3};
 use nicecooling_protocol::report5::{REPORT5_SIZE, Report5};
 use nicecooling_protocol::report8::{REPORT8_SIZE, Report8};
 
+pub mod action;
+pub mod attached;
 pub mod backup;
+pub mod clock;
 pub mod external;
 pub mod feed;
+pub mod fields;
+pub mod mode;
 pub mod save_settings;
 pub mod worker;
 pub mod write;
+
+pub use attached::{AttachParams, Attached};
 
 /// How long `read_report1` waits for each input report.
 const INPUT_TIMEOUT: Duration = Duration::from_secs(2);
@@ -48,6 +56,12 @@ pub(crate) fn blocking<R>(f: impl FnOnce() -> R) -> R {
 pub struct DeviceIo {
     hid: Arc<dyn HidTransport>,
     bulk: Arc<dyn BulkTransport>,
+}
+
+impl std::fmt::Debug for DeviceIo {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("DeviceIo")
+    }
 }
 
 impl DeviceIo {

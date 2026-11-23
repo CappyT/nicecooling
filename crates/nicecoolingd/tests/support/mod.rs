@@ -15,9 +15,13 @@ use std::time::Duration;
 
 use nicecooling_api::ids::{Kind, object_path};
 use nicecooling_hwmon::fake::FakeSysfs;
+use nicecooling_protocol::sim::SimDevice;
 use nicecoolingd::authz::{Authorizer, PolkitAuthorizer, TestAuthorizer};
 use nicecoolingd::daemon::{self, Daemon, Options, Paths};
-use nicecoolingd::dbus::{self, LeakshieldInfo, Served};
+use nicecoolingd::dbus::{self, Served};
+use nicecoolingd::leakshield::DeviceIo;
+use nicecoolingd::leakshield::attached;
+use nicecoolingd::leakshield::clock;
 use nicecoolingd::tick_runner::TokioClock;
 use nicecoolingd::watchdog::Notifier;
 use tokio::task::JoinHandle;
@@ -85,6 +89,8 @@ pub struct Rig {
     pub server: Connection,
     pub authorizer: Arc<TestAuthorizer>,
     pub fake: FakeSysfs,
+    /// The simulated Leakshield behind the object `LEAKSHIELD`.
+    pub sim: SimDevice,
     pub state: PathBuf,
     pub daemon: Option<Daemon>,
     /// The mock polkit, when the rig asks it instead of the test authorizer.
@@ -137,14 +143,12 @@ impl Rig {
         options.source_period = Duration::from_millis(50);
         options.rescan_period = Duration::from_millis(50);
         options.boot_id = "test-boot".into();
-        options.leakshields = vec![LeakshieldInfo {
-            serial: "20417-31072".into(),
-            firmware: 1040,
-            structure: 1,
-            connected: true,
-            read_only_reason: String::new(),
-            mode: "shield".into(),
-        }];
+        let sim = SimDevice::fw1022();
+        // The fixture clock is from the day of the dump. A clock far from now makes the daemon set it.
+        let now = clock::device_seconds(attached::now_unix()).unwrap();
+        sim.edit_report1(|r| r.device_clock = now);
+        options.leakshields = vec![DeviceIo::new(Arc::new(sim.clone()), Arc::new(sim.clone()))];
+        options.save_settings_delay = Duration::from_millis(200);
         let daemon = daemon::start(&options, Arc::new(TokioClock::new()), NoPing)
             .await
             .unwrap();
@@ -167,6 +171,7 @@ impl Rig {
             server,
             authorizer,
             fake,
+            sim,
             state,
             daemon: Some(daemon),
             polkit,

@@ -325,7 +325,11 @@ impl Inner {
                 default_name: meta.name.clone(),
                 kind: meta.kind.to_owned(),
                 unit: meta.unit.to_owned(),
-                origin: "hwmon",
+                origin: if meta.driver.is_empty() {
+                    "leakshield"
+                } else {
+                    "hwmon"
+                },
                 driver: meta.driver.clone(),
                 value,
             });

@@ -2,5 +2,6 @@
 
 pub mod hotplug;
 pub mod hwmon;
+pub mod leakshield;
 pub mod leakshield_bulk;
 pub mod leakshield_hid;
