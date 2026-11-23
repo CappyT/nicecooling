@@ -4,12 +4,20 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use nicecooling_core::rules::time::DayTime;
 
+unsafe extern "C" {
+    /// Reads `TZ` and `/etc/localtime` again. The `libc` crate does not declare it.
+    fn tzset();
+}
+
 /// The local weekday and minute of a Unix time, as the C library has them for the time zone of
 /// the system.
 pub fn local_time(unix_s: i64) -> DayTime {
     let seconds: libc::time_t = unix_s as libc::time_t;
-    // SAFETY: `localtime_r` writes only to the `tm` that we give it. A zeroed `tm` is valid.
+    // SAFETY: `tzset` takes no argument. `localtime_r` writes only to the `tm` that we give it. A
+    // zeroed `tm` is valid. `localtime_r` does not read the time zone again by itself, so
+    // `tzset` follows a change of `TZ` or `/etc/localtime`.
     let tm = unsafe {
+        tzset();
         let mut tm: libc::tm = std::mem::zeroed();
         if libc::localtime_r(&seconds, &mut tm).is_null() {
             return DayTime {
