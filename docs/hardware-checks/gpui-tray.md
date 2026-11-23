@@ -20,15 +20,15 @@ This procedure checks the spike `tools/spikes/gpui-tray` on GNOME with the AppIn
 
 ## Record
 
-Date, shell version and extension version:
+2026-11-23, GNOME Shell 51.1, extension `appindicatorsupport@rgcjonas.gmail.com` enabled. The owner ran steps 3, 5, 6, 7 and 8; the log of the spike gives the rest.
 
 | Step | Result |
 |---|---|
-| 1 | |
-| 2 | |
-| 3 | |
-| 4 | |
-| 5 | |
-| 6 | |
-| 7 | |
-| 8 | |
+| 1 | pass |
+| 2 | pass: `gpui started, windows: 0`, `capabilities: [...]`, `tray registered` |
+| 3 | pass (owner): tray icon visible, no window in the Overview or `Alt+Tab` |
+| 4 | pass: the capabilities hold `actions` |
+| 5 | pass: `notification shown, id 3` |
+| 6 | pass: `action invoked: ack`, `gpui foreground received action: ack` |
+| 7 | not observed: the log has no second `notification shown` and no `action invoked: default`. The app does not need a body click: the cancel path uses a button, the tray menu and the window |
+| 8 | pass: `quit`, the process exited and the icon disappeared |
