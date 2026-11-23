@@ -326,7 +326,7 @@ mod tests {
 
     /// The table of the aquasuite package, as the notes describe it (`docs/re/firmware.md`).
     fn database(dir: &Path, rows: &[Row]) -> PathBuf {
-        let path = dir.join("aquasuite_db.database");
+        let path = dir.join("package.database");
         let conn = Connection::open(&path).unwrap();
         conn.execute_batch(
             "CREATE TABLE firmware (id INTEGER PRIMARY KEY, version INTEGER, bootloader INTEGER, \
@@ -660,7 +660,7 @@ mod tests {
     async fn second_parse_returns_busy() {
         let dir = dir("busy");
         let bytes = bytes_of(&dir);
-        let path = dir.join("aquasuite_db.database");
+        let path = dir.join("package.database");
         let reader = PackageReader::default();
         let (release, gate) = mpsc::channel();
         let slow = Source::new(
@@ -689,7 +689,7 @@ mod tests {
     async fn slow_read_times_out() {
         let dir = dir("slow");
         let bytes = bytes_of(&dir);
-        let path = dir.join("aquasuite_db.database");
+        let path = dir.join("package.database");
         let reader = PackageReader::with_limit(Duration::from_millis(50));
         let (release, gate) = mpsc::channel();
         let slow = Source::new(
