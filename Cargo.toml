@@ -29,7 +29,7 @@ nusb = "0.2.9"
 rustix = "1.1"
 crc = "3.4"
 sha2 = "0.11"
-serde = "1.0"
+serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 toml = "1.2"
 rusqlite = { version = "0.43", features = ["bundled"] }
