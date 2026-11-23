@@ -69,6 +69,9 @@ pub struct Live {
     pub active_slot: u8,
     pub failed_write_backup: String,
     pub last_feed: (u64, f64, f64),
+    /// While it is set, `GetFields` waits until the gate has a permit.
+    pub gate: Option<Arc<tokio::sync::Semaphore>>,
+    pub connected: bool,
     /// The stored settings of each slot. A slot that is not here has no stored report 3.
     pub stored: std::collections::BTreeMap<u8, HashMap<String, Fv>>,
 }
@@ -260,6 +263,8 @@ impl Leakshield {
                 active_slot: 1,
                 failed_write_backup: String::new(),
                 last_feed,
+                gate: None,
+                connected: true,
                 // Slot 3 has no stored report. Slot 2 has other thresholds than the device.
                 stored: [(1, 60.0), (2, 50.0), (4, 60.0)]
                     .into_iter()
@@ -283,6 +288,10 @@ impl Leakshield {
                 next_backup: 2,
             }),
         }
+    }
+
+    pub fn set_device_mode(&self, mode: &str) {
+        self.device.lock().expect("device").mode = mode.to_owned();
     }
 
     /// The value of a stored field, for a test.
@@ -465,7 +474,7 @@ impl Leakshield {
 
     #[zbus(property)]
     fn connected(&self) -> bool {
-        true
+        self.live.lock().expect("live").connected
     }
 
     #[zbus(property)]
@@ -525,6 +534,10 @@ impl Leakshield {
 
     /// (field id, risk class, value, writable, reason)
     async fn get_fields(&self) -> Vec<(String, String, OwnedValue, bool, String)> {
+        let gate = self.live.lock().expect("live").gate.clone();
+        if let Some(gate) = gate {
+            gate.acquire().await.expect("gate").forget();
+        }
         let device = self.device.lock().expect("device");
         device
             .fields

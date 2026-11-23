@@ -3,6 +3,7 @@
 //! and a test gives a private bus.
 
 use std::collections::{BTreeMap, HashMap};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use futures_util::StreamExt;
@@ -67,14 +68,28 @@ type SensorsUpdated = (
     Vec<(String, f64, f64, f64, u8)>,
 );
 
+/// The read of the device data of one Leakshield that runs in a task.
+#[derive(Clone, Copy, Debug, Default)]
+struct DeviceRead {
+    /// Another change came while the read ran: read again after it.
+    again: bool,
+    /// The Leakshield went away while the read ran: drop its result.
+    cancelled: bool,
+}
+
 #[derive(Clone)]
 pub struct DaemonClient {
     conn: Connection,
+    /// The device reads that run now, by Leakshield id.
+    reads: Arc<Mutex<HashMap<String, DeviceRead>>>,
 }
 
 impl DaemonClient {
     pub fn new(conn: Connection) -> Self {
-        Self { conn }
+        Self {
+            conn,
+            reads: Arc::default(),
+        }
     }
 
     /// Follow the daemon and send what happens. It runs until the receivers are gone.
@@ -161,7 +176,7 @@ impl DaemonClient {
                     if message.header().sender().map(|s| s.as_str()) != Some(owner) {
                         continue;
                     }
-                    if let Some(events) = self.translate(&message).await? {
+                    if let Some(events) = self.translate(&message, tx).await? {
                         for event in events {
                             let _ = tx.send(event);
                         }
@@ -173,7 +188,11 @@ impl DaemonClient {
     }
 
     /// The events of one signal. `None` means the signal is of no interest.
-    async fn translate(&self, message: &zbus::Message) -> zbus::Result<Option<Vec<DaemonEvent>>> {
+    async fn translate(
+        &self,
+        message: &zbus::Message,
+        tx: &broadcast::Sender<DaemonEvent>,
+    ) -> zbus::Result<Option<Vec<DaemonEvent>>> {
         let header = message.header();
         let interface = header.interface().map(|i| i.as_str()).unwrap_or_default();
         let member = header.member().map(|m| m.as_str()).unwrap_or_default();
@@ -271,7 +290,11 @@ impl DaemonClient {
                     changed,
                 };
                 let mut events = vec![DaemonEvent::Properties(change.clone())];
-                if let Some(derived) = self.read_derived(&change).await {
+                let derived = match change.interface.strip_prefix(&format!("{IFACE}.")) {
+                    Some("Leakshield") => self.leakshield_changed(&change, tx),
+                    _ => self.read_derived(&change).await,
+                };
+                if let Some(derived) = derived {
                     events.push(DaemonEvent::Derived(Box::new(derived)));
                 }
                 return Ok(Some(events));
@@ -300,20 +323,9 @@ impl DaemonClient {
     /// second and need none.
     async fn read_derived(&self, change: &PropertyChange) -> Option<Derived> {
         let kind = change.interface.strip_prefix(&format!("{IFACE}."))?;
-        let id = last_element(&change.path);
         let has = |keys: &[&str]| keys.iter().any(|key| change.changed.contains_key(*key));
         let mut derived = Derived::default();
         match kind {
-            "Leakshield" => {
-                let only_feed = change
-                    .changed
-                    .keys()
-                    .all(|key| matches!(key.as_str(), "LastFeed" | "FeedState"));
-                if only_feed || get(&change.changed, "Connected") == Some(false) {
-                    return None;
-                }
-                derived.leakshield = Some((id.clone(), self.leakshield_data(&id).await));
-            }
             "Profile" => {
                 derived.profile_contents = Some(self.profile_contents().await);
                 derived.rule_groups = self.rule_groups().await.ok();
@@ -334,6 +346,71 @@ impl DaemonClient {
             _ => return None,
         }
         Some(derived)
+    }
+
+    /// A Leakshield property changed. The device data (`GetFields`, `GetStoredFields`, the
+    /// backups, the proposals) are read again in a task, one read for each Leakshield at a time,
+    /// and only for the properties that change them: the loop of the signals does not wait for
+    /// the device. A Leakshield that went away loses its data at once.
+    fn leakshield_changed(
+        &self,
+        change: &PropertyChange,
+        tx: &broadcast::Sender<DaemonEvent>,
+    ) -> Option<Derived> {
+        let id = last_element(&change.path);
+        let props = &change.changed;
+        if get::<bool>(props, "Connected") == Some(false) {
+            if let Some(read) = self.reads.lock().expect("reads").get_mut(&id) {
+                read.cancelled = true;
+            }
+            return Some(Derived {
+                leakshield: Some((id, LeakshieldData::default())),
+                ..Derived::default()
+            });
+        }
+        let reads_data = props.contains_key("ActiveSlot")
+            || props.contains_key("FailedWriteBackup")
+            || props.contains_key("Writable")
+            || props.contains_key("ReadOnlyReason")
+            || props.contains_key("Firmware")
+            || get::<bool>(props, "Connected") == Some(true);
+        if reads_data {
+            self.read_device_later(id, tx);
+        }
+        None
+    }
+
+    fn read_device_later(&self, id: String, tx: &broadcast::Sender<DaemonEvent>) {
+        {
+            let mut reads = self.reads.lock().expect("reads");
+            if let Some(read) = reads.get_mut(&id) {
+                read.again = true;
+                read.cancelled = false;
+                return;
+            }
+            reads.insert(id.clone(), DeviceRead::default());
+        }
+        let client = self.clone();
+        let tx = tx.clone();
+        tokio::spawn(async move {
+            loop {
+                let data = client.leakshield_data(&id).await;
+                let mut reads = client.reads.lock().expect("reads");
+                let read = reads.get(&id).copied().unwrap_or_default();
+                if !read.cancelled {
+                    let _ = tx.send(DaemonEvent::Derived(Box::new(Derived {
+                        leakshield: Some((id.clone(), data)),
+                        ..Derived::default()
+                    })));
+                }
+                if read.again {
+                    reads.insert(id.clone(), DeviceRead::default());
+                    continue;
+                }
+                reads.remove(&id);
+                break;
+            }
+        });
     }
 
     /// `GetContent` of every Profile.
@@ -1787,11 +1864,11 @@ pub fn apply_derived(snapshot: &mut Snapshot, derived: &Derived) {
         snapshot.calibration_tables = tables.clone();
     }
     if let Some((id, data)) = &derived.leakshield {
-        if let Some(device) = snapshot.leakshields.iter_mut().find(|d| &d.id == id)
-            && !data.fields.is_empty()
-        {
-            let read_only = data.fields.iter().filter(|field| !field.writable).count();
-            device.field_counts = Some((data.fields.len() as u32, read_only as u32));
+        if let Some(device) = snapshot.leakshields.iter_mut().find(|d| &d.id == id) {
+            device.field_counts = (!data.fields.is_empty()).then(|| {
+                let read_only = data.fields.iter().filter(|field| !field.writable).count();
+                (data.fields.len() as u32, read_only as u32)
+            });
         }
         snapshot.leakshield_data.insert(id.clone(), data.clone());
     }

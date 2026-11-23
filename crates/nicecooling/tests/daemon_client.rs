@@ -376,3 +376,98 @@ async fn interfaces_added_read_everything_again() {
     );
     drop(daemon);
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_device_read_does_not_block_the_signals() {
+    let (_bus, daemon, mut harness) = online().await;
+    // The read of the device data waits at `GetFields`.
+    let gate = daemon.hold_device_reads().await;
+    daemon.set_active_slot(2).await;
+    harness
+        .until("the slot shows", |state| {
+            state.snapshot.leakshields[0].active_slot == 2
+        })
+        .await;
+    // A `SensorsUpdated` that arrives while the read waits is applied at once.
+    daemon
+        .emit_sensors(
+            4_000_000,
+            vec![("nct6798_temp1".into(), 33.3, 0)],
+            Vec::new(),
+        )
+        .await;
+    harness
+        .until("the sample is applied during the read", |state| {
+            state
+                .sensors
+                .as_ref()
+                .is_some_and(|sample| sample.time_us == 4_000_000)
+        })
+        .await;
+    // Two more changes during the read give one more read, not two.
+    daemon.set_failed_write_backup("backup_1").await;
+    daemon.set_failed_write_backup("backup_2").await;
+    harness
+        .until("the backup shows", |state| {
+            state.snapshot.leakshields[0].failed_write_backup == "backup_2"
+        })
+        .await;
+    gate.add_permits(10);
+    harness
+        .until("the read ends", |state| {
+            state
+                .snapshot
+                .leakshield_data
+                .get(LEAKSHIELD)
+                .is_some_and(|data| !data.fields.is_empty())
+        })
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn only_some_leakshield_properties_read_the_device() {
+    let (bus, daemon, mut harness) = online().await;
+    let (_monitor, mut stream) = monitor(&bus).await;
+    // `Mode` is not one of the properties that change the device data.
+    daemon.set_mode("monitor").await;
+    harness
+        .until("the Mode shows", |state| {
+            state.snapshot.leakshields[0].mode == "monitor"
+        })
+        .await;
+    let calls = calls_to_daemon(&mut stream).await;
+    assert!(calls.is_empty(), "the client made calls: {calls:?}");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_disconnected_leakshield_loses_its_device_data() {
+    let (_bus, daemon, mut harness) = online().await;
+    assert!(
+        !harness.state.snapshot.leakshield_data[LEAKSHIELD]
+            .fields
+            .is_empty()
+    );
+    daemon.set_connected(false).await;
+    harness
+        .until("the device data go", |state| {
+            state
+                .snapshot
+                .leakshield_data
+                .get(LEAKSHIELD)
+                .is_none_or(|data| data.fields.is_empty())
+        })
+        .await;
+    assert!(!harness.state.snapshot.leakshields[0].connected);
+    assert_eq!(harness.state.snapshot.leakshields[0].field_counts, None);
+    // It comes back: the data are read again.
+    daemon.set_connected(true).await;
+    harness
+        .until("the device data come back", |state| {
+            state
+                .snapshot
+                .leakshield_data
+                .get(LEAKSHIELD)
+                .is_some_and(|data| !data.fields.is_empty())
+        })
+        .await;
+}

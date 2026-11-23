@@ -1853,6 +1853,44 @@ impl FakeDaemon {
             .expect("leakshield")
     }
 
+    /// `GetFields` of the Leakshield waits until a test adds permits to the returned gate.
+    pub async fn hold_device_reads(&self) -> Arc<tokio::sync::Semaphore> {
+        let gate = Arc::new(tokio::sync::Semaphore::new(0));
+        self.leakshield_iface()
+            .await
+            .get()
+            .await
+            .live
+            .lock()
+            .expect("live")
+            .gate = Some(gate.clone());
+        gate
+    }
+
+    /// The device goes away or comes back.
+    pub async fn set_connected(&self, connected: bool) {
+        let iface = self.leakshield_iface().await;
+        iface.get().await.live.lock().expect("live").connected = connected;
+        iface
+            .get()
+            .await
+            .connected_changed(iface.signal_emitter())
+            .await
+            .expect("changed");
+    }
+
+    /// The Mode of the device changes.
+    pub async fn set_mode(&self, mode: &str) {
+        let iface = self.leakshield_iface().await;
+        iface.get().await.set_device_mode(mode);
+        iface
+            .get()
+            .await
+            .mode_changed(iface.signal_emitter())
+            .await
+            .expect("changed");
+    }
+
     /// The slot of report 1 changes.
     pub async fn set_active_slot(&self, slot: u8) {
         let iface = self.leakshield_iface().await;
