@@ -184,6 +184,7 @@ Mode and Action use one transport: command 12 (`set_mode`) with the code as the 
 
 | Code | Mode or Action |
 |---|---|
+| 0 | Stop the running Action (`cancel_action`). The aquasuite debug page sends it with its "Stop" button |
 | 1 | Mode SHIELD |
 | 2 | Mode MONITOR |
 | 3 | Mode RELEASE |
@@ -349,7 +350,14 @@ Fields written: the whole stored report 3, as stored. aquasuite does not keep an
 
 Mode handling: the service does not check the Mode or a running Action before a profile write. The aquasuite maintenance mode blocks the hotkeys, so it blocks the profile switches by hotkey.
 
-Automatic switching: the service switches a profile on a hotkey. At service start it applies the stored profile of the device. The unpacked code has no rule on processes, time or sensor values. The GUI assembly is not unpacked, so the GUI can hold more triggers.
+Automatic switching (P9): the aquasuite service has profile rules, which the GUI edits. Rules are in groups. The service checks the groups in their order. A group holds when all its rules hold, and then its profile becomes active. When no group holds, the default profile becomes active. A rule has one of four kinds:
+
+- Sensor: a sensor value compared with a value (less, less or equal, equal, greater or equal, greater, not equal, or inside a range). The condition must hold for a set number of seconds.
+- Process: one of, all of, or none of a list of process names. The match is the exact name, case-insensitive. The service reads the process list once per second.
+- Time: weekdays and a time range in the PC local time.
+- Interval: a timer with an interval, a start delay and a duration.
+
+A hotkey also switches the profile. At service start the service applies the stored profile of the device.
 
 Differences between aquasuite and nicecooling. The owner decided on 2026-11-23 (gate 2.14). Items 1 to 4, 6 and 7 are adopted: a nicecooling Profile activation behaves as aquasuite does. Item 5 stays as designed.
 
@@ -357,7 +365,7 @@ Differences between aquasuite and nicecooling. The owner decided on 2026-11-23 (
 2. Volatile bytes: adopted. nicecooling writes the stored report 3 as stored. The volatile mask is empty now, so this has no effect yet.
 3. Mode: adopted. nicecooling writes also while an Action runs or the Mode is RELEASE. The owner accepted the risk that a time rule writes SHIELD on an open loop (ADR-0007).
 4. Rate limits: adopted for the Leakshield write. nicecooling writes at once when no write waits and the last profile write is older than 2 s. Else it keeps only the newest request and writes it 1.5 s after the last write. The Rule delay (30 s) and the Profile dwell (5 min) stay as rule timing: they decide when a rule activates a Profile.
-5. Triggers: not adopted. aquasuite switches on hotkeys and at service start. nicecooling has process, time and threshold rules and no hotkeys.
+5. Triggers: not adopted. aquasuite has rule groups (all rules of a group must hold), sensor rules with a hold time, process rules, time rules, interval rules, hotkeys and a switch at service start. nicecooling has single process, time and threshold rules with one Rule delay and one Profile dwell, and no interval rules and no hotkeys.
 6. Firmware and device: adopted for the serial. nicecooling checks the serial of the device before a write and writes the stored report 3 only to the Leakshield with that serial. An unknown firmware stays read-only, and a Profile with a report 3 of another firmware than the device runs is not written.
 7. Read-back: adopted. A Profile write has no read-back. A write error gives "Curves applied, Leakshield failed". A write that the user starts in nicecooling keeps its read-back (design D11).
 
@@ -387,4 +395,5 @@ Thus the device uses the start values of report 3 for some time without a Feed, 
 | Software sensor slots in the Feed message | 16 slots. The code fills them from user links and does not fix a slot meaning. The dump and the kernel driver give slot 0 pump speed, slot 1 flow, slots 2-3 spare, slots 4-15 the 12 Software sensors | P8 |
 | Device clock offsets | `device_clock` at offset 35, validity bit 2 of `status_bits` at offset 15, `local_time` at offset 39 | P5 |
 | Write path of display assets | Report 8 feature write of the whole struct with a new CRC. No save-settings command follows | P7 |
-| Commands that clear the pump runtime and cancel an Action | The code does not define them. The library has no cancel command and no command that names the pump runtime. Candidates for the pump runtime: `reset_statistics` (13) and `service_reset` (25000). Their callers are in the GUI, which is not unpacked | P4 |
+| Command that cancels an Action | Report 2 command 12 with code 0 (`cancel_action`). The aquasuite debug page sends it with its "Stop" button | P4 |
+| Command that clears the pump runtime | The code does not define one. "Reset pump history" of aquasuite clears only the aquasuite log on the PC. Command 13 (`reset_refill_history`) is the "Reset history" button under the refill history table. Command 25000 (`reset_service_counter`, the serial XOR 0xFFFFFFFF) is the "Reset service counter" button in a hidden service section. The code does not say which report 1 counters these two commands clear | P4 |

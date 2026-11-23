@@ -156,12 +156,13 @@ lines = ['# LEAKSHIELD field registry. Source of truth for the report 3 fields, 
 cmds = [("restart", 1, "0 or 1; the code does not define the difference"), ("save_settings", 2, "0"), ("factory_defaults", 3, "0"),
         ("show_page", 4, "page id << 16 | duration in 0.1 s"),
         ("display_on", 9, "0"), ("display_off", 10, "0"), ("reset_alarm", 11, "0"), ("set_mode", 12, "Mode or Action code"),
-        ("reset_statistics", 13, "0"), ("reset_event_log", 14, "0"), ("set_fill_mode", 15, "fill mode; values not defined in the code"),
+        ("cancel_action", 12, "0: stops the running Action"),
+        ("reset_refill_history", 13, "0"), ("reset_event_log", 14, "0"), ("set_fill_mode", 15, "fill mode; values not defined in the code"),
         ("suppress_alarm", 16, "value / 25; aquasuite sends 90000 / 25 when the PC suspends"), ("usb_reset", 523, "0"), ("disable_low_volume_alarm", 14356, "65341"),
-        ("service_reset", 25000, "value XOR 0xFFFFFFFF"), ("test_mode", 25001, "129853 or 958634"),
+        ("reset_service_counter", 25000, "serial (report 1 bytes 3-6 as u32) XOR 0xFFFFFFFF"), ("test_mode", 25001, "129853 on, 958634 off"),
         ("set_clock", 37000, "seconds since 2009-01-01 00:00 UTC")]
 lines += ['# Report 2 commands: output report 02, command u32 BE, parameter u32 BE, CRC-16/USB BE over the 8 bytes.',
-          '# No command cancels a running Action or clears the pump runtime (docs/protocol/leakshield.md, open questions).']
+          '# No command names the pump runtime (docs/protocol/leakshield.md, open questions).']
 for name, code, par in cmds:
     lines += ['[[command]]', f'id = "{name}"', f'code = {code}', f'parameter = "{par}"', '']
 for e in F:

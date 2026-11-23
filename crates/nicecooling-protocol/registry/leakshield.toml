@@ -15,7 +15,7 @@ crc = { algorithm = "crc16_usb", first = 1, last = 747, offset = 748 }
 volatile_mask = []
 
 # Report 2 commands: output report 02, command u32 BE, parameter u32 BE, CRC-16/USB BE over the 8 bytes.
-# No command cancels a running Action or clears the pump runtime (docs/protocol/leakshield.md, open questions).
+# No command names the pump runtime (docs/protocol/leakshield.md, open questions).
 [[command]]
 id = "restart"
 code = 1
@@ -57,7 +57,12 @@ code = 12
 parameter = "Mode or Action code"
 
 [[command]]
-id = "reset_statistics"
+id = "cancel_action"
+code = 12
+parameter = "0: stops the running Action"
+
+[[command]]
+id = "reset_refill_history"
 code = 13
 parameter = "0"
 
@@ -87,14 +92,14 @@ code = 14356
 parameter = "65341"
 
 [[command]]
-id = "service_reset"
+id = "reset_service_counter"
 code = 25000
-parameter = "value XOR 0xFFFFFFFF"
+parameter = "serial (report 1 bytes 3-6 as u32) XOR 0xFFFFFFFF"
 
 [[command]]
 id = "test_mode"
 code = 25001
-parameter = "129853 or 958634"
+parameter = "129853 on, 958634 off"
 
 [[command]]
 id = "set_clock"
