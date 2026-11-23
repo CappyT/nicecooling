@@ -280,8 +280,9 @@ impl<'a> Device<'a> {
 /// "Read-only: unknown firmware." and the other reasons of `docs/api.md`.
 pub fn reason_text(locale: Locale, reason: &str) -> String {
     let key = match reason {
-        "unknown-firmware" | "unknown-structure" | "not-verified" | "disconnected"
-        | "action-running" => format!("leakshield.reason.{}", reason.replace('-', "_")),
+        "unknown-firmware" | "unknown-structure" | "not-verified" | "disconnected" => {
+            format!("leakshield.reason.{}", reason.replace('-', "_"))
+        }
         _ => "leakshield.reason.not_verified".to_owned(),
     };
     locale.tr(&key)

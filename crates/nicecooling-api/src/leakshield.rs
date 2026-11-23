@@ -48,10 +48,15 @@ pub trait Leakshield {
     /// (backup id, time us, sha256 hex, firmware, reason)
     fn list_backups(&self) -> zbus::Result<Vec<(String, u64, String, u16, String)>>;
     fn create_backup(&self) -> zbus::Result<String>;
-    /// Reports 3, 5 and 8.
-    fn get_backup(&self, backup: &str) -> zbus::Result<(Vec<u8>, Vec<u8>, Vec<u8>)>;
-    fn import_backup(&self, report3: &[u8], report5: &[u8], report8: &[u8])
-    -> zbus::Result<String>;
+    /// (firmware, report 3, report 5, report 8)
+    fn get_backup(&self, backup: &str) -> zbus::Result<(u16, Vec<u8>, Vec<u8>, Vec<u8>)>;
+    fn import_backup(
+        &self,
+        firmware: u16,
+        report3: &[u8],
+        report5: &[u8],
+        report8: &[u8],
+    ) -> zbus::Result<String>;
     fn restore_backup(&self, backup: &str) -> zbus::Result<()>;
     fn factory_reset(&self) -> zbus::Result<()>;
     /// (device alarm id, current Device response, proposed Device response, overlap warning id)

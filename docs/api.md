@@ -63,6 +63,12 @@ Each active Alarm or Warning (`Alarms.Active`) and each `AlarmRaised` signal car
 - The variant type comes from the registry: `b` for a flag, `s` for an enum value (our own lowercase name), `d` for a scaled number, `x` for an unscaled integer, `s` for a text.
 - `SetFields` runs the write path of design D11 once for all fields. It returns after the read-back. The save-settings command (report 2) goes out 4 s after the last write; a failure then emits `WriteFailed`.
 
+## Leakshield backups
+
+- `GetBackup` returns the firmware version of the backup, then reports 3, 5 and 8. `ImportBackup` takes the firmware as its first argument, then the three reports. The daemon stores the backup with that firmware.
+- `ImportBackup` fails with `NotSupported` when the field registry does not cover the firmware. It fails with `InvalidArgument` for a wrong size, a bad CRC, a field out of its range or another structure id than the device has.
+- `RestoreBackup` refuses a backup whose firmware differs from the firmware of the device.
+
 ## Leakshield events and Software sensors
 
 - `GetEvents` returns the event list of report 1, oldest first. The identifier is `leakshield.<name>`, with the names of `docs/protocol/leakshield.md` (section Event list). A code that the document does not name gives `leakshield.event-<code>`. The time is the device time in microseconds since the Unix epoch: the clock offset is not applied. `details` holds `entry_id`, `mode`, `procedure_state`, `pressure` (mbar), `pressure_leak_rate`, `volume_leak_rate`, `value_1` and `value_2`, all as `d`. A value that the device marks as "no value" is absent.
@@ -139,7 +145,7 @@ Error names have the prefix `io.github.cappyt.NiceCooling1.Error.`. polkit denia
 | `VerifyFailed` | The read-back differs outside the volatile mask. The message holds the backup id. |
 | `Disconnected` | The device is not connected. |
 | `NoPoweroff` | `CancelPoweroff` for an instance with no pending poweroff. |
-| `NotSupported` | `CancelAction`, `ResetRefillHistory`, `ResetServiceCounter` or `FactoryReset` when the field registry of the device firmware lacks the command (`cancel_action`, `reset_refill_history`, `reset_service_counter`, `factory_defaults`). |
+| `NotSupported` | `ImportBackup` with a firmware that the field registry does not cover. `CancelAction`, `ResetRefillHistory`, `ResetServiceCounter` or `FactoryReset` when the field registry of the device firmware lacks the command (`cancel_action`, `reset_refill_history`, `reset_service_counter`, `factory_defaults`). |
 
 ## Authorization
 

@@ -75,6 +75,10 @@ event:
     title: Canale in modo manuale allo snapshot del BIOS
   state_fallback:
     title: Lo stato salvato non è stato letto
+  no_bios_snapshot:
+    title: Canale senza voce nello snapshot del BIOS
+  leakshield_unknown_firmware:
+    title: Firmware del Leakshield non coperto
   leakshield_fill_level_low_warning:
     title: Avviso di livello basso
   leakshield_fill_level_low_alarm:
@@ -795,7 +799,6 @@ leakshield:
     unknown_structure: "Sola lettura: struttura delle impostazioni sconosciuta."
     not_verified: "Non è un campo verificato: questo campo di sicurezza non ha ancora una scrittura di verifica."
     disconnected: "Il Leakshield non è collegato."
-    action_running: "Un'azione è in corso. Le impostazioni sono di sola lettura fino alla fine."
   refused:
     read_only: "Non applicato: il campo è di sola lettura."
     pump_running: "Non applicato: la pompa è in funzione."

@@ -946,12 +946,12 @@ impl DaemonClient {
         .await
     }
 
-    /// The three reports of a backup, for the export file.
+    /// The firmware and the three reports of a backup, for the export file.
     pub async fn get_backup(
         &self,
         leakshield: &str,
         backup: &str,
-    ) -> zbus::Result<(Vec<u8>, Vec<u8>, Vec<u8>)> {
+    ) -> zbus::Result<(u16, Vec<u8>, Vec<u8>, Vec<u8>)> {
         self.proxy(&Self::leakshield_path(leakshield), "Leakshield")
             .await?
             .call("GetBackup", &(backup,))
@@ -961,13 +961,13 @@ impl DaemonClient {
     pub async fn import_backup(
         &self,
         leakshield: &str,
-        reports: &(Vec<u8>, Vec<u8>, Vec<u8>),
+        reports: &(u16, Vec<u8>, Vec<u8>, Vec<u8>),
     ) -> zbus::Result<String> {
         self.write_returning(
             &Self::leakshield_path(leakshield),
             "Leakshield",
             "ImportBackup",
-            &(&reports.0, &reports.1, &reports.2),
+            &(reports.0, &reports.1, &reports.2, &reports.3),
         )
         .await
     }

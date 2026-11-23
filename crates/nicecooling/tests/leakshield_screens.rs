@@ -2291,12 +2291,20 @@ fn leakshield_system_labels() {
 #[test]
 fn backup_file_round_trips() {
     use nicecooling::screens::leakshield::system::{backup_file, parse_backup_file};
-    let reports = (vec![3, 0, 100, 255], vec![5, 1], vec![8, 2, 0]);
+    let reports = (1022, vec![3, 0, 100, 255], vec![5, 1], vec![8, 2, 0]);
     let text = backup_file(&reports);
-    assert_eq!(text, "report3 030064ff\nreport5 0501\nreport8 080200\n");
+    assert_eq!(
+        text,
+        "firmware 1022\nreport3 030064ff\nreport5 0501\nreport8 080200\n"
+    );
     assert_eq!(parse_backup_file(&text), Some(reports));
     assert_eq!(
-        parse_backup_file("report3 0g\nreport5 01\nreport8 02\n"),
+        parse_backup_file("firmware 1022\nreport3 0g\nreport5 01\nreport8 02\n"),
+        None
+    );
+    // A file without the firmware is no backup of this version.
+    assert_eq!(
+        parse_backup_file("report3 03\nreport5 05\nreport8 08\n"),
         None
     );
     assert_eq!(parse_backup_file("nothing"), None);
@@ -3171,7 +3179,7 @@ async fn the_backup_file_goes_through_the_fake_daemon() {
     run(&harness, &export).await;
     assert_eq!(
         std::fs::read_to_string(&path).unwrap(),
-        "report3 030064\nreport5 0501\nreport8 0802\n"
+        "firmware 1022\nreport3 030064\nreport5 0501\nreport8 0802\n"
     );
     let import = Command::ImportBackup {
         leakshield: LEAKSHIELD.into(),
@@ -3182,7 +3190,7 @@ async fn the_backup_file_goes_through_the_fake_daemon() {
         daemon
             .calls()
             .iter()
-            .any(|c| c == "ImportBackup(3,2,2) interactive=true")
+            .any(|c| c == "ImportBackup(1022,3,2,2) interactive=true")
     );
     assert_eq!(
         harness.client.leakshield_data(LEAKSHIELD).await.backups[0].reason,

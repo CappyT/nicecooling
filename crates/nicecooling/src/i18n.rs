@@ -112,5 +112,11 @@ mod tests {
         assert_eq!(EN.event_title("pump-stop"), "Pump stopped");
         assert_eq!(EN.event_title("leakshield.leak-alarm"), "Large leak Alarm");
         assert_eq!(EN.event_title("mystery"), "Event mystery");
+        for id in ["leakshield-unknown-firmware", "no-bios-snapshot"] {
+            for locale in [EN, IT] {
+                assert!(!locale.event_title(id).starts_with("Event "), "{id}");
+                assert!(!locale.event_title(id).starts_with("Evento "), "{id}");
+            }
+        }
     }
 }

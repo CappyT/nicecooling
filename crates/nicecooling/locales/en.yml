@@ -75,6 +75,10 @@ event:
     title: Channel in manual mode at the BIOS snapshot
   state_fallback:
     title: The saved state was not read
+  no_bios_snapshot:
+    title: Channel without a BIOS snapshot entry
+  leakshield_unknown_firmware:
+    title: Leakshield firmware not covered
   leakshield_fill_level_low_warning:
     title: Fill level Warning
   leakshield_fill_level_low_alarm:
@@ -795,7 +799,6 @@ leakshield:
     unknown_structure: "Read-only: unknown settings structure."
     not_verified: "Not a Verified field: this Safety field has no Verification write yet."
     disconnected: "The Leakshield is not connected."
-    action_running: "An Action runs. The settings are read-only until it ends."
   refused:
     read_only: "Not applied: the field is read-only."
     pump_running: "Not applied: the pump runs."

@@ -383,19 +383,43 @@ async fn backups_over_the_bus() {
     let id = proxy.create_backup().await.unwrap();
     let listed = proxy.list_backups().await.unwrap();
     assert!(listed.iter().any(|b| b.0 == id && b.3 == 1022));
-    let (report3, report5, report8) = proxy.get_backup(&id).await.unwrap();
+    let (firmware, report3, report5, report8) = proxy.get_backup(&id).await.unwrap();
+    assert_eq!(firmware, 1022);
     assert_eq!(report3, rig.sim.report3());
-    // The same reports import as the same backup.
+    // The same firmware and reports import as the same backup.
     let imported = proxy
-        .import_backup(&report3, &report5, &report8)
+        .import_backup(firmware, &report3, &report5, &report8)
         .await
         .unwrap();
     assert_eq!(imported, id);
+    assert_eq!(
+        proxy
+            .list_backups()
+            .await
+            .unwrap()
+            .iter()
+            .find(|b| b.0 == imported)
+            .map(|b| b.3),
+        Some(firmware)
+    );
+    // A firmware that the registry does not cover is refused and nothing is saved.
+    let before = proxy.list_backups().await.unwrap().len();
+    let mut other = report5.clone();
+    other[10] ^= 1;
+    let error = proxy
+        .import_backup(1023, &report3, &other, &report8)
+        .await
+        .unwrap_err();
+    assert_eq!(
+        error_name(&error),
+        "org.freedesktop.DBus.Error.NotSupported"
+    );
+    assert_eq!(proxy.list_backups().await.unwrap().len(), before);
     // A report 3 with a bad CRC does not.
     let mut bad = report3.clone();
     bad[748] ^= 0xFF;
     let error = proxy
-        .import_backup(&bad, &report5, &report8)
+        .import_backup(firmware, &bad, &report5, &report8)
         .await
         .unwrap_err();
     assert_eq!(error_name(&error), format!("{ERR}.InvalidArgument"));
@@ -423,7 +447,7 @@ async fn wired_methods_do_not_reply_not_supported() {
     call!("ListBackups", proxy.list_backups());
     call!("CreateBackup", proxy.create_backup());
     call!("GetBackup", proxy.get_backup("b"));
-    call!("ImportBackup", proxy.import_backup(&[], &[], &[]));
+    call!("ImportBackup", proxy.import_backup(1022, &[], &[], &[]));
     call!("RestoreBackup", proxy.restore_backup("b"));
     call!("ResetRefillHistory", proxy.reset_refill_history());
     call!("ResetServiceCounter", proxy.reset_service_counter());

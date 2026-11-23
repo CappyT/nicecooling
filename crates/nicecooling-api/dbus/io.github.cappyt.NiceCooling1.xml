@@ -259,7 +259,7 @@
       <annotation name="io.github.cappyt.NiceCooling1.Authorization" value="write-or-critical"/>
       <arg name="mode" type="s" direction="in"/>
     </method>
-    <!-- refill fails with PumpRunning while a Pump channel of the Loop reads above 0 rpm. -->
+    <!-- refill fails with PumpRunning while a Pump channel of the Loop reads above 0 rpm or has no tach value. -->
     <method name="StartAction">
       <annotation name="io.github.cappyt.NiceCooling1.Authorization" value="write"/>
       <arg name="action" type="s" direction="in"/>
@@ -304,17 +304,19 @@
       <annotation name="io.github.cappyt.NiceCooling1.Authorization" value="write"/>
       <arg name="backup" type="s" direction="out"/>
     </method>
-    <!-- Reports 3, 5 and 8, each with its report ID byte, for an export by the app -->
+    <!-- The firmware of the backup, then reports 3, 5 and 8, each with its report ID byte, for an export by the app -->
     <method name="GetBackup">
       <annotation name="io.github.cappyt.NiceCooling1.Authorization" value="read"/>
       <arg name="backup" type="s" direction="in"/>
+      <arg name="firmware" type="q" direction="out"/>
       <arg name="report3" type="ay" direction="out"/>
       <arg name="report5" type="ay" direction="out"/>
       <arg name="report8" type="ay" direction="out"/>
     </method>
-    <!-- Fails with InvalidArgument for a wrong size, a bad CRC or another structure id than the device has. -->
+    <!-- firmware is the one that GetBackup returned. Fails with NotSupported when the field registry does not cover it, and with InvalidArgument for a wrong size, a bad CRC, a field out of range or another structure id than the device has. -->
     <method name="ImportBackup">
       <annotation name="io.github.cappyt.NiceCooling1.Authorization" value="write"/>
+      <arg name="firmware" type="q" direction="in"/>
       <arg name="report3" type="ay" direction="in"/>
       <arg name="report5" type="ay" direction="in"/>
       <arg name="report8" type="ay" direction="in"/>

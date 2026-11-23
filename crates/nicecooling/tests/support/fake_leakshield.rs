@@ -594,10 +594,10 @@ impl Leakshield {
         Ok(id)
     }
 
-    async fn get_backup(&self, backup: &str) -> fdo::Result<(Vec<u8>, Vec<u8>, Vec<u8>)> {
+    async fn get_backup(&self, backup: &str) -> fdo::Result<(u16, Vec<u8>, Vec<u8>, Vec<u8>)> {
         let device = self.device.lock().expect("device");
         if device.backups.iter().any(|b| b.id == backup) {
-            Ok((vec![3, 0, 100], vec![5, 1], vec![8, 2]))
+            Ok((1022, vec![3, 0, 100], vec![5, 1], vec![8, 2]))
         } else {
             Err(fdo::Error::Failed(
                 "io.github.cappyt.NiceCooling1.Error.NotFound".into(),
@@ -608,13 +608,14 @@ impl Leakshield {
     async fn import_backup(
         &self,
         #[zbus(header)] header: zbus::message::Header<'_>,
+        firmware: u16,
         report3: Vec<u8>,
         report5: Vec<u8>,
         report8: Vec<u8>,
     ) -> fdo::Result<String> {
         self.shared.record(
             &format!(
-                "ImportBackup({},{},{})",
+                "ImportBackup({firmware},{},{},{})",
                 report3.len(),
                 report5.len(),
                 report8.len()

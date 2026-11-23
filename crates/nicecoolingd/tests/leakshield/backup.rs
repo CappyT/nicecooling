@@ -330,7 +330,9 @@ async fn import_refuses_report3_with_a_field_out_of_its_range() {
     let rig = Rig::new("import-range");
     let device = rig.attached();
 
-    let error = device.import_backup(&out_of_range_set(&rig)).unwrap_err();
+    let error = device
+        .import_backup(1022, &out_of_range_set(&rig))
+        .unwrap_err();
 
     assert_eq!(
         error.dbus_name(),
@@ -370,4 +372,25 @@ fn restore_refuses_report3_with_a_field_out_of_its_range() {
         "{error:?}"
     );
     assert_eq!(rig.sim.report3(), original);
+}
+
+#[tokio::test]
+async fn import_refuses_a_firmware_the_registry_does_not_cover() {
+    let rig = Rig::new("import-firmware");
+    let device = rig.attached();
+
+    let error = device.import_backup(1023, &device_set(&rig)).unwrap_err();
+
+    assert_eq!(error.dbus_name(), "org.freedesktop.DBus.Error.NotSupported");
+    assert!(rig.backups().list().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn import_keeps_the_firmware_of_the_export() {
+    let rig = Rig::new("import-keeps-firmware");
+    let device = rig.attached();
+    let id = device.import_backup(1022, &device_set(&rig)).unwrap();
+
+    assert_eq!(device.backup_firmware(&id).unwrap(), 1022);
+    assert_eq!(rig.backups().list().unwrap()[0].firmware, 1022);
 }

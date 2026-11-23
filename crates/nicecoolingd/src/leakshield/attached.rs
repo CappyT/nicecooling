@@ -536,15 +536,20 @@ impl Attached {
         self.backups.get(backup).map_err(io_error)
     }
 
-    /// Saves reports of a client as a backup. It needs the structure id of the device.
-    pub fn import_backup(&self, set: &BackupSet) -> Result<String> {
-        let (structure, firmware) = {
-            let state = self.state.lock().unwrap();
-            (
-                state.report1.structure_number,
-                state.report1.firmware_version,
-            )
-        };
+    /// The firmware that a backup was taken with.
+    pub fn backup_firmware(&self, backup: &str) -> Result<u16> {
+        self.backups.firmware(backup).map_err(io_error)
+    }
+
+    /// Saves reports of a client as a backup. It needs the structure id of the device and a
+    /// firmware that the registry covers.
+    pub fn import_backup(&self, firmware: u16, set: &BackupSet) -> Result<String> {
+        if firmware != self.registry.firmware {
+            return Err(Error::not_supported(format!(
+                "the registry does not cover firmware {firmware}"
+            )));
+        }
+        let structure = self.state.lock().unwrap().report1.structure_number;
         if let Ok(report3) = Report3::decode(&set.report3)
             && let Some(field) = out_of_range_field(&self.registry, &report3)
         {

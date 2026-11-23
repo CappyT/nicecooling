@@ -81,19 +81,24 @@ impl SystemUi {
     }
 }
 
-/// The text file of an exported backup: one line for each report, in hexadecimal.
-pub fn backup_file(reports: &(Vec<u8>, Vec<u8>, Vec<u8>)) -> String {
+/// The firmware and the reports 3, 5 and 8 of a backup.
+pub type BackupReports = (u16, Vec<u8>, Vec<u8>, Vec<u8>);
+
+/// The text file of an exported backup: the firmware in decimal, then one line for each report,
+/// in hexadecimal.
+pub fn backup_file(reports: &BackupReports) -> String {
     let hex = |bytes: &[u8]| bytes.iter().map(|b| format!("{b:02x}")).collect::<String>();
     format!(
-        "report3 {}\nreport5 {}\nreport8 {}\n",
-        hex(&reports.0),
+        "firmware {}\nreport3 {}\nreport5 {}\nreport8 {}\n",
+        reports.0,
         hex(&reports.1),
-        hex(&reports.2)
+        hex(&reports.2),
+        hex(&reports.3)
     )
 }
 
-/// The reports of a backup file, or `None` for another file.
-pub fn parse_backup_file(text: &str) -> Option<(Vec<u8>, Vec<u8>, Vec<u8>)> {
+/// The firmware and the reports of a backup file, or `None` for another file.
+pub fn parse_backup_file(text: &str) -> Option<BackupReports> {
     let line = |name: &str| -> Option<Vec<u8>> {
         let hex = text
             .lines()
@@ -107,7 +112,15 @@ pub fn parse_backup_file(text: &str) -> Option<(Vec<u8>, Vec<u8>, Vec<u8>)> {
             .map(|i| u8::from_str_radix(hex.get(i..i + 2)?, 16).ok())
             .collect()
     };
-    Some((line("report3")?, line("report5")?, line("report8")?))
+    let firmware = text
+        .lines()
+        .find_map(|line| line.strip_prefix("firmware ")?.trim().parse().ok())?;
+    Some((
+        firmware,
+        line("report3")?,
+        line("report5")?,
+        line("report8")?,
+    ))
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -524,9 +537,6 @@ pub fn direct_fields(device: &str, control: &str, field: &str, value: f64) -> Co
 }
 
 /// Save an export in a file, for a test. The window uses the command.
-pub fn write_backup_file(
-    path: &Path,
-    reports: &(Vec<u8>, Vec<u8>, Vec<u8>),
-) -> std::io::Result<()> {
+pub fn write_backup_file(path: &Path, reports: &BackupReports) -> std::io::Result<()> {
     std::fs::write(path, backup_file(reports))
 }

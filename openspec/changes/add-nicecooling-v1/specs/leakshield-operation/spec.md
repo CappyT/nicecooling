@@ -21,7 +21,7 @@ The user SHALL be able to start an Action: Test, Measure fill level, Deaerate or
 - **THEN** the Leakshield returns to its Mode
 
 ### Requirement: Refill only in standby
-nicecooling SHALL NOT start a Refill while a Pump channel of the Loop of the Leakshield reads above 0 rpm. It SHALL tell the user to start the Refill with the device button with the PC in standby.
+nicecooling SHALL NOT start a Refill while a Pump channel of the Loop of the Leakshield reads above 0 rpm or has no tach value. It SHALL tell the user to start the Refill with the device button with the PC in standby.
 
 #### Scenario: Refill requested with pump on
 - **WHEN** the user requests a Refill while a Pump channel of the Loop of the Leakshield reads above 0 rpm

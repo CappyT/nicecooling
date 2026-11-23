@@ -348,10 +348,11 @@ impl Leakshield {
         self.device.create_backup()
     }
 
-    #[zbus(out_args("report3", "report5", "report8"))]
-    async fn get_backup(&self, backup: &str) -> Result<(Vec<u8>, Vec<u8>, Vec<u8>)> {
+    #[zbus(out_args("firmware", "report3", "report5", "report8"))]
+    async fn get_backup(&self, backup: &str) -> Result<(u16, Vec<u8>, Vec<u8>, Vec<u8>)> {
         let set = self.device.get_backup(backup)?;
-        Ok((set.report3, set.report5, set.report8))
+        let firmware = self.device.backup_firmware(backup)?;
+        Ok((firmware, set.report3, set.report5, set.report8))
     }
 
     #[zbus(out_args("backup"))]
@@ -359,17 +360,21 @@ impl Leakshield {
         &self,
         #[zbus(connection)] connection: &Connection,
         #[zbus(header)] header: Header<'_>,
+        firmware: u16,
         report3: Vec<u8>,
         report5: Vec<u8>,
         report8: Vec<u8>,
     ) -> Result<String> {
         self.authorize(connection, &header, "ImportBackup", None)
             .await?;
-        self.device.import_backup(&BackupSet {
-            report3,
-            report5,
-            report8,
-        })
+        self.device.import_backup(
+            firmware,
+            &BackupSet {
+                report3,
+                report5,
+                report8,
+            },
+        )
     }
 
     async fn restore_backup(
