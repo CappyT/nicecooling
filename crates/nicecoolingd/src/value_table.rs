@@ -2,24 +2,41 @@ use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use nicecooling_core::alarms::LeakshieldStatus;
 use nicecooling_core::tick::{Reading, ValueSource};
 
-/// The latest timestamped value of each sensor. Source tasks publish, the tick reads.
-/// The lock is held only to copy values, never during device I/O.
+/// The latest timestamped value of each sensor, and what the sources know of each Leakshield.
+/// Source tasks publish, the tick reads. The locks are held only to copy values, never during
+/// device I/O.
 #[derive(Clone, Default)]
-pub struct ValueTable(Arc<Mutex<BTreeMap<String, Reading>>>);
+pub struct ValueTable {
+    values: Arc<Mutex<BTreeMap<String, Reading>>>,
+    leakshields: Arc<Mutex<BTreeMap<String, LeakshieldStatus>>>,
+}
 
 impl ValueTable {
     pub fn publish(&self, sensor: &str, value: f64, at: Duration) {
-        self.0
+        self.values
             .lock()
             .unwrap()
             .insert(sensor.to_owned(), Reading { value, at });
+    }
+
+    /// A report 1 of a Leakshield arrived.
+    pub fn publish_report1(&self, leakshield: &str, alarm_bits: u32, at: Duration) {
+        let mut map = self.leakshields.lock().unwrap();
+        let status = map.entry(leakshield.to_owned()).or_default();
+        status.alarm_bits = alarm_bits;
+        status.report1_at = Some(at);
     }
 }
 
 impl ValueSource for ValueTable {
     fn snapshot(&self) -> BTreeMap<String, Reading> {
-        self.0.lock().unwrap().clone()
+        self.values.lock().unwrap().clone()
+    }
+
+    fn leakshields(&self) -> BTreeMap<String, LeakshieldStatus> {
+        self.leakshields.lock().unwrap().clone()
     }
 }

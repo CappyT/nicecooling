@@ -1,4 +1,5 @@
-//! The interface `Alarms` on the root object. Tasks 6.x fill the methods in.
+//! The interface `Alarms` on the root object: the active Alarms and Warnings, the alarm responses
+//! and the cancel of a pending poweroff.
 
 // The signal `AlarmRaised` of the contract has 7 arguments.
 #![allow(clippy::too_many_arguments)]
@@ -7,13 +8,17 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use nicecooling_api::errors::Result;
+use nicecooling_api::ids::ROOT_PATH;
+use tokio::sync::mpsc;
+use zbus::message::Header;
 use zbus::object_server::SignalEmitter;
-use zbus::{OwnedVariant, interface};
+use zbus::{Connection, OwnedVariant, interface};
 
-use super::{Hub, not_supported_stub};
+use super::Hub;
+use crate::alarms::logind::SD_LOGIND_SKIP_INHIBITORS;
+use crate::alarms::poweroff::Effect;
 
 pub struct Alarms {
-    #[allow(dead_code)]
     hub: Arc<Hub>,
 }
 
@@ -21,10 +26,6 @@ impl Alarms {
     pub fn new(hub: Arc<Hub>) -> Self {
         Self { hub }
     }
-}
-
-fn stub<T>(method: &str) -> Result<T> {
-    Err(not_supported_stub("Alarms", method))
 }
 
 type Active = (
@@ -38,25 +39,57 @@ type Active = (
     HashMap<String, OwnedVariant>,
 );
 
-#[allow(unused_variables)]
 #[interface(name = "io.github.cappyt.NiceCooling1.Alarms")]
 impl Alarms {
     #[zbus(property)]
     fn active(&self) -> Vec<Active> {
-        Vec::new()
+        self.hub
+            .alarm_rows()
+            .into_iter()
+            .map(|row| {
+                (
+                    row.instance,
+                    row.event,
+                    row.severity.to_owned(),
+                    row.source,
+                    row.response.to_owned(),
+                    row.raised_us,
+                    row.poweroff_at_us,
+                    HashMap::new(),
+                )
+            })
+            .collect()
     }
 
     #[zbus(out_args("responses"))]
     async fn get_responses(&self) -> Result<Vec<(String, String, u32)>> {
-        stub("GetResponses")
+        Ok(self.hub.alarm_responses())
     }
 
-    async fn set_response(&self, event: &str, response: &str, delay_s: u32) -> Result<()> {
-        stub("SetResponse")
+    async fn set_response(
+        &self,
+        #[zbus(connection)] connection: &Connection,
+        #[zbus(header)] header: Header<'_>,
+        event: &str,
+        response: &str,
+        delay_s: u32,
+    ) -> Result<()> {
+        self.hub
+            .authorize(connection, &header, "Alarms", "SetResponse", None)
+            .await?;
+        self.hub.set_alarm_response(event, response, delay_s)
     }
 
-    async fn cancel_poweroff(&self, instance: &str) -> Result<()> {
-        stub("CancelPoweroff")
+    async fn cancel_poweroff(
+        &self,
+        #[zbus(connection)] connection: &Connection,
+        #[zbus(header)] header: Header<'_>,
+        instance: &str,
+    ) -> Result<()> {
+        self.hub
+            .authorize(connection, &header, "Alarms", "CancelPoweroff", None)
+            .await?;
+        self.hub.cancel_poweroff(instance)
     }
 
     #[zbus(signal)]
@@ -83,4 +116,64 @@ impl Alarms {
         instance: String,
         error: String,
     ) -> zbus::Result<()>;
+}
+
+/// Runs the effects of the alarm manager: the signals, and the calls to logind. One task runs
+/// them in order, and a logind call runs on its own task so that it never delays a signal.
+pub async fn run_effects(
+    connection: Connection,
+    hub: Arc<Hub>,
+    mut effects: mpsc::UnboundedReceiver<Effect>,
+) {
+    let server = connection.object_server();
+    while let Some(effect) = effects.recv().await {
+        if let Effect::CallPoweroff(instance) = effect {
+            let Some(login1) = hub.login1() else {
+                hub.poweroff_result(&instance, Err("the daemon has no logind client".into()));
+                continue;
+            };
+            let hub = hub.clone();
+            tokio::spawn(async move {
+                let result = login1.power_off_with_flags(SD_LOGIND_SKIP_INHIBITORS).await;
+                hub.poweroff_result(&instance, result);
+            });
+            continue;
+        }
+        let Ok(iface) = server.interface::<_, Alarms>(ROOT_PATH).await else {
+            continue;
+        };
+        let emitter = iface.signal_emitter();
+        let changed = match effect {
+            Effect::Raised(row) => {
+                let _ = Alarms::alarm_raised(
+                    emitter,
+                    row.instance,
+                    row.event,
+                    row.severity.to_owned(),
+                    row.source,
+                    row.response.to_owned(),
+                    row.poweroff_at_us,
+                    HashMap::new(),
+                )
+                .await;
+                true
+            }
+            Effect::Cleared(instance) => {
+                let _ = Alarms::alarm_cleared(emitter, instance).await;
+                true
+            }
+            Effect::PoweroffCancelled(instance) => {
+                let _ = Alarms::poweroff_cancelled(emitter, instance).await;
+                true
+            }
+            Effect::PoweroffFailed { instance, error } => {
+                let _ = Alarms::poweroff_failed(emitter, instance, error).await;
+                false
+            }
+            Effect::CallPoweroff(_) => false,
+        };
+        if changed {
+            let _ = iface.get().await.active_changed(emitter).await;
+        }
+    }
 }

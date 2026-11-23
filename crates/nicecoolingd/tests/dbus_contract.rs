@@ -4,7 +4,6 @@ mod support;
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use nicecooling_api::alarms::AlarmsProxy;
 use nicecooling_api::ids::Kind;
 use nicecooling_api::leakshield::LeakshieldProxy;
 use nicecooling_api::manager::ManagerProxy;
@@ -231,21 +230,7 @@ async fn unfilled_interfaces_reply_not_supported() {
     stub!(seen, "Profile.Delete", profile.delete());
     stub!(seen, "Profile.GetContent", profile.get_content());
 
-    let alarms = AlarmsProxy::builder(&rig.client)
-        .cache_properties(zbus::proxy::CacheProperties::No)
-        .build()
-        .await
-        .unwrap();
-    assert!(alarms.active().await.unwrap().is_empty());
-    stub!(seen, "Alarms.GetResponses", alarms.get_responses());
-    stub!(
-        seen,
-        "Alarms.SetResponse",
-        alarms.set_response("pump-stop", "notify", 0)
-    );
-    stub!(seen, "Alarms.CancelPoweroff", alarms.cancel_poweroff("x"));
-
-    // Every method of the four interfaces is in the list, and nothing else, except the wired ones.
+    // Every method of the three interfaces is in the list, and nothing else, except the wired ones.
     let doc = roxmltree::Document::parse_with_options(
         INTERFACE_XML,
         roxmltree::ParsingOptions {
@@ -261,7 +246,7 @@ async fn unfilled_interfaces_reply_not_supported() {
             let name = i
                 .attribute("name")?
                 .strip_prefix(&format!("{INTERFACE_PREFIX}."))?;
-            ["Leakshield", "Profiles", "Profile", "Alarms"]
+            ["Leakshield", "Profiles", "Profile"]
                 .contains(&name)
                 .then(|| (name.to_owned(), i))
         })

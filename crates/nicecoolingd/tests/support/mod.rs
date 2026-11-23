@@ -5,6 +5,7 @@
 #![allow(dead_code)]
 
 pub mod bus;
+pub mod logind_mock;
 pub mod polkit_mock;
 pub mod sim_usb;
 
@@ -15,6 +16,7 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::Duration;
 
 use nicecooling_api::ids::{Kind, object_path};
+use nicecooling_core::clock::{Clock, SimClock};
 use nicecooling_hwmon::fake::FakeSysfs;
 use nicecooling_protocol::sim::SimDevice;
 use nicecoolingd::authz::{Authorizer, PolkitAuthorizer, TestAuthorizer};
@@ -98,6 +100,10 @@ pub struct Rig {
     pub daemon: Option<Daemon>,
     /// The mock polkit, when the rig asks it instead of the test authorizer.
     pub polkit: Option<polkit_mock::PolkitHandles>,
+    /// The mock logind that the daemon calls to power off.
+    pub logind: logind_mock::Login1Handles,
+    /// The clock of the tick, when the test drives it (`start_with_clock`).
+    pub clock: Option<SimClock>,
     _served: Served,
     ticking: Option<JoinHandle<()>>,
 }
@@ -128,17 +134,55 @@ impl Rig {
 
     /// The daemon attaches the Leakshields of `usb` instead of a device in the options.
     pub async fn start_with_usb(usb: sim_usb::SimUsb) -> Self {
-        Self::build_full(false, |_, _| {}, Some(usb)).await
+        Self::build_full(false, |_, _| {}, Some(usb), None).await
+    }
+
+    /// The tick runs on a simulated clock: `step` advances it and runs one tick.
+    pub async fn start_with_clock() -> Self {
+        Self::build_full(false, |_, _| {}, None, Some(SimClock::default())).await
     }
 
     async fn build(polkit: bool, prepare: impl FnOnce(&FakeSysfs, &std::path::Path)) -> Self {
-        Self::build_full(polkit, prepare, None).await
+        Self::build_full(polkit, prepare, None, None).await
+    }
+
+    /// Stops the daemon after it wrote its state, and starts a new one on the same state
+    /// directory and clock. The new daemon is not on the bus: tests read its hub.
+    pub async fn restart_daemon(&mut self) {
+        let old = self
+            .daemon
+            .take()
+            .expect("the daemon is not ticking in the background");
+        old.hub.flush_now();
+        drop(old);
+        let clock: Arc<dyn Clock> = match &self.clock {
+            Some(clock) => Arc::new(clock.clone()),
+            None => Arc::new(TokioClock::new()),
+        };
+        self.daemon = Some(daemon::start(&self.options, clock, NoPing).await.unwrap());
+    }
+
+    /// Advances the simulated clock by one second `seconds` times, with one tick after each. The
+    /// pauses give the source tasks time to publish with the new time.
+    pub async fn step(&mut self, seconds: u32) {
+        let clock = self.clock.clone().expect("the rig has a simulated clock");
+        for _ in 0..seconds {
+            clock.advance(Duration::from_secs(1));
+            tokio::time::sleep(Duration::from_millis(120)).await;
+            self.daemon
+                .as_mut()
+                .expect("the daemon is not ticking in the background")
+                .runner
+                .tick();
+        }
+        tokio::time::sleep(Duration::from_millis(150)).await;
     }
 
     async fn build_full(
         polkit: bool,
         prepare: impl FnOnce(&FakeSysfs, &std::path::Path),
         usb: Option<sim_usb::SimUsb>,
+        clock: Option<SimClock>,
     ) -> Self {
         let with_loop = true;
         let fake = sim_tree();
@@ -180,9 +224,11 @@ impl Rig {
             }
         }
         options.save_settings_delay = Duration::from_millis(200);
-        let daemon = daemon::start(&options, Arc::new(TokioClock::new()), NoPing)
-            .await
-            .unwrap();
+        let tick_clock: Arc<dyn Clock> = match &clock {
+            Some(clock) => Arc::new(clock.clone()),
+            None => Arc::new(TokioClock::new()),
+        };
+        let daemon = daemon::start(&options, tick_clock, NoPing).await.unwrap();
 
         let bus = PrivateBus::start();
         let server = bus.connect().await;
@@ -196,6 +242,7 @@ impl Rig {
             (None, authorizer.clone())
         };
         let served = dbus::serve(&daemon.hub, &server, asked).await.unwrap();
+        let logind = logind_mock::Login1Handles::start(bus.connect().await).await;
         Self {
             bus,
             client,
@@ -207,6 +254,8 @@ impl Rig {
             options,
             daemon: Some(daemon),
             polkit,
+            logind,
+            clock,
             _served: served,
             ticking: None,
         }

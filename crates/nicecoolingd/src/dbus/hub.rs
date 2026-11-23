@@ -20,6 +20,9 @@ use nicecooling_hwmon::sysfs::Sysfs;
 use tokio::sync::{mpsc, oneshot};
 
 use super::leakshield::LeakshieldInfo;
+use crate::alarms::logind::Login1;
+use crate::alarms::poweroff::{AlarmManager, Effect, Event, Row};
+use crate::alarms::response;
 use crate::leakshield::software_sensors::Assignment;
 use crate::snapshot::{self, BiosSnapshot};
 use crate::state::{
@@ -178,6 +181,10 @@ pub struct Hub {
     releases: Mutex<Vec<Release>>,
     reports: mpsc::Sender<TickReport>,
     report_rx: Mutex<Option<mpsc::Receiver<TickReport>>>,
+    alarms: Mutex<AlarmManager>,
+    alarm_effects: mpsc::UnboundedSender<Effect>,
+    alarm_rx: Mutex<Option<mpsc::UnboundedReceiver<Effect>>>,
+    login1: OnceLock<Arc<dyn Login1>>,
     /// zbus runs the handlers on its own runtime: Tokio timers and tasks go through this handle.
     runtime: tokio::runtime::Handle,
 }
@@ -588,6 +595,7 @@ impl Hub {
             move || flush(&inner, &store)
         });
         let (reports, report_rx) = mpsc::channel(32);
+        let (alarm_effects, alarm_rx) = mpsc::unbounded_channel();
         Arc::new(Self {
             inner,
             store,
@@ -599,6 +607,10 @@ impl Hub {
             releases: Mutex::new(Vec::new()),
             reports,
             report_rx: Mutex::new(Some(report_rx)),
+            alarms: Mutex::new(AlarmManager::default()),
+            alarm_effects,
+            alarm_rx: Mutex::new(Some(alarm_rx)),
+            login1: OnceLock::new(),
             runtime: tokio::runtime::Handle::current(),
         })
     }
@@ -734,6 +746,63 @@ impl Hub {
         authz
             .check(connection, header, interface, method, mode)
             .await
+    }
+
+    /// The logind that the poweroff calls. The first call wins.
+    pub fn set_login1(&self, login1: Arc<dyn Login1>) {
+        let _ = self.login1.set(login1);
+    }
+
+    pub fn login1(&self) -> Option<Arc<dyn Login1>> {
+        self.login1.get().cloned()
+    }
+
+    pub fn take_alarm_receiver(&self) -> Option<mpsc::UnboundedReceiver<Effect>> {
+        lock(&self.alarm_rx).take()
+    }
+
+    /// Feeds the Warnings and Alarms of a tick to the alarm manager.
+    pub fn alarm_tick(&self, now: Duration, wall_us: u64, active: &[Event]) {
+        let responses = self.inner().state.alarm_responses.clone();
+        let effects = lock(&self.alarms).update(now, wall_us, active, &responses);
+        for effect in effects {
+            let _ = self.alarm_effects.send(effect);
+        }
+    }
+
+    pub fn alarm_rows(&self) -> Vec<Row> {
+        lock(&self.alarms).rows()
+    }
+
+    pub fn poweroff_result(&self, instance: &str, result: std::result::Result<(), String>) {
+        let effects = lock(&self.alarms).poweroff_result(instance, result);
+        for effect in effects {
+            let _ = self.alarm_effects.send(effect);
+        }
+    }
+
+    pub fn alarm_responses(&self) -> Vec<(String, String, u32)> {
+        response::rows(&self.inner().state.alarm_responses)
+    }
+
+    /// An alarm response applies to the Alarms that rise after it.
+    pub fn set_alarm_response(&self, event: &str, response: &str, delay_s: u32) -> Result<()> {
+        let entry = response::validate(event, response, delay_s)?;
+        self.inner()
+            .state
+            .alarm_responses
+            .insert(event.to_owned(), entry);
+        self.persister.changed();
+        Ok(())
+    }
+
+    /// `NoPoweroff` when the instance has no pending poweroff.
+    pub fn cancel_poweroff(&self, instance: &str) -> Result<()> {
+        let effect = lock(&self.alarms)
+            .cancel(instance)
+            .ok_or_else(|| Error::NoPoweroff(format!("{instance} has no pending poweroff")))?;
+        let _ = self.alarm_effects.send(effect);
+        Ok(())
     }
 
     pub fn take_report_receiver(&self) -> Option<mpsc::Receiver<TickReport>> {

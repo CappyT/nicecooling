@@ -5,10 +5,12 @@
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use nicecooling_core::alarms::Severity;
 use nicecooling_core::tick::{Stage, TickContext};
 use nicecooling_hwmon::sysfs::read_attr;
 
 use super::hub::{ChannelLive, Hub, Live, TickReport};
+use crate::alarms::poweroff::Event;
 
 /// `SensorsUpdated` flags of a sensor.
 const NO_VALUE: u8 = 1;
@@ -104,6 +106,18 @@ impl Stage for ApiStage {
                 live.manual_at_snapshot.insert(meta.id);
             }
         }
+        let active: Vec<Event> = ctx
+            .warnings
+            .iter()
+            .map(|(event, source)| (event, source, Severity::Warning))
+            .chain(ctx.alarms.iter())
+            .map(|(event, source, severity)| Event {
+                event: event.to_owned(),
+                source: source.to_owned(),
+                severity,
+            })
+            .collect();
+        self.hub.alarm_tick(ctx.now, now_us(), &active);
         self.hub.publish(
             live,
             TickReport {

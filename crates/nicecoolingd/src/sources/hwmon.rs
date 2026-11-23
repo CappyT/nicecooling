@@ -20,33 +20,44 @@ pub trait ChipReader: Send + 'static {
 /// The `*_input` files of one chip, in the units of `docs/api.md`.
 pub struct SysfsChip {
     sensors: Vec<(String, PathBuf, SensorKind)>,
+    /// The `pwmN` file of each Channel of the chip, under the Channel id. The alarm stage reads
+    /// the raw value as the Duty of a Channel on its Hardware curve.
+    pwms: Vec<(String, PathBuf)>,
 }
 
 impl ChipReader for SysfsChip {
     fn read(&mut self) -> Vec<(String, f64)> {
-        self.sensors
-            .iter()
-            .filter_map(|(id, path, kind)| {
-                let raw: f64 = fs::read_to_string(path).ok()?.trim().parse().ok()?;
-                Some((id.clone(), raw * kind.scale()))
-            })
-            .collect()
+        let sensors = self.sensors.iter().filter_map(|(id, path, kind)| {
+            let raw: f64 = fs::read_to_string(path).ok()?.trim().parse().ok()?;
+            Some((id.clone(), raw * kind.scale()))
+        });
+        let pwms = self.pwms.iter().filter_map(|(id, path)| {
+            let raw: f64 = fs::read_to_string(path).ok()?.trim().parse().ok()?;
+            Some((id.clone(), raw))
+        });
+        sensors.chain(pwms).collect()
     }
 }
 
 /// One reader for each hwmon chip that has sensors.
 pub fn chip_readers(discovery: &Discovery) -> Vec<SysfsChip> {
-    let mut chips: BTreeMap<&DeviceIdentity, Vec<_>> = BTreeMap::new();
+    let mut chips: BTreeMap<&DeviceIdentity, (Vec<_>, Vec<_>)> = BTreeMap::new();
     for sensor in &discovery.sensors {
-        chips.entry(&sensor.device).or_default().push((
+        chips.entry(&sensor.device).or_default().0.push((
             sensor.id.clone(),
             sensor.dir.join(format!("{}_input", sensor.attribute)),
             sensor.kind,
         ));
     }
+    for channel in &discovery.channels {
+        chips.entry(&channel.device).or_default().1.push((
+            channel.id.clone(),
+            channel.dir.join(format!("pwm{}", channel.number)),
+        ));
+    }
     chips
         .into_values()
-        .map(|sensors| SysfsChip { sensors })
+        .map(|(sensors, pwms)| SysfsChip { sensors, pwms })
         .collect()
 }
 

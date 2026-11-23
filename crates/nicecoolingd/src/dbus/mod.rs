@@ -1,5 +1,5 @@
 //! The D-Bus API `io.github.cappyt.NiceCooling1` (`docs/api.md`). One file for each interface of
-//! the XML contract. `Profiles`, `Profile` and `Alarms` and some methods of `Leakshield` answer
+//! the XML contract. `Profiles`, `Profile` and some methods of `Leakshield` answer
 //! `org.freedesktop.DBus.Error.NotSupported` until the tasks that own them fill them in.
 
 use std::sync::Arc;
@@ -10,6 +10,7 @@ use tokio::task::JoinHandle;
 use zbus::object_server::ObjectServer;
 use zbus::{Connection, OwnedObjectPath, fdo};
 
+use crate::alarms::logind::ZbusLogin1;
 use crate::authz::{Authorizer, Authz};
 
 pub mod alarms;
@@ -164,11 +165,15 @@ pub(crate) async fn notify_pump_flags(server: &ObjectServer, channels: &[String]
 
 pub struct Served {
     task: JoinHandle<()>,
+    alarm_task: Option<JoinHandle<()>>,
 }
 
 impl Drop for Served {
     fn drop(&mut self) {
         self.task.abort();
+        if let Some(task) = &self.alarm_task {
+            task.abort();
+        }
     }
 }
 
@@ -180,6 +185,7 @@ pub async fn serve(
 ) -> zbus::Result<Served> {
     hub.set_authz(Authz::new(authorizer));
     hub.set_connection(connection.clone());
+    hub.set_login1(Arc::new(ZbusLogin1::new(connection.clone())));
     let server = connection.object_server();
     server.at(ROOT_PATH, fdo::ObjectManager).await?;
     server
@@ -230,6 +236,13 @@ pub async fn serve(
         hub.clone(),
         reports,
     ));
+    let alarm_task = hub.take_alarm_receiver().map(|effects| {
+        tokio::spawn(alarms::run_effects(
+            connection.clone(),
+            hub.clone(),
+            effects,
+        ))
+    });
     connection.request_name(ids::BUS_NAME).await?;
-    Ok(Served { task })
+    Ok(Served { task, alarm_task })
 }
