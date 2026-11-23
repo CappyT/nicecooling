@@ -389,16 +389,34 @@ impl Attached {
         self.refresh(|state| state.connected = false);
     }
 
-    /// The result of a Feed message send. A vanished device shows at once.
-    pub fn feed_result(&self, result: &std::result::Result<FeedSent, DeviceError>) {
+    /// The result of a Feed message send. A result that arrives while the Feed is off does not
+    /// count: the send started before the Feed went off, and its failure must not bring back the
+    /// failing time that the change to `off` reset. `counted` runs, under the state lock, only
+    /// for a result that counts. A vanished device shows at once.
+    pub fn feed_result(
+        &self,
+        result: &std::result::Result<FeedSent, DeviceError>,
+        counted: impl FnOnce(bool),
+    ) {
+        let mut state = self.state.lock().unwrap();
+        if info_of(&self.registry, &state).feed_state == "off" {
+            return;
+        }
+        counted(result.is_ok());
         match result {
-            Err(DeviceError::Disconnected) => self.mark_disconnected(),
-            Err(_) => self.refresh(|state| state.feed.result = Some(false)),
-            Ok(sent) => self.refresh(|state| {
+            Ok(sent) => {
                 state.feed.result = Some(true);
                 state.feed.last = (now_us(), sent.pump_speed_rpm, sent.flow_lph);
-            }),
+            }
+            Err(DeviceError::Disconnected) => state.connected = false,
+            Err(_) => state.feed.result = Some(false),
         }
+        let info = info_of(&self.registry, &state);
+        if info.feed_state == "off" {
+            state.feed.result = None;
+        }
+        drop(state);
+        publish(&self.info, info);
     }
 
     /// A Loop links the Leakshield, or no Loop does. Without a Loop the Feed is off.

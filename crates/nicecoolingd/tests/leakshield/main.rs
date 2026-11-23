@@ -10,6 +10,7 @@ mod display;
 mod events;
 mod external;
 mod feed;
+mod feed_late_result;
 mod field_types;
 mod hotplug;
 mod lighting;

@@ -342,9 +342,10 @@ pub async fn start<N: Notifier + 'static>(
         feed_link.run(
             move || devices.io_map(),
             move |id, result| {
-                table.publish_feed(id, result.is_ok(), feed_clock.now());
-                if let Some(device) = reporting.get(id) {
-                    device.feed_result(&result);
+                let publish = |accepted| table.publish_feed(id, accepted, feed_clock.now());
+                match reporting.get(id) {
+                    Some(device) => device.feed_result(&result, publish),
+                    None => publish(result.is_ok()),
                 }
             },
         )

@@ -175,7 +175,9 @@ fn tick_and_send(
 ) {
     stage.run(ctx);
     let devices = BTreeMap::from([(LEAKSHIELD_ID.to_owned(), rig.io.clone())]);
-    link.flush(&devices, &mut |_, result| device.feed_result(&result));
+    link.flush(&devices, &mut |_, result| {
+        device.feed_result(&result, |_| {})
+    });
 }
 
 #[tokio::test(flavor = "multi_thread")]
