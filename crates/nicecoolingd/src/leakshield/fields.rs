@@ -91,7 +91,8 @@ pub fn values(registry: &Registry, report3: &Report3) -> Vec<(String, FieldValue
 #[derive(Debug, PartialEq, Eq)]
 pub enum EditError {
     NoSuchField(String),
-    /// The value is not a finite number that fits the raw type.
+    /// The value is not a finite number that fits the raw type. `repeat_edits` also uses it for a
+    /// repeat index that the field lacks.
     BadValue(String),
 }
 
@@ -122,6 +123,46 @@ pub fn edits(
             Ok(FieldEdit { field: id, raw })
         })
         .collect()
+}
+
+/// Edits that set repeat `index` of each field in `ids` to `raw_of(id)`. A field with several
+/// repeats (a page, an LED controller) keeps the other repeats as `report3` holds them. A field
+/// whose repeat already has the wanted values gives no edit, so the write path never checks a
+/// field that the caller left alone.
+pub fn repeat_edits(
+    registry: &Registry,
+    report3: &Report3,
+    index: usize,
+    ids: &[&str],
+    raw_of: impl Fn(&str) -> Option<Vec<i64>>,
+) -> Result<Vec<FieldEdit>, EditError> {
+    let mut edits = Vec::new();
+    for &id in ids {
+        let field = registry
+            .field(id)
+            .ok_or_else(|| EditError::NoSuchField(id.to_owned()))?;
+        if index >= field.count.unwrap_or(1) {
+            return Err(EditError::BadValue(id.to_owned()));
+        }
+        let wanted = raw_of(id).ok_or_else(|| EditError::NoSuchField(id.to_owned()))?;
+        let len = field.repeat_len();
+        if wanted.len() != len {
+            return Err(EditError::BadValue(id.to_owned()));
+        }
+        let mut raw: Vec<i64> = field
+            .element_offsets()
+            .into_iter()
+            .map(|o| field.read_raw(report3, o))
+            .collect();
+        if raw[index * len..(index + 1) * len] != wanted[..] {
+            raw[index * len..(index + 1) * len].copy_from_slice(&wanted);
+            edits.push(FieldEdit {
+                field: id.to_owned(),
+                raw,
+            });
+        }
+    }
+    Ok(edits)
 }
 
 #[cfg(test)]

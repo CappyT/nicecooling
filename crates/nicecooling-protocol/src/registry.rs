@@ -133,6 +133,29 @@ impl Field {
         offsets
     }
 
+    /// Scalars in each of the `count` repeats.
+    pub fn repeat_len(&self) -> usize {
+        self.element_offsets().len() / self.count.unwrap_or(1)
+    }
+
+    /// Offsets of the scalars of repeat `index`, or none when `index` is not below `count`.
+    pub fn repeat_offsets(&self, index: usize) -> Vec<usize> {
+        let len = self.repeat_len();
+        self.element_offsets()
+            .into_iter()
+            .skip(index * len)
+            .take(len)
+            .collect()
+    }
+
+    /// Raw values of repeat `index`.
+    pub fn read_repeat(&self, report: &Report3, index: usize) -> Vec<i64> {
+        self.repeat_offsets(index)
+            .into_iter()
+            .map(|o| self.read_raw(report, o))
+            .collect()
+    }
+
     /// Raw value of the scalar at `element_offset`, one of `element_offsets`.
     pub fn read_raw(&self, report: &Report3, element_offset: usize) -> i64 {
         let scalar = self.value_type.scalar;
@@ -237,6 +260,13 @@ impl Registry {
 
     pub fn field(&self, id: &str) -> Option<&Field> {
         self.field.iter().find(|f| f.id == id)
+    }
+
+    /// Raw values of repeat `index` of field `id`. `None` when the registry lacks the field or
+    /// the field has no such repeat.
+    pub fn read_repeat(&self, report: &Report3, id: &str, index: usize) -> Option<Vec<i64>> {
+        let field = self.field(id)?;
+        (index < field.count.unwrap_or(1)).then(|| field.read_repeat(report, index))
     }
 
     pub fn command(&self, id: &str) -> Option<&Command> {

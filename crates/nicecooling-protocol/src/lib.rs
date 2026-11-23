@@ -4,6 +4,7 @@
 pub mod access;
 pub mod crc;
 pub mod device;
+pub mod display;
 pub mod error;
 pub mod feed;
 pub mod registry;

@@ -6,6 +6,7 @@ mod action;
 mod api;
 mod backup;
 mod clock;
+mod display;
 mod events;
 mod external;
 mod feed;
@@ -29,6 +30,7 @@ use nicecooling_protocol::sim::SimDevice;
 use nicecoolingd::leakshield::backup::Backups;
 use nicecoolingd::leakshield::external::LastKnown;
 use nicecoolingd::leakshield::save_settings::SAVE_SETTINGS_DELAY;
+use nicecoolingd::leakshield::write::{FieldEdit, WriteEnv, WriteError, Written, write_fields};
 use nicecoolingd::leakshield::{AttachParams, Attached, DeviceIo};
 
 pub const SERIAL: &str = "20417-31072";
@@ -76,6 +78,18 @@ impl Rig {
             },
         )
         .unwrap()
+    }
+
+    /// One run of the write path (design D11) on the simulated device.
+    pub fn write(&self, edits: &[FieldEdit]) -> Result<Written, WriteError> {
+        let env = WriteEnv {
+            io: &self.io,
+            registry: &self.registry,
+            backups: &self.backups(),
+        };
+        let report1 = self.io.read_report1().unwrap();
+        let base = self.io.read_report3().unwrap();
+        write_fields(&env, &report1, &base, edits, 0)
     }
 
     pub fn backups(&self) -> Backups {

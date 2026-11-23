@@ -18,6 +18,7 @@ pub mod attached;
 pub mod backup;
 pub mod clock;
 pub mod counters;
+pub mod display;
 pub mod events;
 pub mod external;
 pub mod factory_reset;
