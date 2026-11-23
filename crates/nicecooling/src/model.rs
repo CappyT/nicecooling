@@ -652,6 +652,8 @@ pub struct Snapshot {
     /// The end of the running Profile dwell, 0 when none runs.
     pub dwell_until_us: u64,
     pub rule_groups: Vec<RuleGroup>,
+    /// `Profiles.RuleGroupState`: group id, holds, since.
+    pub rule_group_state: Vec<(String, bool, u64)>,
     /// Every row of `GetResponses`.
     pub responses: Vec<ResponseRule>,
     /// `GetHistory`, newest raise first.
@@ -721,6 +723,25 @@ impl SensorSample {
     }
 }
 
+/// A `PropertiesChanged` signal: the object, the interface and the changed values.
+#[derive(Clone, Debug, PartialEq)]
+pub struct PropertyChange {
+    pub path: String,
+    pub interface: String,
+    pub changed: std::collections::HashMap<String, zbus::OwnedVariant>,
+}
+
+/// Parts of the snapshot that need a call and not only a property. A part that is `None` did not
+/// change.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Derived {
+    pub profile_contents: Option<BTreeMap<String, ProfileContent>>,
+    pub rule_groups: Option<Vec<RuleGroup>>,
+    pub calibration_tables: Option<Vec<CalibrationTableInfo>>,
+    /// The Leakshield id and what the app reads from it.
+    pub leakshield: Option<(String, LeakshieldData)>,
+}
+
 /// What the daemon client reports to the rest of the app.
 #[derive(Clone, Debug, PartialEq)]
 pub enum DaemonEvent {
@@ -732,6 +753,10 @@ pub enum DaemonEvent {
     History(Vec<AlarmRecord>),
     /// `GetResponses` was read again: the daemon sends no signal for a response.
     Responses(Vec<ResponseRule>),
+    /// A `PropertiesChanged`: only the properties that the signal carries change.
+    Properties(PropertyChange),
+    /// What the app read again because a property changed.
+    Derived(Box<Derived>),
     AlarmRaised(AlarmEntry),
     AlarmCleared {
         instance: String,
@@ -789,6 +814,12 @@ impl AppState {
             }
             DaemonEvent::History(rows) => self.snapshot.alarm_history = rows.clone(),
             DaemonEvent::Responses(rows) => self.snapshot.responses = rows.clone(),
+            DaemonEvent::Properties(change) => {
+                crate::daemon_client::apply_properties(&mut self.snapshot, change);
+            }
+            DaemonEvent::Derived(derived) => {
+                crate::daemon_client::apply_derived(&mut self.snapshot, derived)
+            }
             DaemonEvent::Sensors(sample) => {
                 self.sensors = Some(sample.clone());
                 self.last_sensors = Some(sample.clone());

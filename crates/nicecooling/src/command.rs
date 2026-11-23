@@ -1,7 +1,7 @@
 //! What a tray entry, a notification button, a banner button or a screen asks the app to do.
 
 use crate::daemon_client::DaemonClient;
-use crate::model::{DaemonEvent, FieldValue, Response, RuleGroup};
+use crate::model::{DaemonEvent, Derived, FieldValue, Response, RuleGroup};
 use crate::shell::Page;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -471,6 +471,12 @@ impl Command {
             Self::SetAlarmResponse { .. } | Self::ResetResponse { .. } => {
                 client.responses().await.ok().map(DaemonEvent::Responses)
             }
+            Self::SaveCalibration { .. } => client.calibration_tables().await.ok().map(|tables| {
+                DaemonEvent::Derived(Box::new(Derived {
+                    calibration_tables: Some(tables),
+                    ..Derived::default()
+                }))
+            }),
             _ => None,
         }
     }

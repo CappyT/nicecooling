@@ -248,3 +248,131 @@ fn decode_alarms_reads_the_row_of_the_xml_with_its_details() {
     assert_eq!(details.unit, "mbar");
     assert_eq!(details.sensor.as_deref(), Some("leak_pressure"));
 }
+
+/// A connection that sees every message of the bus.
+async fn monitor(bus: &PrivateBus) -> (zbus::Connection, zbus::MessageStream) {
+    let conn = bus.connect().await;
+    zbus::fdo::MonitoringProxy::new(&conn)
+        .await
+        .expect("monitoring proxy")
+        .become_monitor(&[], 0)
+        .await
+        .expect("become monitor");
+    let stream = zbus::MessageStream::from(&conn);
+    (conn, stream)
+}
+
+/// The method calls to the daemon that the monitor saw until it is quiet for 300 ms.
+async fn calls_to_daemon(stream: &mut zbus::MessageStream) -> Vec<String> {
+    use futures_util::StreamExt;
+    let mut calls = Vec::new();
+    while let Ok(Some(Ok(message))) =
+        tokio::time::timeout(std::time::Duration::from_millis(300), stream.next()).await
+    {
+        let header = message.header();
+        if header.message_type() == zbus::message::Type::MethodCall
+            && header.destination().map(|d| d.as_str())
+                == Some(nicecooling::daemon_client::BUS_NAME)
+        {
+            calls.push(format!(
+                "{}.{}",
+                header.interface().map(|i| i.as_str()).unwrap_or_default(),
+                header.member().map(|m| m.as_str()).unwrap_or_default()
+            ));
+        }
+    }
+    calls
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn last_feed_change_triggers_no_other_call() {
+    let (bus, daemon, mut harness) = online().await;
+    let (_monitor, mut stream) = monitor(&bus).await;
+    // The Feed changes about once a second. Two changes: the second one proves that the client
+    // handled the first one completely.
+    daemon
+        .set_last_feed(1_700_000_001_000_000, 2900.0, 120.0)
+        .await;
+    daemon
+        .set_last_feed(1_700_000_002_000_000, 2910.0, 121.0)
+        .await;
+    harness
+        .until("the Feed values reach the state", |state| {
+            state.snapshot.leakshields[0].last_feed.time_us == 1_700_000_002_000_000
+        })
+        .await;
+    let feed = harness.state.snapshot.leakshields[0].last_feed;
+    assert_eq!((feed.feed_pump, feed.flow_lph), (2910.0, 121.0));
+    let calls = calls_to_daemon(&mut stream).await;
+    assert!(calls.is_empty(), "the client made calls: {calls:?}");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_property_change_updates_only_its_property() {
+    let (bus, daemon, mut harness) = online().await;
+    let before = harness.state.snapshot.clone();
+    let (_monitor, mut stream) = monitor(&bus).await;
+    daemon.set_dwell_until(1_700_000_300_000_000).await;
+    harness
+        .until("the dwell shows", |state| {
+            state.snapshot.dwell_until_us == 1_700_000_300_000_000
+        })
+        .await;
+    let calls = calls_to_daemon(&mut stream).await;
+    assert!(calls.is_empty(), "the client made calls: {calls:?}");
+    // Nothing else of the snapshot changed.
+    let mut expected = before;
+    expected.dwell_until_us = 1_700_000_300_000_000;
+    assert_eq!(harness.state.snapshot, expected);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_leakshield_property_reads_the_device_data_again() {
+    let (bus, daemon, mut harness) = online().await;
+    let (_monitor, mut stream) = monitor(&bus).await;
+    daemon.set_active_slot(2).await;
+    harness
+        .until("the slot shows", |state| {
+            state.snapshot.leakshields[0].active_slot == 2
+        })
+        .await;
+    // `ActiveSlot` is a Leakshield property that is not `LastFeed` or `FeedState`: the stored
+    // slots and the fields are read again.
+    let calls = calls_to_daemon(&mut stream).await;
+    assert!(
+        calls
+            .iter()
+            .any(|call| call.ends_with("Leakshield.GetFields")),
+        "{calls:?}"
+    );
+    assert!(
+        calls
+            .iter()
+            .all(|call| !call.ends_with("Manager.GetCalibrationTables")),
+        "{calls:?}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn interfaces_added_read_everything_again() {
+    let (bus, daemon, mut harness) = online().await;
+    let (_monitor, mut stream) = monitor(&bus).await;
+    harness
+        .client
+        .create_profile("Gaming", "")
+        .await
+        .expect("create a Profile");
+    harness
+        .until("the new Profile shows", |state| {
+            state.snapshot.profiles.iter().any(|p| p.name == "Gaming")
+        })
+        .await;
+    let calls = calls_to_daemon(&mut stream).await;
+    assert!(
+        calls
+            .iter()
+            .any(|call| call.ends_with("Manager.GetCalibrationTables")),
+        "a full read: {calls:?}"
+    );
+    drop(daemon);
+}

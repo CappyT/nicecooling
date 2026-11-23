@@ -378,6 +378,9 @@ async fn calibration_table_edit_and_preset_load() {
         last.contains("(327.0, 40.0), (369.0, 50.0), (404.0, 60.0), (700.0, 120.0)"),
         "{last}"
     );
+    // The daemon sends no signal for a table: the app reads the tables again after the save.
+    let refresh = command.refresh(&harness.client).await.expect("a refresh");
+    harness.state.apply(&refresh);
     harness
         .until("the table holds the preset points", |state| {
             state

@@ -16,10 +16,10 @@ use zbus::{OwnedObjectPath, OwnedVariant as OwnedValue, Variant as Value};
 use crate::model::{
     AlarmDetails, AlarmEntry, AlarmRecord, BackupEntry, BiosSnapshot, BoardInfo,
     CalibrationTableInfo, Cause, ChannelInfo, ChannelOverride, Control, CurveSpec, DaemonEvent,
-    DerivedDef, DeviceEvent, FeedState, FieldEntry, FieldRisk, FieldValue, LastFeed,
+    Derived, DerivedDef, DeviceEvent, FeedState, FieldEntry, FieldRisk, FieldValue, LastFeed,
     LeakshieldData, LeakshieldInfo, Link, LoopInfo, Outcome, ProfileChannel, ProfileContent,
-    ProfileInfo, Response, ResponseProposal, ResponseRule, Rule, RuleGroup, SensorInfo,
-    SensorSample, Severity, Snapshot, UnitState,
+    ProfileInfo, PropertyChange, Response, ResponseProposal, ResponseRule, Rule, RuleGroup,
+    SensorInfo, SensorSample, Severity, Snapshot, UnitState,
 };
 
 /// A row of `GetHistory`: instance, event, severity, source, response, raised, cleared, outcome,
@@ -252,8 +252,31 @@ impl DaemonClient {
                     fields,
                 }
             }
-            ("org.freedesktop.DBus.Properties", "PropertiesChanged")
-            | ("org.freedesktop.DBus.ObjectManager", "InterfacesAdded" | "InterfacesRemoved") => {
+            ("org.freedesktop.DBus.Properties", "PropertiesChanged") => {
+                let (interface_name, changed, invalidated): (String, Props, Vec<String>) =
+                    body.deserialize()?;
+                // The signal carries the new values. A property that it only invalidates has no
+                // value here: read everything again.
+                if !invalidated.is_empty() {
+                    let snapshot = self.snapshot().await?;
+                    return Ok(Some(vec![DaemonEvent::Snapshot(Box::new(snapshot))]));
+                }
+                let path = header
+                    .path()
+                    .map(|p| p.as_str().to_owned())
+                    .unwrap_or_default();
+                let change = PropertyChange {
+                    path,
+                    interface: interface_name,
+                    changed,
+                };
+                let mut events = vec![DaemonEvent::Properties(change.clone())];
+                if let Some(derived) = self.read_derived(&change).await {
+                    events.push(DaemonEvent::Derived(Box::new(derived)));
+                }
+                return Ok(Some(events));
+            }
+            ("org.freedesktop.DBus.ObjectManager", "InterfacesAdded" | "InterfacesRemoved") => {
                 let snapshot = self.snapshot().await?;
                 DaemonEvent::Snapshot(Box::new(snapshot))
             }
@@ -271,6 +294,76 @@ impl DaemonClient {
             events.push(DaemonEvent::History(rows));
         }
         Ok(Some(events))
+    }
+
+    /// The calls that a property change needs. `LastFeed` and `FeedState` change about once a
+    /// second and need none.
+    async fn read_derived(&self, change: &PropertyChange) -> Option<Derived> {
+        let kind = change.interface.strip_prefix(&format!("{IFACE}."))?;
+        let id = last_element(&change.path);
+        let has = |keys: &[&str]| keys.iter().any(|key| change.changed.contains_key(*key));
+        let mut derived = Derived::default();
+        match kind {
+            "Leakshield" => {
+                let only_feed = change
+                    .changed
+                    .keys()
+                    .all(|key| matches!(key.as_str(), "LastFeed" | "FeedState"));
+                if only_feed || get(&change.changed, "Connected") == Some(false) {
+                    return None;
+                }
+                derived.leakshield = Some((id.clone(), self.leakshield_data(&id).await));
+            }
+            "Profile" => {
+                derived.profile_contents = Some(self.profile_contents().await);
+                derived.rule_groups = self.rule_groups().await.ok();
+            }
+            "Channel" if has(&["Curve", "Control", "FixedDuty"]) => {
+                derived.profile_contents = Some(self.profile_contents().await);
+            }
+            "Profiles" if has(&["Active", "ActivationCause"]) => {
+                derived.profile_contents = Some(self.profile_contents().await);
+                derived.rule_groups = self.rule_groups().await.ok();
+            }
+            "Profiles" if has(&["RuleGroupState"]) => {
+                derived.rule_groups = self.rule_groups().await.ok();
+            }
+            "Loop" if has(&["CalibrationTable", "FlowSensor"]) => {
+                derived.calibration_tables = self.calibration_tables().await.ok();
+            }
+            _ => return None,
+        }
+        Some(derived)
+    }
+
+    /// `GetContent` of every Profile.
+    async fn profile_contents(&self) -> BTreeMap<String, ProfileContent> {
+        let mut contents = BTreeMap::new();
+        let Ok(profiles) = self.profile_ids().await else {
+            return contents;
+        };
+        for id in profiles {
+            if let Ok(content) = self.profile_content(&id).await {
+                contents.insert(id, content);
+            }
+        }
+        contents
+    }
+
+    /// The Profile ids that the daemon lists.
+    async fn profile_ids(&self) -> zbus::Result<Vec<String>> {
+        let objects = zbus::fdo::ObjectManagerProxy::builder(&self.conn)
+            .destination(BUS_NAME)
+            .path(ROOT)
+            .build()
+            .await?
+            .get_managed_objects()
+            .await?;
+        let prefix = format!("{ROOT}/profile/");
+        Ok(objects
+            .keys()
+            .filter_map(|path| path.as_str().strip_prefix(&prefix).map(str::to_owned))
+            .collect())
     }
 
     /// Read the objects of the daemon in one pass.
@@ -334,9 +427,12 @@ impl DaemonClient {
                     }
                     Some("Channel") => {
                         let id = get::<String>(&props, "Id").unwrap_or_default();
-                        snapshot
-                            .channels
-                            .insert(id.clone(), channel_info(id, &props));
+                        let mut info = ChannelInfo {
+                            id: id.clone(),
+                            ..ChannelInfo::default()
+                        };
+                        apply_channel(&mut info, &props);
+                        snapshot.channels.insert(id, info);
                     }
                     Some("Board") => {
                         snapshot.board = Some(BoardInfo {
@@ -345,46 +441,24 @@ impl DaemonClient {
                             board_file: get(&props, "BoardFile").unwrap_or_default(),
                         });
                     }
-                    Some("Loop") => snapshot.loops.push(LoopInfo {
-                        id: get(&props, "Id").unwrap_or_default(),
-                        name: get(&props, "Name").unwrap_or_default(),
-                        leakshield: object_id(&props, "Leakshield"),
-                        flow: object_id(&props, "Flow"),
-                        water_temperature: object_id(&props, "WaterTemperature"),
-                        pump_channels: object_ids(&props, "PumpChannels"),
-                        flow_sensor: object_id(&props, "FlowSensor"),
-                        calibration_table: get(&props, "CalibrationTable").unwrap_or_default(),
-                        pump_floor: get(&props, "PumpFloor").unwrap_or_default(),
-                    }),
-                    Some("Leakshield") => snapshot.leakshields.push(LeakshieldInfo {
-                        id: get(&props, "Id").unwrap_or_default(),
-                        serial: get(&props, "Serial").unwrap_or_default(),
-                        firmware: get(&props, "Firmware").unwrap_or_default(),
-                        connected: get(&props, "Connected").unwrap_or_default(),
-                        read_only_reason: get(&props, "ReadOnlyReason").unwrap_or_default(),
-                        mode: get(&props, "Mode").unwrap_or_default(),
-                        running_action: get(&props, "RunningAction").unwrap_or_default(),
-                        feed_state: FeedState::parse(
-                            &get::<String>(&props, "FeedState").unwrap_or_default(),
-                        ),
-                        last_feed: get::<(u64, f64, f64)>(&props, "LastFeed")
-                            .map(|(time_us, feed_pump, flow_lph)| LastFeed {
-                                time_us,
-                                feed_pump,
-                                flow_lph,
-                            })
-                            .unwrap_or_default(),
-                        active_slot: get(&props, "ActiveSlot").unwrap_or_default(),
-                        failed_write_backup: get(&props, "FailedWriteBackup").unwrap_or_default(),
-                        field_counts: None,
-                    }),
-                    Some("Profile") => snapshot.profiles.push(ProfileInfo {
-                        id: get(&props, "Id").unwrap_or_default(),
-                        name: get(&props, "Name").unwrap_or_default(),
-                        is_default: get(&props, "IsDefault").unwrap_or_default(),
-                        contains_release: get(&props, "ContainsRelease").unwrap_or_default(),
-                        slot: get(&props, "Slot").unwrap_or(1),
-                    }),
+                    Some("Loop") => {
+                        let mut info = LoopInfo::default();
+                        apply_loop(&mut info, &props);
+                        snapshot.loops.push(info);
+                    }
+                    Some("Leakshield") => {
+                        let mut info = LeakshieldInfo::default();
+                        apply_leakshield(&mut info, &props);
+                        snapshot.leakshields.push(info);
+                    }
+                    Some("Profile") => {
+                        let mut info = ProfileInfo {
+                            slot: 1,
+                            ..ProfileInfo::default()
+                        };
+                        apply_profile(&mut info, &props);
+                        snapshot.profiles.push(info);
+                    }
                     _ => {}
                 }
             }
@@ -397,30 +471,14 @@ impl DaemonClient {
         });
 
         let profiles: Props = profiles;
-        let active = object_id(&profiles, "Active");
-        snapshot.active_profile =
-            active.and_then(|id| snapshot.profiles.iter().find(|p| p.id == id).cloned());
-        snapshot.cause =
-            Cause::parse(&get::<String>(&profiles, "ActivationCause").unwrap_or_default());
-        snapshot.immediate_switching = get(&profiles, "ImmediateSwitching").unwrap_or_default();
-        snapshot.profile_state = get(&profiles, "ActiveState").unwrap_or_default();
-        snapshot.rule_delay_s = get(&profiles, "RuleDelaySeconds").unwrap_or_default();
-        snapshot.dwell_s = get(&profiles, "DwellSeconds").unwrap_or_default();
-        snapshot.dwell_until_us = get(&profiles, "DwellUntil").unwrap_or_default();
-        let group_state: Vec<(String, bool, u64)> =
-            get(&profiles, "RuleGroupState").unwrap_or_default();
+        apply_profiles(&mut snapshot, &profiles);
         if let Some(active) = alarms.get("Active") {
             snapshot.alarms = decode_alarms(active);
         }
         // A daemon without Calibration tables answers with an error: keep an empty list.
         snapshot.calibration_tables = self.calibration_tables().await.unwrap_or_default();
         snapshot.rule_groups = self.rule_groups().await.unwrap_or_default();
-        for group in &mut snapshot.rule_groups {
-            if let Some((_, holds, since_us)) = group_state.iter().find(|row| row.0 == group.id) {
-                group.holds = *holds;
-                group.since_us = *since_us;
-            }
-        }
+        merge_group_state(&mut snapshot);
         snapshot.responses = self.responses().await.unwrap_or_default();
         snapshot.alarm_history = self.alarm_history().await.unwrap_or_default();
         for profile in &snapshot.profiles {
@@ -1212,34 +1270,185 @@ fn object_ids(props: &Props, key: &str) -> Vec<String> {
         .collect()
 }
 
-fn channel_info(id: String, props: &Props) -> ChannelInfo {
-    let curve = get::<(OwnedObjectPath, Vec<(f64, f64)>, f64, f64)>(props, "Curve")
-        .map(|(input, points, smoothing_s, step_limit)| CurveSpec {
+/// Set the fields of a Channel that `props` carries. A partial map (a `PropertiesChanged`) sets
+/// only its own fields.
+fn apply_channel(info: &mut ChannelInfo, props: &Props) {
+    if let Some(id) = get::<String>(props, "Id") {
+        info.id = id;
+    }
+    if let Some(name) = get(props, "Name") {
+        info.name = name;
+    }
+    if let Some(name) = get(props, "DefaultName") {
+        info.default_name = name;
+    }
+    if let Some(control) = get::<String>(props, "Control") {
+        info.control = Control::parse(&control);
+    }
+    if let Some(state) = get::<String>(props, "Override") {
+        info.override_state = ChannelOverride::parse(&state);
+    }
+    if let Some(is_pump) = get(props, "IsPump") {
+        info.is_pump = is_pump;
+    }
+    if let Some(manual) = get(props, "ManualAtSnapshot") {
+        info.manual_at_snapshot = manual;
+    }
+    if let Some((input, points, smoothing_s, step_limit)) =
+        get::<(OwnedObjectPath, Vec<(f64, f64)>, f64, f64)>(props, "Curve")
+    {
+        info.curve = CurveSpec {
             input: (input.as_str() != "/").then(|| last_element(input.as_str())),
             points,
             smoothing_s,
             step_limit,
-        })
-        .unwrap_or_default();
-    ChannelInfo {
-        id,
-        name: get(props, "Name").unwrap_or_default(),
-        default_name: get(props, "DefaultName").unwrap_or_default(),
-        control: Control::parse(&get::<String>(props, "Control").unwrap_or_default()),
-        override_state: ChannelOverride::parse(
-            &get::<String>(props, "Override").unwrap_or_default(),
-        ),
-        is_pump: get(props, "IsPump").unwrap_or_default(),
-        manual_at_snapshot: get(props, "ManualAtSnapshot").unwrap_or_default(),
-        curve,
-        fixed_duty: get(props, "FixedDuty").unwrap_or_default(),
-        bios_snapshot: get::<(u64, Vec<(String, String)>)>(props, "BiosSnapshot")
-            .map(|(time_us, attributes)| BiosSnapshot {
-                time_us,
-                attributes,
-            })
-            .unwrap_or_default(),
-        fan_sensor: object_id(props, "FanSensor"),
+        };
+    }
+    if let Some(duty) = get(props, "FixedDuty") {
+        info.fixed_duty = duty;
+    }
+    if let Some((time_us, attributes)) = get::<(u64, Vec<(String, String)>)>(props, "BiosSnapshot")
+    {
+        info.bios_snapshot = BiosSnapshot {
+            time_us,
+            attributes,
+        };
+    }
+    if props.contains_key("FanSensor") {
+        info.fan_sensor = object_id(props, "FanSensor");
+    }
+}
+
+fn apply_loop(info: &mut LoopInfo, props: &Props) {
+    if let Some(id) = get(props, "Id") {
+        info.id = id;
+    }
+    if let Some(name) = get(props, "Name") {
+        info.name = name;
+    }
+    if props.contains_key("Leakshield") {
+        info.leakshield = object_id(props, "Leakshield");
+    }
+    if props.contains_key("Flow") {
+        info.flow = object_id(props, "Flow");
+    }
+    if props.contains_key("WaterTemperature") {
+        info.water_temperature = object_id(props, "WaterTemperature");
+    }
+    if props.contains_key("PumpChannels") {
+        info.pump_channels = object_ids(props, "PumpChannels");
+    }
+    if props.contains_key("FlowSensor") {
+        info.flow_sensor = object_id(props, "FlowSensor");
+    }
+    if let Some(table) = get(props, "CalibrationTable") {
+        info.calibration_table = table;
+    }
+    if let Some(floor) = get(props, "PumpFloor") {
+        info.pump_floor = floor;
+    }
+}
+
+fn apply_leakshield(info: &mut LeakshieldInfo, props: &Props) {
+    if let Some(id) = get(props, "Id") {
+        info.id = id;
+    }
+    if let Some(serial) = get(props, "Serial") {
+        info.serial = serial;
+    }
+    if let Some(firmware) = get(props, "Firmware") {
+        info.firmware = firmware;
+    }
+    if let Some(connected) = get(props, "Connected") {
+        info.connected = connected;
+    }
+    if let Some(reason) = get(props, "ReadOnlyReason") {
+        info.read_only_reason = reason;
+    }
+    if let Some(mode) = get(props, "Mode") {
+        info.mode = mode;
+    }
+    if let Some(action) = get(props, "RunningAction") {
+        info.running_action = action;
+    }
+    if let Some(state) = get::<String>(props, "FeedState") {
+        info.feed_state = FeedState::parse(&state);
+    }
+    if let Some((time_us, feed_pump, flow_lph)) = get::<(u64, f64, f64)>(props, "LastFeed") {
+        info.last_feed = LastFeed {
+            time_us,
+            feed_pump,
+            flow_lph,
+        };
+    }
+    if let Some(slot) = get(props, "ActiveSlot") {
+        info.active_slot = slot;
+    }
+    if let Some(backup) = get(props, "FailedWriteBackup") {
+        info.failed_write_backup = backup;
+    }
+}
+
+fn apply_profile(info: &mut ProfileInfo, props: &Props) {
+    if let Some(id) = get(props, "Id") {
+        info.id = id;
+    }
+    if let Some(name) = get(props, "Name") {
+        info.name = name;
+    }
+    if let Some(is_default) = get(props, "IsDefault") {
+        info.is_default = is_default;
+    }
+    if let Some(release) = get(props, "ContainsRelease") {
+        info.contains_release = release;
+    }
+    if let Some(slot) = get(props, "Slot") {
+        info.slot = slot;
+    }
+}
+
+/// The properties of `Profiles` at the root object. The rows of `RuleGroupState` go into the
+/// groups that the snapshot holds.
+fn apply_profiles(snapshot: &mut Snapshot, props: &Props) {
+    if props.contains_key("Active") {
+        let active = object_id(props, "Active");
+        snapshot.active_profile =
+            active.and_then(|id| snapshot.profiles.iter().find(|p| p.id == id).cloned());
+    }
+    if let Some(cause) = get::<String>(props, "ActivationCause") {
+        snapshot.cause = Cause::parse(&cause);
+    }
+    if let Some(immediate) = get(props, "ImmediateSwitching") {
+        snapshot.immediate_switching = immediate;
+    }
+    if let Some(state) = get(props, "ActiveState") {
+        snapshot.profile_state = state;
+    }
+    if let Some(delay) = get(props, "RuleDelaySeconds") {
+        snapshot.rule_delay_s = delay;
+    }
+    if let Some(dwell) = get(props, "DwellSeconds") {
+        snapshot.dwell_s = dwell;
+    }
+    if let Some(until) = get(props, "DwellUntil") {
+        snapshot.dwell_until_us = until;
+    }
+    if let Some(state) = get::<Vec<(String, bool, u64)>>(props, "RuleGroupState") {
+        snapshot.rule_group_state = state;
+        merge_group_state(snapshot);
+    }
+}
+
+fn merge_group_state(snapshot: &mut Snapshot) {
+    for group in &mut snapshot.rule_groups {
+        if let Some((_, holds, since_us)) = snapshot
+            .rule_group_state
+            .iter()
+            .find(|row| row.0 == group.id)
+        {
+            group.holds = *holds;
+            group.since_us = *since_us;
+        }
     }
 }
 
@@ -1496,6 +1705,95 @@ impl SensorInfo {
         self.unit = unit;
         self.origin = origin;
         self.driver = driver;
+    }
+}
+
+/// Apply the properties of one `PropertiesChanged` to the snapshot. Only the properties of the
+/// signal change.
+pub fn apply_properties(snapshot: &mut Snapshot, change: &PropertyChange) {
+    let Some(kind) = change.interface.strip_prefix(&format!("{IFACE}.")) else {
+        return;
+    };
+    let id = last_element(&change.path);
+    let props = &change.changed;
+    match kind {
+        "Profiles" => apply_profiles(snapshot, props),
+        "Alarms" => {
+            if let Some(active) = props.get("Active") {
+                snapshot.alarms = decode_alarms(active);
+            }
+        }
+        "Channel" => {
+            if let Some(info) = snapshot.channels.get_mut(&id) {
+                apply_channel(info, props);
+            }
+        }
+        "Loop" => {
+            if let Some(info) = snapshot.loops.iter_mut().find(|info| info.id == id) {
+                apply_loop(info, props);
+            }
+        }
+        "Leakshield" => {
+            if let Some(info) = snapshot.leakshields.iter_mut().find(|info| info.id == id) {
+                apply_leakshield(info, props);
+            }
+        }
+        "Profile" => {
+            if let Some(info) = snapshot.profiles.iter_mut().find(|info| info.id == id) {
+                apply_profile(info, props);
+                let updated = info.clone();
+                if let Some(active) = snapshot.active_profile.as_mut()
+                    && active.id == updated.id
+                {
+                    *active = updated;
+                }
+            }
+        }
+        "DerivedSensor" => {
+            if let Some(def) = snapshot
+                .sensors
+                .get_mut(&id)
+                .and_then(|sensor| sensor.derived.as_mut())
+            {
+                if let Some(function) = get::<String>(props, "Type") {
+                    def.function = function;
+                }
+                if let Some(sources) = get::<Vec<OwnedObjectPath>>(props, "Sources") {
+                    def.sources = sources.iter().map(|p| last_element(p.as_str())).collect();
+                }
+            }
+        }
+        "Sensor" => {
+            if let (Some(info), Some(name)) =
+                (snapshot.sensors.get_mut(&id), get::<String>(props, "Name"))
+            {
+                info.name = name;
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Apply what the app read again after a property change.
+pub fn apply_derived(snapshot: &mut Snapshot, derived: &Derived) {
+    if let Some(contents) = &derived.profile_contents {
+        snapshot.profile_contents = contents.clone();
+    }
+    if let Some(groups) = &derived.rule_groups {
+        snapshot.rule_groups = groups.clone();
+        merge_group_state(snapshot);
+    }
+    if let Some(tables) = &derived.calibration_tables {
+        snapshot.calibration_tables = tables.clone();
+    }
+    if let Some((id, data)) = &derived.leakshield {
+        if let Some(device) = snapshot.leakshields.iter_mut().find(|d| &d.id == id)
+            && !data.fields.is_empty()
+        {
+            let read_only = data.fields.iter().filter(|field| !field.writable).count();
+            device.field_counts = Some((data.fields.len() as u32, read_only as u32));
+        }
+        snapshot.leakshield_data.insert(id.clone(), data.clone());
     }
 }
 
