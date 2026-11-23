@@ -37,6 +37,27 @@ impl fmt::Display for Slot {
     }
 }
 
+/// Why a Profile is active (`ActivationCause` of the API).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Cause {
+    /// No Rule group wins: the Default Profile.
+    Default,
+    /// A Rule group won.
+    Rule,
+    /// The user activated it by hand.
+    Manual,
+}
+
+impl Cause {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Default => "default",
+            Self::Rule => "rule",
+            Self::Manual => "manual",
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

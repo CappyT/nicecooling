@@ -37,6 +37,8 @@ pub enum Request {
 
 #[derive(Default)]
 struct Faults {
+    /// Feature writes fail with an I/O error. The device keeps its report.
+    feature: bool,
     output: bool,
     bulk: bool,
     /// The device stores this byte instead of the written one, and fixes the CRC.
@@ -236,6 +238,11 @@ impl SimDevice {
         self.state().faults.output = fail;
     }
 
+    /// Feature writes (report 3) fail with an I/O error.
+    pub fn fail_feature_writes(&self, fail: bool) {
+        self.state().faults.feature = fail;
+    }
+
     /// Bulk writes fail with an I/O error.
     pub fn fail_bulk(&self, fail: bool) {
         self.state().faults.bulk = fail;
@@ -303,6 +310,9 @@ impl HidTransport for SimDevice {
             len: report.len(),
         });
         Self::connected(&state)?;
+        if state.faults.feature {
+            return Err(io_error("feature write failed"));
+        }
         match id {
             REPORT3_ID => {
                 if report.len() != REPORT3_SIZE {

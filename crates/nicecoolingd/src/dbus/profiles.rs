@@ -4,11 +4,14 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use nicecooling_api::errors::Result;
-use nicecooling_api::ids::Kind;
+use nicecooling_api::ids::{self, Kind};
+use nicecooling_core::profile::Cause;
+use tokio::sync::mpsc;
 use zbus::message::Header;
 use zbus::object_server::{ObjectServer, SignalEmitter};
 use zbus::{Connection, OwnedObjectPath, OwnedVariant, interface};
 
+use super::hub::ProfileEvent;
 use super::{Hub, not_supported_stub, object, profile};
 
 pub struct Profiles {
@@ -43,7 +46,7 @@ impl Profiles {
 
     #[zbus(property)]
     fn active_state(&self) -> String {
-        "applied".into()
+        self.hub.active_state().to_owned()
     }
 
     #[zbus(property(emits_changed_signal = "const"))]
@@ -87,8 +90,20 @@ impl Profiles {
         Ok(path)
     }
 
-    async fn activate_profile(&self, profile: OwnedObjectPath) -> Result<()> {
-        stub("ActivateProfile")
+    async fn activate_profile(
+        &self,
+        #[zbus(connection)] connection: &Connection,
+        #[zbus(header)] header: Header<'_>,
+        profile: OwnedObjectPath,
+    ) -> Result<()> {
+        self.hub
+            .authorize(connection, &header, "Profiles", "ActivateProfile", None)
+            .await?;
+        let id = ids::id_from_path(Kind::Profile, profile.as_str()).ok_or_else(|| {
+            nicecooling_api::Error::invalid(format!("{profile} is not a Profile path"))
+        })?;
+        self.hub.activate_profile(id, Cause::Manual)?;
+        Ok(())
     }
 
     async fn return_to_automatic(&self) -> Result<()> {
@@ -125,4 +140,42 @@ impl Profiles {
         cause: String,
         state: String,
     ) -> zbus::Result<()>;
+}
+
+/// Emits the signals and the property changes of the activations. One task, in order.
+pub async fn run_events(
+    connection: Connection,
+    hub: Arc<Hub>,
+    mut events: mpsc::UnboundedReceiver<ProfileEvent>,
+) {
+    let server = connection.object_server();
+    while let Some(event) = events.recv().await {
+        let Ok(iface) = server.interface::<_, Profiles>(ids::ROOT_PATH).await else {
+            continue;
+        };
+        let emitter = iface.signal_emitter();
+        match event {
+            ProfileEvent::Switched => {
+                let iface = iface.get().await;
+                let _ = iface.active_changed(emitter).await;
+                let _ = iface.activation_cause_changed(emitter).await;
+                let _ = iface.active_state_changed(emitter).await;
+            }
+            ProfileEvent::Activated {
+                profile,
+                cause,
+                state,
+            } => {
+                let _ = iface.get().await.active_state_changed(emitter).await;
+                let _ = Profiles::profile_activated(
+                    emitter,
+                    object(Kind::Profile, &profile),
+                    cause.to_owned(),
+                    state.to_owned(),
+                )
+                .await;
+            }
+        }
+    }
+    drop(hub);
 }

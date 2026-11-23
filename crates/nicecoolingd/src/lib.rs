@@ -7,6 +7,7 @@ pub mod dbus;
 pub mod fleet;
 pub mod leakshield;
 pub mod lease;
+pub mod profiles;
 pub mod rescan;
 pub mod snapshot;
 pub mod sources;

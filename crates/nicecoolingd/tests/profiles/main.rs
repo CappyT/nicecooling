@@ -1,6 +1,7 @@
 //! Profiles, Leakshield slots, activation and Rule groups, on the simulated hardware layer and
 //! the simulated Leakshield. No test touches a real device, `/proc`, `/sys` or logind.
 
+mod activate;
 mod slots;
 #[path = "../support/mod.rs"]
 mod support;
@@ -27,6 +28,14 @@ pub async fn profile(rig: &Rig, id: &str) -> ProfileProxy<'static> {
         .build()
         .await
         .unwrap()
+}
+
+pub fn slot_file(rig: &Rig, n: u8) -> std::path::PathBuf {
+    rig.state
+        .join("leakshield")
+        .join(support::LEAKSHIELD)
+        .join(format!("slot-{n}"))
+        .join("report3.bin")
 }
 
 /// A state directory whose active Profile is `profile_3`, with slot 3.

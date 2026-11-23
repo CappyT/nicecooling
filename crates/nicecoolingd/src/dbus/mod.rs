@@ -166,12 +166,13 @@ pub(crate) async fn notify_pump_flags(server: &ObjectServer, channels: &[String]
 pub struct Served {
     task: JoinHandle<()>,
     alarm_task: Option<JoinHandle<()>>,
+    profile_task: Option<JoinHandle<()>>,
 }
 
 impl Drop for Served {
     fn drop(&mut self) {
         self.task.abort();
-        if let Some(task) = &self.alarm_task {
+        for task in [&self.alarm_task, &self.profile_task].into_iter().flatten() {
             task.abort();
         }
     }
@@ -244,6 +245,17 @@ pub async fn serve(
             effects,
         ))
     });
+    let profile_task = hub.take_profile_receiver().map(|events| {
+        tokio::spawn(profiles::run_events(
+            connection.clone(),
+            hub.clone(),
+            events,
+        ))
+    });
     connection.request_name(ids::BUS_NAME).await?;
-    Ok(Served { task, alarm_task })
+    Ok(Served {
+        task,
+        alarm_task,
+        profile_task,
+    })
 }

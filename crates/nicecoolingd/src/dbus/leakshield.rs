@@ -174,7 +174,10 @@ impl Leakshield {
             values.push((id, value));
         }
         values.sort_by(|a, b| a.0.cmp(&b.0));
-        self.device.set_fields(values).await
+        if let Some(report3) = self.device.set_fields(values).await? {
+            self.hub.store_user_write(&self.device, &report3);
+        }
+        Ok(())
     }
 
     async fn set_mode(
@@ -391,7 +394,9 @@ impl Leakshield {
     ) -> Result<()> {
         self.authorize(connection, &header, "RestoreBackup", None)
             .await?;
-        self.device.restore_backup(backup).await
+        let report3 = self.device.restore_backup(backup).await?;
+        self.hub.store_user_write(&self.device, &report3);
+        Ok(())
     }
 
     async fn factory_reset(

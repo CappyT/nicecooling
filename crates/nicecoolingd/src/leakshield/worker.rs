@@ -5,6 +5,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use nicecooling_protocol::registry::Registry;
 use nicecooling_protocol::report1::Report1;
+use nicecooling_protocol::report3::Report3;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore, mpsc, oneshot};
 use tokio::time::Instant;
 
@@ -12,7 +13,7 @@ use super::backup::Backups;
 use super::external::LastKnown;
 use super::factory_reset::factory_reset;
 use super::save_settings;
-use super::write::{FieldEdit, WriteEnv, WriteError, Written, restore, write_fields};
+use super::write::{FieldEdit, WriteEnv, WriteError, Written, restore, write_fields, write_stored};
 use super::{DeviceEvent, DeviceIo, blocking};
 
 pub enum Job {
@@ -28,13 +29,18 @@ pub enum Job {
     FactoryReset {
         report1: Report1,
     },
+    /// A Profile activation: the stored report 3 of a slot, written as stored.
+    ProfileWrite {
+        report1: Report1,
+        report3: Report3,
+    },
 }
 
 struct Message {
     job: Job,
     reply: oneshot::Sender<Result<Written, WriteError>>,
-    /// Held until the job is done. It makes the queue hold one write.
-    permit: OwnedSemaphorePermit,
+    /// Held until the job is done. It makes the queue hold one write. A Profile write has none.
+    permit: Option<OwnedSemaphorePermit>,
 }
 
 pub struct WorkerParts {
@@ -73,7 +79,33 @@ impl WriteWorker {
             .try_acquire_owned()
             .map_err(|_| WriteError::Busy)?;
         let (reply, result) = oneshot::channel();
-        let message = Message { job, reply, permit };
+        let message = Message {
+            job,
+            reply,
+            permit: Some(permit),
+        };
+        if self.queue.send(message).is_err() {
+            return Err(WriteError::Disconnected { backup: None });
+        }
+        result
+            .await
+            .unwrap_or(Err(WriteError::Disconnected { backup: None }))
+    }
+}
+
+impl WriteWorker {
+    /// A Profile write does not use the queue of one: it follows the writes that wait.
+    pub async fn submit_profile(
+        &self,
+        report1: Report1,
+        report3: Report3,
+    ) -> Result<Written, WriteError> {
+        let (reply, result) = oneshot::channel();
+        let message = Message {
+            job: Job::ProfileWrite { report1, report3 },
+            reply,
+            permit: None,
+        };
         if self.queue.send(message).is_err() {
             return Err(WriteError::Disconnected { backup: None });
         }
@@ -112,6 +144,7 @@ fn execute(parts: &WorkerParts, job: Job) -> Result<Written, WriteError> {
         }
         Job::Restore { report1, backup } => restore(&env, &report1, &backup, now_us()),
         Job::FactoryReset { report1 } => factory_reset(&env, &report1, now_us()),
+        Job::ProfileWrite { report1, report3 } => write_stored(&env, &report1, &report3, now_us()),
     };
     if let Ok(written) = &result
         && let Err(e) = last.set(written.report3.clone())

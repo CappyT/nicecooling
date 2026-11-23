@@ -21,7 +21,7 @@ use tokio::sync::{mpsc, oneshot};
 
 mod profiles;
 
-pub use profiles::{ProfileContent, ProfileView};
+pub use profiles::{ProfileContent, ProfileEvent, ProfileView};
 
 use super::leakshield::LeakshieldInfo;
 use crate::alarms::logind::Login1;
@@ -163,6 +163,8 @@ struct Inner {
     profiles: ProfileSet,
     /// Profiles that a delete removed. The next flush removes their files.
     deleted: BTreeSet<String>,
+    /// `applied` or `leakshield-failed`: how the last activation ended.
+    active_state: &'static str,
     presets: Vec<Preset>,
     board: BoardInfo,
     sensors: Vec<SensorMeta>,
@@ -189,6 +191,8 @@ pub struct Hub {
     releases: Mutex<Vec<Release>>,
     reports: mpsc::Sender<TickReport>,
     report_rx: Mutex<Option<mpsc::Receiver<TickReport>>>,
+    profile_events: mpsc::UnboundedSender<ProfileEvent>,
+    profile_rx: Mutex<Option<mpsc::UnboundedReceiver<ProfileEvent>>>,
     alarms: Mutex<AlarmManager>,
     alarm_effects: mpsc::UnboundedSender<Effect>,
     alarm_rx: Mutex<Option<mpsc::UnboundedReceiver<Effect>>>,
@@ -609,6 +613,7 @@ impl Hub {
             state: init.state,
             profiles: init.profiles,
             deleted: BTreeSet::new(),
+            active_state: "applied",
             presets: init.presets,
             board: init.board,
             sensors: init.sensors,
@@ -630,6 +635,7 @@ impl Hub {
         });
         let (reports, report_rx) = mpsc::channel(32);
         let (alarm_effects, alarm_rx) = mpsc::unbounded_channel();
+        let (profile_events, profile_rx) = mpsc::unbounded_channel();
         Arc::new(Self {
             inner,
             slots: SlotStore::new(store.clone()),
@@ -642,6 +648,8 @@ impl Hub {
             releases: Mutex::new(Vec::new()),
             reports,
             report_rx: Mutex::new(Some(report_rx)),
+            profile_events,
+            profile_rx: Mutex::new(Some(profile_rx)),
             alarms: Mutex::new(AlarmManager::new(wall_us())),
             alarm_effects,
             alarm_rx: Mutex::new(Some(alarm_rx)),
@@ -659,15 +667,21 @@ impl Hub {
     fn edit<R>(&self, f: impl FnOnce(&mut Inner) -> Result<R>) -> Result<R> {
         let mut inner = self.inner();
         let result = f(&mut inner)?;
+        self.queue_config(&inner);
+        drop(inner);
+        self.persister.changed();
+        Ok(result)
+    }
+
+    /// Builds the tick configuration of the active Profile and queues it for the tick.
+    fn queue_config(&self, inner: &Inner) -> TickConfig {
         let mut problems = Vec::new();
         let config = tick_config(&inner.state, inner.profile(), &inner.presets, &mut problems);
         for problem in problems {
             eprintln!("nicecoolingd: {problem}");
         }
-        *lock(&self.pending) = Some(config);
-        drop(inner);
-        self.persister.changed();
-        Ok(result)
+        *lock(&self.pending) = Some(config.clone());
+        config
     }
 
     /// Adds the sensors of a chip that appeared after the start, remembers the ids of the chip,
@@ -844,6 +858,10 @@ impl Hub {
         })?;
         let _ = self.alarm_effects.send(effect);
         Ok(())
+    }
+
+    pub fn take_profile_receiver(&self) -> Option<mpsc::UnboundedReceiver<ProfileEvent>> {
+        lock(&self.profile_rx).take()
     }
 
     pub fn take_report_receiver(&self) -> Option<mpsc::Receiver<TickReport>> {

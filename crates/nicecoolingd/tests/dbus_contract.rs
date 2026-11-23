@@ -10,8 +10,7 @@ use nicecooling_api::manager::ManagerProxy;
 use nicecooling_api::profile::ProfileProxy;
 use nicecooling_api::profiles::ProfilesProxy;
 use nicecooling_api::{INTERFACE_PREFIX, INTERFACE_XML};
-use support::{Rig, error_name, none_path, path};
-use zbus::OwnedObjectPath;
+use support::{Rig, error_name, path};
 
 const NOT_SUPPORTED: &str = "org.freedesktop.DBus.Error.NotSupported";
 
@@ -157,7 +156,6 @@ macro_rules! stub {
 async fn unfilled_interfaces_reply_not_supported() {
     let rig = Rig::start().await;
     let mut seen = BTreeSet::new();
-    let none: OwnedObjectPath = none_path();
 
     let leakshield = LeakshieldProxy::builder(&rig.client)
         .path(path(Kind::Leakshield, support::LEAKSHIELD))
@@ -180,11 +178,6 @@ async fn unfilled_interfaces_reply_not_supported() {
         path(Kind::Profile, "profile_default")
     );
     assert_eq!(profiles.rule_delay_seconds().await.unwrap(), 30);
-    stub!(
-        seen,
-        "Profiles.ActivateProfile",
-        profiles.activate_profile(&none)
-    );
     stub!(
         seen,
         "Profiles.ReturnToAutomatic",
@@ -269,6 +262,7 @@ async fn unfilled_interfaces_reply_not_supported() {
     .chain(
         [
             "Profiles.CreateProfile",
+            "Profiles.ActivateProfile",
             "Profile.SetName",
             "Profile.SetSlot",
             "Profile.Delete",

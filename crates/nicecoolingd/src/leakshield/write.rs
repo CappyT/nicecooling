@@ -244,6 +244,28 @@ pub fn write_fields(
     Ok(Written { backup, report3 })
 }
 
+/// A Profile activation (D14): backs up reports 3, 5 and 8, then writes the stored report 3 as it
+/// is stored. It does not read the report again before the write and does not read it back, so
+/// the written report is the new last known report 3.
+pub fn write_stored(
+    env: &WriteEnv<'_>,
+    report1: &Report1,
+    report3: &Report3,
+    now_us: u64,
+) -> Result<Written, WriteError> {
+    if let Some(reason) = Access::new(env.registry, report1).device_reason() {
+        return Err(WriteError::Refused(WriteRefusal::ReadOnly(reason)));
+    }
+    let backup = take_backup(env, report1, Reason::BeforeWrite, now_us)?;
+    env.io
+        .write_report3(report3)
+        .map_err(|e| device_error(e, Some(&backup)))?;
+    Ok(Written {
+        backup,
+        report3: report3.clone(),
+    })
+}
+
 /// Writes report 3 of a backup and reads it back. Reports 5 and 8 stay as they are. The state
 /// from before the restore becomes a backup first.
 pub fn restore(

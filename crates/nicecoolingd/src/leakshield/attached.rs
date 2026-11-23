@@ -28,7 +28,7 @@ use super::fields::{self, EditError, FieldRow, FieldValue};
 use super::mode::{self, COMMAND_DELAY, Mode};
 use super::software_sensors::SoftwareSlots;
 use super::worker::{Job, WorkerParts, WriteWorker};
-use super::write::{WriteEnv, WriteError, out_of_range_field, take_backup};
+use super::write::{WriteEnv, WriteError, Written, out_of_range_field, take_backup};
 use super::{DeviceEvent, DeviceIo, blocking, clock, counters, reset_alarm};
 use crate::state::slots::SlotMeta;
 use crate::state::{SlotStore, StateStore};
@@ -372,7 +372,8 @@ impl Attached {
         }
     }
 
-    fn fresh_report1(&self) -> Result<Report1> {
+    /// Reads report 1 now and updates the state.
+    pub fn fresh_report1(&self) -> Result<Report1> {
         match blocking(|| self.io.read_report1()) {
             Ok(report1) => {
                 self.apply(report1.clone(), now_unix());
@@ -513,33 +514,46 @@ impl Attached {
         Ok(fields::rows(&self.registry, &report1, &report3))
     }
 
-    /// One write path run for all fields. Returns after the read-back.
-    pub async fn set_fields(&self, values: Vec<(String, FieldValue)>) -> Result<()> {
+    /// One write path run for all fields. Returns after the read-back, with the report 3 that the
+    /// read-back returned, or `None` when there was nothing to write.
+    pub async fn set_fields(&self, values: Vec<(String, FieldValue)>) -> Result<Option<Report3>> {
         let edits = fields::edits(&self.registry, values).map_err(|e| match e {
             EditError::NoSuchField(id) => Error::not_found(format!("no field {id}")),
             EditError::BadValue(id) => Error::invalid(format!("the value of {id} is not a number")),
         })?;
         if edits.is_empty() {
-            return Ok(());
+            return Ok(None);
         }
         let report1 = self.fresh_report1()?;
-        self.worker
+        let written = self
+            .worker
             .submit(Job::Write { report1, edits })
             .await
             .map_err(write_error)?;
-        Ok(())
+        Ok(Some(written.report3))
     }
 
-    pub async fn restore_backup(&self, backup: &str) -> Result<()> {
+    /// A Profile activation: the worker writes the stored report 3 as stored (design D14).
+    pub async fn write_stored_report3(
+        &self,
+        report1: Report1,
+        report3: Report3,
+    ) -> std::result::Result<Written, WriteError> {
+        self.worker.submit_profile(report1, report3).await
+    }
+
+    /// Returns the report 3 that the read-back returned.
+    pub async fn restore_backup(&self, backup: &str) -> Result<Report3> {
         let report1 = self.fresh_report1()?;
-        self.worker
+        let written = self
+            .worker
             .submit(Job::Restore {
                 report1,
                 backup: backup.to_owned(),
             })
             .await
             .map_err(write_error)?;
-        Ok(())
+        Ok(written.report3)
     }
 
     /// Backs up the settings, sends the factory defaults command and reads report 3 back.
