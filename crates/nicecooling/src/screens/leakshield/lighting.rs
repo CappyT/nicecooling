@@ -373,7 +373,8 @@ impl LightingUi {
             else {
                 return false;
             };
-            *k = (hue.rem_euclid(360.0), 255.0, 255.0);
+            // The hue is an integer field: the daemon refuses a fraction.
+            *k = (hue.round().rem_euclid(360.0), 255.0, 255.0);
             true
         })
     }
@@ -390,8 +391,8 @@ impl LightingUi {
             let Some(c) = table.controllers.get_mut(index) else {
                 return false;
             };
-            let count = count.clamp(1.0, LEDS as f64);
-            c.first = first.clamp(0.0, LEDS as f64 - count);
+            let count = count.round().clamp(1.0, LEDS as f64);
+            c.first = first.round().clamp(0.0, LEDS as f64 - count);
             c.count = count;
             true
         })

@@ -91,6 +91,11 @@ pub fn range_of(field: &str) -> Option<(f64, f64)> {
     })
 }
 
+/// The fields of `range_of` without a scale. The daemon refuses a fraction for them.
+fn is_whole(field: &str) -> bool {
+    range_of(field) == Some((0.0, 32767.0))
+}
+
 fn parse(text: &str) -> Option<f64> {
     text.trim().replace(',', ".").parse().ok()
 }
@@ -250,6 +255,11 @@ impl SettingsUi {
             }
             field if range_of(field).is_some() => {
                 if let Some(value) = parse(text) {
+                    let value = if is_whole(field) {
+                        value.round()
+                    } else {
+                        value
+                    };
                     self.set(data, field, FieldValue::Number(value));
                 }
             }

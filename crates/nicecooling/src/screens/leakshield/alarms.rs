@@ -28,6 +28,8 @@ struct ThresholdDef {
     min: f64,
     max: f64,
     unit: &'static str,
+    /// An integer field: the daemon refuses a fraction.
+    whole: bool,
 }
 
 const EVENTS: [EventDef; 6] = [
@@ -41,6 +43,7 @@ const EVENTS: [EventDef; 6] = [
             min: 50.0,
             max: 200.0,
             unit: "ml/h",
+            whole: true,
         }),
         sound_bit: Some(4),
     },
@@ -70,6 +73,7 @@ const EVENTS: [EventDef; 6] = [
             min: 0.0,
             max: 100.0,
             unit: "%",
+            whole: false,
         }),
         sound_bit: Some(1),
     },
@@ -83,6 +87,7 @@ const EVENTS: [EventDef; 6] = [
             min: 0.0,
             max: 100.0,
             unit: "%",
+            whole: false,
         }),
         sound_bit: None,
     },
@@ -118,6 +123,7 @@ impl AlarmsUi {
         let def = EVENTS
             .iter()
             .find_map(|e| e.threshold.filter(|t| t.field == field))?;
+        let value = if def.whole { value.round() } else { value };
         if !(def.min..=def.max).contains(&value) || !device.access(field).writable {
             return None;
         }
