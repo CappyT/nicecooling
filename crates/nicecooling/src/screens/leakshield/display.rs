@@ -14,24 +14,43 @@ const SLOTS: usize = 8;
 /// "No template" and "no source" in the fields.
 const BRIGHTNESS: [&str; 4] = ["maximum", "mid", "low", "off"];
 
-/// The templates of the device, by code: `docs/protocol/leakshield.md`.
-pub const TEMPLATES: [u8; 14] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13];
+/// The name of an empty page in `page_template`.
+pub const NO_TEMPLATE: &str = "none";
+
+/// The templates of the device by registry name, with the number of values that each shows.
+pub const TEMPLATES: [(&str, usize); 14] = [
+    ("logo", 0),
+    ("chart", 1),
+    ("values-1", 1),
+    ("values-2", 2),
+    ("values-4", 3),
+    ("values-3a", 4),
+    ("values-3b", 5),
+    ("time", 0),
+    ("bars-2", 1),
+    ("bars-4a", 2),
+    ("bars-4b", 3),
+    ("value-and-bar", 1),
+    ("value-and-time", 1),
+    ("leakshield-state", 0),
+];
 
 /// How many values a template shows.
-pub fn template_values(code: u8) -> usize {
-    match code {
-        1 | 11 | 12 => 1,
-        2..=6 => usize::from(code) - 1,
-        8..=10 => usize::from(code) - 7,
-        _ => 0,
-    }
+pub fn template_values(name: &str) -> usize {
+    TEMPLATES
+        .iter()
+        .find(|(template, _)| *template == name)
+        .map_or(0, |(_, values)| *values)
 }
 
-pub fn template_name(locale: Locale, code: u8) -> String {
-    if code == 255 {
+pub fn template_name(locale: Locale, name: &str) -> String {
+    if name == NO_TEMPLATE {
         locale.tr("leakshield.display.empty")
+    } else if TEMPLATES.iter().any(|(template, _)| *template == name) {
+        locale.tr(&format!("leakshield.display.template.{name}"))
     } else {
-        locale.tr(&format!("leakshield.display.template.{code}"))
+        // A name that the registry does not list, such as `unknown-14`.
+        name.to_owned()
     }
 }
 
@@ -55,19 +74,26 @@ impl DisplayUi {
         self.page = page.min(PAGES - 1);
     }
 
-    pub fn set_template(&mut self, input: &ScreenInput<'_>, id: &str, code: u8) -> Option<Command> {
+    pub fn set_template(
+        &mut self,
+        input: &ScreenInput<'_>,
+        id: &str,
+        name: &str,
+    ) -> Option<Command> {
         self.gallery = false;
         let device = Device::new(input, id);
-        let mut list = device.list("page_template")?.to_vec();
+        let mut list = device.text_list("page_template")?.to_vec();
         let slot = list.get_mut(self.page)?;
-        if !device.access("page_template").writable || !TEMPLATES.contains(&code) {
+        if !device.access("page_template").writable
+            || !TEMPLATES.iter().any(|(template, _)| *template == name)
+        {
             return None;
         }
-        *slot = f64::from(code);
+        *slot = name.to_owned();
         Some(fields_command(
             id,
             "display:template",
-            vec![("page_template".into(), FieldValue::List(list))],
+            vec![("page_template".into(), FieldValue::TextList(list))],
         ))
     }
 
@@ -163,7 +189,6 @@ pub fn set_interval(input: &ScreenInput<'_>, id: &str, seconds: f64) -> Option<C
 fn brightness_of(device: &Device<'_>, field: &str) -> Option<&'static str> {
     match &device.field(field)?.value {
         FieldValue::Text(text) => BRIGHTNESS.iter().find(|b| **b == text).copied(),
-        FieldValue::Number(n) => BRIGHTNESS.get(*n as usize).copied(),
         _ => None,
     }
 }
@@ -184,7 +209,8 @@ pub struct ValueRow {
 pub struct PageCard {
     pub index: usize,
     pub number: String,
-    pub template: u8,
+    /// The registry name of the template: `values-2`, or `none` for an empty page.
+    pub template: String,
     pub template_name: String,
     pub selected: bool,
     pub empty: bool,
@@ -248,7 +274,8 @@ pub struct DisplayModel {
     pub pages: Vec<PageCard>,
     pub page: SelectedPage,
     pub settings: SettingsCard,
-    pub gallery: Option<Vec<(u8, String)>>,
+    /// The registry name and the label of each template.
+    pub gallery: Option<Vec<(String, String)>>,
     pub gallery_title: String,
     pub hint: String,
     /// The reason of a read-only tab.
@@ -339,15 +366,20 @@ impl DisplayModel {
             id,
             data: device.data,
         };
-        let templates = device.list("page_template").unwrap_or(&[]);
+        let templates = device.text_list("page_template").unwrap_or(&[]);
         let options = device.list("page_options").unwrap_or(&[]);
         let source_list = device.list("page_sources").unwrap_or(&[]);
-        let template_of = |page: usize| templates.get(page).map_or(255, |c| *c as u8);
+        let template_of = |page: usize| {
+            templates
+                .get(page)
+                .map_or(NO_TEMPLATE, String::as_str)
+                .to_owned()
+        };
         let mask_of = |page: usize| options.get(page).map_or(3, |m| *m as u32);
 
         let lines_of = |page: usize| -> Vec<(String, String)> {
-            let code = template_of(page);
-            (0..template_values(code))
+            let template = template_of(page);
+            (0..template_values(&template))
                 .map(|slot| {
                     let index = source_list
                         .get(page * SLOTS + slot)
@@ -360,15 +392,15 @@ impl DisplayModel {
 
         let pages = (0..PAGES)
             .map(|page| {
-                let code = template_of(page);
+                let template = template_of(page);
                 let mask = mask_of(page);
                 PageCard {
                     index: page,
                     number: (page + 1).to_string(),
-                    template: code,
-                    template_name: template_name(locale, code),
+                    template_name: template_name(locale, &template),
+                    empty: template == NO_TEMPLATE,
+                    template,
                     selected: page == ui.page,
-                    empty: code == 255,
                     off: (mask & 1 == 0 && mask & 2 != 0)
                         .then(|| locale.tr("leakshield.display.not_shown")),
                     lines: lines_of(page),
@@ -377,9 +409,9 @@ impl DisplayModel {
             .collect();
 
         let page = ui.page.min(PAGES - 1);
-        let code = template_of(page);
+        let template = template_of(page);
         let mask = mask_of(page);
-        let rows = (0..template_values(code))
+        let rows = (0..template_values(&template))
             .map(|slot| {
                 let index = source_list
                     .get(page * SLOTS + slot)
@@ -422,11 +454,11 @@ impl DisplayModel {
                 &[("n", &(page + 1).to_string())],
             ),
             template_label: locale.tr("leakshield.display.template_label"),
-            template_name: template_name(locale, code),
+            template_name: template_name(locale, &template),
             change: locale.tr("leakshield.display.change"),
-            choose: (code == 255).then(|| locale.tr("leakshield.display.choose")),
+            choose: (template == NO_TEMPLATE).then(|| locale.tr("leakshield.display.choose")),
             rows,
-            logo_note: (code == 0).then(|| locale.tr("leakshield.display.logo_note")),
+            logo_note: (template == "logo").then(|| locale.tr("leakshield.display.logo_note")),
             normal: option_switch("leakshield.display.show_normal", mask & 2 == 0),
             standby: option_switch("leakshield.display.show_standby", mask & 1 != 0),
             link: locale.tr("leakshield.display.open_sensors"),
@@ -514,7 +546,7 @@ impl DisplayModel {
             gallery: ui.gallery.then(|| {
                 TEMPLATES
                     .iter()
-                    .map(|code| (*code, template_name(locale, *code)))
+                    .map(|(name, _)| ((*name).to_owned(), template_name(locale, name)))
                     .collect()
             }),
             gallery_title: locale.tr("leakshield.display.gallery"),

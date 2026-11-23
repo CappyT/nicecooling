@@ -16,18 +16,36 @@ pub const MAX_CONTROLLERS: usize = 8;
 const COLORS: usize = 6;
 const PARAMS: usize = 12;
 /// The effect of an unused controller.
-const UNUSED: f64 = 0.0;
+const UNUSED: &str = "unused";
 /// The effect of a new controller: a fixed color.
-const FIXED: f64 = 1.0;
-/// The effects of the device, by code: `docs/protocol/leakshield.md`.
-pub const EFFECTS: [u8; 16] = [1, 2, 3, 19, 12, 4, 5, 7, 8, 9, 10, 11, 14, 18, 13, 33];
+const FIXED: &str = "fixed-color";
+/// The effects of the device that the picker offers, by registry name.
+pub const EFFECTS: [&str; 16] = [
+    "fixed-color",
+    "breathing",
+    "rainbow",
+    "rainbow-shift",
+    "ambient",
+    "blink-1",
+    "blink-2",
+    "sequential",
+    "visor-1",
+    "visor-2",
+    "marquee-1",
+    "marquee-2",
+    "candle",
+    "switch",
+    "bar",
+    "gradient",
+];
 
 /// One color as hue (0 to 360), saturation and value (0 to 255).
 pub type Hsv = (f64, f64, f64);
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Controller {
-    pub mode: f64,
+    /// The registry name of the effect: `rainbow`, or `unused`.
+    pub mode: String,
     pub first: f64,
     pub count: f64,
     /// The index of the sensor that drives the effect, or -1.
@@ -44,7 +62,7 @@ impl Controller {
         params[0] = 50.0;
         params[1] = 100.0;
         Self {
-            mode: FIXED,
+            mode: FIXED.to_owned(),
             first: 0.0,
             count: LEDS as f64,
             source: -1.0,
@@ -76,8 +94,11 @@ pub struct Table {
 impl Table {
     pub fn read(data: &LeakshieldData) -> Self {
         let list = |id: &str| data.list(id).map(<[f64]>::to_vec).unwrap_or_default();
-        let (mode, first, count, source) = (
-            list("led_controller_mode"),
+        let mode = data
+            .text_list("led_controller_mode")
+            .map(<[String]>::to_vec)
+            .unwrap_or_default();
+        let (first, count, source) = (
             list("led_controller_first_led"),
             list("led_controller_led_count"),
             list("led_controller_source"),
@@ -99,7 +120,7 @@ impl Table {
                 let sats = part(&sat, i, COLORS, 0.0);
                 let vals = part(&val, i, COLORS, 0.0);
                 Controller {
-                    mode: mode[i],
+                    mode: mode[i].clone(),
                     first: first.get(i).copied().unwrap_or(0.0),
                     count: count.get(i).copied().unwrap_or(0.0),
                     source: source.get(i).copied().unwrap_or(-1.0),
@@ -124,7 +145,10 @@ impl Table {
             FieldValue::List(self.controllers.iter().flat_map(f).collect())
         };
         vec![
-            ("led_controller_mode".into(), each(&|c| vec![c.mode])),
+            (
+                "led_controller_mode".into(),
+                FieldValue::TextList(self.controllers.iter().map(|c| c.mode.clone()).collect()),
+            ),
             ("led_controller_first_led".into(), each(&|c| vec![c.first])),
             ("led_controller_led_count".into(), each(&|c| vec![c.count])),
             ("led_controller_source".into(), each(&|c| vec![c.source])),
@@ -152,7 +176,8 @@ impl Table {
 pub struct LightingUi {
     /// The controllers that the user selected, by index.
     pub selected: BTreeSet<usize>,
-    pub effect_picker: Option<u8>,
+    /// The effect that the picker shows as chosen, by registry name.
+    pub effect_picker: Option<String>,
     /// The table before the last delete, for "Undo", with the time it expires.
     pub undo: Option<(Table, u64)>,
 }
@@ -245,7 +270,7 @@ impl LightingUi {
             for index in &selected {
                 if let Some(controller) = table.controllers.get_mut(*index) {
                     *controller = Controller {
-                        mode: UNUSED,
+                        mode: UNUSED.to_owned(),
                         ..Controller::new()
                     };
                     removed = true;
@@ -299,17 +324,17 @@ impl LightingUi {
         Some(command)
     }
 
-    pub fn set_effect(&mut self, input: &ScreenInput<'_>, id: &str, code: u8) -> Option<Command> {
+    pub fn set_effect(&mut self, input: &ScreenInput<'_>, id: &str, name: &str) -> Option<Command> {
         self.effect_picker = None;
         let index = self.single()?;
-        if !EFFECTS.contains(&code) {
+        if !EFFECTS.contains(&name) {
             return None;
         }
         self.edit(input, id, |table| {
             let Some(c) = table.controllers.get_mut(index) else {
                 return false;
             };
-            c.mode = f64::from(code);
+            c.mode = name.to_owned();
             true
         })
     }
@@ -391,19 +416,21 @@ impl LightingUi {
 }
 
 /// The colors of a 12 cell preview of an effect, from its first color.
-pub fn preview_cells(code: u8, base: Hsv, cells: usize) -> Vec<Hsv> {
+pub fn preview_cells(effect: &str, base: Hsv, cells: usize) -> Vec<Hsv> {
     (0..cells)
         .map(|i| {
             let t = i as f64 / cells.max(1) as f64;
-            match code {
-                3 | 19 => ((base.0 + t * 360.0) % 360.0, 255.0, 255.0),
-                2 | 4 | 5 => (
+            match effect {
+                "rainbow" | "rainbow-shift" => ((base.0 + t * 360.0) % 360.0, 255.0, 255.0),
+                "breathing" | "blink-1" | "blink-2" => (
                     base.0,
                     base.1,
                     base.2 * (0.25 + 0.75 * (t * std::f64::consts::PI).sin()),
                 ),
-                8..=11 => (base.0, base.1, if (i / 3) % 2 == 0 { base.2 } else { 40.0 }),
-                33 => (base.0, base.1, base.2 * (0.2 + 0.8 * t)),
+                "visor-1" | "visor-2" | "marquee-1" | "marquee-2" => {
+                    (base.0, base.1, if (i / 3) % 2 == 0 { base.2 } else { 40.0 })
+                }
+                "gradient" => (base.0, base.1, base.2 * (0.2 + 0.8 * t)),
                 _ => base,
             }
         })
@@ -463,11 +490,11 @@ pub struct Panel {
 #[derive(Clone, Debug, PartialEq)]
 pub struct Picker {
     pub title: String,
-    pub effects: Vec<(u8, String, String, bool)>,
+    pub effects: Vec<(String, String, String, bool)>,
     pub preview: Vec<Hsv>,
     pub cancel: String,
     pub confirm: String,
-    pub current: u8,
+    pub current: String,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -489,8 +516,13 @@ pub struct LightingModel {
     pub write_line: Option<FeedbackLine>,
 }
 
-fn effect_name(locale: Locale, code: u8) -> String {
-    locale.tr(&format!("leakshield.lighting.effect.{code}"))
+fn effect_name(locale: Locale, name: &str) -> String {
+    if EFFECTS.contains(&name) {
+        locale.tr(&format!("leakshield.lighting.effect.{name}"))
+    } else {
+        // A name that the picker does not offer, such as `unused` or `unknown-6`.
+        name.to_owned()
+    }
 }
 
 impl LightingModel {
@@ -552,8 +584,7 @@ impl LightingModel {
                 match driver {
                     Some(i) => {
                         let c = &table.controllers[*i];
-                        let cells =
-                            preview_cells(c.mode as u8, c.colors[0], c.count.max(1.0) as usize);
+                        let cells = preview_cells(&c.mode, c.colors[0], c.count.max(1.0) as usize);
                         let offset = led.saturating_sub(c.first as usize);
                         Cell {
                             led,
@@ -593,7 +624,7 @@ impl LightingModel {
                         &[("n", &(position + 1).to_string())],
                     ),
                     effect_label: locale.tr("leakshield.lighting.effect_label"),
-                    effect: effect_name(locale, c.mode as u8),
+                    effect: effect_name(locale, &c.mode),
                     change: locale.tr("leakshield.lighting.change_effect"),
                     first: c.first,
                     count: c.count,
@@ -635,23 +666,23 @@ impl LightingModel {
                 })
             });
 
-        let picker = ui.effect_picker.map(|chosen| Picker {
+        let picker = ui.effect_picker.as_deref().map(|chosen| Picker {
             title: locale.tr("leakshield.lighting.picker"),
             effects: EFFECTS
                 .iter()
-                .map(|code| {
+                .map(|name| {
                     (
-                        *code,
-                        effect_name(locale, *code),
-                        locale.tr(&format!("leakshield.lighting.effect_text.{code}")),
-                        *code == chosen,
+                        (*name).to_owned(),
+                        effect_name(locale, name),
+                        locale.tr(&format!("leakshield.lighting.effect_text.{name}")),
+                        *name == chosen,
                     )
                 })
                 .collect(),
             preview: preview_cells(chosen, (200.0, 255.0, 255.0), 12),
             cancel: locale.tr("leakshield.cancel"),
             confirm: locale.tr("leakshield.lighting.effect_confirm"),
-            current: chosen,
+            current: chosen.to_owned(),
         });
 
         Self {

@@ -893,31 +893,29 @@ fn leakshield_rows(
     let mut rows = Vec::new();
     let mode = match fields.get("default_mode") {
         Some(FieldValue::Text(text)) => Some(text.to_uppercase()),
-        Some(FieldValue::Number(n)) => Some(
-            match *n as u32 {
-                1 => "SHIELD",
-                2 => "MONITOR",
-                _ => "RELEASE",
-            }
-            .to_owned(),
-        ),
         _ => None,
     };
     if let Some(mode) = mode {
         rows.push((locale.tr("profiles.leakshield.mode"), mode));
     }
+    let brightness = |id: &str| match fields.get(id) {
+        Some(FieldValue::Text(level)) => Some(match level.as_str() {
+            "maximum" | "mid" | "low" | "off" => {
+                locale.tr(&format!("leakshield.display.brightness.{level}"))
+            }
+            other => other.to_owned(),
+        }),
+        _ => None,
+    };
     if let (Some(active), Some(idle)) = (
-        field_number(fields, "display_brightness_active"),
-        field_number(fields, "display_brightness_idle"),
+        brightness("display_brightness_active"),
+        brightness("display_brightness_idle"),
     ) {
         rows.push((
             locale.tr("profiles.leakshield.display"),
             locale.fmt(
                 "profiles.leakshield.display_value",
-                &[
-                    ("active", &plain(locale, active)),
-                    ("idle", &plain(locale, idle)),
-                ],
+                &[("active", &active), ("idle", &idle)],
             ),
         ));
     }

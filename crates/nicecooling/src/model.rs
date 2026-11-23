@@ -144,9 +144,12 @@ pub struct ProfileInfo {
 pub enum FieldValue {
     Flag(bool),
     Number(f64),
+    /// The name of an enum value (`docs/api.md`, Leakshield fields).
     Text(String),
     /// A field that the device repeats (display pages, LED controllers): one number each.
     List(Vec<f64>),
+    /// An enum field that the device repeats: one name each.
+    TextList(Vec<String>),
 }
 
 /// What a Profile holds for one Channel (`docs/storage.md`, Profile file).
@@ -385,6 +388,13 @@ impl LeakshieldData {
     pub fn list(&self, id: &str) -> Option<&[f64]> {
         match &self.field(id)?.value {
             FieldValue::List(values) => Some(values),
+            _ => None,
+        }
+    }
+
+    pub fn text_list(&self, id: &str) -> Option<&[String]> {
+        match &self.field(id)?.value {
+            FieldValue::TextList(names) => Some(names),
             _ => None,
         }
     }

@@ -140,14 +140,14 @@ impl AlarmsUi {
     ) -> Option<Command> {
         let def = EVENTS.iter().find(|e| e.event == event)?;
         let field = def.response_field.to_owned();
-        let code = DEVICE_RESPONSES.iter().position(|r| *r == response)?;
-        if !Device::new(input, id).access(&field).writable {
+        if !DEVICE_RESPONSES.contains(&response) || !Device::new(input, id).access(&field).writable
+        {
             return None;
         }
         Some(fields_command(
             id,
             &format!("response:{event}"),
-            vec![(field, FieldValue::Number(code as f64))],
+            vec![(field, FieldValue::Text(response.to_owned()))],
         ))
     }
 
@@ -388,13 +388,11 @@ impl AlarmsModel {
             });
             let device_ctl = device.field(&response_field).map(|field| {
                 let current = match &field.value {
-                    FieldValue::Number(code) if *code >= 0.0 => DEVICE_RESPONSES
-                        .get(*code as usize)
-                        .copied()
-                        .unwrap_or("none"),
-                    _ => "none",
-                }
-                .to_owned();
+                    FieldValue::Text(name) if DEVICE_RESPONSES.contains(&name.as_str()) => {
+                        name.clone()
+                    }
+                    _ => "none".to_owned(),
+                };
                 DeviceCtl {
                     field: response_field.clone(),
                     options: DEVICE_RESPONSES
@@ -561,12 +559,9 @@ fn recommendations(input: &ScreenInput<'_>, device: &Device<'_>) -> Vec<Recommen
         } else {
             continue;
         };
-        let Some(code) = DEVICE_RESPONSES
-            .iter()
-            .position(|r| *r == proposal.proposed)
-        else {
+        if !DEVICE_RESPONSES.contains(&proposal.proposed.as_str()) {
             continue;
-        };
+        }
         let field = def.response_field.to_owned();
         let control = format!("recommendation:{}", def.event);
         let writable = device.access(&field).writable;
@@ -579,7 +574,7 @@ fn recommendations(input: &ScreenInput<'_>, device: &Device<'_>) -> Vec<Recommen
                     fields_command(
                         device.id,
                         &control,
-                        vec![(field, FieldValue::Number(code as f64))],
+                        vec![(field, FieldValue::Text(proposal.proposed.clone()))],
                     ),
                 )
             }),

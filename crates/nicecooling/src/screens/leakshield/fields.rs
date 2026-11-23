@@ -219,6 +219,13 @@ fn value_text(locale: Locale, field: &FieldEntry) -> String {
             let more = if list.len() > 6 { ", ..." } else { "" };
             format!("[{}{more}]", shown.join(", "))
         }
+        FieldValue::TextList(names) => {
+            let more = if names.len() > 6 { ", ..." } else { "" };
+            format!(
+                "[{}{more}]",
+                names.iter().take(6).cloned().collect::<Vec<_>>().join(", ")
+            )
+        }
     }
 }
 

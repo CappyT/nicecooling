@@ -479,6 +479,7 @@ fn field_value_text(locale: Locale, field: &str, value: Option<&FieldValue>) -> 
                 .collect::<Vec<_>>()
                 .join(", ")
         ),
+        Some(FieldValue::TextList(names)) => format!("[{}]", names.join(", ")),
         None => "--".to_owned(),
     }
 }

@@ -240,6 +240,8 @@ pub fn leakshield_data() -> LeakshieldData {
     let n = FieldValue::Number;
     let t = |text: &str| FieldValue::Text(text.into());
     let list = |values: Vec<f64>| FieldValue::List(values);
+    let names =
+        |names: &[&str]| FieldValue::TextList(names.iter().map(|n| (*n).to_owned()).collect());
     let fields = vec![
         field("default_mode", Safety, t("shield"), true),
         field("test_pressure", Safety, n(300.0), true),
@@ -283,12 +285,22 @@ pub fn leakshield_data() -> LeakshieldData {
         field("fill_level_warning_threshold", Safety, n(60.0), true),
         field("fill_level_alarm_threshold", Safety, n(20.0), true),
         field("leak_rate_warning_threshold", Safety, n(150.0), true),
-        field("fill_level_warning_response_action", Safety, n(0.0), true),
-        field("fill_level_alarm_response_action", Safety, n(0.0), true),
-        field("leak_rate_warning_response_action", Safety, n(0.0), true),
-        field("leak_rate_alarm_1_response_action", Safety, n(0.0), true),
-        field("leak_rate_alarm_2_response_action", Safety, n(2.0), true),
-        field("system_alarm_response_action", Safety, n(0.0), false),
+        field(
+            "fill_level_warning_response_action",
+            Safety,
+            t("none"),
+            true,
+        ),
+        field("fill_level_alarm_response_action", Safety, t("none"), true),
+        field("leak_rate_warning_response_action", Safety, t("none"), true),
+        field("leak_rate_alarm_1_response_action", Safety, t("none"), true),
+        field(
+            "leak_rate_alarm_2_response_action",
+            Safety,
+            t("signal-long"),
+            true,
+        ),
+        field("system_alarm_response_action", Safety, t("none"), false),
         field("standby_conditions", Safety, n(11.0), true),
         field("display_page_time", Low, n(10.0), true),
         field("display_brightness_active", Low, t("low"), true),
@@ -299,8 +311,17 @@ pub fn leakshield_data() -> LeakshieldData {
         field(
             "page_template",
             Low,
-            list(vec![
-                13.0, 2.0, 3.0, 255.0, 255.0, 255.0, 255.0, 255.0, 255.0, 255.0,
+            names(&[
+                "leakshield-state",
+                "values-1",
+                "values-2",
+                "none",
+                "none",
+                "none",
+                "none",
+                "none",
+                "none",
+                "none",
             ]),
             true,
         ),
@@ -318,7 +339,12 @@ pub fn leakshield_data() -> LeakshieldData {
             },
             true,
         ),
-        field("led_controller_mode", Low, list(vec![1.0, 3.0]), true),
+        field(
+            "led_controller_mode",
+            Low,
+            names(&["fixed-color", "rainbow"]),
+            true,
+        ),
         field("led_controller_first_led", Low, list(vec![0.0, 2.0]), true),
         field("led_controller_led_count", Low, list(vec![6.0, 3.0]), true),
         field("led_controller_source", Low, list(vec![-1.0, 10.0]), true),

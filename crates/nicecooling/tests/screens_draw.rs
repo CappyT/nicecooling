@@ -436,7 +436,7 @@ fn every_leakshield_tab_draws_in_each_state(cx: &mut TestAppContext) {
             .update(cx, |view, _, _| {
                 let ui = view.leakshield_ui();
                 ui.lighting.toggle(1);
-                ui.lighting.effect_picker = Some(3);
+                ui.lighting.effect_picker = Some("rainbow".to_owned());
             })
             .unwrap();
         draw_window(cx);

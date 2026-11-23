@@ -1113,11 +1113,11 @@ fn leakshield_rows_and_differences() {
         fields.insert("default_mode".to_owned(), FieldValue::Text("shield".into()));
         fields.insert(
             "display_brightness_active".to_owned(),
-            FieldValue::Number(3.0),
+            FieldValue::Text("off".into()),
         );
         fields.insert(
             "display_brightness_idle".to_owned(),
-            FieldValue::Number(1.0),
+            FieldValue::Text("mid".into()),
         );
         fields.insert("led_strip_brightness".to_owned(), FieldValue::Number(60.0));
         fields.insert(
@@ -1159,7 +1159,7 @@ fn leakshield_rows_and_differences() {
         rows,
         [
             ("Mode", "SHIELD"),
-            ("Display", "Brightness 3, idle 1"),
+            ("Display", "Brightness Off, idle Medium"),
             ("Lighting", "Brightness 60 %"),
             (
                 "Alarm thresholds",

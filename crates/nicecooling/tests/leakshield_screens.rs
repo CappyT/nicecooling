@@ -967,7 +967,7 @@ fn leakshield_alarms_states() {
     let data = sent.snapshot.leakshield_data.get_mut(LEAKSHIELD).unwrap();
     for f in &mut data.fields {
         if f.id == "leak_rate_alarm_2_response_action" {
-            f.value = FieldValue::Number(3.0);
+            f.value = FieldValue::Text("key-sequence".into());
         }
     }
     let model = alarms(&sent, &Feedback::default());
@@ -1149,7 +1149,7 @@ fn overlap_warning_shown() {
             control: "recommendation:leak-alarm".into(),
             fields: vec![(
                 "leak_rate_alarm_2_response_action".into(),
-                FieldValue::Number(0.0)
+                FieldValue::Text("none".into())
             )]
         }
     );
@@ -1216,7 +1216,7 @@ fn each_overlap_id_shows_its_own_text() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn accepting_a_proposal_sends_the_number() {
+async fn accepting_a_proposal_sends_the_name() {
     let (_bus, daemon, harness) = started(Options::default()).await;
     let state = with_leakshield();
     let model = alarms(&state, &Feedback::default());
@@ -1225,7 +1225,7 @@ async fn accepting_a_proposal_sends_the_number() {
     run(&harness, &button.1).await;
     assert_eq!(
         daemon.calls().last().unwrap(),
-        "SetFields(leak_rate_alarm_2_response_action=0) interactive=true"
+        "SetFields(leak_rate_alarm_2_response_action=none) interactive=true"
     );
 }
 
@@ -1421,7 +1421,8 @@ fn leakshield_display_states() {
     ui.gallery = true;
     let gallery = display(&state, &ui).gallery.expect("the gallery");
     assert_eq!(gallery.len(), 14);
-    assert_eq!(gallery[0], (0, "Logo".to_owned()));
+    assert_eq!(gallery[0], ("logo".to_owned(), "Logo".to_owned()));
+    assert_eq!(gallery[13].0, "leakshield-state");
 
     // Read-only with an unknown firmware, and the states of the link.
     let unknown = display(&unknown_firmware(), &DisplayUi::default());
@@ -1448,7 +1449,7 @@ fn leakshield_display_commands() {
     let mut ui = DisplayUi::default();
     ui.select(3);
     let command = ui
-        .set_template(&screen_input, LEAKSHIELD, 9)
+        .set_template(&screen_input, LEAKSHIELD, "bars-4a")
         .expect("a command");
     let Command::SetLeakshieldFields {
         fields, control, ..
@@ -1459,9 +1460,22 @@ fn leakshield_display_commands() {
     assert_eq!(control, "display:template");
     assert_eq!(
         fields[0].1,
-        FieldValue::List(vec![
-            13.0, 2.0, 3.0, 9.0, 255.0, 255.0, 255.0, 255.0, 255.0, 255.0
-        ])
+        FieldValue::TextList(
+            [
+                "leakshield-state",
+                "values-1",
+                "values-2",
+                "bars-4a",
+                "none",
+                "none",
+                "none",
+                "none",
+                "none",
+                "none"
+            ]
+            .map(String::from)
+            .to_vec()
+        )
     );
     assert!(!ui.gallery);
     // The source of a value of page 4 is one entry of the flat list.
@@ -1502,14 +1516,31 @@ fn leakshield_display_commands() {
         set_flag(&screen_input, LEAKSHIELD, 4, true),
         Some(Command::SetLeakshieldFields { fields, .. }) if fields[0].1 == FieldValue::Number(4.0)
     ));
-    assert!(set_brightness(&screen_input, LEAKSHIELD, "display_brightness_idle", "off").is_some());
+    // The brightness goes out as its registry name.
+    let Some(Command::SetLeakshieldFields { fields, .. }) =
+        set_brightness(&screen_input, LEAKSHIELD, "display_brightness_idle", "off")
+    else {
+        panic!("a field write");
+    };
+    assert_eq!(
+        fields,
+        [(
+            "display_brightness_idle".to_owned(),
+            FieldValue::Text("off".into())
+        )]
+    );
     assert!(set_brightness(&screen_input, LEAKSHIELD, "display_brightness_idle", "dark").is_none());
     assert!(set_interval(&screen_input, LEAKSHIELD, 15.0).is_some());
     assert!(set_interval(&screen_input, LEAKSHIELD, -1.0).is_none());
     // A read-only device sends nothing.
     let unknown = unknown_firmware();
     let unknown_input = en(&unknown, &feedback);
-    assert!(ui.set_template(&unknown_input, LEAKSHIELD, 2).is_none());
+    assert!(
+        ui.set_template(&unknown_input, LEAKSHIELD, "values-1")
+            .is_none()
+    );
+    // A name that the registry does not list sends nothing.
+    assert!(ui.set_template(&screen_input, LEAKSHIELD, "2").is_none());
     // Arrow keys move in the grid of 5 columns.
     let mut grid = DisplayUi::default();
     grid.step(1, 0);
@@ -1595,7 +1626,7 @@ fn leakshield_lighting_states() {
     set_field(
         &mut none,
         "led_controller_mode",
-        FieldValue::List(vec![0.0, 0.0]),
+        FieldValue::TextList(vec!["unused".into(), "unused".into()]),
     );
     let empty = lighting(&none, &LightingUi::default());
     assert_eq!(
@@ -1618,14 +1649,11 @@ fn leakshield_lighting_states() {
         set_field(
             &mut full,
             id,
-            FieldValue::List(vec![
-                if id == "led_controller_mode" {
-                    1.0
-                } else {
-                    0.0
-                };
-                8
-            ]),
+            if id == "led_controller_mode" {
+                FieldValue::TextList(vec!["fixed-color".into(); 8])
+            } else {
+                FieldValue::List(vec![0.0; 8])
+            },
         );
     }
     for (id, size) in [
@@ -1650,7 +1678,7 @@ fn leakshield_lighting_states() {
     // The effect picker: the list and the preview strip of 12 cells.
     let mut ui = LightingUi::default();
     ui.toggle(0);
-    ui.effect_picker = Some(3);
+    ui.effect_picker = Some("rainbow".to_owned());
     let picker = lighting(&state, &ui).picker.expect("the picker");
     assert_eq!(picker.preview.len(), 12);
     assert_eq!(picker.effects.len(), 16);
@@ -1658,7 +1686,9 @@ fn leakshield_lighting_states() {
         picker
             .effects
             .iter()
-            .any(|(code, name, _, selected)| *code == 3 && name == "Rainbow" && *selected)
+            .any(|(effect, name, _, selected)| effect == "rainbow"
+                && name == "Rainbow"
+                && *selected)
     );
     assert_eq!(
         (picker.cancel.as_str(), picker.confirm.as_str()),
@@ -1687,6 +1717,20 @@ fn leakshield_lighting_commands() {
     let state = with_leakshield();
     let feedback = Feedback::default();
     let screen_input = en(&state, &feedback);
+    let modes_of = |command: &Command| -> Vec<String> {
+        let Command::SetLeakshieldFields { fields, .. } = command else {
+            panic!("a field write")
+        };
+        match &fields
+            .iter()
+            .find(|f| f.0 == "led_controller_mode")
+            .expect("field led_controller_mode")
+            .1
+        {
+            FieldValue::TextList(names) => names.clone(),
+            other => panic!("not a list of names: {other:?}"),
+        }
+    };
     let list_of = |command: &Command, id: &str| -> Vec<f64> {
         let Command::SetLeakshieldFields { fields, .. } = command else {
             panic!("a field write")
@@ -1704,13 +1748,13 @@ fn leakshield_lighting_commands() {
     let mut ui = LightingUi::default();
     // "Add" takes the first free slot, or a new entry.
     let add = ui.add(&screen_input, LEAKSHIELD).expect("add");
-    assert_eq!(list_of(&add, "led_controller_mode"), [1.0, 3.0, 1.0]);
+    assert_eq!(modes_of(&add), ["fixed-color", "rainbow", "fixed-color"]);
     assert_eq!(list_of(&add, "led_controller_color_hue").len(), 18);
     // "Duplicate" needs one selected controller.
     assert!(ui.duplicate(&screen_input, LEAKSHIELD).is_none());
     ui.toggle(1);
     let copy = ui.duplicate(&screen_input, LEAKSHIELD).expect("duplicate");
-    assert_eq!(list_of(&copy, "led_controller_mode"), [1.0, 3.0, 3.0]);
+    assert_eq!(modes_of(&copy), ["fixed-color", "rainbow", "rainbow"]);
     // A bar moves, grows, and changes its priority.
     let moved = ui.shift(&screen_input, LEAKSHIELD, 1, 0).expect("move");
     assert_eq!(list_of(&moved, "led_controller_first_led"), [0.0, 3.0]);
@@ -1721,7 +1765,7 @@ fn leakshield_lighting_commands() {
         "the length stops at the strip"
     );
     let up = ui.reorder(&screen_input, LEAKSHIELD, -1).expect("up");
-    assert_eq!(list_of(&up, "led_controller_mode"), [3.0, 1.0]);
+    assert_eq!(modes_of(&up), ["rainbow", "fixed-color"]);
     assert_eq!(list_of(&up, "led_controller_first_led"), [2.0, 0.0]);
     assert_eq!(ui.selected.iter().copied().collect::<Vec<_>>(), [0]);
     assert!(
@@ -1730,10 +1774,12 @@ fn leakshield_lighting_commands() {
     );
     // The effect, the speed, the color and the sensor.
     let effect = ui
-        .set_effect(&screen_input, LEAKSHIELD, 33)
+        .set_effect(&screen_input, LEAKSHIELD, "gradient")
         .expect("effect");
-    assert_eq!(list_of(&effect, "led_controller_mode"), [33.0, 3.0]);
-    assert!(ui.set_effect(&screen_input, LEAKSHIELD, 99).is_none());
+    assert_eq!(modes_of(&effect), ["gradient", "rainbow"]);
+    assert!(ui.set_effect(&screen_input, LEAKSHIELD, "99").is_none());
+    // An effect that the picker does not offer sends nothing.
+    assert!(ui.set_effect(&screen_input, LEAKSHIELD, "unused").is_none());
     let speed = ui
         .set_param(&screen_input, LEAKSHIELD, 0, 80.0)
         .expect("speed");
@@ -1749,14 +1795,14 @@ fn leakshield_lighting_commands() {
     let mut ui = LightingUi::default();
     ui.toggle(1);
     let delete = ui.delete(&screen_input, LEAKSHIELD).expect("delete");
-    assert_eq!(list_of(&delete, "led_controller_mode"), [1.0, 0.0]);
+    assert_eq!(modes_of(&delete), ["fixed-color", "unused"]);
     let model = lighting(&state, &ui);
     assert_eq!(
         model.undo,
         Some(("Controller deleted.".to_owned(), "Undo".to_owned()))
     );
     let undo = ui.undo(LEAKSHIELD).expect("undo");
-    assert_eq!(list_of(&undo, "led_controller_mode"), [1.0, 3.0]);
+    assert_eq!(modes_of(&undo), ["fixed-color", "rainbow"]);
     assert!(ui.undo(LEAKSHIELD).is_none());
     // After 10 s the offer is gone.
     let mut late = LightingUi::default();
@@ -2819,7 +2865,10 @@ async fn the_snapshot_holds_what_the_fake_leakshield_gives() {
     assert_eq!(data.clock_offset_s, -42);
     assert!(data.fields.len() > 40);
     assert_eq!(data.number("fill_level_warning_threshold"), Some(60.0));
-    assert_eq!(data.list("page_template").map(<[f64]>::len), Some(10));
+    assert_eq!(
+        data.text_list("page_template").map(<[String]>::len),
+        Some(10)
+    );
     assert_eq!(
         data.field("reservoir_total_volume").map(|f| f.writable),
         Some(false)
@@ -2930,7 +2979,7 @@ async fn software_sensor_and_alarm_writes_reach_the_fake_daemon() {
     run(&harness, &threshold).await;
     assert_eq!(
         daemon.stored_field("leak_rate_warning_threshold").await,
-        Some(Fv::Num(120.0))
+        Some(Fv::Int(120))
     );
     let response = ui
         .set_device_response(&screen_input, LEAKSHIELD, "leak-warning", "key-sequence")
@@ -2938,13 +2987,13 @@ async fn software_sensor_and_alarm_writes_reach_the_fake_daemon() {
     run(&harness, &response).await;
     assert_eq!(
         daemon.calls().last().unwrap(),
-        "SetFields(leak_rate_warning_response_action=3) interactive=true"
+        "SetFields(leak_rate_warning_response_action=key-sequence) interactive=true"
     );
     assert_eq!(
         daemon
             .stored_field("leak_rate_warning_response_action")
             .await,
-        Some(Fv::Num(3.0))
+        Some(Fv::Text("key-sequence".into()))
     );
     let refreshed = harness.client.leakshield_data(LEAKSHIELD).await;
     assert_eq!(refreshed.number("leak_rate_warning_threshold"), Some(120.0));
@@ -3007,11 +3056,11 @@ async fn the_wizard_writes_once_through_the_fake_daemon() {
     );
     assert_eq!(
         daemon.stored_field("pump_max_speed").await,
-        Some(Fv::Num(4900.0))
+        Some(Fv::Int(4900))
     );
     assert_eq!(
         daemon.stored_field("reservoir_total_volume").await,
-        Some(Fv::Num(270.0))
+        Some(Fv::Int(270))
     );
     ui.reconcile(&en(&harness.state, &done), LEAKSHIELD);
     assert_eq!(ui.applied, Some(2));
@@ -3028,7 +3077,7 @@ async fn the_wizard_writes_once_through_the_fake_daemon() {
     );
     assert_eq!(
         daemon.stored_field("pump_max_speed").await,
-        Some(Fv::Num(4900.0)),
+        Some(Fv::Int(4900)),
         "nothing changed"
     );
 }
@@ -3041,22 +3090,62 @@ async fn display_and_lighting_writes_reach_the_fake_daemon() {
     let mut display = DisplayUi::default();
     display.select(4);
     let command = display
-        .set_template(&screen_input, LEAKSHIELD, 7)
+        .set_template(&screen_input, LEAKSHIELD, "time")
         .expect("a command");
     run(&harness, &command).await;
+    // The template goes out as a list of names, and comes back as one.
     let stored = daemon.stored_field("page_template").await;
+    let expected: Vec<String> = [
+        "leakshield-state",
+        "values-1",
+        "chart",
+        "values-2",
+        "time",
+        "chart",
+        "time",
+        "none",
+        "none",
+        "none",
+    ]
+    .map(String::from)
+    .to_vec();
+    assert_eq!(stored, Some(Fv::TextList(expected.clone())));
     assert_eq!(
-        stored,
-        Some(Fv::List(vec![
-            13.0, 2.0, 1.0, 3.0, 7.0, 1.0, 7.0, 255.0, 255.0, 255.0
-        ]))
+        harness
+            .client
+            .leakshield_data(LEAKSHIELD)
+            .await
+            .text_list("page_template"),
+        Some(&expected[..])
+    );
+    // The brightness goes out as its name and comes back as one.
+    let brightness = nicecooling::screens::leakshield::display::set_brightness(
+        &screen_input,
+        LEAKSHIELD,
+        "display_brightness_idle",
+        "off",
+    )
+    .expect("a command");
+    run(&harness, &brightness).await;
+    assert_eq!(
+        daemon.stored_field("display_brightness_idle").await,
+        Some(Fv::Text("off".into()))
+    );
+    let refreshed = harness.client.leakshield_data(LEAKSHIELD).await;
+    assert_eq!(
+        refreshed.field("display_brightness_idle").map(|f| &f.value),
+        Some(&FieldValue::Text("off".into()))
     );
     let mut lighting = LightingUi::default();
     let command = lighting.add(&screen_input, LEAKSHIELD).expect("a command");
     run(&harness, &command).await;
     assert_eq!(
         daemon.stored_field("led_controller_mode").await,
-        Some(Fv::List(vec![3.0, 1.0, 1.0]))
+        Some(Fv::TextList(
+            ["rainbow", "fixed-color", "fixed-color"]
+                .map(String::from)
+                .to_vec()
+        ))
     );
     let data = harness.client.leakshield_data(LEAKSHIELD).await;
     let model = LightingModel::build(

@@ -881,6 +881,7 @@ impl DaemonClient {
                     FieldValue::Number(number) => Value::F64(*number),
                     FieldValue::Text(text) => Value::from(text.clone()),
                     FieldValue::List(list) => Value::from(list.clone()),
+                    FieldValue::TextList(names) => Value::from(names.clone()),
                 };
                 (name.clone(), value)
             })
@@ -984,16 +985,34 @@ impl DaemonClient {
     }
 }
 
-/// A field value of `GetFields`: a flag, a number, a text or a list of numbers.
-fn field_value(value: &OwnedValue) -> Option<FieldValue> {
+/// A field value of `GetFields` (`docs/api.md`, Leakshield fields): a name (`s`), a number or an
+/// integer of any width, or a list of names or of numbers.
+fn field_value(value: &Value<'_>) -> Option<FieldValue> {
     Some(match unwrapped(value) {
         Value::Bool(flag) => FieldValue::Flag(*flag),
         Value::Str(text) => FieldValue::Text(text.to_string()),
+        Value::Array(items) if is_text_list(items) => FieldValue::TextList(
+            items
+                .iter()
+                .filter_map(|item| match unwrapped(item) {
+                    Value::Str(text) => Some(text.to_string()),
+                    _ => None,
+                })
+                .collect(),
+        ),
         Value::Array(items) => {
             FieldValue::List(items.iter().filter_map(|item| number_of(item)).collect())
         }
         other => FieldValue::Number(number_of(other)?),
     })
+}
+
+/// An array of strings, also when it is empty.
+fn is_text_list(items: &zbus::Array<'_>) -> bool {
+    match items.first() {
+        Some(item) => matches!(unwrapped(item), Value::Str(_)),
+        None => *items.element_signature() == zbus::Signature::Str,
+    }
 }
 
 /// A scalar of an `a{sv}` as text, for the details of a device event.
@@ -1246,17 +1265,7 @@ fn content_of(content: &Props) -> ProfileContent {
             };
             let decoded = fields
                 .iter()
-                .filter_map(|(name, value)| {
-                    let value = match value {
-                        Value::Bool(flag) => FieldValue::Flag(*flag),
-                        Value::Str(text) => FieldValue::Text(text.to_string()),
-                        Value::Array(items) => FieldValue::List(
-                            items.iter().filter_map(|item| number_of(item)).collect(),
-                        ),
-                        other => FieldValue::Number(number_of(other)?),
-                    };
-                    Some((name.clone(), value))
-                })
+                .filter_map(|(name, value)| Some((name.clone(), field_value(value)?)))
                 .collect();
             out.leakshield.insert(id.clone(), decoded);
         }
@@ -1340,5 +1349,47 @@ impl SensorInfo {
         self.unit = unit;
         self.origin = origin;
         self.driver = driver;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_field_value_follows_its_wire_type() {
+        assert_eq!(
+            field_value(&Value::from("low")),
+            Some(FieldValue::Text("low".into()))
+        );
+        assert_eq!(
+            field_value(&Value::from(vec!["time".to_owned(), "none".to_owned()])),
+            Some(FieldValue::TextList(vec!["time".into(), "none".into()]))
+        );
+        assert_eq!(
+            field_value(&Value::from(Vec::<String>::new())),
+            Some(FieldValue::TextList(Vec::new()))
+        );
+        assert_eq!(field_value(&Value::F64(2.5)), Some(FieldValue::Number(2.5)));
+        // Every integer width is a number.
+        for value in [
+            Value::U8(7),
+            Value::I16(7),
+            Value::U16(7),
+            Value::I32(7),
+            Value::U32(7),
+            Value::I64(7),
+            Value::U64(7),
+        ] {
+            assert_eq!(field_value(&value), Some(FieldValue::Number(7.0)));
+        }
+        assert_eq!(
+            field_value(&Value::from(vec![1_i64, -1])),
+            Some(FieldValue::List(vec![1.0, -1.0]))
+        );
+        assert_eq!(
+            field_value(&Value::from(vec![0.5_f64])),
+            Some(FieldValue::List(vec![0.5]))
+        );
     }
 }

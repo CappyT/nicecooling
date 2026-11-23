@@ -230,11 +230,11 @@ impl ScreenView {
                 strip = strip.child(div().w(px(24.)).h(px(24.)).rounded(px(4.)).bg(color(*cell)));
             }
             list = list.child(strip);
-            for (code, name, text, selected) in &picker.effects {
-                let code = *code;
+            for (effect, name, text, selected) in &picker.effects {
+                let effect = effect.clone();
                 let view = view.clone();
                 let mut row = h_flex()
-                    .id(SharedString::from(format!("ls-effect-{code}")))
+                    .id(SharedString::from(format!("ls-effect-{effect}")))
                     .gap(px(8.))
                     .px(px(8.))
                     .h(px(30.))
@@ -243,7 +243,7 @@ impl ScreenView {
                     .cursor_pointer()
                     .on_click(move |_, _, cx| {
                         view.update(cx, |this, cx| {
-                            this.leakshield.lighting.effect_picker = Some(code);
+                            this.leakshield.lighting.effect_picker = Some(effect.clone());
                             cx.notify();
                         });
                     })
@@ -264,8 +264,12 @@ impl ScreenView {
                 }
                 list = list.child(row);
             }
-            let (cancel, confirm, device, chosen) =
-                (view.clone(), view.clone(), id.to_owned(), picker.current);
+            let (cancel, confirm, device, chosen) = (
+                view.clone(),
+                view.clone(),
+                id.to_owned(),
+                picker.current.clone(),
+            );
             root = root.child(modal(
                 picker.title.clone(),
                 String::new(),
@@ -285,7 +289,7 @@ impl ScreenView {
                         .on_click(act(&confirm, move |this, _, cx| {
                             let mut ui = std::mem::take(&mut this.leakshield.lighting);
                             let command =
-                                this.with_input(cx, |input| ui.set_effect(input, &device, chosen));
+                                this.with_input(cx, |input| ui.set_effect(input, &device, &chosen));
                             this.leakshield.lighting = ui;
                             if let Some(command) = command {
                                 this.send(command);
@@ -326,7 +330,7 @@ impl ScreenView {
                         .label(panel.change.clone())
                         .disabled(!enabled)
                         .on_click(act(&view, |this, _, _| {
-                            this.leakshield.lighting.effect_picker = Some(1)
+                            this.leakshield.lighting.effect_picker = Some("fixed-color".to_owned())
                         })),
                 ),
         );

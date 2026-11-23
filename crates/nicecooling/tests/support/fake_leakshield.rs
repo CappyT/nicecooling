@@ -14,9 +14,18 @@ const NOT_SUPPORTED: &str = "io.github.cappyt.NiceCooling1.Error.NotSupported";
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Fv {
+    /// A scaled field: `d`.
     Num(f64),
+    /// An integer field: `x`.
+    Int(i64),
+    /// An enum field: `s`.
     Text(String),
+    /// A scaled field with several elements: `ad`.
     List(Vec<f64>),
+    /// An integer field with several elements: `ax`.
+    Ints(Vec<i64>),
+    /// An enum field with several elements: `as`.
+    TextList(Vec<String>),
 }
 
 #[derive(Clone)]
@@ -65,6 +74,18 @@ fn num(id: &'static str, value: f64) -> Field {
     field(id, "low", Fv::Num(value), true)
 }
 
+fn int(id: &'static str, value: i64) -> Field {
+    field(id, "low", Fv::Int(value), true)
+}
+
+fn ints(value: &[i64]) -> Fv {
+    Fv::Ints(value.to_vec())
+}
+
+fn texts(value: &[&str]) -> Fv {
+    Fv::TextList(value.iter().map(|v| (*v).to_owned()).collect())
+}
+
 fn field(id: &'static str, risk: &'static str, value: Fv, writable: bool) -> Field {
     Field {
         id,
@@ -88,7 +109,7 @@ fn text(value: &str) -> Fv {
 }
 
 fn default_fields() -> Vec<Field> {
-    let pages = |per_page: usize, fill: f64| Fv::List(vec![fill; 10 * per_page]);
+    let pages = |per_page: usize, fill: i64| Fv::Ints(vec![fill; 10 * per_page]);
     vec![
         safety("default_mode", text("shield")),
         safety("test_pressure", Fv::Num(300.0)),
@@ -101,104 +122,98 @@ fn default_fields() -> Vec<Field> {
         locked("monitor_pressure_low", Fv::Num(100.0)),
         locked("monitor_pressure_working_range", Fv::Num(20.0)),
         locked("monitor_pressure_max_range", Fv::Num(20.0)),
-        safety("shield_flags", Fv::Num(127.0)),
-        safety("vacuum_timer_start_hour", Fv::List(vec![9.0, 18.0])),
-        safety("vacuum_timer_start_minute", Fv::List(vec![0.0, 0.0])),
-        safety("vacuum_timer_end_hour", Fv::List(vec![9.0, 18.0])),
-        safety("vacuum_timer_end_minute", Fv::List(vec![1.0, 1.0])),
+        safety("shield_flags", Fv::Int(127)),
+        safety("vacuum_timer_start_hour", ints(&[9, 18])),
+        safety("vacuum_timer_start_minute", ints(&[0, 0])),
+        safety("vacuum_timer_end_hour", ints(&[9, 18])),
+        safety("vacuum_timer_end_minute", ints(&[1, 1])),
         safety("reservoir_model", text("custom")),
-        locked("reservoir_total_volume", Fv::Num(270.0)),
-        safety("reservoir_air_volume_full", Fv::Num(65.0)),
-        safety("reservoir_air_volume_empty", Fv::Num(260.0)),
+        locked("reservoir_total_volume", Fv::Int(270)),
+        safety("reservoir_air_volume_full", Fv::Int(65)),
+        safety("reservoir_air_volume_empty", Fv::Int(260)),
         safety("pump_model", text("d5")),
-        safety("pump_max_speed", Fv::Num(4800.0)),
+        safety("pump_max_speed", Fv::Int(4800)),
         safety("pump_max_pressure", Fv::Num(375.0)),
-        safety("pump_start_speed", Fv::Num(2500.0)),
+        safety("pump_start_speed", Fv::Int(2500)),
         safety("pump_start_flow", Fv::Num(130.0)),
-        safety("alarm_enable", Fv::Num(15.0)),
-        safety("alarm_buzzer", Fv::Num(1.0)),
+        safety("alarm_enable", Fv::Int(15)),
+        safety("alarm_buzzer", Fv::Int(1)),
         safety("fill_level_warning_threshold", Fv::Num(60.0)),
         safety("fill_level_alarm_threshold", Fv::Num(20.0)),
-        safety("leak_rate_warning_threshold", Fv::Num(150.0)),
-        safety("fill_level_warning_response_action", Fv::Num(0.0)),
-        safety("fill_level_alarm_response_action", Fv::Num(0.0)),
-        safety("leak_rate_warning_response_action", Fv::Num(0.0)),
-        safety("leak_rate_alarm_1_response_action", Fv::Num(0.0)),
-        safety("leak_rate_alarm_2_response_action", Fv::Num(2.0)),
-        locked("system_alarm_response_action", Fv::Num(0.0)),
-        safety("standby_conditions", Fv::Num(11.0)),
-        num("sensor_log_interval", 1.0),
-        field("sensor_unit", "low", Fv::List(vec![0.0; 20]), true),
+        safety("leak_rate_warning_threshold", Fv::Int(150)),
+        safety("fill_level_warning_response_action", text("none")),
+        safety("fill_level_alarm_response_action", text("none")),
+        safety("leak_rate_warning_response_action", text("none")),
+        safety("leak_rate_alarm_1_response_action", text("none")),
+        safety("leak_rate_alarm_2_response_action", text("signal-long")),
+        locked("system_alarm_response_action", text("none")),
+        safety("standby_conditions", Fv::Int(11)),
+        field("sensor_log_interval", "low", texts(&["1s"; 20]), true),
+        field("sensor_unit", "low", texts(&["none"; 20]), true),
         num("display_page_time", 10.0),
         field("display_brightness_active", "low", text("low"), true),
         field("display_brightness_idle", "low", text("low"), true),
-        num("display_idle_delay", 2400.0),
-        num("display_flags", 0.0),
-        safety("clock_flags", Fv::Num(1.0)),
+        int("display_idle_delay", 2400),
+        int("display_flags", 0),
+        safety("clock_flags", Fv::Int(1)),
         safety("clock_timezone", Fv::Num(1.0)),
         field(
             "page_template",
             "low",
-            Fv::List(vec![
-                13.0, 2.0, 1.0, 3.0, 3.0, 1.0, 7.0, 255.0, 255.0, 255.0,
+            texts(&[
+                "leakshield-state",
+                "values-1",
+                "chart",
+                "values-2",
+                "values-2",
+                "chart",
+                "time",
+                "none",
+                "none",
+                "none",
             ]),
             true,
         ),
-        field("page_options", "low", pages(1, 1.0), true),
-        field("page_sources", "low", pages(8, 255.0), true),
-        field("page_precisions", "low", pages(8, 0.0), true),
-        field("page_icons", "low", pages(4, 255.0), true),
+        field("page_options", "low", pages(1, 1), true),
+        field("page_sources", "low", pages(8, 255), true),
+        field("page_precisions", "low", pages(8, 0), true),
+        field("page_icons", "low", pages(4, 255), true),
         num("led_strip_brightness", 60.0),
-        num("led_strip_flags", 4.0),
-        field("led_controller_mode", "low", Fv::List(vec![3.0, 1.0]), true),
+        int("led_strip_flags", 4),
         field(
-            "led_controller_first_led",
+            "led_controller_mode",
             "low",
-            Fv::List(vec![0.0, 2.0]),
+            texts(&["rainbow", "fixed-color"]),
             true,
         ),
-        field(
-            "led_controller_led_count",
-            "low",
-            Fv::List(vec![6.0, 3.0]),
-            true,
-        ),
-        field(
-            "led_controller_source",
-            "low",
-            Fv::List(vec![-1.0, -1.0]),
-            true,
-        ),
+        field("led_controller_first_led", "low", ints(&[0, 2]), true),
+        field("led_controller_led_count", "low", ints(&[6, 3]), true),
+        field("led_controller_source", "low", ints(&[-1, -1]), true),
         field(
             "led_controller_parameters",
             "low",
-            Fv::List(
-                [
-                    50.0, 100.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
-                ]
-                .repeat(2),
-            ),
+            Fv::Ints([50, 100, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0].repeat(2)),
             true,
         ),
         field(
             "led_controller_color_hue",
             "low",
-            Fv::List(vec![0.0; 12]),
+            Fv::Ints(vec![0; 12]),
             true,
         ),
         field(
             "led_controller_color_saturation",
             "low",
-            Fv::List(vec![255.0; 12]),
+            Fv::Ints(vec![255; 12]),
             true,
         ),
         field(
             "led_controller_color_value",
             "low",
-            Fv::List(vec![255.0; 12]),
+            Fv::Ints(vec![255; 12]),
             true,
         ),
-        field("device_profile", "low", Fv::Num(1.0), true),
+        int("device_profile", 1),
     ]
 }
 
@@ -254,12 +269,30 @@ impl Leakshield {
 fn to_value(value: &Fv) -> OwnedValue {
     let value = match value {
         Fv::Num(number) => Value::F64(*number),
+        Fv::Int(number) => Value::I64(*number),
         Fv::Text(text) => Value::from(text.clone()),
         Fv::List(list) => Value::from(list.clone()),
+        Fv::Ints(list) => Value::from(list.clone()),
+        Fv::TextList(list) => Value::from(list.clone()),
     };
     OwnedValue::try_from(value).expect("value")
 }
 
+fn whole(value: &Value<'_>) -> Option<i64> {
+    Some(match value {
+        Value::U8(v) => i64::from(*v),
+        Value::I16(v) => i64::from(*v),
+        Value::U16(v) => i64::from(*v),
+        Value::I32(v) => i64::from(*v),
+        Value::U32(v) => i64::from(*v),
+        Value::I64(v) => *v,
+        Value::U64(v) => i64::try_from(*v).ok()?,
+        _ => return None,
+    })
+}
+
+/// The value as the wire types of `docs/api.md` (Leakshield fields) carry it: `d`, an integer
+/// type, `s`, or an array of one of them.
 fn from_value(value: &OwnedValue) -> Option<Fv> {
     let mut value: &Value<'_> = value;
     while let Value::Variant(inner) = value {
@@ -268,17 +301,60 @@ fn from_value(value: &OwnedValue) -> Option<Fv> {
     Some(match value {
         Value::F64(number) => Fv::Num(*number),
         Value::Str(text) => Fv::Text(text.to_string()),
-        Value::Array(items) => Fv::List(
-            items
-                .iter()
-                .filter_map(|item| match item {
-                    Value::F64(number) => Some(*number),
-                    _ => None,
-                })
-                .collect(),
-        ),
-        _ => return None,
+        Value::Array(items) => {
+            let items: Vec<&Value<'_>> = items.iter().collect();
+            match items.first() {
+                Some(Value::F64(_)) => Fv::List(
+                    items
+                        .iter()
+                        .map(|item| match item {
+                            Value::F64(number) => Some(*number),
+                            _ => None,
+                        })
+                        .collect::<Option<_>>()?,
+                ),
+                Some(Value::Str(_)) => Fv::TextList(
+                    items
+                        .iter()
+                        .map(|item| match item {
+                            Value::Str(text) => Some(text.to_string()),
+                            _ => None,
+                        })
+                        .collect::<Option<_>>()?,
+                ),
+                _ => Fv::Ints(
+                    items
+                        .iter()
+                        .map(|item| whole(item))
+                        .collect::<Option<_>>()?,
+                ),
+            }
+        }
+        other => Fv::Int(whole(other)?),
     })
+}
+
+/// What the daemon does with a value for a stored field: a name goes to an enum field only, a
+/// number goes to a scaled field, and an integer field takes an integer or a whole `d`.
+fn fit(stored: &Fv, value: Fv) -> Option<Fv> {
+    let whole_number = |n: f64| (n.fract() == 0.0).then_some(n as i64);
+    match (stored, value) {
+        (Fv::Text(_), value @ Fv::Text(_)) | (Fv::TextList(_), value @ Fv::TextList(_)) => {
+            Some(value)
+        }
+        (Fv::Num(_), Fv::Num(n)) => Some(Fv::Num(n)),
+        (Fv::Num(_), Fv::Int(n)) => Some(Fv::Num(n as f64)),
+        (Fv::List(_), value @ Fv::List(_)) => Some(value),
+        (Fv::List(_), Fv::Ints(list)) => Some(Fv::List(list.iter().map(|n| *n as f64).collect())),
+        (Fv::Int(_), value @ Fv::Int(_)) | (Fv::Ints(_), value @ Fv::Ints(_)) => Some(value),
+        (Fv::Int(_), Fv::Num(n)) => whole_number(n).map(Fv::Int),
+        (Fv::Ints(_), Fv::List(list)) => list
+            .iter()
+            .map(|n| whole_number(*n))
+            .collect::<Option<_>>()
+            .map(Fv::Ints),
+        _ => None,
+    }
 }
 
 /// The alarm events with a Device response: event suffix and the field of the response.
@@ -382,8 +458,11 @@ impl Leakshield {
                 let value = from_value(&fields[*name]);
                 match value {
                     Some(Fv::Num(number)) => format!("{name}={number}"),
+                    Some(Fv::Int(number)) => format!("{name}={number}"),
                     Some(Fv::Text(text)) => format!("{name}={text}"),
                     Some(Fv::List(list)) => format!("{name}={list:?}"),
+                    Some(Fv::Ints(list)) => format!("{name}={list:?}"),
+                    Some(Fv::TextList(list)) => format!("{name}={list:?}"),
                     None => format!("{name}=?"),
                 }
             })
@@ -402,16 +481,20 @@ impl Leakshield {
                     "io.github.cappyt.NiceCooling1.Error.NotVerified".into(),
                 ));
             }
-            if from_value(value).is_none() {
+            if from_value(value)
+                .and_then(|v| fit(&stored.value, v))
+                .is_none()
+            {
                 return Err(fdo::Error::Failed(
                     "io.github.cappyt.NiceCooling1.Error.InvalidArgument".into(),
                 ));
             }
         }
         for (name, value) in &fields {
-            let value = from_value(value).expect("checked");
             if let Some(stored) = device.fields.iter_mut().find(|field| field.id == name) {
-                stored.value = value;
+                stored.value = from_value(value)
+                    .and_then(|v| fit(&stored.value, v))
+                    .expect("checked");
             }
         }
         Ok(())
@@ -670,9 +753,7 @@ impl Leakshield {
             .find(|field| field.id == response_field)
             .map(|field| &field.value)
         {
-            Some(Fv::Num(code)) => {
-                ["none", "signal-short", "signal-long", "key-sequence"][*code as usize].to_owned()
-            }
+            Some(Fv::Text(name)) => name.clone(),
             _ => "none".to_owned(),
         };
         ALARMS

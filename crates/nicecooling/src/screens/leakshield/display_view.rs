@@ -300,16 +300,17 @@ impl ScreenView {
             let mut grid = v_flex().gap(px(6.));
             for chunk in templates.chunks(3) {
                 let mut row = h_flex().gap(px(6.));
-                for (code, name) in chunk {
-                    let (device, code) = (id.to_owned(), *code);
+                for (template, name) in chunk {
+                    let (device, template) = (id.to_owned(), template.clone());
                     row = row.child(
-                        Button::new(SharedString::from(format!("ls-gallery-{code}")))
+                        Button::new(SharedString::from(format!("ls-gallery-{template}")))
                             .small()
                             .label(name.clone())
                             .on_click(act(&view, move |this, _, cx| {
                                 let mut ui = std::mem::take(&mut this.leakshield.display);
-                                let command = this
-                                    .with_input(cx, |input| ui.set_template(input, &device, code));
+                                let command = this.with_input(cx, |input| {
+                                    ui.set_template(input, &device, &template)
+                                });
                                 this.leakshield.display = ui;
                                 if let Some(command) = command {
                                     this.send(command);

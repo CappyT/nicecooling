@@ -227,6 +227,10 @@ impl<'a> Device<'a> {
         self.data.and_then(|data| data.list(id))
     }
 
+    pub fn text_list(&self, id: &str) -> Option<&'a [String]> {
+        self.data.and_then(|data| data.text_list(id))
+    }
+
     pub fn text(&self, id: &str) -> Option<&'a str> {
         match &self.field(id)?.value {
             FieldValue::Text(text) => Some(text),
