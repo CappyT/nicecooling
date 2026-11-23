@@ -1,10 +1,13 @@
 //! The bootloader test, its report 1 and the restart commands (`docs/re/firmware-update.md`).
 
 use crate::registry::Registry;
+use crate::report1::REPORT1_ID;
 use crate::report2::{REPORT2_SIZE, Report2};
 
 /// The identity fields end at offset 14 (the firmware version). The display language is byte 34.
 const IDENTITY_LEN: usize = 35;
+/// The firmware version ends at offset 14, so a report that holds it has 15 bytes.
+const FIRMWARE_END: usize = 15;
 
 /// The bootloader reports a firmware version from 1 to 99. The application reports 100 or more.
 pub fn is_bootloader_firmware(firmware: u16) -> bool {
@@ -46,37 +49,49 @@ impl Language {
 }
 
 /// The fields of report 1 that name a device. A field that the report does not hold, or holds as
-/// 0, is absent. Only `firmware` is always there: 0 means that the report is too short.
+/// 0, is absent. In the bootloader the firmware field holds 1 to 99, which is no firmware version:
+/// `firmware` and `language` are absent then (design D4).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Identity {
     pub serial: Option<[u16; 2]>,
     pub hardware: Option<u16>,
     pub bootloader: Option<u16>,
-    pub firmware: u16,
+    pub firmware: Option<u16>,
     pub language: Option<Language>,
+    in_bootloader: bool,
 }
 
 impl Identity {
-    /// Reads report 1 of any length. aquasuite pads a short report with zeros before it reads the
-    /// fields, and so does this function. The bootloader sends a short one.
-    pub fn from_report1(bytes: &[u8]) -> Self {
+    /// Reads report 1 of any length, or returns `None` when the first byte is not the report ID.
+    /// aquasuite pads a short report with zeros before it reads the fields, and so does this
+    /// function. The bootloader sends a short one. A field that lies beyond the end is absent.
+    pub fn from_report1(bytes: &[u8]) -> Option<Self> {
+        if bytes.first() != Some(&REPORT1_ID) {
+            return None;
+        }
         let mut padded = [0u8; IDENTITY_LEN];
         let n = bytes.len().min(IDENTITY_LEN);
         padded[..n].copy_from_slice(&bytes[..n]);
         let word = |at: usize| u16::from_be_bytes([padded[at], padded[at + 1]]);
         let nonzero = |value: u16| (value != 0).then_some(value);
         let serial = [word(3), word(5)];
-        Self {
+        let firmware = (bytes.len() >= FIRMWARE_END).then(|| word(13));
+        let in_bootloader = firmware.is_some_and(is_bootloader_firmware);
+        let application = firmware.filter(|_| !in_bootloader);
+        Some(Self {
             serial: (serial != [0, 0]).then_some(serial),
             hardware: nonzero(word(7)),
             bootloader: nonzero(word(11)),
-            firmware: word(13),
-            language: Language::from_byte(padded[34]),
-        }
+            firmware: application,
+            language: application
+                .filter(|_| bytes.len() >= IDENTITY_LEN)
+                .and_then(|_| Language::from_byte(padded[34])),
+            in_bootloader,
+        })
     }
 
     pub fn is_bootloader(&self) -> bool {
-        is_bootloader_firmware(self.firmware)
+        self.in_bootloader
     }
 }
 
@@ -110,6 +125,10 @@ mod tests {
         assert_eq!(restart_plain(), expected);
     }
 
+    fn ident(bytes: &[u8]) -> Identity {
+        Identity::from_report1(bytes).expect("a report 1")
+    }
+
     #[test]
     fn firmware_1_to_99_is_bootloader() {
         for firmware in [1, 50, 99] {
@@ -117,40 +136,78 @@ mod tests {
         }
         assert!(!is_bootloader_firmware(0));
         assert!(!is_bootloader_firmware(100));
-        assert!(Identity::from_report1(&short_report()).is_bootloader());
+        assert!(ident(&short_report()).is_bootloader());
     }
 
     #[test]
     fn firmware_1022_is_not() {
-        assert!(!Identity::from_report1(FW1022).is_bootloader());
-        assert_eq!(Identity::from_report1(FW1022).firmware, 1022);
+        assert!(!ident(FW1022).is_bootloader());
+        assert_eq!(ident(FW1022).firmware, Some(1022));
     }
 
     #[test]
     fn short_report_padded() {
-        let identity = Identity::from_report1(&short_report());
-        assert_eq!(identity.firmware, 1);
+        let identity = ident(&short_report());
+        assert!(identity.is_bootloader());
+        assert_eq!(identity.firmware, None);
         assert_eq!(identity.hardware, None);
         assert_eq!(identity.bootloader, None);
         assert_eq!(identity.serial, None);
-        assert_eq!(identity.language, Some(Language::English));
-        let shorter = Identity::from_report1(&short_report()[..9]);
-        assert_eq!(shorter.firmware, 0);
-        assert_eq!(Identity::from_report1(&[]).firmware, 0);
+        assert_eq!(identity.language, None);
+        let mut with_ids = short_report();
+        with_ids[7..9].copy_from_slice(&1000u16.to_be_bytes());
+        with_ids[11..13].copy_from_slice(&100u16.to_be_bytes());
+        assert_eq!(ident(&with_ids).hardware, Some(1000));
+        assert_eq!(ident(&with_ids).bootloader, Some(100));
+        let shorter = ident(&short_report()[..9]);
+        assert_eq!(shorter.firmware, None);
+        assert!(!shorter.is_bootloader());
+    }
+
+    #[test]
+    fn report_without_id_1_gives_no_identity() {
+        assert_eq!(Identity::from_report1(&[]), None);
+        let mut report = FW1022.to_vec();
+        report[0] = 3;
+        assert_eq!(Identity::from_report1(&report), None);
+        report[0] = 0;
+        assert_eq!(Identity::from_report1(&report), None);
+    }
+
+    #[test]
+    fn report_shorter_than_35_bytes_has_no_language() {
+        let mut report = FW1022[..20].to_vec();
+        assert_eq!(ident(&report).firmware, Some(1022));
+        assert_eq!(ident(&report).language, None);
+        report.resize(35, 0);
+        assert_eq!(ident(&report).language, Some(Language::English));
+        assert_eq!(ident(&FW1022[..34]).language, None);
+    }
+
+    #[test]
+    fn bootloader_report_has_no_firmware_and_no_language() {
+        let mut long = FW1022.to_vec();
+        long[13..15].copy_from_slice(&1u16.to_be_bytes());
+        let identity = ident(&long);
+        assert!(identity.is_bootloader());
+        assert_eq!(identity.firmware, None);
+        assert_eq!(identity.language, None);
+        assert_eq!(identity.hardware, Some(1000));
     }
 
     #[test]
     fn long_report_reads_identity() {
         let report = Report1::decode(FW1022).unwrap();
-        let identity = Identity::from_report1(FW1022);
+        let identity = ident(FW1022);
         assert_eq!(identity.hardware, Some(1000));
         assert_eq!(identity.bootloader, Some(100));
-        assert_eq!(identity.firmware, 1022);
+        assert_eq!(identity.firmware, Some(1022));
         assert_eq!(identity.serial, Some(report.serial));
         assert_eq!(
             identity.language,
             Language::from_byte(report.display_language)
         );
+        assert!(identity.language.is_some());
     }
 
     #[test]
@@ -158,30 +215,27 @@ mod tests {
         let mut report = FW1022.to_vec();
         report[7..9].fill(0);
         report[11..13].fill(0);
-        let identity = Identity::from_report1(&report);
+        let identity = ident(&report);
         assert_eq!(identity.hardware, None);
         assert_eq!(identity.bootloader, None);
-        assert_eq!(identity.firmware, 1022);
+        assert_eq!(identity.firmware, Some(1022));
     }
 
     #[test]
     fn zero_serial_is_absent() {
         let mut report = FW1022.to_vec();
         report[3..7].fill(0);
-        assert_eq!(Identity::from_report1(&report).serial, None);
+        assert_eq!(ident(&report).serial, None);
         report[6] = 1;
-        assert_eq!(Identity::from_report1(&report).serial, Some([0, 1]));
+        assert_eq!(ident(&report).serial, Some([0, 1]));
     }
 
     #[test]
     fn language_2_is_absent() {
         let mut report = FW1022.to_vec();
         report[34] = 2;
-        assert_eq!(Identity::from_report1(&report).language, None);
+        assert_eq!(ident(&report).language, None);
         report[34] = 1;
-        assert_eq!(
-            Identity::from_report1(&report).language,
-            Some(Language::German)
-        );
+        assert_eq!(ident(&report).language, Some(Language::German));
     }
 }

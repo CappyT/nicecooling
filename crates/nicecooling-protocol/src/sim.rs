@@ -609,7 +609,7 @@ mod tests {
         assert_eq!(report.len(), 64);
         assert_eq!((report[0], report[2], report[13], report[14]), (1, 1, 0, 1));
         assert_eq!(report.iter().filter(|&&b| b != 0).count(), 3);
-        assert!(Identity::from_report1(&report).is_bootloader());
+        assert!(Identity::from_report1(&report).unwrap().is_bootloader());
         assert!(sim.get_feature(3, 750).is_err());
     }
 
