@@ -177,41 +177,47 @@ fn rows(conn: &Connection) -> Result<Vec<ImageRow>, PackageError> {
     rows.into_iter().collect()
 }
 
-/// The row `id` and its data, as the bytes of a BLOB or a TEXT value.
+/// The row `id` and its data, as the bytes of a BLOB or a TEXT value. The identity, the size and
+/// the data come from one filter, so the data is of the row that the checks see. Two rows that
+/// match are refused: the column `id` of a hostile file need not be unique.
 fn read_row(conn: &Connection, id: i64) -> Result<(ImageRow, Vec<u8>), PackageError> {
-    let row = conn
+    let params = rusqlite::params![DEVICES[0], DEVICES[1], id];
+    let matching: i64 = conn
         .query_row(
-            &format!("{COLUMNS} AND id = ?3"),
-            rusqlite::params![DEVICES[0], DEVICES[1], id],
-            row_of,
-        )
-        .map_err(|e| match e {
-            rusqlite::Error::QueryReturnedNoRows => PackageError::NotFound,
-            e => sql(e),
-        })??;
-    let size: Option<i64> = conn
-        .query_row(
-            "SELECT octet_length(data) FROM firmware WHERE id = ?1",
-            [id],
+            "SELECT count(*) FROM firmware WHERE device IN (?1, ?2) AND id = ?3",
+            params,
             |r| r.get(0),
         )
         .map_err(sql)?;
-    if size.unwrap_or(0) > MAX_DATA_BYTES {
-        return Err(invalid(format!(
-            "the data of the row {id} is above {MAX_DATA_BYTES} bytes"
-        )));
+    match matching {
+        0 => return Err(PackageError::NotFound),
+        1 => {}
+        n => return Err(invalid(format!("{n} Leakshield rows have the id {id}"))),
     }
-    let data = conn
-        .query_row("SELECT data FROM firmware WHERE id = ?1", [id], |r| {
-            Ok(match r.get_ref(0)? {
-                ValueRef::Blob(bytes) => Some(bytes.to_vec()),
-                ValueRef::Text(bytes) => Some(bytes.to_vec()),
-                _ => None,
+    conn.query_row(
+        "SELECT id, version, bootloader, hardware, device, octet_length(data), data FROM firmware \
+         WHERE device IN (?1, ?2) AND id = ?3",
+        params,
+        |row| {
+            let image = match row_of(row)? {
+                Ok(image) => image,
+                Err(e) => return Ok(Err(e)),
+            };
+            let size: Option<i64> = row.get(5)?;
+            if size.unwrap_or(0) > MAX_DATA_BYTES {
+                return Ok(Err(invalid(format!(
+                    "the data of the row {id} is above {MAX_DATA_BYTES} bytes"
+                ))));
+            }
+            Ok(match row.get_ref(6)? {
+                ValueRef::Blob(bytes) | ValueRef::Text(bytes) => Ok((image, bytes.to_vec())),
+                _ => Err(invalid(format!(
+                    "the data of the row {id} is neither BLOB nor TEXT"
+                ))),
             })
-        })
-        .map_err(sql)?
-        .ok_or_else(|| invalid(format!("the data of the row {id} is neither BLOB nor TEXT")))?;
-    Ok((row, data))
+        },
+    )
+    .map_err(sql)?
 }
 
 /// Parses one database at a time. A call that finds a parse running returns `Busy`. A read that
@@ -711,5 +717,51 @@ mod tests {
             tokio::time::sleep(Duration::from_millis(2)).await;
         }
         assert_eq!(reader.list(open_file(&path)).await.unwrap().len(), 2);
+    }
+
+    const TABLE_NO_KEY: &str = "CREATE TABLE firmware (id INTEGER, version INTEGER, bootloader INTEGER, \
+         hardware INTEGER, device TEXT, data BLOB);";
+
+    #[tokio::test]
+    async fn duplicate_id_reads_data_of_the_checked_row() {
+        let dir = dir("dupid");
+        let path = plain(
+            &dir,
+            &format!(
+                "{TABLE_NO_KEY}\
+                 INSERT INTO firmware VALUES (26, 1022, 100, 2000, 'octo_EN', CAST('octo image' AS BLOB));\
+                 INSERT INTO firmware VALUES (26, 1030, 100, 1000, 'leakshield_EN', \
+                 CAST('leakshield image' AS BLOB));"
+            ),
+        );
+        let (row, data) = PackageReader::default()
+            .read(open_file(&path), 26)
+            .await
+            .unwrap();
+        assert_eq!((row.hardware, row.version), (1000, 1030));
+        assert_eq!(data, b"leakshield image");
+    }
+
+    #[tokio::test]
+    async fn two_matching_rows_with_one_id_are_refused() {
+        let dir = dir("twoid");
+        let path = plain(
+            &dir,
+            &format!(
+                "{TABLE_NO_KEY}\
+                 INSERT INTO firmware VALUES (26, 1022, 100, 1000, 'leakshield_EN', x'01');\
+                 INSERT INTO firmware VALUES (26, 1030, 100, 1000, 'leakshield_DE', x'02');"
+            ),
+        );
+        let reader = PackageReader::default();
+        let result = reader.read(open_file(&path), 26).await;
+        assert!(
+            matches!(result, Err(PackageError::InvalidArgument(_))),
+            "{result:?}"
+        );
+        assert_eq!(
+            reader.read(open_file(&path), 27).await,
+            Err(PackageError::NotFound)
+        );
     }
 }
