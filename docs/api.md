@@ -147,7 +147,7 @@ A write above a limit fails with `InvalidArgument`. Every limit is checked in th
 | Rule groups | up to 32 |
 | Rules of a Rule group | up to 16 |
 | Names of a process rule | up to 32 |
-| Process name | up to 255 characters (`NAME_MAX` of Linux) |
+| Process name | up to 255 characters |
 
 All numbers in a Curve or a Calibration table are finite. A Duty is a percent from 0 to 100.
 

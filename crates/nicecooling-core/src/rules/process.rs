@@ -96,7 +96,6 @@ pub struct ProcessRule {
 
 /// The limits of a process rule (`docs/api.md`, Limits).
 pub const MAX_PROCESS_NAMES: usize = 32;
-/// `NAME_MAX` of Linux.
 pub const MAX_PROCESS_NAME_CHARS: usize = 255;
 
 impl ProcessRule {
