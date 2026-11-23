@@ -77,7 +77,7 @@ Rejected:
 
 ### D3. Image container
 
-The `data` of a row is a UTF-8 XML document with a byte order mark: `FirmwareContainer`, `firmware`, and `Segment` elements with `data` (base64) and `adr_start` (decimal). `image.rs` parses it with `roxmltree` 0.21 and `base64` 0.22, from `[workspace.dependencies]`. `nicecooling-api` already uses `roxmltree` 0.21, and `Cargo.lock` holds `base64` 0.22.1.
+The `data` of a row is a UTF-8 XML document with a byte order mark: the root `FirmwareContainer` holds `firmware`, which holds the `Segment` elements. Each `Segment` has the child elements `adr_start` (decimal) and `data` (base64). `image.rs` parses it with `roxmltree` 0.21 and `base64` 0.22, from `[workspace.dependencies]`. `nicecooling-api` already uses `roxmltree` 0.21, and `Cargo.lock` holds `base64` 0.22.1.
 
 `image::parse(bytes: &[u8]) -> Result<Image, ImageError>` gives `Image { segments: Vec<Segment> }` with `Segment { adr_start: u32, data: Vec<u8> }`. It refuses an image when:
 
@@ -304,7 +304,7 @@ The panel is a new card of the Leakshield system screen. `docs/ui/screens/leaksh
 
 Behavior:
 
-- Report 2 command 1 with parameter 1 in `Application` moves the device to `Bootloader` after `enter`. The test support (`tests/support/sim_usb.rs`) then sends a disconnect and a connect. The bootloader report 1 is a placeholder of 64 bytes until gate 1.6: byte 2 is 0x01, bytes 13-14 are 0x0001, all other bytes are 0.
+- Report 2 command 1 with parameter 1 in `Application` moves the device to `Bootloader` after `enter`. The test support (`tests/support/sim_usb.rs`) then sends a disconnect and a connect. The bootloader report 1 is a placeholder of 64 bytes until gate 1.6: byte 0 is the report ID 0x01, byte 2 is 0x01, bytes 13-14 are 0x0001, all other bytes are 0.
 - A feature write of report 32 with a wrong length or CRC fails. A good frame is stored at its address.
 - Command 1 with parameter 0 moves the device to `Application` with `new_firmware` when the stored chunks equal the expected image. Otherwise the device stays in the bootloader (inferred behavior).
 - Tests use the paused tokio clock, so the 4 s and 8 s waits cost no time.
