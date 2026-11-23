@@ -50,6 +50,8 @@ struct Activation {
     number: u64,
     profile: String,
     cause: Cause,
+    /// The activation has no slot to write.
+    failed: bool,
     tickets: Vec<(Arc<Attached>, ProfileTicket)>,
 }
 
@@ -259,9 +261,20 @@ impl Hub {
     /// activations queue in the order that they changed the state, and the worker of each device
     /// keeps that order.
     fn begin_activation(&self, inner: &mut Inner, profile: &str, cause: Cause) -> Activation {
-        inner.active_state = "applied";
         inner.activation += 1;
         let slot = inner.profiles.get(profile).and_then(|p| Slot::new(p.slot));
+        // Without a slot there is nothing to write. The request that waits must not write for an
+        // older activation, and the state says that the Leakshield part failed.
+        if slot.is_none() {
+            for device in &inner.leakshields {
+                device.cancel_profile();
+            }
+        }
+        inner.active_state = if slot.is_some() {
+            "applied"
+        } else {
+            "leakshield-failed"
+        };
         let tickets =
             slot.into_iter()
                 .flat_map(|slot| {
@@ -274,6 +287,7 @@ impl Hub {
             number: inner.activation,
             profile: profile.to_owned(),
             cause,
+            failed: slot.is_none(),
             tickets,
         }
     }
@@ -286,9 +300,9 @@ impl Hub {
                 number,
                 profile,
                 cause,
+                mut failed,
                 tickets,
             } = activation;
-            let mut failed = false;
             for (device, ticket) in tickets {
                 match device.finish_profile(ticket).await {
                     Ok(_) => {}

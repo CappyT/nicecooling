@@ -156,3 +156,37 @@ async fn a_user_write_while_a_profile_write_waits_keeps_the_other_settings_of_th
         "Profile 3 is active, but its brightness {own} is replaced by {old} of slot 2"
     );
 }
+
+/// A state where `profile_4` names slot 9: `profile.json` is a broken file.
+fn profile_4_with_slot_9(fake: &nicecooling_hwmon::fake::FakeSysfs, state: &std::path::Path) {
+    automatic(fake, state);
+    std::fs::write(
+        state.join("profiles/profile_4/profile.json"),
+        r#"{"schema_version": 1, "id": "profile_4", "name": "Profile 4", "slot": 9}"#,
+    )
+    .unwrap();
+}
+
+/// A Profile with a slot outside 1 to 4 does not load, so its activation fails before any
+/// request. The older request that waits is not the victim: it writes for its own activation.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_profile_with_a_bad_slot_is_not_loaded_and_leaves_the_waiting_write_alone() {
+    let rig = Rig::start_with(profile_4_with_slot_9).await;
+    let hub = rig.daemon.as_ref().unwrap().hub.clone();
+
+    hub.activate_profile("profile_2", Cause::Manual).unwrap();
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    rig.sim.edit_report1(|r| r.active_profile = 2);
+    hub.activate_profile("profile_3", Cause::Manual).unwrap();
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    assert!(hub.activate_profile("profile_4", Cause::Manual).is_err());
+    tokio::time::sleep(Duration::from_millis(2500)).await;
+
+    assert_eq!(
+        (feature_writes(&rig), rig.sim.report3()[747]),
+        (2, 3),
+        "the active Profile is profile_3"
+    );
+    assert_eq!(hub.active_state(), "applied");
+    assert!(!hub.profile_ids().contains(&"profile_4".to_owned()));
+}

@@ -10,6 +10,7 @@ use nicecooling_core::calibration::{CalibrationTable, Preset};
 use nicecooling_core::curve::Curve;
 use nicecooling_core::derived::DerivedSensor;
 use nicecooling_core::loops::Loop;
+use nicecooling_core::profile::Slot;
 use nicecooling_core::rules::group::RuleGroupDef;
 use nicecooling_core::tick::{ChannelSetup, Control, LoopSetup, TickConfig};
 use nicecooling_hwmon::discovery::Discovery;
@@ -204,8 +205,12 @@ pub fn load_state(store: &StateStore) -> LoadedState {
         for name in names {
             let profile = store.load::<ProfileFile>(&profile_file(&name));
             fallback |= profile.fallback;
+            // A slot outside 1 to 4 makes the file a broken one: no Leakshield slot to write.
+            let bad_slot =
+                profile.source != Source::Defaults && Slot::new(profile.value.slot).is_none();
+            fallback |= bad_slot;
             // A directory without a file has no Profile. A broken one stays on disk.
-            if profile.source != Source::Defaults {
+            if profile.source != Source::Defaults && !bad_slot {
                 map.insert(
                     name.clone(),
                     ProfileFile {
@@ -477,6 +482,35 @@ mod tests {
             loaded.state.rule_groups,
             [group("group_1", "profile_2"), group("group_2", "profile_3")]
         );
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn a_profile_with_a_slot_outside_1_to_4_is_a_broken_file() {
+        let dir = temp("bad-slot");
+        let store = StateStore::new(&dir);
+        let mut state = sample_state();
+        state.profiles.active = "profile_3".into();
+        state.profiles.cause = "manual".into();
+        store.save(STATE_FILE, &state).unwrap();
+        for (id, slot) in [("profile_2", 2), ("profile_3", 9), ("profile_4", 0)] {
+            let file = ProfileFile {
+                id: id.into(),
+                slot,
+                ..ProfileFile::default()
+            };
+            store.save(&profile_file(id), &file).unwrap();
+        }
+
+        let loaded = load_state(&StateStore::new(&dir));
+
+        assert!(loaded.fallback);
+        assert!(loaded.profiles.contains("profile_2"));
+        assert!(!loaded.profiles.contains("profile_3"));
+        assert!(!loaded.profiles.contains("profile_4"));
+        // The active Profile is gone: the Default Profile takes over. The files stay on disk.
+        assert_eq!(loaded.state.profiles.active, DEFAULT_PROFILE);
+        assert!(dir.join("profiles/profile_3/profile.json").exists());
         fs::remove_dir_all(dir).unwrap();
     }
 

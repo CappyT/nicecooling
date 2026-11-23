@@ -69,6 +69,8 @@ struct ProfileMessage {
 enum Queued {
     Job(Box<Message>),
     Profile(ProfileMessage),
+    /// A newer activation that sends no request: it still drops the request that waits.
+    CancelProfile,
 }
 
 struct Message {
@@ -129,6 +131,12 @@ impl WriteWorker {
 }
 
 impl WriteWorker {
+    /// Drops the Profile request that waits, in the order of the queue. The request ends with
+    /// `Superseded`. Use it when a newer activation has no request to send.
+    pub fn cancel_profile(&self) {
+        let _ = self.queue.send(Queued::CancelProfile);
+    }
+
     /// Queues a Profile request. The queue keeps the order of the calls, so the request of the
     /// newest activation is the last one. A request that is still waiting for its time is dropped
     /// when a newer one arrives, whatever the newer one does.
@@ -377,6 +385,11 @@ async fn run(parts: WorkerParts, mut queue: mpsc::UnboundedReceiver<Queued>) {
             }
             Queued::Profile(message) => {
                 start_profile(&parts, message, &mut waiting, &mut save, &mut spacing);
+            }
+            Queued::CancelProfile => {
+                if let Some((_, old)) = waiting.take() {
+                    let _ = old.reply.send(Err(Failure::Superseded));
+                }
             }
         }
     }

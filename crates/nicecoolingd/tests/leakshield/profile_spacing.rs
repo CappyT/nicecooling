@@ -199,6 +199,23 @@ async fn a_request_that_fails_drops_the_waiting_request() {
 }
 
 #[tokio::test(start_paused = true)]
+async fn a_cancel_drops_the_waiting_request() {
+    let rig = Rig::new("spacing-cancel");
+    let (worker, slots) = (start(&rig), slots(&rig));
+    submit(&rig, &worker, &slots, 2).await.unwrap();
+    let waiting = worker.request_profile(request(&slots, 3));
+    sleep(Duration::from_millis(200)).await;
+
+    // A newer activation that has no slot sends no request.
+    worker.cancel_profile();
+
+    assert!(matches!(waiting.await.unwrap(), Err(Failure::Superseded)));
+    sleep(Duration::from_secs(10)).await;
+    assert_eq!(writes(&rig), 1);
+    assert_eq!(rig.sim.report3()[747], 2);
+}
+
+#[tokio::test(start_paused = true)]
 async fn a_waiting_request_writes_the_slot_as_it_is_when_the_write_goes_out() {
     let rig = Rig::new("spacing-fresh-slot");
     let (worker, slots) = (start(&rig), slots(&rig));

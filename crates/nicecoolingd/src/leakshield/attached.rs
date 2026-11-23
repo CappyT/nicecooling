@@ -546,6 +546,11 @@ impl Attached {
         })
     }
 
+    /// A newer activation has no slot to write: the request that waits is dropped.
+    pub fn cancel_profile(&self) {
+        self.worker.cancel_profile();
+    }
+
     /// Waits for the end of a Profile request and takes the report 1 that its decision read.
     pub async fn finish_profile(
         &self,
