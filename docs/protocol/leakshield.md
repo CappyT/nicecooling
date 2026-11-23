@@ -182,6 +182,13 @@ The system alarm group is bits 7 to 10: aquasuite sets its "System" sensor when 
 
 `alarm_bits` is the current state and `alarm_bits_latched` is the state kept until an alarm reset. aquasuite shows a bit as active when it is set in either field. It uses only `alarm_bits` for the state of the page marker (P3).
 
+Latch behavior (P3, P4):
+
+- The host code only reads `alarm_bits_latched`. It has no code that sets or clears a bit. The device sets a latched bit and holds it: this is inferred from the field name and from the use in aquasuite, not defined by the code.
+- The only clear that the code defines is Report 2 command 11 (`reset_alarm`) with parameter 0. aquasuite sends it with a delay of 5 ms before it. The code sends no bit mask or bit number, so the command has one form and no per-bit variant.
+- Two buttons send it: "Reset device alarms" on the Leakshield status page and "Alarm reset" on the Alarms page. Both are visible only while aquasuite shows an Alarm (`alarm_bits` or `alarm_bits_latched` is not 0). The Alarms page also offers the Device response "Alarm buzzer until confirmation", which suggests that command 11 stops a buzzer that stays on.
+- The code does not define a clear by a settings write, a button on the device, a power cycle or a timeout. It does not define whether command 11 clears all bits or only the bits that are clear in `alarm_bits`. Hardware checks must measure both.
+
 ## Report 2
 
 Report 2 is an output report of 11 bytes: report ID 2, command u32, parameter u32, CRC-16/USB over the 8 bytes of command and parameter. The registry lists the commands and their parameters (P4). The save-settings command is `02 00000002 00000000 34C6`.
