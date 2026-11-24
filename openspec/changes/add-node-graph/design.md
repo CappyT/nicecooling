@@ -166,7 +166,7 @@ New objects `Graph` under `io.github.cappyt.NiceCooling1` with read methods in t
 ## Risks / Trade-offs
 
 - **A Graph drives a pump or a fan through a Curve.** The no-value rule and the failure model of the Curve bound the damage of a broken Graph. A Graph that computes a wrong but valid number is the user's choice.
-- **An action with poweroff in a wrong Graph can shut the PC down in a loop.** The 10 s start delay, the countdown with cancel and the minimum interval limit this. aquasuite adds an automatic maintenance mode after three shutdowns in a row; the spec review must decide if nicecooling needs it.
+- **An action with poweroff in a wrong Graph can shut the PC down in a loop.** The 10 s start delay, the countdown with cancel and the minimum interval limit this. aquasuite adds an automatic maintenance mode after three shutdowns in a row. The owner decided against it: the three limits are enough, and the app does not protect the user from a Graph that the user made.
 - **50 kinds are much code and many tests.** Each kind is a pure function with state, so the tests are tables of inputs and outputs.
 - **The copied editor code is 2800 lines of another author**, with one commit and no tests. The on-screen behavior is not checked yet: the first task is a spike that shows a Graph with drag, connect, pan and zoom in the app, in light and dark, before any other editor work.
 - **MQTT and SMTP add network clients to a root daemon.** Both use `rustls`, have time limits and never run in the tick.
@@ -174,5 +174,4 @@ New objects `Graph` under `io.github.cappyt.NiceCooling1` with read methods in t
 
 ## Open Questions
 
-- The automatic maintenance mode after repeated shutdowns (see Risks).
 - Home Assistant discovery messages: not in this change by owner choice; the topic layout leaves room for it.
