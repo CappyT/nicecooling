@@ -327,3 +327,94 @@ fn a_long_event_name_stays_in_its_cell(cx: &mut TestAppContext) {
         "{titles:?}"
     );
 }
+
+/// Review: at the minimum window size the Event cell of "Active Alarms" keeps room for the
+/// name of the Alarm, also in the row of a pending poweroff with "Cancel poweroff".
+#[gpui::test]
+fn review_active_event_cell_has_room_at_minimum_size(cx: &mut TestAppContext) {
+    let (model, rig) = start(cx, StartMode::Normal);
+    let mut state = online();
+    state.snapshot.alarms = vec![alarm(
+        "a1",
+        "leakshield.leak-alarm",
+        LEAKSHIELD,
+        Response::Poweroff,
+        30,
+    )];
+    rig.events
+        .send(DaemonEvent::Snapshot(Box::new(state.snapshot.clone())))
+        .unwrap();
+    cx.update(|cx| {
+        model.update(cx, |app, cx| {
+            app.page = Page::Alarms;
+            cx.notify();
+        });
+    });
+    let handle = cx.windows()[0];
+    cx.simulate_window_resize(handle, gpui::size(gpui::px(1100.), gpui::px(700.)));
+    cx.run_until_parked();
+    let mut visual = VisualTestContext::from_window(handle, cx);
+    visual.update(|window, cx| window.draw(cx).clear(cx));
+    let cell = visual
+        .debug_bounds("active-event-cell")
+        .expect("event cell");
+    let content = visual.debug_bounds("shell-content").expect("content");
+    assert!(
+        cell.size.width >= gpui::px(120.),
+        "Event cell is {:?} wide at 1100x700",
+        cell.size.width
+    );
+    // The row ends in the card: 24 px page padding at the right of the content.
+    let cancel = visual
+        .debug_bounds("active-cancel")
+        .expect("Cancel poweroff");
+    assert!(
+        cancel.right() <= content.right() - gpui::px(24.),
+        "Cancel poweroff ends at {:?}, the card at {:?}",
+        cancel.right(),
+        content.right() - gpui::px(24.)
+    );
+}
+
+/// At the minimum window size the Event cell of the Alarm history keeps room for the name.
+#[gpui::test]
+fn history_event_cell_has_room_at_minimum_size(cx: &mut TestAppContext) {
+    use nicecooling::model::{AlarmDetails, AlarmRecord, Outcome, Severity};
+
+    let (model, rig) = start(cx, StartMode::Normal);
+    let mut state = online();
+    state.snapshot.alarm_history = vec![AlarmRecord {
+        instance: "a1".into(),
+        event: "pump-stop".into(),
+        severity: Severity::Alarm,
+        source: LEAKSHIELD.into(),
+        response: Response::Poweroff,
+        raised_us: support::fixtures::NOW_US,
+        cleared_us: Some(support::fixtures::NOW_US + 30_000_000),
+        outcome: Outcome::PoweroffCancelled,
+        closed_by_restart: true,
+        details: AlarmDetails::default(),
+    }];
+    rig.events
+        .send(DaemonEvent::Snapshot(Box::new(state.snapshot.clone())))
+        .unwrap();
+    cx.update(|cx| {
+        model.update(cx, |app, cx| {
+            app.page = Page::Alarms;
+            cx.notify();
+        });
+    });
+    let handle = cx.windows()[0];
+    cx.simulate_window_resize(handle, gpui::size(gpui::px(1100.), gpui::px(700.)));
+    cx.run_until_parked();
+    let mut visual = VisualTestContext::from_window(handle, cx);
+    visual.update(|window, cx| window.draw(cx).clear(cx));
+    let cell = visual
+        .debug_bounds("history-event-cell")
+        .expect("event cell");
+    assert!(
+        cell.size.width >= gpui::px(160.),
+        "Event cell is {:?} wide at 1100x700",
+        cell.size.width
+    );
+}

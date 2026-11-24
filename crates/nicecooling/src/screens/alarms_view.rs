@@ -3,7 +3,7 @@
 use std::rc::Rc;
 
 use gpui::prelude::*;
-use gpui::{AnyElement, Context, FocusHandle, FontWeight, SharedString, Window, div, px};
+use gpui::{AnyElement, Context, Div, FocusHandle, FontWeight, SharedString, Window, div, px};
 use gpui_component::button::{Button, ButtonVariants as _};
 use gpui_component::input::Input;
 use gpui_component::tooltip::Tooltip;
@@ -19,7 +19,7 @@ use crate::screens::alarms::{
 use crate::screens::controls::{Pick, act};
 use crate::screens::ui::{
     caption, card, card_header, card_row, cell, label, modal, page, severity_icon, table_header,
-    wide_cell, write_line,
+    wide_cell, wrap_cell, write_line,
 };
 use crate::tokens::Palette;
 
@@ -55,7 +55,7 @@ impl ScreenView {
                     .child(text.clone()),
             );
         } else {
-            active_card = active_card.child(table_header(&active.columns, &ACTIVE_COLUMNS, p));
+            active_card = active_card.child(table_header(&active.columns, &columns(ACTIVE, 0), p));
         }
         for (index, row) in active.rows.iter().enumerate() {
             active_card = active_card.child(self.active_row(index, row, p, cx));
@@ -120,7 +120,8 @@ impl ScreenView {
         if let Some(text) = &history.empty {
             history_card = history_card.child(card_row(p).child(text.clone()));
         } else {
-            history_card = history_card.child(table_header(&history.columns, &HISTORY_COLUMNS, p));
+            history_card =
+                history_card.child(table_header(&history.columns, &columns(HISTORY, 1), p));
         }
         for (index, row) in history.rows.iter().enumerate() {
             history_card = history_card.child(self.history_row(index, row, p, &view));
@@ -143,7 +144,7 @@ impl ScreenView {
     ) -> AnyElement {
         let view = cx.entity();
         let page_target = row.open.clone();
-        let mut line = h_flex()
+        let line = h_flex()
             .id(("alarm-active", index))
             .w_full()
             .px(px(18.))
@@ -161,39 +162,50 @@ impl ScreenView {
                 }
             }))
             .child(
-                wide_cell().child(
-                    h_flex()
-                        .gap(px(6.))
-                        .child(severity_icon(row.severity, p))
-                        .child(label(row.event.clone()).font_weight(FontWeight::BOLD)),
-                ),
+                event_cell()
+                    .debug_selector(|| "active-event-cell".to_owned())
+                    .child(
+                        h_flex()
+                            .gap(px(6.))
+                            .child(severity_icon(row.severity, p))
+                            .child(label(row.event.clone()).font_weight(FontWeight::BOLD)),
+                    ),
             )
-            .child(cell(SOURCE).child(row.source.clone()))
-            .child(cell(90.).child(row.since.clone()))
-            .child(cell(170.).child(row.value.clone()))
-            .child(
-                v_flex()
-                    .w(px(240.))
-                    .flex_none()
-                    .min_w_0()
-                    .child(label(row.response.clone()))
-                    .children(row.countdown.clone().map(|text| {
-                        div()
-                            .text_color(p.alarm)
-                            .font_weight(FontWeight::BOLD)
-                            .child(text)
-                    })),
-            );
-        if let Some(command) = row.cancel.clone() {
-            line = line.child(
-                Button::new(SharedString::from(format!("alarm-cancel-{index}")))
-                    .small()
-                    .danger()
-                    .label(row.cancel_label.clone())
-                    .on_click(act(&view, move |this, _, _| this.send(command.clone()))),
-            );
-        }
+            .child(cell(ACTIVE[1]).child(row.source.clone()))
+            .child(cell(ACTIVE[2]).child(row.since.clone()))
+            .child(cell(ACTIVE[3]).child(row.value.clone()))
+            .child(cell(ACTIVE[4]).child(row.response.clone()));
         let mut column = v_flex().w_full().child(line);
+        // A pending poweroff has a second line in its row: the countdown and the button.
+        // The cells of the first line keep their widths in English and in Italian.
+        if row.countdown.is_some() || row.cancel.is_some() {
+            let mut pending = h_flex()
+                .w_full()
+                .px(px(18.))
+                .pb(px(8.))
+                .gap(px(12.))
+                .justify_end()
+                .children(row.countdown.clone().map(|text| {
+                    label(text)
+                        .text_color(p.alarm)
+                        .font_weight(FontWeight::BOLD)
+                }));
+            if let Some(command) = row.cancel.clone() {
+                pending = pending.child(
+                    div()
+                        .flex_none()
+                        .debug_selector(|| "active-cancel".to_owned())
+                        .child(
+                            Button::new(SharedString::from(format!("alarm-cancel-{index}")))
+                                .small()
+                                .danger()
+                                .label(row.cancel_label.clone())
+                                .on_click(act(&view, move |this, _, _| this.send(command.clone()))),
+                        ),
+                );
+            }
+            column = column.child(pending);
+        }
         if let Some(text) = &row.cancelled {
             column = column.child(card_row(p).child(caption(text.clone(), p)));
         }
@@ -353,35 +365,50 @@ impl ScreenView {
                 Some(sensor) => this.open_history_for(&sensor, cx),
                 None => this.go(crate::shell::Page::History, cx),
             }))
-            .child(cell(150.).child(row.time.clone()))
+            .child(cell(HISTORY[0]).child(row.time.clone()))
             .child(
-                wide_cell().child(
-                    h_flex()
-                        .gap(px(6.))
-                        .child(severity_icon(row.severity, p))
-                        .child(label(row.event.clone())),
-                ),
+                event_cell()
+                    .debug_selector(|| "history-event-cell".to_owned())
+                    .child(
+                        h_flex()
+                            .gap(px(6.))
+                            .child(severity_icon(row.severity, p))
+                            .child(label(row.event.clone())),
+                    ),
             )
-            .child(cell(SOURCE).child(row.source.clone()))
-            .child(cell(110.).child(row.duration.clone()))
-            .child(cell(240.).child(row.response.clone()))
+            .child(cell(HISTORY[2]).child(row.source.clone()))
+            .child(wrap_cell(HISTORY[3]).child(row.duration.clone()))
+            .child(wrap_cell(HISTORY[4]).child(row.response.clone()))
             .into_any_element()
     }
 }
 
-/// The widths of the table cells. `None` is the Event cell: it takes the rest of the row.
+/// The Event cell takes the rest of its row and never gets less than this: the names of
+/// `docs/ui/screens/alarms.md` show in full at the minimum window size.
+const EVENT_MIN: f32 = 160.;
+/// The widths of the other cells: they hold a value, so they keep their width. The entry of
+/// the Event cell is not used. At the minimum window a row is 796 px wide.
+const ACTIVE: [f32; 5] = [0., 150., 70., 150., 170.];
+const HISTORY: [f32; 5] = [124., 0., 140., 100., 200.];
 const SOURCE: f32 = 170.;
 const RESPONSE: f32 = 200.;
 const DELAY: f32 = 80.;
 const NOTES: f32 = 150.;
-const ACTIVE_COLUMNS: [Option<f32>; 5] = [None, Some(SOURCE), Some(90.), Some(170.), Some(240.)];
 const RESPONSE_COLUMNS: [Option<f32>; 4] = [
     None,
     Some(SOURCE),
     Some(RESPONSE),
     Some(DELAY + 12. + NOTES),
 ];
-const HISTORY_COLUMNS: [Option<f32>; 5] = [Some(150.), None, Some(SOURCE), Some(110.), Some(240.)];
+
+fn event_cell() -> Div {
+    wide_cell().min_w(px(EVENT_MIN))
+}
+
+/// The widths of a table header: the cell at `event` takes the rest of the row.
+fn columns(widths: [f32; 5], event: usize) -> [Option<f32>; 5] {
+    std::array::from_fn(|index| (index != event).then_some(widths[index]))
+}
 
 /// The countdown dialog: 440 px over the scrim, with the focus on "Cancel poweroff".
 pub fn countdown_overlay(

@@ -78,6 +78,11 @@ pub fn cell(width: f32) -> Div {
     div().w(px(width)).flex_none().min_w_0().truncate()
 }
 
+/// A table cell with a fixed width for a sentence: the text wraps in the cell.
+pub fn wrap_cell(width: f32) -> Div {
+    div().w(px(width)).flex_none().min_w_0()
+}
+
 /// The table cell that takes the rest of the row. Its text stays on one line and truncates.
 pub fn wide_cell() -> Div {
     div().flex_1().min_w_0().truncate()
