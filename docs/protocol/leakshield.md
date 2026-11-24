@@ -200,6 +200,11 @@ Report 2 is an output report of 11 bytes: report ID 2, command u32, parameter u3
 
 Mode and Action use one transport: command 12 (`set_mode`) with the code as the parameter. aquasuite puts a 25 ms delay before it.
 
+Measured on the reference device on 2026-11-24 (fw 1022):
+
+- `set_mode` SHIELD from RELEASE runs the Action `measure-fill-level` first. The device reports SHIELD 20 to 27 s later, and then `default_mode` in report 3 holds 1. `set_mode` RELEASE takes effect within 3 s and sets `default_mode` to 3.
+- A write of report 3 applies its `default_mode` at once. A write with 3 puts a device in SHIELD in RELEASE within 3 s. A write with 1 to a device in RELEASE runs `measure-fill-level` and gives SHIELD about 18 s later.
+
 | Code | Mode or Action |
 |---|---|
 | 0 | Stop the running Action (`cancel_action`). The aquasuite debug page sends it with its "Stop" button |
