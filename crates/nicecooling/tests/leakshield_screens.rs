@@ -1346,7 +1346,11 @@ fn bit_3_of_the_standby_conditions_disables_the_alarm_actions_in_standby() {
     // The Alarms tab has the same switch.
     let option = |value: f64| {
         let state = conditions(value);
-        alarms(&state, &feedback).options.remove(0)
+        alarms(&state, &feedback)
+            .options
+            .into_iter()
+            .find(|o| o.key == "standby_actions")
+            .unwrap()
     };
     let on = option(11.0);
     assert_eq!(on.label, "Disable alarm actions during standby");
@@ -1475,6 +1479,52 @@ fn the_daily_pump_time_warning_limit_is_in_the_leak_group() {
         italian.groups[0].limits[0].text,
         "Il Leakshield avvisa quando il tempo pompa giornaliero supera questo limite. Da 5 a 240 s."
     );
+}
+
+#[test]
+fn bits_6_and_7_of_the_shield_flags_are_the_alarm_buzzer_switches() {
+    let feedback = Feedback::default();
+    let flags =
+        |value: f64| tweak(|state| set_field(state, "shield_flags", FieldValue::Number(value)));
+    let option = |state: &AppState, key: &str| {
+        alarms(state, &feedback)
+            .options
+            .into_iter()
+            .find(|o| o.key == key)
+            .unwrap_or_else(|| panic!("no option {key}"))
+    };
+    // The fixture holds 127: bit 6 set, bit 7 clear.
+    let state = flags(127.0);
+    let until = option(&state, "buzzer_until_confirmation");
+    assert_eq!(until.label, "Alarm buzzer until confirmation");
+    assert!(until.on && until.writable);
+    let off = option(&state, "buzzer_off");
+    assert_eq!(off.label, "Disable the alarm buzzer");
+    assert!(!off.on);
+    assert!(option(&flags(128.0), "buzzer_off").on);
+    assert!(!option(&flags(128.0), "buzzer_until_confirmation").on);
+    // A write changes its bit only.
+    let write = |state: &AppState, key: &str, on: bool| {
+        let Some(Command::SetLeakshieldFields { fields, .. }) =
+            AlarmsUi.set_option(&en(state, &feedback), LEAKSHIELD, key, on)
+        else {
+            panic!("a field write");
+        };
+        fields[0].clone()
+    };
+    assert_eq!(
+        write(&state, "buzzer_off", true),
+        ("shield_flags".to_owned(), FieldValue::Number(255.0))
+    );
+    assert_eq!(
+        write(&state, "buzzer_until_confirmation", false).1,
+        FieldValue::Number(63.0)
+    );
+    // Italian.
+    let italian = AlarmsModel::build(&input(&state, &feedback, IT), &AlarmsUi, LEAKSHIELD);
+    let texts: Vec<_> = italian.options.iter().map(|o| o.label.as_str()).collect();
+    assert!(texts.contains(&"Segnale acustico fino alla conferma"));
+    assert!(texts.contains(&"Disattiva il segnale acustico degli allarmi"));
 }
 
 #[test]
@@ -2236,7 +2286,22 @@ fn leakshield_lighting_states() {
     assert_eq!((panel.first, panel.count), (2.0, 3.0));
     assert_eq!((panel.speed, panel.brightness), (50.0, 100.0));
     assert!(panel.driven, "a sensor drives it");
-    assert!(panel.sources.iter().any(|(_, _, selected)| *selected) || panel.sources.len() == 6);
+    // The device sensors 0 to 5 and the Software sensors 8 to 19. Controller 2 follows sensor 10.
+    let ids: Vec<i32> = panel.sources.iter().map(|(id, _, _)| *id).collect();
+    assert_eq!(
+        ids,
+        [
+            0, 1, 2, 3, 4, 5, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19
+        ]
+    );
+    let selected: Vec<_> = panel.sources.iter().filter(|(_, _, on)| *on).collect();
+    assert_eq!(selected.len(), 1);
+    assert_eq!(
+        (selected[0].0, selected[0].1.as_str()),
+        (10, "Software sensor 3: Water temperature")
+    );
+    assert_eq!(panel.sources[6].1, "Software sensor 1");
+    assert_eq!(panel.sources[0].1, "Pressure");
 
     // No controller: the text and the button.
     let mut none = state.clone();
@@ -2419,6 +2484,11 @@ fn leakshield_lighting_commands() {
     assert_eq!(list_of(&hue, "led_controller_color_hue")[0], 200.0);
     let source = ui.set_source(&screen_input, LEAKSHIELD, 3).expect("sensor");
     assert_eq!(list_of(&source, "led_controller_source"), [3.0, 10.0]);
+    // A Software sensor is the sensor index from 8: slot 1 is 8 and slot 12 is 19.
+    let source = ui
+        .set_source(&screen_input, LEAKSHIELD, 19)
+        .expect("sensor");
+    assert_eq!(list_of(&source, "led_controller_source"), [19.0, 10.0]);
 
     // "Delete" removes the selection at once and "Undo" writes the table back.
     let mut ui = LightingUi::default();

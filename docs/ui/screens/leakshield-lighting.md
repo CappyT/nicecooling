@@ -12,6 +12,7 @@ The tab sets the RGBpx lighting: 6 integrated LEDs and the external LEDs, with u
    - "LEDs": first LED and count, as number inputs. They mirror the bar.
    - Effect parameters, one row each: colors (color picker), "Speed" (slider), "Brightness" (slider).
    - A parameter that a sensor can drive has a switch "Driven by a sensor" and then a picker (device sensors and Software sensors), "From" and "To" values.
+   - The picker lists the device sensors 0 to 5 (pressure, fill level, volume change, pressure change, pump speed, flow) and the Software sensors 8 to 19, named by their number and the sensor that feeds them. The source of a controller is the plain sensor index. A display page keeps the index times 4 instead.
 
 ## Effect picker
 

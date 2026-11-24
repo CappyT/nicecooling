@@ -1016,6 +1016,8 @@ leakshield:
     options: "Opzioni"
     option:
       standby_actions: "Disattiva le azioni di allarme durante lo standby"
+      buzzer_until_confirmation: "Segnale acustico fino alla conferma"
+      buzzer_off: "Disattiva il segnale acustico degli allarmi"
     group:
       leakage: "Perdite"
       fill: "Livello"

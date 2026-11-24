@@ -39,6 +39,14 @@ fn the_meaning_of_the_flag_fields() {
             &["Bit 3: disable the alarm actions during standby (set: disabled)"],
         ),
         (
+            "shield_flags",
+            &[
+                "Bit 6: the alarm buzzer sounds until the user confirms",
+                "Bit 7: the alarm buzzer is off for all alarms",
+            ],
+        ),
+        ("page_precisions", &["0 to 3"]),
+        (
             "daily_pump_time_warning",
             &["Warning limit of the daily pump time"],
         ),
@@ -52,4 +60,17 @@ fn the_meaning_of_the_flag_fields() {
             assert!(text.contains(phrase), "{id}: {text:?} lacks {phrase:?}");
         }
     }
+}
+
+#[test]
+fn a_page_precision_is_0_to_3() {
+    let registry = nicecooling_protocol::registry::Registry::leakshield();
+    let field = registry
+        .field
+        .iter()
+        .find(|f| f.id == "page_precisions")
+        .expect("the field");
+    assert_eq!((field.min, field.max), (Some(0.0), Some(3.0)));
+    assert!([0, 3].iter().all(|raw| field.raw_in_range(*raw)));
+    assert!([4, 255].iter().all(|raw| !field.raw_in_range(*raw)));
 }

@@ -125,11 +125,23 @@ struct OptionDef {
     bit: u32,
 }
 
-const OPTIONS: [OptionDef; 1] = [OptionDef {
-    key: "standby_actions",
-    field: "standby_conditions",
-    bit: 8,
-}];
+const OPTIONS: [OptionDef; 3] = [
+    OptionDef {
+        key: "standby_actions",
+        field: "standby_conditions",
+        bit: 8,
+    },
+    OptionDef {
+        key: "buzzer_until_confirmation",
+        field: "shield_flags",
+        bit: 64,
+    },
+    OptionDef {
+        key: "buzzer_off",
+        field: "shield_flags",
+        bit: 128,
+    },
+];
 
 /// The id of the alarm response of an event of this tab.
 pub fn response_event(event: &str) -> String {

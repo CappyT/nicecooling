@@ -27,6 +27,8 @@ Below the group cards: the card "Options" with switches that are bits of the set
 | Switch | Field and bit |
 |---|---|
 | "Disable alarm actions during standby" | `standby_conditions` bit 3, set is on. The System tab has the same switch |
+| "Alarm buzzer until confirmation" | `shield_flags` bit 6. The buzzer sounds until the user confirms the alarm |
+| "Disable the alarm buzzer" | `shield_flags` bit 7. The buzzer stays off for all alarms |
 
 Above the cards: the row "Reset device alarms", then the recommendation card.
 

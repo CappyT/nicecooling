@@ -393,8 +393,10 @@ offset = 95
 type = "u8[8]"
 count = 10
 stride = 46
+min = 0
+max = 3
 risk_class = "low"
-verification_state = "code-defined"
+verification_state = "plausible-read"
 
 [[field]]
 id = "page_values"

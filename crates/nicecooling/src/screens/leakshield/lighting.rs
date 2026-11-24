@@ -407,6 +407,33 @@ impl LightingUi {
     }
 }
 
+/// "Software sensor 3: Water temperature", or "Software sensor 3" while the slot has no source.
+fn software_source_name(
+    input: &ScreenInput<'_>,
+    data: Option<&crate::model::LeakshieldData>,
+    slot: u16,
+) -> String {
+    let label = input.locale.fmt(
+        "leakshield.sensors.software_name",
+        &[("n", &slot.to_string())],
+    );
+    let source = data
+        .and_then(|d| d.software_sensors.iter().find(|(n, _)| *n == slot))
+        .and_then(|(_, sensor)| sensor.as_ref());
+    match source {
+        Some(sensor) => {
+            let name = input
+                .state
+                .snapshot
+                .sensors
+                .get(sensor)
+                .map_or(sensor.clone(), |s| s.name.clone());
+            format!("{label}: {name}")
+        }
+        None => label,
+    }
+}
+
 /// The colors of a 12 cell preview of an effect, from its first color.
 pub fn preview_cells(effect: &str, base: Hsv, cells: usize) -> Vec<Hsv> {
     (0..cells)
@@ -630,26 +657,28 @@ impl LightingModel {
                     driven_label: locale.tr("leakshield.lighting.driven"),
                     driven: c.source >= 0.0,
                     sources: (0..6)
+                        .chain(8..20)
                         .map(|i| {
-                            let name = [
-                                "pressure",
-                                "fill_level",
-                                "volume_change",
-                                "pressure_change",
-                                "feed_rpm",
-                                "flow",
-                            ][i as usize];
-                            let sensor = format!("{id}_{name}");
-                            (
-                                i,
+                            let name = if i < 6 {
+                                let name = [
+                                    "pressure",
+                                    "fill_level",
+                                    "volume_change",
+                                    "pressure_change",
+                                    "feed_rpm",
+                                    "flow",
+                                ][i as usize];
+                                let sensor = format!("{id}_{name}");
                                 input
                                     .state
                                     .snapshot
                                     .sensors
                                     .get(&sensor)
-                                    .map_or_else(|| name.to_owned(), |s| s.name.clone()),
-                                c.source == f64::from(i),
-                            )
+                                    .map_or_else(|| name.to_owned(), |s| s.name.clone())
+                            } else {
+                                software_source_name(input, device.data, (i - 7) as u16)
+                            };
+                            (i, name, c.source == f64::from(i))
                         })
                         .collect(),
                     from_label: locale.tr("leakshield.lighting.from"),

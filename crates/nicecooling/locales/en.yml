@@ -1016,6 +1016,8 @@ leakshield:
     options: "Options"
     option:
       standby_actions: "Disable alarm actions during standby"
+      buzzer_until_confirmation: "Alarm buzzer until confirmation"
+      buzzer_off: "Disable the alarm buzzer"
     group:
       leakage: "Leakage"
       fill: "Fill level"

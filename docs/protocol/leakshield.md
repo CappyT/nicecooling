@@ -252,7 +252,7 @@ aquasuite reads the struct, changes the fields of the user, and writes back ever
 | `page_icons` | 75 | u8[4] | 10 x 46 |  | type only |  | [255, 255, 255, 255, 2, 255, ...] | Index into the icons of report 8, 255 none. |
 | `page_names` | 79 | u8[8] | 10 x 46 |  | type only |  | [255, 255, 255, 255, 255, 255, ...] | Index into the names of report 8, 255 none. |
 | `page_sources` | 87 | u8[8] | 10 x 46 |  | type only |  | [255, 255, 255, 255, 255, 255, ...] | Value source of each page slot: the sensor index times 4, 255 none. A value of 80 or more has no sensor. |
-| `page_precisions` | 95 | u8[8] | 10 x 46 |  | type only |  | [0, 0, 0, 0, 0, 0, ...] | Decimal places of each page slot. |
+| `page_precisions` | 95 | u8[8] | 10 x 46 |  | 0 to 3 |  | [0, 0, 0, 0, 0, 0, ...] | Decimal places of each page slot, 0 to 3. |
 | `page_values` | 103 | i16[8] | 10 x 46 |  | type only |  | [0, 100, 0, 100, 0, 100, ...] | Template parameters of each page slot. |
 | `standby_conditions` | 533 | u8 |  |  | mask 0xB |  | 11 | Bit 0: standby without USB connection. Bit 1: standby on USB suspend. Bit 3: disable the alarm actions during standby (set: disabled). |
 | `alarm_start_delay` | 534 | u8 |  |  | type only |  | 5 | Alarm start timeout. aquasuite keeps the byte as read. Unit not defined in the code. |
@@ -302,7 +302,7 @@ aquasuite reads the struct, changes the fields of the user, and writes back ever
 | `led_controller_color_hue` | 620 | u16 | 2 x 70, 6 x 4 |  | 0 to 360 deg |  | [0, 0, 0, 0, 0, 0, ...] | Hue of each of the 6 colors. |
 | `led_controller_color_saturation` | 622 | u8 | 2 x 70, 6 x 4 |  | type only |  | [255, 0, 0, 0, 0, 0, ...] | Saturation of each of the 6 colors. |
 | `led_controller_color_value` | 623 | u8 | 2 x 70, 6 x 4 |  | type only |  | [255, 0, 0, 0, 0, 0, ...] | Value (brightness) of each of the 6 colors. |
-| `shield_flags` | 714 | i16 |  |  | mask 0xFF |  | 127 | Bit 1: time-controlled vacuum on. Bit 2: compensate the pressure equalisation membrane. Bit 3: adaptive pressure. Bit 4: default settings (clear: custom settings). Bit 5: standby pressure. Bit 6: permanent alarm buzzer. Bit 7: alarm buzzer off. Bit 0 is not defined in the code; aquasuite keeps it. |
+| `shield_flags` | 714 | i16 |  |  | mask 0xFF |  | 127 | Bit 1: time-controlled vacuum on. Bit 2: compensate the pressure equalisation membrane. Bit 3: adaptive pressure. Bit 4: default settings (clear: custom settings). Bit 5: standby pressure. Bit 6: the alarm buzzer sounds until the user confirms. Bit 7: the alarm buzzer is off for all alarms. Bit 0 is not defined in the code; aquasuite keeps it. |
 | `vacuum_timer_start_hour` | 716 | u8 | 2 x 2 |  | 0 to 23 h |  | [9, 18] | Start of each of the 2 time-controlled vacuum windows. |
 | `vacuum_timer_start_minute` | 717 | u8 | 2 x 2 |  | 0 to 59 min |  | [0, 0] | Start minute of each window. |
 | `vacuum_timer_end_hour` | 720 | u8 | 2 x 2 |  | 0 to 23 h |  | [9, 18] | End of each window. aquasuite writes the start plus 1 min. |
