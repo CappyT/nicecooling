@@ -248,3 +248,82 @@ fn the_asset_source_has_every_icon() {
     }
     assert!(Assets.list("nc/").expect("list").len() == NcIcon::ALL.len());
 }
+
+/// At the minimum window size a long event name of the alarm response table truncates in its
+/// cell: it does not reach the Source cell.
+#[gpui::test]
+fn a_long_event_name_stays_in_its_cell(cx: &mut TestAppContext) {
+    use nicecooling::screens::alarms::{AlarmsModel, AlarmsUi};
+    use nicecooling::screens::{Feedback, ScreenInput};
+
+    let (model, rig) = start(cx, StartMode::Normal);
+    let mut state = support::fixtures::with_leakshield();
+    state.snapshot.responses = ["leakshield.leak-warning", "leakshield-unknown-firmware"]
+        .into_iter()
+        .map(|event| nicecooling::model::ResponseRule {
+            event: event.to_owned(),
+            source: String::new(),
+            response: Response::Notify,
+            delay_s: 30,
+            overridden: false,
+        })
+        .collect();
+    rig.events
+        .send(DaemonEvent::Snapshot(Box::new(state.snapshot.clone())))
+        .unwrap();
+    cx.update(|cx| {
+        model.update(cx, |app, cx| {
+            app.page = Page::Alarms;
+            cx.notify();
+        });
+    });
+    let handle = cx.windows()[0];
+    cx.simulate_window_resize(handle, gpui::size(gpui::px(1100.), gpui::px(700.)));
+    cx.run_until_parked();
+    let mut visual = VisualTestContext::from_window(handle, cx);
+    visual.update(|window, cx| window.draw(cx).clear(cx));
+
+    let feedback = Feedback::default();
+    let rows = AlarmsModel::build(
+        &ScreenInput {
+            state: &state,
+            now_us: support::fixtures::NOW_US,
+            locale: nicecooling::i18n::EN,
+            down_since_us: None,
+            feedback: &feedback,
+        },
+        &AlarmsUi::default(),
+    );
+    let mut checked = 0;
+    for row in rows.responses.groups.iter().flat_map(|group| &group.rows) {
+        let name = |part: &str| -> &'static str {
+            Box::leak(format!("response-{part}-{}", row.key).into_boxed_str())
+        };
+        let cells = (
+            visual.debug_bounds(name("title")),
+            visual.debug_bounds(name("source")),
+        );
+        if let (Some(title), Some(source)) = cells {
+            assert!(
+                title.right() <= source.left(),
+                "{}: the name ends at {:?}, the Source cell starts at {:?}",
+                row.title,
+                title.right(),
+                source.left()
+            );
+            checked += 1;
+        }
+    }
+    assert_eq!(checked, 2, "the rows of the alarm response table");
+    let titles: Vec<_> = rows
+        .responses
+        .groups
+        .iter()
+        .flat_map(|group| &group.rows)
+        .map(|row| row.title.as_str())
+        .collect();
+    assert!(
+        titles.contains(&"Leakshield firmware not covered"),
+        "{titles:?}"
+    );
+}

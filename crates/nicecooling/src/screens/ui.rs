@@ -51,16 +51,67 @@ pub fn tag(text: impl Into<SharedString>, kind: TagKind, p: &Palette) -> Div {
         .child(text.into())
 }
 
-/// 12 px text in `fg-dim`.
+/// 12 px text in `fg-dim`. In a row it takes the width that is left and wraps there.
 pub fn caption(text: impl Into<SharedString>, p: &Palette) -> Div {
     div()
+        .min_w_0()
         .text_size(px(12.))
+        .line_height(px(16.))
         .text_color(p.fg_dim)
         .child(text.into())
 }
 
 pub fn heading(text: impl Into<SharedString>) -> Div {
-    div().font_weight(FontWeight::BOLD).child(text.into())
+    div()
+        .min_w_0()
+        .font_weight(FontWeight::BOLD)
+        .child(text.into())
+}
+
+// A text that is a direct child of a row keeps its full width: GPUI gives it no smaller
+// minimum, so it runs into the next cell. The helpers below put each text in a box that can
+// shrink (`min_w_0`), as `DESIGN.md` asks: a long name truncates with an ellipsis and the
+// value next to it keeps its width.
+
+/// A table cell with a fixed width. Its text stays on one line and truncates.
+pub fn cell(width: f32) -> Div {
+    div().w(px(width)).flex_none().min_w_0().truncate()
+}
+
+/// The table cell that takes the rest of the row. Its text stays on one line and truncates.
+pub fn wide_cell() -> Div {
+    div().flex_1().min_w_0().truncate()
+}
+
+/// A text next to an icon or a control in a row: it shrinks and truncates.
+pub fn label(text: impl Into<SharedString>) -> Div {
+    div().min_w_0().truncate().child(text.into())
+}
+
+/// The header line of a table: 12 px bold text in `fg-dim`. `widths` has one entry per
+/// title. `None` is the cell that takes the rest of the row.
+pub fn table_header(titles: &[String], widths: &[Option<f32>], p: &Palette) -> Div {
+    let mut line = h_flex()
+        .w_full()
+        .px(px(18.))
+        .py(px(6.))
+        .gap(px(12.))
+        .border_t_1()
+        .border_color(p.border)
+        .text_size(px(12.))
+        .line_height(px(16.))
+        .font_weight(FontWeight::BOLD)
+        .text_color(p.fg_dim);
+    for (title, width) in titles.iter().zip(widths) {
+        line = line.child(
+            match width {
+                Some(width) => cell(*width),
+                None => wide_cell(),
+            }
+            .child(title.clone()),
+        );
+    }
+    line
 }
 
 /// A card: the `card` fill and 12 px radius. The light theme has the Adwaita card shadow. The
@@ -211,5 +262,5 @@ pub fn notice_row(text: impl Into<SharedString>, warning: bool, p: &Palette) -> 
         } else {
             icon(NcIcon::Info, p.fg_dim)
         })
-        .child(div().flex_1().child(text.into()))
+        .child(div().flex_1().min_w_0().child(text.into()))
 }

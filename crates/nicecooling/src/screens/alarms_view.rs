@@ -18,7 +18,8 @@ use crate::screens::alarms::{
 };
 use crate::screens::controls::{Pick, act};
 use crate::screens::ui::{
-    caption, card, card_header, card_row, modal, page, severity_icon, write_line,
+    caption, card, card_header, card_row, cell, label, modal, page, severity_icon, table_header,
+    wide_cell, write_line,
 };
 use crate::tokens::Palette;
 
@@ -54,8 +55,7 @@ impl ScreenView {
                     .child(text.clone()),
             );
         } else {
-            active_card =
-                active_card.child(columns(&active.columns, &[160., 190., 90., 200., 180.], p));
+            active_card = active_card.child(table_header(&active.columns, &ACTIVE_COLUMNS, p));
         }
         for (index, row) in active.rows.iter().enumerate() {
             active_card = active_card.child(self.active_row(index, row, p, cx));
@@ -72,7 +72,7 @@ impl ScreenView {
             );
         }
         responses_card =
-            responses_card.child(columns(&responses.columns, &[230., 140., 220., 100.], p));
+            responses_card.child(table_header(&responses.columns, &RESPONSE_COLUMNS, p));
         for group in &responses.groups {
             responses_card =
                 responses_card.child(self.response_group(group, responses.enabled, p, window, cx));
@@ -120,11 +120,7 @@ impl ScreenView {
         if let Some(text) = &history.empty {
             history_card = history_card.child(card_row(p).child(text.clone()));
         } else {
-            history_card = history_card.child(columns(
-                &history.columns,
-                &[150., 190., 190., 110., 220.],
-                p,
-            ));
+            history_card = history_card.child(table_header(&history.columns, &HISTORY_COLUMNS, p));
         }
         for (index, row) in history.rows.iter().enumerate() {
             history_card = history_card.child(self.history_row(index, row, p, &view));
@@ -165,19 +161,22 @@ impl ScreenView {
                 }
             }))
             .child(
-                h_flex()
-                    .w(px(160.))
-                    .gap(px(6.))
-                    .child(severity_icon(row.severity, p))
-                    .child(div().font_weight(FontWeight::BOLD).child(row.event.clone())),
+                wide_cell().child(
+                    h_flex()
+                        .gap(px(6.))
+                        .child(severity_icon(row.severity, p))
+                        .child(label(row.event.clone()).font_weight(FontWeight::BOLD)),
+                ),
             )
-            .child(div().w(px(190.)).child(row.source.clone()))
-            .child(div().w(px(90.)).child(row.since.clone()))
-            .child(div().w(px(200.)).child(row.value.clone()))
+            .child(cell(SOURCE).child(row.source.clone()))
+            .child(cell(90.).child(row.since.clone()))
+            .child(cell(170.).child(row.value.clone()))
             .child(
                 v_flex()
-                    .flex_1()
-                    .child(div().child(row.response.clone()))
+                    .w(px(240.))
+                    .flex_none()
+                    .min_w_0()
+                    .child(label(row.response.clone()))
                     .children(row.countdown.clone().map(|text| {
                         div()
                             .text_color(p.alarm)
@@ -274,23 +273,33 @@ impl ScreenView {
             window,
             cx,
         );
-        let mut line = card_row(p)
+        let line = card_row(p)
             .child(
-                h_flex()
-                    .w(px(230.))
-                    .gap(px(6.))
-                    .child(severity_icon(row.severity, p))
-                    .child(row.title.clone()),
+                wide_cell().child(
+                    h_flex()
+                        .gap(px(6.))
+                        .child(severity_icon(row.severity, p))
+                        .child(label(row.title.clone()).debug_selector({
+                            let key = row.key.clone();
+                            move || format!("response-title-{key}")
+                        })),
+                ),
             )
-            .child(div().w(px(140.)).child(group.to_owned()))
-            .child(div().w(px(220.)).child(select))
+            .child(cell(SOURCE).child(group.to_owned()).debug_selector({
+                let key = row.key.clone();
+                move || format!("response-source-{key}")
+            }))
+            .child(div().w(px(RESPONSE)).flex_none().child(select))
             .child(
                 div()
-                    .w(px(100.))
+                    .w(px(DELAY))
+                    .flex_none()
                     .child(Input::new(&delay).disabled(!row.delay_enabled)),
             );
+        // The notes of the row: the overlap mark, "Reset" and the write feedback.
+        let mut notes = h_flex().w(px(NOTES)).flex_none().min_w_0().gap(px(6.));
         if let Some(text) = row.overlap.clone() {
-            line = line.child(
+            notes = notes.child(
                 div()
                     .id(SharedString::from(format!("response-overlap-{}", row.key)))
                     .tooltip(move |window, cx| Tooltip::new(text.clone()).build(window, cx))
@@ -298,7 +307,7 @@ impl ScreenView {
             );
         }
         if let Some(command) = row.reset.clone() {
-            line = line.child(
+            notes = notes.child(
                 Self::link_button(
                     SharedString::from(format!("response-reset-{}", row.key)),
                     locale.tr("alarms.reset"),
@@ -307,15 +316,15 @@ impl ScreenView {
             );
         }
         if let Some(write) = &row.write_line {
-            line = line.child(write_line(write, p));
+            notes = notes.child(write_line(write, p));
         }
-        let mut column = v_flex().w_full().child(line);
+        let mut column = v_flex().w_full().child(line.child(notes));
         if let Some(text) = &row.delay_warning {
             column = column.child(
                 card_row(p)
                     .bg(p.warning_tint)
                     .child(severity_icon(Severity::Warning, p))
-                    .child(text.clone()),
+                    .child(div().flex_1().min_w_0().child(text.clone())),
             );
         }
         column.into_any_element()
@@ -344,43 +353,35 @@ impl ScreenView {
                 Some(sensor) => this.open_history_for(&sensor, cx),
                 None => this.go(crate::shell::Page::History, cx),
             }))
-            .child(div().w(px(150.)).child(row.time.clone()))
+            .child(cell(150.).child(row.time.clone()))
             .child(
-                h_flex()
-                    .w(px(190.))
-                    .gap(px(6.))
-                    .child(severity_icon(row.severity, p))
-                    .child(row.event.clone()),
+                wide_cell().child(
+                    h_flex()
+                        .gap(px(6.))
+                        .child(severity_icon(row.severity, p))
+                        .child(label(row.event.clone())),
+                ),
             )
-            .child(div().w(px(190.)).child(row.source.clone()))
-            .child(div().w(px(110.)).child(row.duration.clone()))
-            .child(div().flex_1().child(row.response.clone()))
+            .child(cell(SOURCE).child(row.source.clone()))
+            .child(cell(110.).child(row.duration.clone()))
+            .child(cell(240.).child(row.response.clone()))
             .into_any_element()
     }
 }
 
-/// The header line of a table.
-fn columns(titles: &[String], widths: &[f32], p: &Palette) -> AnyElement {
-    let mut line = h_flex()
-        .w_full()
-        .px(px(18.))
-        .py(px(6.))
-        .gap(px(12.))
-        .border_t_1()
-        .border_color(p.border)
-        .text_size(px(12.))
-        .font_weight(FontWeight::BOLD)
-        .text_color(p.fg_dim);
-    for (index, title) in titles.iter().enumerate() {
-        line = match widths.get(index) {
-            Some(width) if index + 1 < titles.len() => {
-                line.child(div().w(px(*width)).child(title.clone()))
-            }
-            _ => line.child(div().flex_1().child(title.clone())),
-        };
-    }
-    line.into_any_element()
-}
+/// The widths of the table cells. `None` is the Event cell: it takes the rest of the row.
+const SOURCE: f32 = 170.;
+const RESPONSE: f32 = 200.;
+const DELAY: f32 = 80.;
+const NOTES: f32 = 150.;
+const ACTIVE_COLUMNS: [Option<f32>; 5] = [None, Some(SOURCE), Some(90.), Some(170.), Some(240.)];
+const RESPONSE_COLUMNS: [Option<f32>; 4] = [
+    None,
+    Some(SOURCE),
+    Some(RESPONSE),
+    Some(DELAY + 12. + NOTES),
+];
+const HISTORY_COLUMNS: [Option<f32>; 5] = [Some(150.), None, Some(SOURCE), Some(110.), Some(240.)];
 
 /// The countdown dialog: 440 px over the scrim, with the focus on "Cancel poweroff".
 pub fn countdown_overlay(
