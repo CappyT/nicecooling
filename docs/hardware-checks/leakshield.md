@@ -19,7 +19,7 @@ The check writes the device: `SetFields`, `RestoreBackup`, `ResetAlarms`. It als
 - The Loop `loop_1` exists. Its Pump channel is `nct6798_pwm6`, its flow sensor is `asusec_fan2` with the table `alphacool_17558`, and its Leakshield is `leakshield_20417_31072`.
 - The out-of-tree driver is not loaded: `modinfo -n aquacomputer_d5next` prints a path under `kernel/drivers/hwmon/`, and `dkms status` lists no `aquacomputer`. The in-tree driver gives the hwmon device `leakshield`.
 - `jq`, `xxd` and `rg` are installed.
-- A second terminal runs `busctl --system monitor io.github.cappyt.NiceCooling1` for the whole check. It prints `ExternalChange` and `WriteFailed`.
+- A second terminal runs `sudo busctl --system monitor io.github.cappyt.NiceCooling1` for the whole check: a monitor of the system bus needs root. It prints `ExternalChange` and `WriteFailed`.
 
 ## Shell variables
 
