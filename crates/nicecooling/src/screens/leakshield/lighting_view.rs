@@ -12,11 +12,11 @@ use crate::screen_view::{InputKey, ScreenView, skeleton};
 use crate::screens::controls::{Pick, act};
 use crate::screens::leakshield::TabState;
 use crate::screens::leakshield::lighting::{Hsv, LightingModel, ToolbarButton};
+use crate::screens::leakshield::parts::{field_input, field_row, small_button};
 use crate::screens::ui::{
     caption, card, card_header, card_row, modal, notice_row, page, write_line,
 };
 use crate::tokens::Palette;
-use gpui_component::input::Input;
 use gpui_component::slider::Slider;
 
 /// The color of an LED cell: hue 0 to 360, saturation and value 0 to 255.
@@ -35,9 +35,7 @@ fn toolbar(
     handler: impl Fn(&mut ScreenView, &mut Context<ScreenView>) + 'static,
     view: &gpui::Entity<ScreenView>,
 ) -> Button {
-    let mut b = Button::new(SharedString::from(id.to_owned()))
-        .small()
-        .label(button.label.clone())
+    let mut b = small_button(SharedString::from(id.to_owned()), button.label.clone())
         .disabled(!button.enabled)
         .on_click(act(view, move |this, _, cx| handler(this, cx)));
     if let Some(tooltip) = &button.tooltip {
@@ -133,7 +131,7 @@ impl ScreenView {
                     .bg(if cell.lit { color(cell.color) } else { p.track }),
             );
         }
-        let mut timeline = v_flex().gap(px(4.)).p(px(12.)).child(cells);
+        let mut timeline = v_flex().gap(px(6.)).px(px(18.)).pb(px(12.)).child(cells);
         for bar in &model.bars {
             let index = bar.index;
             let view = view.clone();
@@ -162,7 +160,13 @@ impl ScreenView {
                 h_flex()
                     .relative()
                     .h(px(28.))
-                    .child(div().w(px(116.)).child(bar.title.clone()))
+                    .child(
+                        div()
+                            .w(px(116.))
+                            .truncate()
+                            .font_weight(FontWeight::BOLD)
+                            .child(bar.title.clone()),
+                    )
                     .child(swatch)
                     .when_some(bar.covered_by.clone(), |row, text| {
                         row.child(div().absolute().right_0().child(caption(text, p)))
@@ -177,17 +181,17 @@ impl ScreenView {
                     .items_center()
                     .child(text.clone())
                     .child(
-                        Button::new("ls-led-add-first")
-                            .small()
-                            .label(button.clone())
-                            .on_click(act(&view, move |this, _, cx| {
+                        small_button("ls-led-add-first", button.clone()).on_click(act(
+                            &view,
+                            move |this, _, cx| {
                                 let mut ui = std::mem::take(&mut this.leakshield.lighting);
                                 let command = this.with_input(cx, |input| ui.add(input, &device));
                                 this.leakshield.lighting = ui;
                                 if let Some(command) = command {
                                     this.send(command);
                                 }
-                            })),
+                            },
+                        )),
                     ),
             );
         }
@@ -195,25 +199,27 @@ impl ScreenView {
             card(p)
                 .child(card_header(model.title.clone(), p).child(tools))
                 .child(timeline)
-                .child(card_row(p).child(caption(model.priority_hint.clone(), p)))
-                .child(card_row(p).child(caption(model.external.clone(), p))),
+                .child(
+                    v_flex()
+                        .px(px(18.))
+                        .pb(px(12.))
+                        .gap(px(3.))
+                        .child(caption(model.priority_hint.clone(), p))
+                        .child(caption(model.external.clone(), p)),
+                ),
         );
         if let Some((text, button)) = &model.undo {
             let device = id.to_owned();
-            content = content.child(
-                card(p).child(
-                    notice_row(text.clone(), false, p).child(
-                        Button::new("ls-led-undo")
-                            .small()
-                            .label(button.clone())
-                            .on_click(act(&view, move |this, _, _| {
-                                if let Some(command) = this.leakshield.lighting.undo(&device) {
-                                    this.send(command);
-                                }
-                            })),
-                    ),
-                ),
-            );
+            content = content.child(card(p).child(notice_row(text.clone(), false, p).child(
+                small_button("ls-led-undo", button.clone()).on_click(act(
+                    &view,
+                    move |this, _, _| {
+                        if let Some(command) = this.leakshield.lighting.undo(&device) {
+                            this.send(command);
+                        }
+                    },
+                )),
+            )));
         }
 
         if let Some(panel) = &model.panel {
@@ -276,9 +282,7 @@ impl ScreenView {
                 String::new(),
                 vec![list.into_any_element()],
                 vec![
-                    Button::new("ls-effect-cancel")
-                        .small()
-                        .label(picker.cancel.clone())
+                    small_button("ls-effect-cancel", picker.cancel.clone())
                         .on_click(act(&cancel, |this, _, _| {
                             this.leakshield.lighting.effect_picker = None
                         }))
@@ -315,20 +319,20 @@ impl ScreenView {
         let view = cx.entity();
         let locale = self.model.read(cx).locale;
         let enabled = panel.writable;
+        let name = |text: &str| {
+            div()
+                .flex_1()
+                .min_w_0()
+                .font_weight(FontWeight::BOLD)
+                .child(text.to_owned())
+        };
         let mut body = card(p).child(card_header(panel.title.clone(), p));
         body = body.child(
-            card_row(p)
+            field_row(p)
+                .child(name(&panel.effect_label))
+                .child(div().flex_none().child(panel.effect.clone()))
                 .child(
-                    div()
-                        .w(px(160.))
-                        .font_weight(FontWeight::BOLD)
-                        .child(panel.effect_label.clone()),
-                )
-                .child(div().flex_1().child(panel.effect.clone()))
-                .child(
-                    Button::new("ls-effect-change")
-                        .small()
-                        .label(panel.change.clone())
+                    small_button("ls-effect-change", panel.change.clone())
                         .disabled(!enabled)
                         .on_click(act(&view, |this, _, _| {
                             this.leakshield.lighting.effect_picker = Some("fixed-color".to_owned())
@@ -394,25 +398,11 @@ impl ScreenView {
             );
         }
         body = body.child(
-            card_row(p)
-                .child(
-                    div()
-                        .w(px(160.))
-                        .font_weight(FontWeight::BOLD)
-                        .child(panel.range_label.clone()),
-                )
-                .child(
-                    div()
-                        .w(px(70.))
-                        .child(Input::new(&first).disabled(!enabled)),
-                )
-                .child(
-                    div()
-                        .w(px(70.))
-                        .child(Input::new(&count).disabled(!enabled)),
-                )
-                .child(div().flex_1())
-                .child(buttons),
+            field_row(p)
+                .child(name(&panel.range_label))
+                .child(buttons)
+                .child(field_input(&first, "", enabled, false, 70., p, window, cx))
+                .child(field_input(&count, "", enabled, false, 70., p, window, cx)),
         );
         for (index, (label, value)) in [
             (&panel.speed_label, panel.speed),
@@ -429,17 +419,20 @@ impl ScreenView {
                 cx,
             );
             body = body.child(
-                card_row(p)
-                    .child(div().w(px(160.)).child((*label).clone()))
+                field_row(p)
+                    .child(name(label))
                     .child(
                         div()
-                            .flex_1()
+                            .w(px(260.))
+                            .flex_none()
                             .child(Slider::new(&slider).disabled(!enabled)),
                     )
                     .child(
                         div()
-                            .w(px(50.))
+                            .w(px(40.))
+                            .flex_none()
                             .text_right()
+                            .font_weight(FontWeight::BOLD)
                             .child(format!("{}", *value as i64)),
                     ),
             );
@@ -458,19 +451,17 @@ impl ScreenView {
                     .gap(px(4.))
                     .child(
                         div()
-                            .w(px(24.))
-                            .h(px(24.))
-                            .rounded(px(4.))
+                            .size(px(28.))
+                            .flex_none()
+                            .rounded(px(7.))
+                            .border_1()
+                            .border_color(p.border)
                             .bg(color(*value)),
                     )
-                    .child(div().w(px(70.)).child(Input::new(&hue).disabled(!enabled))),
+                    .child(field_input(&hue, "°", enabled, false, 80., p, window, cx)),
             );
         }
-        body = body.child(
-            card_row(p)
-                .child(div().w(px(160.)).child(panel.color_label.clone()))
-                .child(colors),
-        );
+        body = body.child(field_row(p).child(name(&panel.color_label)).child(colors));
         // The sensor that drives the effect.
         let pick: Pick = {
             let device = id.to_owned();
@@ -500,11 +491,7 @@ impl ScreenView {
             .find(|(_, _, selected)| *selected)
             .map_or_else(String::new, |(_, text, _)| text.clone());
         let select = self.select("ls-led-source", &shown, options, enabled, "", pick, p, cx);
-        body = body.child(
-            card_row(p)
-                .child(div().w(px(160.)).child(panel.driven_label.clone()))
-                .child(select),
-        );
+        body = body.child(field_row(p).child(name(&panel.driven_label)).child(select));
         body.into_any_element()
     }
 }
