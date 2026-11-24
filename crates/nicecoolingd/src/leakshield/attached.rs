@@ -552,6 +552,7 @@ impl Attached {
     pub fn set_mode(&self, mode: &str, slots: &SlotStore) -> Result<()> {
         let mode = Mode::parse(mode)
             .ok_or_else(|| Error::invalid(format!("{mode:?} is not shield, monitor or release")))?;
+        let mut task = self.mode_store.lock().unwrap();
         self.send(
             mode::set_mode_command(&self.registry, mode.code()),
             COMMAND_DELAY,
@@ -565,7 +566,6 @@ impl Attached {
             leakshield: self.id(),
         };
         // A newer Mode replaces the wait for the older one.
-        let mut task = self.mode_store.lock().unwrap();
         if let Some(older) = task.take() {
             older.abort();
         }

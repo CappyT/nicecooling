@@ -60,6 +60,13 @@ impl LastKnown {
             .store(code.unwrap_or(0), Ordering::Relaxed);
     }
 
+    /// Ends the wait for `code` only: a newer `SetMode` may expect another code already.
+    pub fn end_expected_mode(&self, code: u8) {
+        let _ = self
+            .expected_mode
+            .compare_exchange(code, 0, Ordering::Relaxed, Ordering::Relaxed);
+    }
+
     fn expected_mode(&self) -> Option<u8> {
         Some(self.expected_mode.load(Ordering::Relaxed)).filter(|&code| code != 0)
     }

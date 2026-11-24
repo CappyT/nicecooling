@@ -140,13 +140,13 @@ pub async fn follow_default_mode(store: ModeStore, code: u8) {
         tokio::time::sleep(STORE_POLL).await;
         match blocking(|| store.store(code)) {
             Ok(true) | Err(DeviceError::Disconnected) => {
-                store.last_known.expect_mode(None);
+                store.last_known.end_expected_mode(code);
                 return;
             }
             Ok(false) | Err(_) => {}
         }
     }
-    store.last_known.expect_mode(None);
+    store.last_known.end_expected_mode(code);
     eprintln!(
         "nicecoolingd: {} did not store the Mode {code} in report 3 within {} s",
         store.leakshield,
