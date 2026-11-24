@@ -1,6 +1,7 @@
-//! The Verification tool (task 5.12, `docs/hardware-checks/verification-writes.md`). It runs one
-//! Verification write on a Safety field of the reference Leakshield and prints the change that the
-//! registry needs. The daemon must not run: the tool refuses while it owns the bus name.
+//! The Verification tool (task 5.12, `docs/hardware-checks/verification-writes.md`). It runs the
+//! Verification writes of one or more Safety fields of the reference Leakshield with one replug and
+//! prints the change that the registry needs. The daemon must not run: the tool refuses while it
+//! owns the bus name.
 
 use std::collections::BTreeSet;
 use std::fmt;
@@ -27,7 +28,7 @@ use nicecoolingd::sources::usb::{NusbBus, UsbBus};
 mod tests;
 
 const USAGE: &str = "usage: nicecooling-verify --field <field id> --value <raw value> \
---confirm-serial <serial> [--state-dir <dir>]";
+[--field <field id> --value <raw value> ...] --confirm-serial <serial> [--state-dir <dir>]";
 
 /// The code does not define the values of these fields, so no test value is safe (owner decision,
 /// gate 2.14). They stay read-only.
@@ -39,11 +40,18 @@ const REOPEN_POLL: Duration = Duration::from_millis(250);
 
 const REGISTRY_FILE: &str = "crates/nicecooling-protocol/registry/leakshield.toml";
 
+/// One field under test and its test value.
 #[derive(Debug, Clone)]
-pub struct Options {
+pub struct Pair {
     pub field: String,
     /// The raw value to write. For a field with repeats it goes to copy 0 only.
     pub value: i64,
+}
+
+#[derive(Debug, Clone)]
+pub struct Options {
+    /// The fields of the group, in the order of the command line.
+    pub pairs: Vec<Pair>,
     pub confirm_serial: Option<String>,
     /// Where the backups go: the state directory of the daemon, so that the daemon can restore them.
     pub state_dir: PathBuf,
@@ -53,16 +61,16 @@ pub struct Options {
 }
 
 fn parse_args(args: impl Iterator<Item = String>) -> Result<Options, String> {
-    let (mut field, mut value, mut confirm_serial) = (None, None, None);
+    let (mut fields, mut values, mut confirm_serial) = (Vec::new(), Vec::new(), None);
     let mut state_dir = PathBuf::from("/var/lib/nicecooling");
     let mut args = args;
     while let Some(arg) = args.next() {
         let mut next = |what: &str| args.next().ok_or(format!("{arg} needs {what}"));
         match arg.as_str() {
-            "--field" => field = Some(next("a field id")?),
+            "--field" => fields.push(next("a field id")?),
             "--value" => {
                 let text = next("a raw value")?;
-                value = Some(
+                values.push(
                     text.parse::<i64>()
                         .map_err(|_| format!("{text:?} is not an integer"))?,
                 );
@@ -72,9 +80,26 @@ fn parse_args(args: impl Iterator<Item = String>) -> Result<Options, String> {
             other => return Err(format!("unknown argument {other}")),
         }
     }
+    if fields.is_empty() {
+        return Err("--field is required".to_owned());
+    }
+    if values.is_empty() {
+        return Err("--value is required".to_owned());
+    }
+    if fields.len() != values.len() {
+        return Err(format!(
+            "{} --field but {} --value: each --field needs its own --value",
+            fields.len(),
+            values.len()
+        ));
+    }
+    let pairs = fields
+        .into_iter()
+        .zip(values)
+        .map(|(field, value)| Pair { field, value })
+        .collect();
     Ok(Options {
-        field: field.ok_or("--field is required")?,
-        value: value.ok_or("--value is required")?,
+        pairs,
         confirm_serial,
         state_dir,
         save_delay: SAVE_SETTINGS_DELAY,
@@ -88,6 +113,7 @@ pub enum Error {
     MissingConfirmSerial,
     NameOwned,
     SystemBus(zbus::Error),
+    DuplicateField(String),
     UnknownField(String),
     NotSafetyField(String),
     NoSafeTestValue(String),
@@ -132,6 +158,9 @@ impl fmt::Display for Error {
                 f,
                 "cannot ask the system bus, so the tool cannot tell that the daemon is stopped: {e}"
             ),
+            Self::DuplicateField(id) => {
+                write!(f, "{id} is in the group twice: each field needs one pair")
+            }
             Self::UnknownField(id) => write!(f, "the registry has no field {id}"),
             Self::NotSafetyField(id) => {
                 write!(
@@ -186,6 +215,18 @@ impl std::error::Error for Error {}
 pub enum Verdict {
     Pass,
     Failed(String),
+    /// The run stopped before it tested the field to the end.
+    NotRun,
+}
+
+impl fmt::Display for Verdict {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Pass => write!(f, "Pass"),
+            Self::Failed(why) => write!(f, "Failed({why})"),
+            Self::NotRun => write!(f, "NotRun"),
+        }
+    }
 }
 
 /// How the operator replugs the USB cable. The tests replug the simulated device.
@@ -212,10 +253,36 @@ impl Replug for Terminal {
     }
 }
 
-/// Stops the run: `Failed` is a result on the field, `Error` is a step that gave none.
+/// Stops the run: `Failed` is a result on every field of the group, `Error` is a step that gave
+/// none.
 enum Stop {
     Failed(String),
     Error(String),
+}
+
+/// A field of the group with its test value.
+#[derive(Clone)]
+struct Plan {
+    field: Field,
+    value: i64,
+    /// The state of the field in the compiled-in registry.
+    from: VerificationState,
+}
+
+impl Plan {
+    fn first_offset(&self) -> usize {
+        self.field.element_offsets()[0]
+    }
+
+    /// The bytes that the write changes.
+    fn bytes(&self) -> std::ops::Range<usize> {
+        let first = self.first_offset();
+        first..first + self.field.value_type.scalar.size()
+    }
+
+    fn holds(&self, report: &Report3) -> bool {
+        self.field.read_raw(report, self.first_offset()) == self.value
+    }
 }
 
 fn state_name(state: VerificationState) -> &'static str {
@@ -309,18 +376,16 @@ struct Check<'a> {
     bus: &'a dyn UsbBus,
     opts: &'a Options,
     serial: &'a str,
-    /// The compiled-in registry with the tested field forced writable. Only the tool holds it.
+    /// The compiled-in registry with the tested fields forced writable. Only the tool holds it.
     registry: Registry,
     backups: Backups,
     backup: String,
     /// Report 3 of the backup.
     original: Report3,
-    field: Field,
-    /// Offsets of the bytes that the write changes.
-    expected: BTreeSet<usize>,
+    plans: Vec<Plan>,
     io: DeviceIo,
     report1: Report1,
-    /// True once the device may hold the test value.
+    /// True once the device may hold a test value.
     touched: bool,
     say: &'a mut dyn Write,
     replug: &'a mut dyn Replug,
@@ -340,21 +405,16 @@ impl Check<'_> {
         }
     }
 
-    fn first_offset(&self) -> usize {
-        self.field.element_offsets()[0]
-    }
-
-    /// Offsets that differ from the backup and that the write does not explain.
-    fn unexpected(&self, report: &Report3) -> Vec<usize> {
+    /// Offsets that differ from the backup and that the writes of the first `written` fields do not
+    /// explain.
+    fn unexpected(&self, report: &Report3, written: usize) -> Vec<usize> {
+        let explained: BTreeSet<usize> =
+            self.plans[..written].iter().flat_map(Plan::bytes).collect();
         report
             .differing_offsets(&self.original, &self.registry.report3.volatile_mask)
             .into_iter()
-            .filter(|offset| !self.expected.contains(offset))
+            .filter(|offset| !explained.contains(offset))
             .collect()
-    }
-
-    fn holds_test_value(&self, report: &Report3) -> bool {
-        self.field.read_raw(report, self.first_offset()) == self.opts.value
     }
 
     fn read_report3(&self) -> Result<Report3, Stop> {
@@ -378,69 +438,121 @@ impl Check<'_> {
             .map_err(|e| format!("save-settings command: {e}"))
     }
 
-    fn check_held(&self, report: &Report3, when: &str) -> Result<(), Stop> {
-        let extra = self.unexpected(report);
+    /// The verdicts of a write that failed: only field `index` has a result.
+    fn failed_at(&self, index: usize, why: String) -> Vec<Verdict> {
+        let mut verdicts = vec![Verdict::NotRun; self.plans.len()];
+        verdicts[index] = Verdict::Failed(why);
+        verdicts
+    }
+
+    /// The device after the write of field `index`: only the bytes of the fields written so far
+    /// differ from the backup, and the field holds its test value.
+    fn check_step(&self, report: &Report3, index: usize) -> Result<(), String> {
+        let extra = self.unexpected(report, index + 1);
         if !extra.is_empty() {
-            return Err(Stop::Failed(format!(
-                "{when}: bytes changed that the write does not explain, at offsets {extra:?}"
-            )));
+            return Err(format!(
+                "read-back after the write: bytes changed that the write does not explain, at \
+                 offsets {extra:?}"
+            ));
         }
-        if !self.holds_test_value(report) {
-            return Err(Stop::Failed(format!(
-                "{when}: the field does not hold the test value"
-            )));
+        if !self.plans[index].holds(report) {
+            return Err(
+                "read-back after the write: the field does not hold the test value".to_owned(),
+            );
         }
         Ok(())
     }
 
-    /// Write, save-settings, read back, replug, read back.
-    fn exercise(&mut self) -> Result<(), Stop> {
-        let offsets = self.field.element_offsets();
-        let mut raw: Vec<i64> = offsets
-            .iter()
-            .map(|&o| self.field.read_raw(&self.original, o))
-            .collect();
-        let before = raw[0];
-        raw[0] = self.opts.value;
-        let edit = FieldEdit {
-            field: self.field.id.clone(),
-            raw,
-        };
-        self.line(format!(
-            "write: {} {before} -> {} at offset {}",
-            self.field.id,
-            self.opts.value,
-            self.first_offset()
-        ));
-        let written = write_fields(
-            &self.env(),
-            &self.report1,
-            &self.original,
-            &[edit],
-            now_us(),
-        );
-        // These errors come before the first report 3 write: the device holds the backup bytes.
-        self.touched = !matches!(
-            written,
-            Err(WriteError::Refused(_)
-                | WriteError::OutOfRange { .. }
-                | WriteError::DeviceChanged
-                | WriteError::Backup(_)
-                | WriteError::NotSupported)
-        );
-        match written {
-            Ok(_) => {}
-            Err(WriteError::VerifyFailed { offsets, .. }) => {
-                return Err(Stop::Failed(format!(
-                    "the read-back differs from the written report at offsets {offsets:?}"
-                )));
-            }
-            Err(e) => return Err(Stop::Error(format!("write: {e}"))),
+    /// The verdict of each field once all writes are done. A byte that no field explains fails the
+    /// whole group. A field that does not hold its value fails alone.
+    fn judge(&self, report: &Report3, when: &str) -> Vec<Verdict> {
+        let extra = self.unexpected(report, self.plans.len());
+        if !extra.is_empty() {
+            let why = format!(
+                "{when}: bytes changed that the write does not explain, at offsets {extra:?}"
+            );
+            return vec![Verdict::Failed(why); self.plans.len()];
         }
+        self.plans
+            .iter()
+            .map(|plan| {
+                if plan.holds(report) {
+                    Verdict::Pass
+                } else {
+                    Verdict::Failed(format!("{when}: the field does not hold the test value"))
+                }
+            })
+            .collect()
+    }
+
+    /// Writes each field, saves, reads back, replugs, reads back. The verdicts follow the order of
+    /// the fields.
+    fn exercise(&mut self) -> Result<Vec<Verdict>, Stop> {
+        // The report that the previous step read back: the base of the next write.
+        let mut base = self.original.clone();
+        for index in 0..self.plans.len() {
+            let plan = self.plans[index].clone();
+            let mut raw: Vec<i64> = plan
+                .field
+                .element_offsets()
+                .iter()
+                .map(|&o| plan.field.read_raw(&base, o))
+                .collect();
+            let before = raw[0];
+            raw[0] = plan.value;
+            let edit = FieldEdit {
+                field: plan.field.id.clone(),
+                raw,
+            };
+            self.line(format!(
+                "write: {} {before} -> {} at offset {}",
+                plan.field.id,
+                plan.value,
+                plan.first_offset()
+            ));
+            let written = write_fields(&self.env(), &self.report1, &base, &[edit], now_us());
+            // These errors come before the first report 3 write: the device holds the previous bytes.
+            self.touched |= !matches!(
+                written,
+                Err(WriteError::Refused(_)
+                    | WriteError::OutOfRange { .. }
+                    | WriteError::DeviceChanged
+                    | WriteError::Backup(_)
+                    | WriteError::NotSupported)
+            );
+            let written = match written {
+                Ok(written) => written,
+                Err(WriteError::VerifyFailed { offsets, .. }) => {
+                    let why = format!(
+                        "the read-back differs from the written report at offsets {offsets:?}"
+                    );
+                    return Ok(self.failed_at(index, why));
+                }
+                Err(e) => return Err(Stop::Error(format!("write: {e}"))),
+            };
+            if let Err(why) = self.check_step(&written.report3, index) {
+                return Ok(self.failed_at(index, why));
+            }
+            base = written.report3;
+        }
+
         self.line("save-settings: waiting for the delay, then sending the command");
         self.save_settings().map_err(Stop::Error)?;
         let report = self.read_report3()?;
-        self.check_held(&report, "read-back after save-settings")?;
+        let verdicts = self.judge(&report, "read-back after save-settings");
+        if verdicts.iter().any(|v| matches!(v, Verdict::Failed(_))) {
+            // The replug does not run: no field has a persistence result.
+            return Ok(verdicts
+                .into_iter()
+                .map(|v| {
+                    if v == Verdict::Pass {
+                        Verdict::NotRun
+                    } else {
+                        v
+                    }
+                })
+                .collect());
+        }
         self.line("read-back: only the expected bytes changed");
 
         let power_ups = self.report1.power_up_count;
@@ -459,12 +571,14 @@ impl Check<'_> {
             ));
         }
         let report = self.read_report3()?;
-        self.check_held(
+        let verdicts = self.judge(
             &report,
             "read-back after the replug (the value did not persist)",
-        )?;
-        self.line("persistence: the test value survived the replug");
-        Ok(())
+        );
+        if verdicts.iter().all(|v| *v == Verdict::Pass) {
+            self.line("persistence: the test values survived the replug");
+        }
+        Ok(verdicts)
     }
 
     /// Writes the backup back, saves it and checks that the device holds the backup bytes.
@@ -496,22 +610,33 @@ fn verify(
     serial: &str,
     replug: &mut dyn Replug,
     say: &mut dyn Write,
-) -> Result<Verdict, Error> {
+) -> Result<Vec<(String, Verdict)>, Error> {
     let compiled = Registry::leakshield();
-    let field = compiled
-        .field(&opts.field)
-        .ok_or_else(|| Error::UnknownField(opts.field.clone()))?
-        .clone();
-    if field.risk_class != RiskClass::Safety {
-        return Err(Error::NotSafetyField(field.id));
-    }
-    if NO_SAFE_TEST_VALUE.contains(&field.id.as_str()) {
-        return Err(Error::NoSafeTestValue(field.id));
-    }
-    if !field.raw_in_range(opts.value) {
-        return Err(Error::ValueOutOfRange {
-            field: field.id,
-            value: opts.value,
+    let mut plans: Vec<Plan> = Vec::new();
+    for pair in &opts.pairs {
+        if plans.iter().any(|plan| plan.field.id == pair.field) {
+            return Err(Error::DuplicateField(pair.field.clone()));
+        }
+        let field = compiled
+            .field(&pair.field)
+            .ok_or_else(|| Error::UnknownField(pair.field.clone()))?
+            .clone();
+        if field.risk_class != RiskClass::Safety {
+            return Err(Error::NotSafetyField(field.id));
+        }
+        if NO_SAFE_TEST_VALUE.contains(&field.id.as_str()) {
+            return Err(Error::NoSafeTestValue(field.id));
+        }
+        if !field.raw_in_range(pair.value) {
+            return Err(Error::ValueOutOfRange {
+                field: field.id,
+                value: pair.value,
+            });
+        }
+        plans.push(Plan {
+            from: field.verification_state,
+            value: pair.value,
+            field,
         });
     }
     let (io, report1) = open_by_serial(bus, serial, Duration::ZERO)?;
@@ -524,11 +649,12 @@ fn verify(
     );
 
     // A Verification write writes a field that the registry does not allow yet. Only this copy
-    // allows it, and only for the field under test.
+    // allows it, and only for the fields under test.
     let mut registry = compiled;
-    let from = field.verification_state;
-    if let Some(entry) = registry.field.iter_mut().find(|f| f.id == field.id) {
-        entry.verification_state = VerificationState::VerifiedWrite;
+    for plan in &plans {
+        if let Some(entry) = registry.field.iter_mut().find(|f| f.id == plan.field.id) {
+            entry.verification_state = VerificationState::VerifiedWrite;
+        }
     }
     let backups = Backups::new(&opts.state_dir, serial);
     let env = WriteEnv {
@@ -544,14 +670,14 @@ fn verify(
         .map_err(|e| e.to_string())
         .and_then(|set| Report3::decode(&set.report3).map_err(|e| e.to_string()))
         .map_err(|e| Error::Setup(format!("the backup does not read back: {e}")))?;
-    let first = field.element_offsets()[0];
-    if field.read_raw(&original, first) == opts.value {
-        return Err(Error::ValueUnchanged {
-            field: field.id,
-            value: opts.value,
-        });
+    for plan in &plans {
+        if plan.field.read_raw(&original, plan.first_offset()) == plan.value {
+            return Err(Error::ValueUnchanged {
+                field: plan.field.id.clone(),
+                value: plan.value,
+            });
+        }
     }
-    let expected = (first..first + field.value_type.scalar.size()).collect();
 
     let mut check = Check {
         bus,
@@ -561,30 +687,25 @@ fn verify(
         backups,
         backup: backup.clone(),
         original,
-        field,
-        expected,
+        plans,
         io,
         report1,
         touched: false,
         say,
         replug,
     };
-    let stop = check.exercise().err();
-    if let (Some(Stop::Error(why)), false) = (&stop, check.touched) {
+    let stopped = check.exercise();
+    if let (Err(Stop::Error(why)), false) = (&stopped, check.touched) {
         return Err(Error::Setup(why.clone()));
     }
     let restored = check.restore();
     if let Err(why) = &restored {
         check.line(format!("RESTORE FAILED: {why}"));
     }
-    let result = match (stop, restored) {
-        (None, Ok(())) => Verdict::Pass,
-        (None, Err(why)) => Verdict::Failed(why),
-        (Some(Stop::Failed(why)), Ok(())) => Verdict::Failed(why),
-        (Some(Stop::Failed(why)), Err(restore_why)) => {
-            Verdict::Failed(format!("{why}; {restore_why}"))
-        }
-        (Some(Stop::Error(cause)), restored) => {
+    let verdicts = match stopped {
+        Ok(verdicts) => verdicts,
+        Err(Stop::Failed(why)) => vec![Verdict::Failed(why); check.plans.len()],
+        Err(Stop::Error(cause)) => {
             return Err(Error::Aborted {
                 cause,
                 backup,
@@ -592,21 +713,45 @@ fn verify(
             });
         }
     };
-    let to = match result {
-        Verdict::Pass => VerificationState::VerifiedWrite,
-        Verdict::Failed(_) => VerificationState::Failed,
+    // A device that does not hold the backup again gives no Pass.
+    let verdicts: Vec<Verdict> = match restored {
+        Ok(()) => verdicts,
+        Err(why) => verdicts
+            .into_iter()
+            .map(|verdict| match verdict {
+                Verdict::Pass => Verdict::Failed(why.clone()),
+                Verdict::Failed(first) => Verdict::Failed(format!("{first}; {why}")),
+                Verdict::NotRun => Verdict::NotRun,
+            })
+            .collect(),
     };
-    check.line(format!("result: {result:?}"));
-    check.line(format!(
-        "registry change in {REGISTRY_FILE}, field {}:",
-        check.field.id
-    ));
-    check.line(format!(
-        "  verification_state = \"{}\" -> \"{}\"",
-        state_name(from),
-        state_name(to)
-    ));
-    Ok(result)
+
+    let results: Vec<(String, Verdict)> = check
+        .plans
+        .iter()
+        .map(|plan| plan.field.id.clone())
+        .zip(verdicts)
+        .collect();
+    for (field, verdict) in &results {
+        check.line(format!("result: {field} {verdict}"));
+    }
+    for (plan, (_, verdict)) in check.plans.clone().iter().zip(&results) {
+        let to = match verdict {
+            Verdict::Pass => VerificationState::VerifiedWrite,
+            Verdict::Failed(_) => VerificationState::Failed,
+            Verdict::NotRun => continue,
+        };
+        check.line(format!(
+            "registry change in {REGISTRY_FILE}, field {}:",
+            plan.field.id
+        ));
+        check.line(format!(
+            "  verification_state = \"{}\" -> \"{}\"",
+            state_name(plan.from),
+            state_name(to)
+        ));
+    }
+    Ok(results)
 }
 
 /// The refusals come first: the serial, then the bus name. Nothing touches the device before both.
@@ -616,7 +761,7 @@ pub async fn run(
     opts: &Options,
     replug: &mut dyn Replug,
     say: &mut dyn Write,
-) -> Result<Verdict, Error> {
+) -> Result<Vec<(String, Verdict)>, Error> {
     let serial = opts
         .confirm_serial
         .as_deref()
@@ -643,8 +788,10 @@ async fn main() -> ExitCode {
     };
     let bus = NusbBus::new("/sys".into(), "/dev".into());
     match run(&connection, &*bus, &opts, &mut Terminal, &mut io::stdout()).await {
-        Ok(Verdict::Pass) => ExitCode::SUCCESS,
-        Ok(Verdict::Failed(_)) => ExitCode::from(1),
+        Ok(results) if results.iter().all(|(_, verdict)| *verdict == Verdict::Pass) => {
+            ExitCode::SUCCESS
+        }
+        Ok(_) => ExitCode::from(1),
         Err(e) => {
             eprintln!("nicecooling-verify: {e}");
             ExitCode::from(2)
