@@ -84,7 +84,9 @@ A Graph has exactly one end node, and an end node has no output pin. The validat
 
 Limits: 64 Graphs, 256 nodes per Graph, 200 000 window samples for all Graphs together, a name of 64 characters. aquasuite has no limits. The sample limit bounds the memory to about 5 MB and the cost of one evaluation. The spec gives the calculation.
 
-One validator in `nicecooling-graph` serves the editor and the load of the stored file.
+One validator in `nicecooling-graph` serves the editor and the load of the stored file. The app parses the stored file one Graph at a time: a Graph that does not parse or does not pass the validator stays in the list as invalid and does not run, and the other Graphs load.
+
+The table of the units of a Graph sensor with the kind of each, and the limit of 64 Graph sensors, are in `nicecooling-core`, which the daemon and the app use. They exist once.
 
 Rejected: keep the Derived sensor list and add functions to it. The response use needs the Graph, and two models cost more than one. The three Derived kinds stay in the daemon because the Curves of a machine without a session depend on them.
 
@@ -109,7 +111,7 @@ The sensor end node has no "keep the value over a restart" option. aquasuite has
 The daemon gets a new kind of sensor, the Graph sensor: an id, a name and a unit, created and removed through the D-Bus API, stored in `state.json`. The app sends the values of all Graph sensors in one call per second. The daemon puts them in the value table.
 
 - A value older than 3 s counts as no value, as for every sensor (`add-nicecooling-v1` D6). So a Graph sensor has no value when the app does not run, stops or hangs.
-- The daemon checks only that a value is a finite number. It runs no Graph code.
+- The daemon checks that a value is a finite number and that its id is the id of a Graph sensor. It skips an entry for any other id, so the app cannot write the value of a measured sensor. It runs no Graph code.
 - The daemon accepts a Graph sensor as the Input of a Curve, as the source of a sensor Profile rule and in a Software sensor slot. It refuses a Graph sensor as the source of a Derived sensor and as the flow or water temperature sensor of a Loop.
 - The delete of a Graph sensor that a Curve, a Profile rule or a Software sensor slot uses gives `InUse`.
 - At most 64 Graph sensors exist.
@@ -129,7 +131,7 @@ The model has 51 kinds: the 49 kinds of aquasuite X.96, the source "alarm event 
 - The alarm event state source gives 1 while a chosen Alarm or Warning of the daemon is active, else 0. aquasuite reads device alarms as device data. nicecooling has its own event list.
 - The comparisons use the compare function of the sensor Profile rule, with its tolerance of 1e-9. This change makes that function public in `nicecooling-core`. A Profile rule and a Graph that compare the same sensor then agree. aquasuite compares exactly.
 - The on delay and the hold time of a response use the hold logic of the sensor Profile rule, which this change makes usable without a rule: a false input or no value starts the time again. The off delay is new code with the same reset rule.
-- The table node, the Curve and the Curve editor of the app use one interpolation function that this change extracts from the Curve in `nicecooling-core`: linear or step, with the first and the last output outside the pairs. The Calibration table is not touched: it extrapolates, and it is on the path of the Feed.
+- The table node, the Curve and the Curve editor of the app use one interpolation function that this change extracts from the Curve in `nicecooling-core`: linear or step, with the first and the last output outside the pairs. The shared function gives no result for an input that is not a number and for an empty list of pairs. The Curve turns no result into its fail-safe Duty, as it does now. The Calibration table is not touched: it extrapolates, and it is on the path of the Feed.
 - A time-window filter removes every sample that is older than its span, each second. aquasuite removes at most one sample per cycle, which keeps old samples after a gap. While its input has no value, a filter gives no value and adds no sample, and its samples still age.
 - The process source uses the `/proc` scan of the Profile rules, which this change moves from the daemon to `nicecooling-core`. The app runs it as the user: it reads the name of every process and the program path only of the processes of the user. A process source can so differ from a process Profile rule for a process of another user, and `docs/graphs.md` says this.
 
@@ -137,7 +139,7 @@ Rejected: a smaller first set of kinds. The owner chose all kinds (issue #88, de
 
 ### G6. Time (node-graph, graph-responses)
 
-A delay, a window, a hold time and a repeat interval count seconds of the monotonic clock of the app. The tests replace the clock.
+A delay, a window, a hold time and a repeat interval count seconds of the monotonic clock of the app. `nicecooling-core` has the clock trait and a simulated clock. This change adds a system clock on the monotonic clock of the operating system and a wall-clock trait with a system and a simulated form. The tests replace both.
 
 - The monotonic clock does not count the time of a suspend. A delay or a window continues after a resume as if no time passed, so a window holds samples from before the suspend for up to its span. The timers of the daemon behave the same way.
 - The minimum interval between two runs of a response uses the wall clock, because it must count over a reboot.
@@ -165,6 +167,7 @@ A response end node has a kind, a hold time, an optional repeat interval and a m
 More rules:
 
 - Stored run state: the app stores the state and the last run time of each response end node, with the wall clock. After a restart of the app, a response whose input stayed true does not run again, and the minimum interval counts over a reboot. With the rule of G3 for no value, a restart of the daemon or a lost connection does not run a response again.
+- After a start with the stored state "run", the repeat interval counts from the start of the app.
 - Power kinds: their default minimum interval is 600 s. The other kinds default to 0 s.
 - Response pause: the app counts the poweroff and reboot responses that it runs, "Run once" included. The count goes back to 0 after 60 minutes of app run time with no such run. At 3 the app enters the Response pause: no Graph response runs by itself, the Graph sensors still work, and the app shows a banner with "Turn the Graph responses on". This is the maintenance mode of aquasuite (decision 10). The 60 minutes are longer than the default minimum interval, so three runs at the defaults do start the pause.
 - The alarm poweroff wins: while the daemon reports a poweroff countdown of an Alarm, the app starts no power response, "Run once" included, and cancels its own countdown. A Graph cannot delay the poweroff of an Alarm.
@@ -251,13 +254,36 @@ The Graph sensor follows the pattern of the Derived sensor in `io.github.cappyt.
 
 - A Graph sensor is a Sensor object with the origin `graph`. Its `Kind` comes from its unit, as for a Derived sensor. The unit is one of the units that the daemon already knows.
 - An entry with "has a value" false makes the sensor lose its value at once, so a Curve sees the loss in the next tick and not after 3 s.
-- A call with a number that is not finite fails as a whole with `InvalidArgument`. An entry for an unknown id is skipped.
+- A call with a number that is not finite fails as a whole with `InvalidArgument`. An entry whose id is not the id of a Graph sensor is skipped: an unknown id, and the id of a measured, Derived or calibrated sensor.
+- `SetDefinition` writes the default name. A name that the user set with `Sensor.SetName` still shows, as for a Derived sensor. A change of the unit fails with `InUse` while a Software sensor slot uses the sensor, because the slot holds the unit code of the device. After `SetDefinition` the daemon removes the object and adds it again, so a client reads the new name, unit and kind: these properties stay constant for the life of an object.
+- The delete of any sensor that a Software sensor slot uses gives `InUse`. This also holds for a Derived sensor and for a calibrated flow, which the daemon let go before. `docs/api.md` states it.
 - The ids are `graph_<n>`. A stored counter gives the next number, so the id of a removed Graph sensor is not used again.
-- All four members are in the polkit action `write`, which gives a member of `wheel` in an active session access without a password. The daemon asks polkit at every call. The app calls `SetGraphSensorValues` without the interactive flag, so a user outside `wheel` gets no dialog each second: the call fails, the app stops for 60 s and shows that it has no access.
+- All four members are in the polkit action `write`, which gives a member of `wheel` in an active session access without a password. The daemon asks polkit at every call. The app calls `SetGraphSensorValues` on its own call path without the interactive flag, so a user outside `wheel` gets no dialog each second: the call fails, the app stops for 60 s and shows that it has no access. The other writes of the app keep the flag. The check with a real user outside `wheel` is a manual check, because the polkit mock of the tests knows no users.
 
 Rejected: a cache of the authorization of a bus sender. One polkit check per second has no measured cost, and a cache keeps an authorization after a user switch.
 
 The daemon sends no request for a response to the app, and the app accepts none from the bus.
+
+### G15. The Graph service and its links in the app (node-graph, graph-responses, mqtt-publishing)
+
+The app has service threads for the tray, the notifications and the history. Each one reads the daemon events and keeps its own copy of the state. The Graph service is one more thread of this kind. This decision names its links, because the window, the tray and the notifications are other threads.
+
+| Link | Direction | Form |
+|---|---|---|
+| Sensor values and Alarms | daemon events -> service | the event channel that every service thread reads |
+| Graph commands | window, tray, notification button -> service | new `Command` variants that the app routes to a channel of the service and not to the daemon client: apply, enable, delete, try, run once, cancel the countdown, turn the Graph responses on, settings changed |
+| Graph view | service -> window, tray | one shared state behind a mutex, as the notification preferences of the settings: per Graph the live node values and the result, the countdown, the Response pause, the response log |
+| Notifications | service -> notification service | a request on the channel that the notification service reads, so one thread owns the notification server |
+| Graph sensor values and the Graph sensor calls | service -> daemon | the daemon client, with the call path without the interactive flag for the values |
+| MQTT and SMTP | service -> clients | tasks on the multi-thread runtime that the app already owns. The service passes messages on a channel and gets the outcome back |
+
+- Stop: "Quit" and the end of the session (SIGTERM) take one path. The app tells the service to stop, the service writes `graph-state.json` and cancels a running countdown with no power call, and the app waits for it for at most 2 s before it quits.
+- Start: at its start and at each new snapshot of the daemon, the service compares its sensor Graphs with the Graph sensors of the daemon. It creates a missing one and stores the new id in the Graph. It leaves a Graph sensor that none of its Graphs holds: it can belong to another user. The Graphs screen lists such a sensor with a remove command.
+- An app in a session that is not active sends no Graph sensor values and runs no response.
+- Try: a source with no test value reads its live value.
+- The text of a unit in a message is the display text of the app (`°C` for `degC`).
+- The app sends an event message for a raise and a clear that it sees while it runs. It sends none for an Alarm that is already active when it starts or connects again: the message is a transition, and the status topic says that the app was away. The clear message takes its fields from the Alarm that the app stored at the raise.
+- The time in a placeholder is a text that the service makes and gives to `nicecooling-graph`, which has no clock of its own for local time.
 
 ## Requirements of add-nicecooling-v1 that this change extends
 
