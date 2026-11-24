@@ -391,6 +391,10 @@ pub fn leakshield_data() -> LeakshieldData {
             },
             true,
         ),
+        field("page_precisions", Low, list(vec![0.0; 80]), true),
+        field("page_icons", Low, list(vec![255.0; 40]), true),
+        field("page_names", Low, list(vec![255.0; 80]), true),
+        field("page_values", Low, list([0.0, 100.0].repeat(40)), true),
         field(
             "led_controller_mode",
             Low,
@@ -514,6 +518,64 @@ pub fn leakshield_data() -> LeakshieldData {
         clock_offset_s: -42,
         software_sensor_slots: 12,
         stored: Default::default(),
+        software_scales: (1..=12).map(|slot| (slot, 1.0, 0.0)).collect(),
+        // `None`: the daemon gave no list, so a slot takes every sensor.
+        software_sources: None,
+        counters: Some(
+            [
+                ("pump_runtime_s", 11431),
+                ("pump_short_cycle_runtime_s", 21),
+                ("pump_revolution_count", 1_234_567),
+                ("fill_valve_cycles", 12),
+                ("release_valve_cycles", 345),
+                ("total_runtime_s", 987_654),
+                ("power_up_count", 42),
+            ]
+            .into_iter()
+            .map(|(name, value)| (name.to_owned(), value))
+            .collect(),
+        ),
+        display_assets: Some(display_assets()),
+    }
+}
+
+/// The names, the icons and the logo of a device as it leaves the factory: six sensor names,
+/// three page texts (names 20 to 22) and the name of the LED strip.
+pub fn display_assets() -> nicecooling::model::DisplayAssets {
+    use nicecooling::bitmap::Bitmap;
+    let mut names = vec![String::new(); 40];
+    for (index, name) in [
+        (0, "Pressure"),
+        (1, "Fill level"),
+        (2, "Volume change"),
+        (3, "Pressure change"),
+        (4, "Pump speed"),
+        (5, "Flow"),
+        (20, "Loop"),
+        (21, "Coolant"),
+        (22, "Radiator"),
+        (39, "LED strip"),
+    ] {
+        names[index] = name.to_owned();
+    }
+    let icon = |index: u16| {
+        let mut icon = Bitmap::new(23, 23);
+        for step in 0..23 {
+            icon.set(step, step, true);
+            icon.set(step, 0, true);
+        }
+        icon.set(index, 2, true);
+        icon
+    };
+    let mut logo = Bitmap::new(128, 64);
+    for x in 8..120 {
+        logo.set(x, 20, true);
+        logo.set(x, 44, true);
+    }
+    nicecooling::model::DisplayAssets {
+        names,
+        icons: (0..16).map(icon).collect(),
+        logo,
     }
 }
 

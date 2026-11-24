@@ -115,6 +115,112 @@ The Overview tab of a Leakshield SHALL show the time of the last fill level meas
 - **WHEN** the event list holds no finished measurement
 - **THEN** the Fill level row shows its value and no time
 
+### Requirement: Display page previews
+The Display tab of a Leakshield SHALL show, for each of the 10 pages, the image that the device draws for it (`GetDisplayPreview`), in the page list and on the card of the selected page. The app SHALL draw each pixel as one square at a whole scale, with row 0 at the top and bit 7 of each byte at the left. It SHALL NOT draw the content of a page by itself, and SHALL say that the Leakshield shows the page for 30 s after a read.
+
+#### Scenario: Page selected
+- **WHEN** the user selects page 3
+- **THEN** the app calls `GetDisplayPreview` for page 2 of the contract and shows the returned image in the list and on the page card
+
+#### Scenario: Orientation of the image
+- **WHEN** the returned rows start with the byte 0x80
+- **THEN** the lit pixel is the top left pixel of the preview
+
+### Requirement: Reads of a display page preview
+The app SHALL read the image of a page when the user selects the page, when the Display tab opens and the selected page has no image yet, on "Refresh preview", and after each write that changes the page. It SHALL keep the last image of each page while it runs. It SHALL send no preview read to a read-only device, to a Leakshield that does not answer, or for a page without a template.
+
+#### Scenario: Write of a page
+- **WHEN** the user changes the decimals of a value of page 2
+- **THEN** the app writes the field and then reads the image of page 2 again
+
+#### Scenario: Read-only device
+- **WHEN** the firmware of the Leakshield has no layout
+- **THEN** "Refresh preview" is disabled with the reason and the app sends no call
+
+### Requirement: Preview without an image
+A preview without an image SHALL show the reason in its place and SHALL NOT be a dark box. The reasons are: not read yet, a read that runs, a page without a template, a page that the device does not show (`PageNotShown`), a read-only device, a Leakshield that does not answer, a daemon without the call, and a firmware without the command.
+
+#### Scenario: Page not shown
+- **WHEN** the daemon answers `PageNotShown`
+- **THEN** the preview of the page shows "Not shown" and the page card shows the reason
+
+#### Scenario: Daemon without the call
+- **WHEN** the daemon has no `GetDisplayPreview`
+- **THEN** the preview shows "Not available" and the page card says that the daemon cannot read the display
+
+### Requirement: Display page template and options
+The Display tab SHALL let the user set, for each page, the template (one of the 14 templates of the registry, or "No page", the value 255), the option "Show in standby" (bit 0 of `page_options`) and the option "Hide in normal operation" (bit 1). The template choice SHALL show a schematic of the layout of each template that the app draws.
+
+#### Scenario: No page
+- **WHEN** the user picks "No page" for page 5
+- **THEN** the app writes `none` as the template of page 5
+
+#### Scenario: Hide in normal operation
+- **WHEN** the user turns on "Hide in normal operation" for a page with the options 1
+- **THEN** the app writes the options 3 for that page
+
+### Requirement: Slots of a display page
+For the selected page the app SHALL show exactly the slots that its template uses, as (values, texts, icons, bars): logo (0, 0, 0, 0), chart (1, 0, 0, 0), values-1 (1, 1, 1, 0), values-2 (2, 2, 2, 0), values-4 (4, 4, 0, 0), values-3a (3, 1, 2, 0), values-3b (3, 1, 1, 0), time (0, 0, 0, 0), bars-2 (2, 2, 2, 2), bars-4a (4, 0, 2, 4), bars-4b (4, 1, 0, 4), value-and-bar (1, 1, 0, 1), value-and-time (1, 1, 1, 0), leakshield-state (0, 0, 0, 0). The logo template SHALL also show the logo.
+
+#### Scenario: Slots of a template
+- **WHEN** the selected page has the template bars-4a
+- **THEN** the page card has 4 values with data source, decimals, minimum and maximum, 2 icons and no text
+
+#### Scenario: Template without a slot
+- **WHEN** the selected page has the template time
+- **THEN** the page card has no value, no text and no icon, and says that the template has no settings
+
+### Requirement: Values, texts and icons of a display page
+A value SHALL have a data source (a device sensor, a Software sensor or none, written as the sensor index times 4) and 0 to 3 decimals. A bar SHALL have a minimum and a maximum from -32000 to 32000. A text SHALL be one of the 40 names of the device, or none, or an own text. An icon SHALL be one of the 16 icons of the device, or none.
+
+#### Scenario: Limit out of range
+- **WHEN** the user types 99999 as the maximum of a bar
+- **THEN** the app writes 32000
+
+#### Scenario: Icon of a slot
+- **WHEN** the user picks icon 16 for icon 2 of page 3
+- **THEN** the app writes 15 into the second entry of `page_icons` of page 3
+
+### Requirement: Own text of a display page
+An own text SHALL go with `SetDisplayName` into a page text (names 20 to 34): the page text of the slot when no other text slot in use shows it, else the first empty page text that no text slot in use shows, else the first page text that no text slot in use shows. The slot SHALL then select that name. The app SHALL NOT change a sensor name or a lighting name for an own text.
+
+#### Scenario: Own text into a free page text
+- **WHEN** the page texts 20 to 22 hold a text, no page shows a text, and the user saves the own text "CPU loop" for text 1 of page 2
+- **THEN** the app calls `SetDisplayName` with the index 23 and the text, and writes 23 into the first entry of `page_names` of page 2
+
+#### Scenario: All page texts in use
+- **WHEN** text slots in use of other pages show all 15 page texts
+- **THEN** "Own text" is disabled with the reason
+
+### Requirement: Logo and icon import
+The Display tab SHALL import a PNG file as the logo (128 x 64 pixels) or as an icon (23 x 23 pixels), with one import path for both. The app SHALL show the converted result before the write and SHALL write exactly that result with `SetDisplayLogo` or `SetDisplayIcon`. An imported icon SHALL replace the icon that the icon slot shows. The app SHALL refuse a file that is not a readable PNG image, with the reason.
+
+#### Scenario: Not a PNG file
+- **WHEN** the user picks a text file
+- **THEN** the dialog says that the file is not a PNG image, and "Write the logo" is disabled
+
+#### Scenario: Result before the write
+- **WHEN** the user moves the threshold
+- **THEN** the shown result changes, and no call goes to the daemon until the user presses the write button
+
+### Requirement: Conversion of an imported picture
+The app SHALL convert the picture to lit and dark pixels: a pixel is lit when its brightness is at or above a threshold that the user moves, 50 % at the start, and a transparent pixel is dark. The user SHALL be able to swap lit and dark. The app SHALL scale a file of another size to fit the target with its aspect ratio, in the middle on a dark ground, SHALL say so, and SHALL NOT refuse a file because of its size.
+
+#### Scenario: File of the display size
+- **WHEN** the user picks a PNG file of 128 x 64 pixels and the threshold is 50 %
+- **THEN** each pixel with a brightness of 50 % or more is lit in the result, and the file is not scaled
+
+#### Scenario: File of another size
+- **WHEN** the user picks a white PNG file of 256 x 256 pixels as the logo
+- **THEN** the result has a lit square of 64 x 64 pixels in the middle, and the dialog says that the file was scaled
+
+### Requirement: Controls of a write that is not possible
+The app SHALL warn and SHALL NOT refuse a choice of the user that the device accepts. A control whose write is not possible (a read-only device, a daemon or a Leakshield that does not answer, a field that is not a Verified field) SHALL be disabled and SHALL give the reason next to it or as its tooltip.
+
+#### Scenario: Daemon offline
+- **WHEN** the daemon is offline
+- **THEN** "Change template", "Own text", "Change icon", "Change logo" and "Refresh preview" are disabled with the reason "The daemon is offline."
+
 ### Requirement: Profile and rule management
 The app SHALL let the user create, edit, activate and revoke Profiles, set the Leakshield slot of a Profile, edit Rule groups, and set Immediate switching. The app SHALL NOT offer to delete the Default Profile.
 

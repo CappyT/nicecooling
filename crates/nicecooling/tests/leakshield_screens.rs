@@ -9,7 +9,7 @@ use nicecooling::model::{
     AlarmDetails, AppState, FieldValue, Link, Response, ResponseRule, Severity,
 };
 use nicecooling::screens::leakshield::alarms::{AlarmsModel, AlarmsUi, RecommendationKind};
-use nicecooling::screens::leakshield::display::{DisplayModel, DisplayUi};
+use nicecooling::screens::leakshield::display::{DialogModel, DisplayModel, DisplayUi};
 use nicecooling::screens::leakshield::fields::{FieldsModel, FieldsState, FieldsUi, Filter};
 use nicecooling::screens::leakshield::lighting::{LightingModel, LightingUi};
 use nicecooling::screens::leakshield::overview::{
@@ -1704,30 +1704,20 @@ fn the_display_reads_the_sources_of_the_reference_device() {
         ui.select(page);
         assert_eq!(picked(&display(&state, &ui)), sensors, "page {}", page + 1);
     }
-    let model = display(&state, &DisplayUi::default());
-    assert_eq!(
-        model.pages[4]
-            .lines
+    let names = |page: usize| -> Vec<String> {
+        let mut ui = DisplayUi::default();
+        ui.select(page);
+        display(&state, &ui)
+            .page
+            .rows
             .iter()
-            .map(|l| l.0.as_str())
-            .collect::<Vec<_>>(),
-        ["Fill level", "Volume change"]
-    );
-    assert_eq!(
-        model.pages[7]
-            .lines
-            .iter()
-            .map(|l| l.0.as_str())
-            .collect::<Vec<_>>(),
-        ["Pump speed", "Flow"]
-    );
+            .map(|row| row.source_text.clone())
+            .collect()
+    };
+    assert_eq!(names(4), ["Fill level", "Volume change"]);
+    assert_eq!(names(7), ["Pump speed", "Flow"]);
     // No page of the reference device shows a Software sensor.
-    assert!(
-        model
-            .pages
-            .iter()
-            .all(|p| p.lines.iter().all(|l| !l.0.contains("Software")))
-    );
+    assert!((0..10).all(|page| names(page).iter().all(|name| !name.contains("Software"))));
 }
 
 #[test]
@@ -1812,18 +1802,7 @@ fn leakshield_display_states() {
     assert!(model.pages[0].selected && !model.pages[1].selected);
     // Page 2 shows the pressure. Page 3 shows the pressure and Software sensor 3.
     assert_eq!(model.pages[1].template_name, "1 value");
-    assert_eq!(
-        model.pages[1].lines,
-        [("Pressure".to_owned(), "298 mbar".to_owned())]
-    );
     assert_eq!(model.pages[2].template_name, "2 values");
-    assert_eq!(
-        model.pages[2].lines[1],
-        (
-            "Software sensor 3: Water temperature".to_owned(),
-            "31.4 °C".to_owned()
-        )
-    );
 
     // A page without a template: "Empty" and the button.
     assert!(model.pages[3].empty);
@@ -1831,7 +1810,7 @@ fn leakshield_display_states() {
     let mut ui = DisplayUi::default();
     ui.select(3);
     let empty = display(&state, &ui);
-    assert_eq!(empty.page.choose.as_deref(), Some("Choose a template"));
+    assert_eq!(empty.page.change.label, "Choose a template");
     assert_eq!(empty.page.title, "Page 4");
 
     // The selected page: one row for each value of the template, with its sources.
@@ -1847,7 +1826,23 @@ fn leakshield_display_states() {
             .iter()
             .any(|(i, _, selected)| *i == 10 && *selected)
     );
-    assert!(model.page.normal.on && model.page.standby.on);
+    assert_eq!(
+        (
+            model.page.rows[0].source_text.as_str(),
+            model.page.rows[0].value.as_str()
+        ),
+        ("Pressure", "298 mbar")
+    );
+    assert_eq!(
+        (
+            model.page.rows[1].source_text.as_str(),
+            model.page.rows[1].value.as_str()
+        ),
+        ("Software sensor 3: Water temperature", "31.4 °C")
+    );
+    // Bit 0 of the options shows the page in standby. Bit 1 hides it in normal operation.
+    assert!(!model.page.hide_normal.on && model.page.standby.on);
+    assert_eq!(model.page.hide_normal.label, "Hide in normal operation");
 
     // A value on a Software sensor without a source: the warning and the link.
     let mut dangling = state.clone();
@@ -1870,7 +1865,7 @@ fn leakshield_display_states() {
     set_field(&mut hidden, "page_options", FieldValue::List(vec![2.0; 10]));
     let model = display(&hidden, &DisplayUi::default());
     assert_eq!(model.pages[0].off.as_deref(), Some("Not shown"));
-    assert!(!model.page.standby.on && !model.page.normal.on);
+    assert!(!model.page.standby.on && model.page.hide_normal.on);
 
     // The settings.
     let settings = &display(&state, &DisplayUi::default()).settings;
@@ -1892,10 +1887,29 @@ fn leakshield_display_states() {
 
     // The template gallery.
     ui.gallery = true;
-    let gallery = display(&state, &ui).gallery.expect("the gallery");
-    assert_eq!(gallery.len(), 14);
-    assert_eq!(gallery[0], ("logo".to_owned(), "Logo".to_owned()));
-    assert_eq!(gallery[13].0, "leakshield-state");
+    let Some(DialogModel::Gallery { items, .. }) = display(&state, &ui).dialog else {
+        panic!("the gallery");
+    };
+    // The 14 templates, then "No page".
+    assert_eq!(items.len(), 15);
+    assert_eq!(
+        (items[0].template.as_str(), items[0].label.as_str()),
+        ("logo", "Logo")
+    );
+    assert_eq!(items[13].template, "leakshield-state");
+    assert_eq!(
+        (items[14].template.as_str(), items[14].label.as_str()),
+        ("none", "No page")
+    );
+    // The template of the selected page (page 3, "2 values") has the mark.
+    assert_eq!(
+        items
+            .iter()
+            .filter(|item| item.selected)
+            .map(|item| item.template.as_str())
+            .collect::<Vec<_>>(),
+        ["values-2"]
+    );
 
     // Read-only with an unknown firmware, and the states of the link.
     let unknown = display(&unknown_firmware(), &DisplayUi::default());
@@ -1903,7 +1917,7 @@ fn leakshield_display_states() {
         unknown.reason.as_deref(),
         Some("Read-only: unknown firmware.")
     );
-    assert!(!unknown.settings.brightness[0].writable && !unknown.page.normal.writable);
+    assert!(!unknown.settings.brightness[0].writable && !unknown.page.hide_normal.writable);
     assert_eq!(
         display(&offline(), &DisplayUi::default()).state,
         TabState::Offline
@@ -1930,7 +1944,8 @@ fn leakshield_display_commands() {
     else {
         panic!("a field write");
     };
-    assert_eq!(control, "display:template");
+    // The control names the page (0 to 9): the app reads its preview again after the write.
+    assert_eq!(control, "display:page:3");
     assert_eq!(
         fields[0].1,
         FieldValue::TextList(
@@ -1962,7 +1977,7 @@ fn leakshield_display_commands() {
         panic!("a list")
     };
     assert_eq!(sources[3 * 8 + 1], 16.0);
-    // "Show in normal operation" is the bit that hides the page.
+    // "Hide in normal operation" is bit 1 of the options.
     let Command::SetLeakshieldFields { fields, .. } = ui
         .set_option(&screen_input, LEAKSHIELD, 2, true)
         .expect("a command")
@@ -2218,17 +2233,16 @@ fn invert_waits_for_the_automatic_invert_to_be_off() {
 
 #[test]
 fn leakshield_display_labels() {
-    // The daemon has no logo upload, no separate switch for the display off when inactive (the brightness "Off" does it) and no sensor in a page icon.
+    // The examples of the document: a text with the number of a page, a sensor, a file or a
+    // threshold in it.
     let missing = labels::missing_labels(
         "leakshield-display.md",
         &[
             "Page 3",
-            "--",
             "Software sensor 3 has no data source.",
-            "Choose an image",
-            "Use a PNG, JPEG or BMP image.",
-            "Writing the logo, 60 %",
-            "Display off when inactive",
+            "The file has 640 x 480 pixels. nicecooling scales it to fit 128 x 64.",
+            "The text goes into page text 4 of the Leakshield.",
+            "Lit from 50 % brightness",
         ],
     );
     assert!(missing.is_empty(), "labels without text: {missing:?}");

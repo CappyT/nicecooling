@@ -1,5 +1,6 @@
 //! What a tray entry, a notification button, a banner button or a screen asks the app to do.
 
+use crate::bitmap::Bitmap;
 use crate::daemon_client::DaemonClient;
 use crate::model::{DaemonEvent, Derived, FieldValue, Response, RuleGroup};
 use crate::shell::Page;
@@ -185,6 +186,49 @@ pub enum Command {
         leakshield: String,
         slot: u16,
         sensor: String,
+    },
+    /// The scale and the offset of a Software sensor slot.
+    SetSoftwareSensorScale {
+        leakshield: String,
+        slot: u16,
+        scale: f64,
+        offset: f64,
+    },
+    /// Clears the event list of the device (`ResetEventLog`).
+    ResetEventLog {
+        leakshield: String,
+    },
+    /// Pauses a running Refill, or resumes a paused one.
+    ToggleRefillPause {
+        leakshield: String,
+    },
+    /// Read the image that the device shows for a page (0 to 9). The device shows the page for
+    /// 30 s.
+    ReadDisplayPreview {
+        leakshield: String,
+        page: u8,
+    },
+    /// Write a text into name `index` of report 8. `select` then writes `page_names`, so that
+    /// the page shows the name. `page` is the page whose preview is read again.
+    SetDisplayName {
+        leakshield: String,
+        page: u8,
+        index: u8,
+        text: String,
+        select: Option<Vec<f64>>,
+    },
+    /// Write icon `index` of report 8.
+    SetDisplayIcon {
+        leakshield: String,
+        page: u8,
+        index: u8,
+        icon: Bitmap,
+    },
+    /// Write the start image of report 8.
+    SetDisplayLogo {
+        leakshield: String,
+        page: u8,
+        logo: Bitmap,
     },
     CreateBackup {
         leakshield: String,
@@ -399,6 +443,52 @@ impl Command {
                     .set_software_sensor(leakshield, *slot, sensor)
                     .await?
             }
+            Self::SetSoftwareSensorScale {
+                leakshield,
+                slot,
+                scale,
+                offset,
+            } => {
+                client
+                    .set_software_sensor_scale(leakshield, *slot, *scale, *offset)
+                    .await?
+            }
+            Self::ResetEventLog { leakshield } => {
+                client.leakshield_call(leakshield, "ResetEventLog").await?
+            }
+            Self::ToggleRefillPause { leakshield } => {
+                client
+                    .leakshield_call(leakshield, "ToggleRefillPause")
+                    .await?
+            }
+            // The read runs in `refresh`: its answer is an event, not a write result.
+            Self::ReadDisplayPreview { .. } => {}
+            Self::SetDisplayName {
+                leakshield,
+                index,
+                text,
+                select,
+                ..
+            } => {
+                client.set_display_name(leakshield, *index, text).await?;
+                if let Some(names) = select {
+                    client
+                        .set_leakshield_fields(
+                            leakshield,
+                            &[("page_names".to_owned(), FieldValue::List(names.clone()))],
+                        )
+                        .await?;
+                }
+            }
+            Self::SetDisplayIcon {
+                leakshield,
+                index,
+                icon,
+                ..
+            } => client.set_display_icon(leakshield, *index, icon).await?,
+            Self::SetDisplayLogo {
+                leakshield, logo, ..
+            } => client.set_display_logo(leakshield, logo).await?,
             Self::CreateBackup { leakshield } => {
                 client.leakshield_call(leakshield, "CreateBackup").await?
             }
@@ -456,6 +546,11 @@ impl Command {
             | Self::ResetRefillHistory { leakshield }
             | Self::ResetServiceCounter { leakshield }
             | Self::SetSoftwareSensor { leakshield, .. }
+            | Self::SetSoftwareSensorScale { leakshield, .. }
+            | Self::ResetEventLog { leakshield }
+            | Self::SetDisplayName { leakshield, .. }
+            | Self::SetDisplayIcon { leakshield, .. }
+            | Self::SetDisplayLogo { leakshield, .. }
             | Self::CreateBackup { leakshield }
             | Self::ExportBackup { leakshield, .. }
             | Self::ImportBackup { leakshield, .. }
@@ -485,6 +580,38 @@ impl Command {
                     ..Derived::default()
                 }))
             }),
+            // The preview of the page shows what the device draws after the change.
+            _ => match self.preview_page() {
+                Some((leakshield, page)) => {
+                    Some(client.display_preview_event(leakshield, page).await)
+                }
+                None => None,
+            },
+        }
+    }
+
+    /// The Leakshield and the display page whose preview the app reads after this command: the
+    /// preview read itself, and every write that changes what a page shows.
+    pub fn preview_page(&self) -> Option<(&str, u8)> {
+        match self {
+            Self::ReadDisplayPreview { leakshield, page }
+            | Self::SetDisplayName {
+                leakshield, page, ..
+            }
+            | Self::SetDisplayIcon {
+                leakshield, page, ..
+            }
+            | Self::SetDisplayLogo {
+                leakshield, page, ..
+            } => Some((leakshield, *page)),
+            Self::SetLeakshieldFields {
+                leakshield,
+                control,
+                ..
+            } => {
+                let page = control.strip_prefix(PAGE_CONTROL)?.parse().ok()?;
+                Some((leakshield, page))
+            }
             _ => None,
         }
     }
@@ -543,6 +670,23 @@ impl Command {
             Self::SetSoftwareSensor {
                 leakshield, slot, ..
             } => format!("ls:{leakshield}:software-sensor:{slot}"),
+            Self::SetSoftwareSensorScale {
+                leakshield, slot, ..
+            } => format!("ls:{leakshield}:software-sensor:{slot}"),
+            Self::ResetEventLog { leakshield } => format!("ls:{leakshield}:event-log"),
+            Self::ToggleRefillPause { leakshield } => format!("ls:{leakshield}:refill-pause"),
+            Self::ReadDisplayPreview { leakshield, page } => {
+                format!("ls:{leakshield}:{PREVIEW_CONTROL}{page}")
+            }
+            Self::SetDisplayName {
+                leakshield, page, ..
+            }
+            | Self::SetDisplayIcon {
+                leakshield, page, ..
+            }
+            | Self::SetDisplayLogo {
+                leakshield, page, ..
+            } => format!("ls:{leakshield}:{PAGE_CONTROL}{page}"),
             Self::CreateBackup { leakshield }
             | Self::ExportBackup { leakshield, .. }
             | Self::ImportBackup { leakshield, .. } => format!("ls:{leakshield}:backups"),
@@ -552,6 +696,11 @@ impl Command {
         })
     }
 }
+
+/// The control of a write that changes display page `n` (0 to 9): `display:page:<n>`.
+pub const PAGE_CONTROL: &str = "display:page:";
+/// The control of the preview read of display page `n`: `display:preview:<n>`.
+pub const PREVIEW_CONTROL: &str = "display:preview:";
 
 /// The feedback key of a response row: `alarm-response:<event>` or `alarm-response:<event>@<id>`.
 pub fn response_feedback_key(event: &str, source: &str) -> String {

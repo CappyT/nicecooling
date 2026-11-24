@@ -6,6 +6,7 @@ pub mod alarms_view;
 pub mod band;
 pub mod charts;
 pub mod display;
+pub mod display_art;
 pub mod display_view;
 pub mod fields;
 pub mod fields_view;

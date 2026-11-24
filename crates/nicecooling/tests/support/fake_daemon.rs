@@ -1435,6 +1435,9 @@ pub struct Options {
     pub no_reset_commands: bool,
     /// The Feed is on and nothing was sent yet.
     pub feed_waiting: bool,
+    /// A daemon of before the display methods: the calls for the display, the counters and the
+    /// scales of the Software sensors fail with `UnknownMethod`.
+    pub no_display_methods: bool,
 }
 
 pub struct FakeDaemon {
@@ -1649,6 +1652,7 @@ impl FakeDaemon {
                     DeviceOptions {
                         no_reset_commands: options.no_reset_commands,
                         feed_waiting: options.feed_waiting,
+                        no_display_methods: options.no_display_methods,
                     },
                     shared.clone(),
                 ),
@@ -1862,6 +1866,23 @@ impl FakeDaemon {
             .expect("live")
             .gate = Some(gate.clone());
         gate
+    }
+
+    /// The pages that the device does not show: `GetDisplayPreview` fails with `PageNotShown`.
+    pub async fn hide_pages(&self, pages: &[u8]) {
+        self.leakshield_iface()
+            .await
+            .get()
+            .await
+            .live
+            .lock()
+            .expect("live")
+            .hidden_pages = pages.to_vec();
+    }
+
+    /// The names of report 8 that the fake device holds.
+    pub async fn display_names(&self) -> Vec<String> {
+        self.leakshield_iface().await.get().await.display_names()
     }
 
     /// The device goes away or comes back.

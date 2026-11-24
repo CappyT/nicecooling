@@ -176,6 +176,8 @@ impl ShellView {
             self.notices_open = false;
             self.screens.update(cx, |screens, cx| {
                 screens.close_popovers();
+                // The dialogs of the Display tab have no list: Escape closes them.
+                screens.leakshield_ui().display.close_dialog();
                 cx.notify();
             });
             cx.notify();

@@ -14,14 +14,18 @@ use zbus::proxy::MethodFlags;
 use zbus::{Connection, MatchRule, MessageStream, Proxy};
 use zbus::{OwnedObjectPath, OwnedVariant as OwnedValue, Variant as Value};
 
+use crate::bitmap::Bitmap;
 use crate::model::{
     AlarmDetails, AlarmEntry, AlarmRecord, BackupEntry, BiosSnapshot, BoardInfo,
     CalibrationTableInfo, Cause, ChannelInfo, ChannelOverride, Control, CurveSpec, DaemonEvent,
-    Derived, DerivedDef, DeviceEvent, FeedState, FieldEntry, FieldRisk, FieldValue, LastFeed,
-    LeakshieldData, LeakshieldInfo, Link, LoopInfo, Outcome, ProfileChannel, ProfileContent,
-    ProfileInfo, PropertyChange, RefillEntry, Response, ResponseProposal, ResponseRule, Rule,
-    RuleGroup, SensorInfo, SensorSample, Severity, Snapshot, UnitState,
+    Derived, DerivedDef, DeviceEvent, DisplayAssets, FeedState, FieldEntry, FieldRisk, FieldValue,
+    LastFeed, LeakshieldData, LeakshieldInfo, Link, LoopInfo, Outcome, PagePreview, ProfileChannel,
+    ProfileContent, ProfileInfo, PropertyChange, RefillEntry, Response, ResponseProposal,
+    ResponseRule, Rule, RuleGroup, SensorInfo, SensorSample, Severity, Snapshot, UnitState,
 };
+
+/// A bitmap of the daemon contract: width, height and the rows.
+type BitmapWire = (u16, u16, Vec<u8>);
 
 /// A row of `GetHistory`: instance, event, severity, source, response, raised, cleared, outcome,
 /// details.
@@ -684,7 +688,118 @@ impl DaemonClient {
                 data.stored.insert(slot, fields);
             }
         }
+        data.software_scales = proxy
+            .call("GetSoftwareSensorScales", &())
+            .await
+            .unwrap_or_default();
+        let sources: zbus::Result<Vec<OwnedObjectPath>> =
+            proxy.call("GetSoftwareSensorSources", &()).await;
+        data.software_sources = sources
+            .ok()
+            .map(|paths| paths.iter().map(|p| last_element(p.as_str())).collect());
+        let counters: zbus::Result<HashMap<String, u64>> = proxy.call("GetCounters", &()).await;
+        data.counters = counters.ok().map(|map| map.into_iter().collect());
+        let assets: zbus::Result<(Vec<String>, Vec<BitmapWire>, BitmapWire)> =
+            proxy.call("GetDisplayAssets", &()).await;
+        data.display_assets = assets.ok().map(|(names, icons, logo)| DisplayAssets {
+            names,
+            icons: icons.into_iter().map(bitmap_of).collect(),
+            logo: bitmap_of(logo),
+        });
         data
+    }
+
+    /// `GetDisplayPreview`: the image that the device shows for a page. The device shows the
+    /// page for 30 s after the call.
+    pub async fn display_preview(&self, leakshield: &str, page: u8) -> zbus::Result<Bitmap> {
+        let wire: BitmapWire = self
+            .proxy(&Self::leakshield_path(leakshield), "Leakshield")
+            .await?
+            .call("GetDisplayPreview", &(page,))
+            .await?;
+        Ok(bitmap_of(wire))
+    }
+
+    /// `display_preview` as the event that the app state stores: the image, or the name of the
+    /// error.
+    pub async fn display_preview_event(&self, leakshield: &str, page: u8) -> DaemonEvent {
+        let preview = match self.display_preview(leakshield, page).await {
+            Ok(bitmap) if bitmap.is_valid() => PagePreview::Image(bitmap),
+            Ok(_) => PagePreview::Failed("InvalidArgument".to_owned()),
+            Err(error) => match crate::screens::WriteOutcome::from_error(&error) {
+                // An error of the bus arrives as "<name>: <message>". The state is the last
+                // element of the name.
+                crate::screens::WriteOutcome::Refused { error } => {
+                    let name = error.split(':').next().unwrap_or_default().trim();
+                    PagePreview::Failed(name.rsplit('.').next().unwrap_or_default().to_owned())
+                }
+                _ => PagePreview::Failed("AccessDenied".to_owned()),
+            },
+        };
+        DaemonEvent::DisplayPreview {
+            leakshield: leakshield.to_owned(),
+            page,
+            preview,
+        }
+    }
+
+    /// `SetDisplayName`: one of the 40 names of report 8.
+    pub async fn set_display_name(
+        &self,
+        leakshield: &str,
+        index: u8,
+        text: &str,
+    ) -> zbus::Result<()> {
+        self.write(
+            &Self::leakshield_path(leakshield),
+            "Leakshield",
+            "SetDisplayName",
+            &(index, text),
+        )
+        .await
+    }
+
+    /// `SetDisplayIcon`: one of the 16 icons of report 8.
+    pub async fn set_display_icon(
+        &self,
+        leakshield: &str,
+        index: u8,
+        icon: &Bitmap,
+    ) -> zbus::Result<()> {
+        self.write(
+            &Self::leakshield_path(leakshield),
+            "Leakshield",
+            "SetDisplayIcon",
+            &(index, icon.width, icon.height, &icon.rows),
+        )
+        .await
+    }
+
+    /// `SetDisplayLogo`: the start image of report 8.
+    pub async fn set_display_logo(&self, leakshield: &str, logo: &Bitmap) -> zbus::Result<()> {
+        self.write(
+            &Self::leakshield_path(leakshield),
+            "Leakshield",
+            "SetDisplayLogo",
+            &(logo.width, logo.height, &logo.rows),
+        )
+        .await
+    }
+
+    pub async fn set_software_sensor_scale(
+        &self,
+        leakshield: &str,
+        slot: u16,
+        scale: f64,
+        offset: f64,
+    ) -> zbus::Result<()> {
+        self.write(
+            &Self::leakshield_path(leakshield),
+            "Leakshield",
+            "SetSoftwareSensorScale",
+            &(slot, scale, offset),
+        )
+        .await
     }
 
     /// `GetStoredFields`: the fields of the stored report 3 of a slot.
@@ -1260,6 +1375,14 @@ impl DaemonClient {
             &(backup,),
         )
         .await
+    }
+}
+
+fn bitmap_of((width, height, rows): BitmapWire) -> Bitmap {
+    Bitmap {
+        width,
+        height,
+        rows,
     }
 }
 

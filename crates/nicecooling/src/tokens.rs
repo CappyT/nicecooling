@@ -43,6 +43,10 @@ pub struct Palette {
     pub part: Hsla,
     /// The chart series `s1` to `s6`, in order.
     pub series: [Hsla; 6],
+    /// The ground of a display preview: the dark OLED panel.
+    pub display: Hsla,
+    /// A lit pixel of a display preview.
+    pub display_ink: Hsla,
 }
 
 impl Palette {
@@ -91,6 +95,8 @@ impl Palette {
                 pick(0x3A944A, 0x7ED492),
                 pick(0x6F8396, 0xA7B4C2),
             ],
+            display: pick(0x1D1D20, 0x111114),
+            display_ink: pick(0xFFFFFF, 0xF2F2F5),
         }
     }
 }

@@ -2,6 +2,8 @@
 
 use std::collections::BTreeMap;
 
+use crate::bitmap::Bitmap;
+
 /// The state of the link to the daemon.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Link {
@@ -423,6 +425,26 @@ pub struct ResponseProposal {
     pub overlap: String,
 }
 
+/// `GetDisplayAssets`: what report 8 holds for the display pages.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct DisplayAssets {
+    /// The 40 names: 0 to 19 device sensors, 20 to 34 page texts, 35 to 39 lighting.
+    pub names: Vec<String>,
+    /// The 16 icons of 23 x 23 pixels.
+    pub icons: Vec<Bitmap>,
+    /// The start image of 128 x 64 pixels.
+    pub logo: Bitmap,
+}
+
+/// The last answer of `GetDisplayPreview` for one page.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum PagePreview {
+    Image(Bitmap),
+    /// The call failed. The text is the last element of the error name: `PageNotShown`,
+    /// `ReadOnly`, `Disconnected`, `NotSupported`, `UnknownMethod`.
+    Failed(String),
+}
+
 /// What the app reads from one Leakshield beyond its properties: the calls of the interface
 /// that have no signal. A call that the daemon does not support leaves its part empty.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -444,6 +466,16 @@ pub struct LeakshieldData {
     pub software_sensor_slots: u16,
     /// `GetStoredFields` of each slot that has stored settings.
     pub stored: BTreeMap<u8, BTreeMap<String, FieldValue>>,
+    /// `(slot, scale, offset)` of `GetSoftwareSensorScales`. A slot that is not here has scale 1
+    /// and offset 0.
+    pub software_scales: Vec<(u16, f64, f64)>,
+    /// The sensors that a slot takes (`GetSoftwareSensorSources`). `None` when the daemon gave
+    /// no list.
+    pub software_sources: Option<Vec<String>>,
+    /// `GetCounters`. `None` when the daemon gave no counters.
+    pub counters: Option<BTreeMap<String, u64>>,
+    /// `GetDisplayAssets`. `None` when the daemon gave no assets.
+    pub display_assets: Option<DisplayAssets>,
 }
 
 impl LeakshieldData {
@@ -794,6 +826,12 @@ pub enum DaemonEvent {
         error: String,
         backup: String,
     },
+    /// The answer of `GetDisplayPreview` for a page (0 to 9).
+    DisplayPreview {
+        leakshield: String,
+        page: u8,
+        preview: PagePreview,
+    },
 }
 
 #[derive(Clone, Debug, Default)]
@@ -809,6 +847,8 @@ pub struct AppState {
     pub write_failure: Option<WriteFailure>,
     /// The fields of the last `ExternalChange`: a Leakshield change that nicecooling did not make.
     pub external_change: Option<Vec<String>>,
+    /// The last display preview of each page, by Leakshield id and page (0 to 9).
+    pub display_previews: BTreeMap<(String, u8), PagePreview>,
 }
 
 impl AppState {
@@ -904,6 +944,14 @@ impl AppState {
             }
             DaemonEvent::ExternalChange { fields, .. } => {
                 self.external_change = Some(fields.clone());
+            }
+            DaemonEvent::DisplayPreview {
+                leakshield,
+                page,
+                preview,
+            } => {
+                self.display_previews
+                    .insert((leakshield.clone(), *page), preview.clone());
             }
             DaemonEvent::PoweroffFailed { .. } => {}
         }

@@ -78,7 +78,7 @@ impl ScreenView {
                     })
                     .on_click(move |_, _, cx| {
                         view.update(cx, |this, cx| {
-                            this.leakshield.tab = entry;
+                            this.open_leakshield_tab(entry, cx);
                             cx.notify();
                         });
                     })
@@ -110,6 +110,26 @@ impl ScreenView {
             strip.into_any_element(),
             root.child(content).into_any_element(),
         )
+    }
+
+    /// Show a tab. The Display tab reads the image of its selected page, when the app has none
+    /// for it yet.
+    pub(crate) fn open_leakshield_tab(&mut self, tab: Tab, cx: &mut Context<Self>) {
+        self.leakshield.tab = tab;
+        if tab != Tab::Display {
+            return;
+        }
+        let id = self.current_leakshield(cx);
+        let page = self.leakshield.display.page as u8;
+        let read = self
+            .model
+            .read(cx)
+            .state
+            .display_previews
+            .contains_key(&(id.clone(), page));
+        if !read {
+            self.read_display_preview(&id, cx);
+        }
     }
 
     /// Keep the last 10 minutes of the live values for the charts.
@@ -196,6 +216,30 @@ impl ScreenView {
             }
         } else if name == "reset-word" && changes {
             self.leakshield.system.reset_word = value.to_owned();
+        } else if name == "display-own-text" {
+            // "Save" writes the text: a commit of the input does not.
+            if changes {
+                self.leakshield.display.type_own_text(value);
+            }
+        } else if let Some(rest) = name
+            .strip_prefix("display-min:")
+            .map(|rest| (rest, false))
+            .or_else(|| name.strip_prefix("display-max:").map(|rest| (rest, true)))
+            && commits
+        {
+            let (rest, maximum) = rest;
+            let slot = rest.rsplit(':').next().and_then(|slot| slot.parse().ok());
+            if let (Some(slot), Some(number)) = (slot, parse_number(value)) {
+                let id = self.current_leakshield(cx);
+                let command = self.with_input(cx, |input| {
+                    self.leakshield
+                        .display
+                        .set_range(input, &id, slot, maximum, number)
+                });
+                if let Some(command) = command {
+                    self.send(command);
+                }
+            }
         } else if name == "test-pressure" && changes {
             self.leakshield.overview.test_pressure = Some(value.to_owned());
         } else if name == "fields-search" && changes {
@@ -253,7 +297,9 @@ impl ScreenView {
     }
 
     pub(crate) fn on_ls_slider(&mut self, name: &str, value: f64, cx: &mut Context<Self>) {
-        if let Some(field) = name.strip_prefix("threshold:") {
+        if name == "display-threshold" {
+            self.leakshield.display.set_threshold(value);
+        } else if let Some(field) = name.strip_prefix("threshold:") {
             self.send_threshold(field, value.round(), cx);
         } else if let Some(which) = name.strip_prefix("light-param:") {
             let id = self.current_leakshield(cx);

@@ -109,6 +109,8 @@ pub struct ScreenView {
     edited_focused: bool,
     /// The input that Escape puts back to the value of the model.
     reverted: Option<InputKey>,
+    /// The input of a dialog that takes the focus when the dialog is drawn.
+    pub(crate) focus_input: Option<InputKey>,
     pub(crate) sliders: HashMap<String, Entity<SliderState>>,
     /// The sliders that the user drags now: they keep their value until the release.
     pub(crate) busy_sliders: BTreeSet<String>,
@@ -192,6 +194,7 @@ impl ScreenView {
             edited: None,
             edited_focused: false,
             reverted: None,
+            focus_input: None,
             focused: None,
             picker_cursor: None,
             picker_keys: None,
@@ -347,8 +350,12 @@ impl ScreenView {
         cx.subscribe(
             &state,
             move |this: &mut Self, _, event: &SliderEvent, cx| match event {
-                SliderEvent::Change(_) => {
+                SliderEvent::Change(value) => {
                     this.busy_sliders.insert(name.clone());
+                    // The import dialog shows the result while the slider moves.
+                    if name == crate::screens::leakshield::display_view::THRESHOLD_SLIDER {
+                        this.on_slider(&name, value.start(), cx);
+                    }
                 }
                 SliderEvent::Release(value) => {
                     this.busy_sliders.remove(&name);

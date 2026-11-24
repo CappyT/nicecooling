@@ -4087,6 +4087,7 @@ dependencies = [
  "gpui-kit-assets",
  "gpui-pre",
  "gpui-pre-platform",
+ "image",
  "ksni",
  "nicecooling-api",
  "nicecooling-core",

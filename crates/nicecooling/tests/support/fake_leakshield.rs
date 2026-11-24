@@ -43,6 +43,9 @@ struct Backup {
     reason: &'static str,
 }
 
+/// A bitmap of the daemon contract: width, height and the rows.
+type BitmapWire = (u16, u16, Vec<u8>);
+
 struct Device {
     fields: Vec<Field>,
     mode: String,
@@ -50,6 +53,13 @@ struct Device {
     backups: Vec<Backup>,
     sensors: Vec<Option<String>>,
     next_backup: u32,
+    /// The 40 names of report 8.
+    names: Vec<String>,
+    icons: Vec<BitmapWire>,
+    logo: BitmapWire,
+    /// The scale and the offset of each Software sensor slot.
+    scales: Vec<(f64, f64)>,
+    events_cleared: bool,
 }
 
 /// What a test can change on the fake device.
@@ -60,6 +70,8 @@ pub struct DeviceOptions {
     pub no_reset_commands: bool,
     /// The Feed is on and nothing was sent yet: `FeedState` is `waiting`, `LastFeed` is zero.
     pub feed_waiting: bool,
+    /// The methods for the display, the counters and the scales fail with `UnknownMethod`.
+    pub no_display_methods: bool,
 }
 
 /// What a test changes on the properties of the fake Leakshield while it runs.
@@ -72,6 +84,8 @@ pub struct Live {
     pub connected: bool,
     /// The stored settings of each slot. A slot that is not here has no stored report 3.
     pub stored: std::collections::BTreeMap<u8, HashMap<String, Fv>>,
+    /// The pages that the device does not show when it is asked for them.
+    pub hidden_pages: Vec<u8>,
 }
 
 pub struct Leakshield {
@@ -192,6 +206,8 @@ fn default_fields() -> Vec<Field> {
         field("page_sources", "low", pages(8, 255), true),
         field("page_precisions", "low", pages(8, 0), true),
         field("page_icons", "low", pages(4, 255), true),
+        field("page_names", "low", pages(8, 255), true),
+        field("page_values", "low", Fv::Ints([0, 100].repeat(40)), true),
         num("led_strip_brightness", 60.0),
         int("led_strip_flags", 4),
         field(
@@ -269,6 +285,7 @@ impl Leakshield {
                     .into_iter()
                     .map(|(slot, warning)| (slot, thresholds(warning)))
                     .collect(),
+                hidden_pages: Vec::new(),
             }),
             firmware,
             read_only_reason: read_only_reason.to_owned(),
@@ -285,6 +302,11 @@ impl Leakshield {
                 }],
                 sensors: vec![None; 12],
                 next_backup: 2,
+                names: default_names(),
+                icons: (0..16).map(test_icon).collect(),
+                logo: test_image(10),
+                scales: vec![(1.0, 0.0); 12],
+                events_cleared: false,
             }),
         }
     }
@@ -306,6 +328,94 @@ impl Leakshield {
     fn not_supported() -> fdo::Error {
         fdo::Error::Failed(NOT_SUPPORTED.into())
     }
+
+    pub fn display_names(&self) -> Vec<String> {
+        self.device.lock().expect("device").names.clone()
+    }
+
+    /// A call that the daemon makes without a polkit check: it goes into the call list as it is.
+    fn note(&self, call: String) {
+        self.shared.calls.lock().expect("calls").push(call);
+    }
+
+    /// The error of a method that this daemon lacks.
+    fn has_display_methods(&self) -> fdo::Result<()> {
+        if self.options.no_display_methods {
+            Err(fdo::Error::UnknownMethod("no such method".into()))
+        } else {
+            Ok(())
+        }
+    }
+
+    /// A command and a write of report 8 need a device that the registry covers.
+    fn writable_device(&self) -> fdo::Result<()> {
+        if self.read_only_reason.is_empty() {
+            Ok(())
+        } else {
+            Err(error("ReadOnly"))
+        }
+    }
+}
+
+fn error(name: &str) -> fdo::Error {
+    fdo::Error::Failed(format!("io.github.cappyt.NiceCooling1.Error.{name}"))
+}
+
+/// The names of a device as it leaves the factory: six sensor names, three page texts and the
+/// names of the lighting.
+fn default_names() -> Vec<String> {
+    let mut names = vec![String::new(); 40];
+    for (index, name) in [
+        "Pressure",
+        "Fill level",
+        "Volume change",
+        "Pressure change",
+        "Pump speed",
+        "Flow",
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        names[index] = name.to_owned();
+    }
+    for (index, name) in ["Loop", "Coolant", "Radiator"].into_iter().enumerate() {
+        names[20 + index] = name.to_owned();
+    }
+    names[39] = "LED strip".to_owned();
+    names
+}
+
+/// A bitmap of the contract with the pixels that `lit` names.
+fn bitmap(width: u16, height: u16, lit: impl Fn(u16, u16) -> bool) -> BitmapWire {
+    let stride = usize::from(width).div_ceil(8);
+    let mut rows = vec![0u8; stride * usize::from(height)];
+    for y in 0..height {
+        for x in 0..width {
+            if lit(x, y) {
+                rows[usize::from(y) * stride + usize::from(x) / 8] |= 0x80 >> (x % 8);
+            }
+        }
+    }
+    (width, height, rows)
+}
+
+/// The image of display page `page`: a frame, `page + 1` bars at the top left and a diagonal
+/// from the top left corner. The image tells the orientation and the page.
+pub fn test_image(page: u8) -> BitmapWire {
+    bitmap(128, 64, |x, y| {
+        let frame = x == 0 || y == 0 || x == 127 || y == 63;
+        let bars = (8..24).contains(&y) && x >= 8 && x < 8 + 6 * (u16::from(page) + 1) && x % 6 < 4;
+        let diagonal = x == y * 2 && y > 30;
+        frame || bars || diagonal
+    })
+}
+
+/// Icon `index`: a frame and `index + 1` lit pixels in the second line.
+fn test_icon(index: u8) -> BitmapWire {
+    bitmap(23, 23, |x, y| {
+        let frame = x == 0 || y == 0 || x == 22 || y == 22;
+        frame || (y == 2 && x >= 2 && x < 3 + u16::from(index)) || x == y
+    })
 }
 
 fn to_value(value: &Fv) -> OwnedValue {
@@ -742,8 +852,193 @@ impl Leakshield {
         ]
     }
 
+    async fn reset_event_log(
+        &self,
+        #[zbus(header)] header: zbus::message::Header<'_>,
+    ) -> fdo::Result<()> {
+        self.shared.record("ResetEventLog()", &header)?;
+        if self.options.no_reset_commands {
+            return Err(Self::not_supported());
+        }
+        self.writable_device()?;
+        self.device.lock().expect("device").events_cleared = true;
+        Ok(())
+    }
+
+    async fn toggle_refill_pause(
+        &self,
+        #[zbus(header)] header: zbus::message::Header<'_>,
+    ) -> fdo::Result<()> {
+        self.shared.record("ToggleRefillPause()", &header)?;
+        if self.options.no_reset_commands {
+            return Err(Self::not_supported());
+        }
+        self.writable_device()
+    }
+
+    /// The counters of the fw1022 dump, with round values for the others.
+    async fn get_counters(&self) -> fdo::Result<HashMap<String, u64>> {
+        self.has_display_methods()?;
+        Ok([
+            ("pump_runtime_s", 11431),
+            ("pump_short_cycle_runtime_s", 21),
+            ("pump_revolution_count", 1_234_567),
+            ("fill_valve_cycles", 12),
+            ("release_valve_cycles", 345),
+            ("total_runtime_s", 987_654),
+            ("power_up_count", 42),
+        ]
+        .into_iter()
+        .map(|(name, value)| (name.to_owned(), value))
+        .collect())
+    }
+
+    /// (width, height, rows) of the image of a page.
+    async fn get_display_preview(&self, page: u8) -> fdo::Result<BitmapWire> {
+        self.has_display_methods()?;
+        self.note(format!("GetDisplayPreview({page})"));
+        if page > 9 {
+            return Err(error("InvalidArgument"));
+        }
+        self.writable_device()?;
+        let live = self.live.lock().expect("live");
+        if !live.connected {
+            return Err(error("Disconnected"));
+        }
+        let empty = matches!(
+            self.stored("page_template"),
+            Some(Fv::TextList(list)) if list.get(usize::from(page)).is_some_and(|t| t == "none")
+        );
+        if empty || live.hidden_pages.contains(&page) {
+            return Err(fdo::Error::Failed(format!(
+                "io.github.cappyt.NiceCooling1.Error.PageNotShown: the device shows page 255, not {page}"
+            )));
+        }
+        Ok(test_image(page))
+    }
+
+    async fn get_display_assets(&self) -> fdo::Result<(Vec<String>, Vec<BitmapWire>, BitmapWire)> {
+        self.has_display_methods()?;
+        let device = self.device.lock().expect("device");
+        Ok((
+            device.names.clone(),
+            device.icons.clone(),
+            device.logo.clone(),
+        ))
+    }
+
+    async fn set_display_name(
+        &self,
+        #[zbus(header)] header: zbus::message::Header<'_>,
+        index: u8,
+        text: &str,
+    ) -> fdo::Result<()> {
+        self.has_display_methods()?;
+        self.shared
+            .record(&format!("SetDisplayName({index},{text})"), &header)?;
+        self.writable_device()?;
+        if index > 39 || text.chars().count() > 23 || text.chars().any(char::is_control) {
+            return Err(error("InvalidArgument"));
+        }
+        self.device.lock().expect("device").names[usize::from(index)] = text.to_owned();
+        Ok(())
+    }
+
+    async fn set_display_icon(
+        &self,
+        #[zbus(header)] header: zbus::message::Header<'_>,
+        index: u8,
+        width: u16,
+        height: u16,
+        rows: Vec<u8>,
+    ) -> fdo::Result<()> {
+        self.has_display_methods()?;
+        self.shared.record(
+            &format!("SetDisplayIcon({index},{width},{height},{})", rows.len()),
+            &header,
+        )?;
+        self.writable_device()?;
+        if index > 15 || (width, height) != (23, 23) || rows.len() != 69 {
+            return Err(error("InvalidArgument"));
+        }
+        self.device.lock().expect("device").icons[usize::from(index)] = (width, height, rows);
+        Ok(())
+    }
+
+    async fn set_display_logo(
+        &self,
+        #[zbus(header)] header: zbus::message::Header<'_>,
+        width: u16,
+        height: u16,
+        rows: Vec<u8>,
+    ) -> fdo::Result<()> {
+        self.has_display_methods()?;
+        self.shared.record(
+            &format!("SetDisplayLogo({width},{height},{})", rows.len()),
+            &header,
+        )?;
+        self.writable_device()?;
+        if (width, height) != (128, 64) || rows.len() != 1024 {
+            return Err(error("InvalidArgument"));
+        }
+        self.device.lock().expect("device").logo = (width, height, rows);
+        Ok(())
+    }
+
+    /// (slot, scale, offset) of the 12 slots.
+    async fn get_software_sensor_scales(&self) -> fdo::Result<Vec<(u16, f64, f64)>> {
+        self.has_display_methods()?;
+        let device = self.device.lock().expect("device");
+        Ok(device
+            .scales
+            .iter()
+            .enumerate()
+            .map(|(index, (scale, offset))| (index as u16 + 1, *scale, *offset))
+            .collect())
+    }
+
+    async fn set_software_sensor_scale(
+        &self,
+        #[zbus(header)] header: zbus::message::Header<'_>,
+        slot: u16,
+        scale: f64,
+        offset: f64,
+    ) -> fdo::Result<()> {
+        self.has_display_methods()?;
+        self.shared.record(
+            &format!("SetSoftwareSensorScale({slot},{scale},{offset})"),
+            &header,
+        )?;
+        let mut device = self.device.lock().expect("device");
+        let entry = device
+            .scales
+            .get_mut(usize::from(slot).wrapping_sub(1))
+            .filter(|_| scale.is_finite() && offset.is_finite())
+            .ok_or_else(|| error("InvalidArgument"))?;
+        *entry = (scale, offset);
+        Ok(())
+    }
+
+    /// The sensors that a slot takes: those with a unit that the device has a code for. The
+    /// calibrated flow of the Loop is not one of them.
+    async fn get_software_sensor_sources(&self) -> fdo::Result<Vec<OwnedObjectPath>> {
+        self.has_display_methods()?;
+        Ok([
+            "nct6798_temp1",
+            "nct6798_fan6",
+            "asusec_fan1",
+            "leakshield_20417_31072_pressure",
+        ]
+        .into_iter()
+        .map(|id| path(&format!("sensor/{id}")))
+        .collect())
+    }
+
     /// (device time us, event identifier, details)
     async fn get_events(&self) -> Vec<(u64, String, HashMap<String, OwnedValue>)> {
+        if self.device.lock().expect("device").events_cleared {
+            return Vec::new();
+        }
         let detail = |pairs: &[(&str, Value<'_>)]| {
             pairs
                 .iter()

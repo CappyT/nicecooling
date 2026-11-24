@@ -113,11 +113,14 @@ Used by the Pressure step of the Leakshield wizard. It is true to scale: one lin
 - Toolbar: Add, Duplicate, Delete. Add is disabled at 8 controllers, with the reason in its tooltip.
 - The color of a bar comes from the user. It is data, so it does not follow the severity rules.
 
-## Display page preview and logo conversion preview
+## Display page preview, template schematic and import preview
 
-- Display page preview: a 128x64 canvas at 2x (256x128), white pixels on black, radius 6. It renders the template with live values. A page that is off in the current state has 40% opacity and the caption "Off in standby" or "Off in normal operation".
-- The selected page has a 2 px `accent-bg` outline.
-- Logo conversion preview: the source image at the left, the 1 bit result at the right at 2x, a threshold slider and an "Invert" switch between them. The result updates while the slider moves.
+- Display page preview: the image of 128x64 pixels that the device draws for the page, at a whole scale: 1 px for each pixel in the page grid, 2 px on the page card. A lit pixel is a `display-ink` square on the `display` ground. Each run of lit pixels in a line is one rectangle, so the pixels are sharp. The ground has a frame of 4 px and radius 6.
+- A preview without an image has the same size: a `track` box with a dashed `border-strong` outline and a short text in `fg-dim` that says why. It is never a dark box.
+- A page that the device shows in no state has 40% opacity and the caption "Not shown". The selected page has a 2 px `accent-bg` outline.
+- Template schematic: 96x48 px on the `display` ground. It sketches the layout of a template with three shapes on the grid of 128x64: a dim bar for a line of text, a lit bar for a value or the filled part of a bar, and an outline for an icon or a bar.
+- Import preview: the one-bit result of the conversion on the `display` ground, 2 px for each pixel for the logo and 4 px for an icon. Under it a threshold slider and the switch "Swap lit and dark". The result updates while the slider moves.
+- An icon of the device (23x23) draws the same way: 1 px for each pixel in a row of the page card, 2 px in the icon dialog.
 
 ## Sensor picker
 

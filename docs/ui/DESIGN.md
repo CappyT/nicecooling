@@ -189,6 +189,8 @@ Rules of the direction:
 | `air` | `#77767B` | `#9A9996` | Air path of a diagram |
 | `part` | `#F6F5F4` | `#2A2A2E` | Fill of a part symbol |
 | `s1` to `s6` | `#1C71D8` `#2190A4` `#9141AC` `#D56199` `#3A944A` `#6F8396` | `#78AEED` `#5BC8DC` `#C29EE6` `#F08DBB` `#7ED492` `#A7B4C2` | Chart series, in this order |
+| `display` | `#1D1D20` | `#111114` | Ground of a Leakshield display preview: the dark OLED panel |
+| `display-ink` | `#FFFFFF` | `#F2F2F5` | A lit pixel of a Leakshield display preview |
 
 A chart never uses red or amber for a series. A chart with more than six series repeats the colors with a dashed line.
 
@@ -383,8 +385,9 @@ Four SVG files on a 16 px grid, one color (`#2E3436`). The desktop recolors a sy
 | Leakshield Settings: Summary | `DiffTable` (custom) and `WriteStatus` |
 | Leakshield Sensors | `table` with inline `input`, `SensorPicker` (custom), `select`, number `input` |
 | Leakshield Display: page grid and previews | `DisplayPreview` (custom) in a grid |
-| Leakshield Display: template gallery | `dialog` with a grid of `DisplayPreview` |
-| Leakshield Display: logo upload | File dialog of the system, `LogoPreview` (custom) |
+| Leakshield Display: page editor | `table` with `select` and number `input` cells, list rows with `select` and `button` |
+| Leakshield Display: template gallery | `dialog` with a grid of `TemplateSchematic` (custom) |
+| Leakshield Display: logo and icon import | File dialog of the system, `dialog` with `DisplayPreview` (custom), `slider`, `switch` |
 | Leakshield Display: settings | Settings form: `slider`, `switch`, number `input` |
 | Leakshield Lighting: LED timeline | `LedTimeline` (custom) |
 | Leakshield Lighting: effect picker, parameters | `dialog`, color picker, `slider`, `SensorPicker` (custom) |
