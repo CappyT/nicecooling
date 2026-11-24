@@ -1,7 +1,7 @@
 //! Small building blocks that the screens share. They paint with the tokens of `Palette`.
 
 use gpui::prelude::*;
-use gpui::{AnyElement, Div, FontWeight, Hsla, SharedString, div, px};
+use gpui::{AnyElement, BoxShadow, Div, FontWeight, Hsla, SharedString, div, point, px, rgba};
 use gpui_component::{Sizable as _, h_flex, v_flex};
 
 use crate::icons::{NcIcon, icon, small_icon};
@@ -21,19 +21,22 @@ pub enum TagKind {
 
 /// A 22 px pill with 12 px text.
 pub fn tag(text: impl Into<SharedString>, kind: TagKind, p: &Palette) -> Div {
+    let clear = gpui::transparent_black();
     let (fill, ink) = match kind {
         TagKind::Neutral => (p.selected, p.fg),
         TagKind::Accent => (p.accent_tint, p.accent),
         TagKind::Warning => (p.warning_tint, p.warning),
         TagKind::Alarm => (p.alarm_bg, p.alarm_fg),
-        TagKind::Offline => (p.offline_tint, p.offline),
-        TagKind::Success => (p.selected, p.success),
+        TagKind::Offline => (clear, p.offline),
+        TagKind::Success => (clear, p.success),
     };
     div()
         .h(px(22.))
+        .flex_none()
         .px(px(9.))
         .flex()
         .items_center()
+        .gap(px(4.))
         .rounded_full()
         .bg(fill)
         .text_color(ink)
@@ -41,6 +44,9 @@ pub fn tag(text: impl Into<SharedString>, kind: TagKind, p: &Palette) -> Div {
         .font_weight(FontWeight::SEMIBOLD)
         .when(kind == TagKind::Offline, |tag| {
             tag.border_1().border_dashed().border_color(p.offline)
+        })
+        .when(kind == TagKind::Success, |tag| {
+            tag.border_1().border_color(p.success)
         })
         .child(text.into())
 }
@@ -57,27 +63,41 @@ pub fn heading(text: impl Into<SharedString>) -> Div {
     div().font_weight(FontWeight::BOLD).child(text.into())
 }
 
-/// A card: the `card` fill, 12 px radius and a 1 px border.
+/// A card: the `card` fill and 12 px radius. The light theme has the Adwaita card shadow. The
+/// dark theme has no shadow: the lighter fill separates the card.
 pub fn card(p: &Palette) -> Div {
+    let shadow = |alpha: u32, y: f32, blur: f32, spread: f32| BoxShadow {
+        color: rgba(0x0000_0600 | alpha).into(),
+        offset: point(px(0.), px(y)),
+        blur_radius: px(blur),
+        spread_radius: px(spread),
+        inset: false,
+    };
     v_flex()
         .w_full()
+        .min_w_0()
         .rounded(px(12.))
         .bg(p.card)
-        .border_1()
-        .border_color(p.border)
+        .when(!p.dark, |card| {
+            card.shadow(vec![
+                shadow(0x08, 0., 0., 1.),
+                shadow(0x12, 1., 3., 1.),
+                shadow(0x08, 2., 6., 2.),
+            ])
+        })
 }
 
 /// The header of a card: 40 px, with the title at the left and the controls at the right.
-pub fn card_header(title: impl Into<SharedString>, p: &Palette) -> Div {
+/// The rows under it draw the line.
+pub fn card_header(title: impl Into<SharedString>, _p: &Palette) -> Div {
     h_flex()
-        .h(px(40.))
-        .px(px(18.))
-        .gap(px(12.))
-        .items_center()
+        .min_h(px(40.))
+        .pl(px(18.))
+        .pr(px(12.))
+        .py(px(6.))
+        .gap(px(9.))
         .flex_none()
-        .border_b_1()
-        .border_color(p.border)
-        .child(heading(title).flex_1())
+        .child(heading(title).flex_1().min_w_0())
 }
 
 /// A row of a card: a 1 px line above it, and 18 px side padding.
@@ -134,7 +154,12 @@ pub fn write_line(line: &FeedbackLine, p: &Palette) -> Div {
 
 /// The ground of a page: 12 px at the top, 24 px at the sides, 12 px between the cards.
 pub fn page() -> Div {
-    v_flex().w_full().px(px(24.)).py(px(12.)).gap(px(12.))
+    v_flex()
+        .w_full()
+        .px(px(24.))
+        .pt(px(12.))
+        .pb(px(18.))
+        .gap(px(12.))
 }
 
 /// A dialog of 440 px over a dark scrim. The caller puts it in a container with `relative()`.

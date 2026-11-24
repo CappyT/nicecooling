@@ -2,16 +2,17 @@
 
 use gpui::prelude::*;
 use gpui::{
-    ClickEvent, Context, Entity, FocusHandle, Hsla, IntoElement, KeyDownEvent, Render, Window, div,
-    px,
+    AnyElement, ClickEvent, Context, Entity, FocusHandle, FontWeight, IntoElement, KeyDownEvent,
+    MouseButton, MouseMoveEvent, Render, Window, div, px, rgb,
 };
-use gpui_component::button::{Button, ButtonVariants as _};
+use gpui_component::button::{Button, ButtonCustomVariant, ButtonVariants as _};
 use gpui_component::spinner::Spinner;
 use gpui_component::{Sizable as _, TitleBar, h_flex, v_flex};
 use tokio::sync::mpsc::UnboundedSender;
 
 use crate::app::AppModel;
 use crate::command::Command;
+use crate::icons::{NcIcon, icon};
 use crate::model::{Link, Severity};
 use crate::screen_view::ScreenView;
 use crate::shell::{Banner, BannerAction, BannerStyle, NavBadge, NavEntry, Page, ShellModel};
@@ -31,6 +32,23 @@ pub struct ShellView {
     countdown_focused: Option<String>,
     /// The screen of every page.
     screens: Entity<ScreenView>,
+    /// A press on the app name of the sidebar: the next pointer move starts a window move.
+    sidebar_press: bool,
+}
+
+/// The sidebar icon of a page, as the comps show it.
+fn nav_icon(page: &Page) -> NcIcon {
+    match page {
+        Page::Overview | Page::FirstRun => NcIcon::Home,
+        Page::Loops => NcIcon::Loop,
+        Page::Channels => NcIcon::Fan,
+        Page::Sensors => NcIcon::Gauge,
+        Page::Leakshield(_) => NcIcon::Shield,
+        Page::Profiles => NcIcon::Layers,
+        Page::Alarms => NcIcon::Bell,
+        Page::History => NcIcon::Chart,
+        Page::Settings => NcIcon::Sliders,
+    }
 }
 
 impl ShellView {
@@ -55,6 +73,7 @@ impl ShellView {
             countdown_hidden: None,
             countdown_focus: cx.focus_handle(),
             countdown_focused: None,
+            sidebar_press: false,
         }
     }
 
@@ -145,54 +164,66 @@ impl ShellView {
         p: &Palette,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
-        let (ground, ink) = match banner.style {
-            BannerStyle::Alarm => (p.alarm_bg, p.alarm_fg),
-            BannerStyle::Offline => (p.offline_tint, p.fg),
-            BannerStyle::Warning => (p.warning_tint, p.fg),
+        let (ground, ink, line, mark) = match banner.style {
+            BannerStyle::Alarm => (p.alarm_bg, p.alarm_fg, p.alarm_bg, NcIcon::Alarm),
+            BannerStyle::Offline => (p.offline_tint, p.fg, p.border, NcIcon::Off),
+            BannerStyle::Warning => (p.warning_tint, p.fg, p.border, NcIcon::Warn),
         };
-        let height = if banner.countdown.is_some() {
-            64.0
-        } else {
-            46.0
+        let alarm = banner.style == BannerStyle::Alarm;
+        let mark_color = match banner.style {
+            BannerStyle::Alarm => p.alarm_fg,
+            BannerStyle::Offline => p.offline,
+            BannerStyle::Warning => p.warning,
         };
         let mut row = h_flex()
             .id(("banner", index))
-            .min_h(px(height))
+            .min_h(px(if alarm { 64. } else { 46. }))
             .px(px(24.))
+            .py(px(6.))
             .gap(px(12.))
-            .items_center()
             .bg(ground)
+            .border_b_1()
+            .border_color(line)
             .text_color(ink)
+            .child(icon(mark, mark_color).with_size(px(if alarm { 24. } else { 20. })))
             .child(
                 v_flex()
                     .flex_1()
+                    .min_w_0()
                     .child(
                         div()
-                            .font_weight(gpui::FontWeight::BOLD)
+                            .font_weight(FontWeight::BOLD)
+                            .when(alarm, |title| title.text_size(px(16.)).line_height(px(22.)))
                             .child(banner.title.clone()),
                     )
-                    .children(
-                        banner
-                            .detail
-                            .clone()
-                            .map(|detail| div().text_sm().child(detail)),
-                    ),
+                    .children(banner.detail.clone().map(|detail| div().child(detail))),
             );
         if let Some(countdown) = &banner.countdown {
             row = row.child(
                 div()
+                    .flex_none()
                     .text_size(px(28.))
-                    .font_weight(gpui::FontWeight::EXTRA_BOLD)
+                    .line_height(px(32.))
+                    .font_weight(FontWeight::EXTRA_BOLD)
                     .child(countdown.clone()),
             );
         }
         if let Some((label, action)) = &banner.button {
             let button = Button::new(("banner-button", index))
-                .small()
+                .h(px(34.))
+                .px(px(15.))
+                .rounded(px(9.))
+                .font_weight(FontWeight::BOLD)
                 .label(label.clone())
                 .on_click(self.banner_action(action.clone(), cx));
-            row = row.child(if banner.style == BannerStyle::Alarm {
-                button.danger()
+            // On the Alarm field the button is white with dark red text.
+            let on_alarm = ButtonCustomVariant::new(cx)
+                .color(gpui::white())
+                .foreground(rgb(0xA51D2D).into())
+                .hover(rgb(0xF6F5F4).into())
+                .active(rgb(0xDEDDDA).into());
+            row = row.child(if alarm {
+                button.custom(on_alarm)
             } else {
                 button
             });
@@ -211,26 +242,41 @@ impl ShellView {
     ) -> impl IntoElement {
         let page = entry.page.clone();
         let view = cx.entity();
-        let badge = entry.badge.as_ref().map(|badge| match badge {
-            NavBadge::Count(count) => (count.to_string(), p.fg_dim),
-            NavBadge::Severity(Severity::Alarm) => ("!".to_owned(), p.alarm),
-            NavBadge::Severity(Severity::Warning) => ("!".to_owned(), p.warning),
-            NavBadge::Offline => ("--".to_owned(), p.offline),
+        let badge: Option<AnyElement> = entry.badge.as_ref().map(|badge| match badge {
+            NavBadge::Count(count) => div()
+                .font_weight(FontWeight::BOLD)
+                .child(count.to_string())
+                .into_any_element(),
+            NavBadge::Severity(Severity::Alarm) => icon(NcIcon::Alarm, p.alarm).into_any_element(),
+            NavBadge::Severity(Severity::Warning) => {
+                icon(NcIcon::Warn, p.warning).into_any_element()
+            }
+            NavBadge::Offline => icon(NcIcon::Off, p.offline).into_any_element(),
         });
         h_flex()
             .id(format!("nav-{}", entry.label))
             .h(px(34.))
-            .px(px(12.))
-            .gap(px(6.))
-            .items_center()
+            .flex_none()
+            .px(px(9.))
+            .gap(px(9.))
             .rounded(px(9.))
-            .when(active, |row| {
-                row.bg(p.selected).font_weight(gpui::FontWeight::SEMIBOLD)
+            .map(|row| {
+                if active {
+                    row.bg(p.selected).font_weight(FontWeight::SEMIBOLD)
+                } else {
+                    row.hover(|row| row.bg(p.hover))
+                }
             })
-            .hover(|row| row.bg(p.hover))
             .on_click(move |_, _, cx| view.update(cx, |this, cx| this.go(page.clone(), cx)))
-            .child(div().flex_1().truncate().child(entry.label.clone()))
-            .children(badge.map(|(text, color)| div().text_color(color).child(text)))
+            .child(icon(nav_icon(&entry.page), p.fg))
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .truncate()
+                    .child(entry.label.clone()),
+            )
+            .children(badge)
     }
 
     fn render_sidebar(
@@ -245,23 +291,49 @@ impl ShellView {
             .h_full()
             .flex_none()
             .bg(p.sidebar)
-            .p(px(6.))
-            .gap(px(3.))
+            .border_r_1()
+            .border_color(p.border)
+            .px(px(6.))
+            .pb(px(6.))
+            .gap(px(2.))
             .child(
+                // The app name is at the height of the header bar: it moves the window too.
                 div()
-                    .px(px(12.))
-                    .py(px(12.))
-                    .font_weight(gpui::FontWeight::BOLD)
+                    .id("app-name")
+                    .h(px(46.))
+                    .flex_none()
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .font_weight(FontWeight::BOLD)
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(|this, _, _, _| this.sidebar_press = true),
+                    )
+                    .on_mouse_up(
+                        MouseButton::Left,
+                        cx.listener(|this, _, _, _| this.sidebar_press = false),
+                    )
+                    .on_mouse_move(cx.listener(|this, event: &MouseMoveEvent, window, _| {
+                        let pressed = event.pressed_button == Some(MouseButton::Left);
+                        if this.sidebar_press && pressed {
+                            window.start_window_move();
+                        }
+                        this.sidebar_press = false;
+                    }))
                     .child("nicecooling"),
             );
         for group in &shell.groups {
             if let Some(title) = &group.title {
                 column = column.child(
                     div()
-                        .px(px(12.))
+                        .flex_none()
+                        .px(px(9.))
                         .pt(px(12.))
+                        .pb(px(3.))
                         .text_size(px(12.))
-                        .font_weight(gpui::FontWeight::BOLD)
+                        .line_height(px(16.))
+                        .font_weight(FontWeight::BOLD)
                         .text_color(p.fg_dim)
                         .child(title.clone()),
                 );
@@ -285,11 +357,6 @@ impl ShellView {
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
         let status = &shell.status;
-        let dot: Hsla = match status.link {
-            Link::Online => p.ok_dot,
-            Link::Down => p.alarm,
-            Link::Offline | Link::Connecting => p.offline,
-        };
         let view = cx.entity();
         let to_page = |page: Page| {
             let view = view.clone();
@@ -297,44 +364,61 @@ impl ShellView {
                 view.update(cx, |this, cx| this.go(page.clone(), cx))
             }
         };
+        let small = |name: NcIcon, color| icon(name, color).with_size(px(14.));
+        let daemon = h_flex()
+            .id("status-daemon")
+            .flex_none()
+            .gap(px(6.))
+            .on_click(to_page(Page::Settings));
+        let daemon = match status.link {
+            Link::Online => daemon.child(div().size(px(8.)).rounded_full().bg(p.ok_dot)),
+            Link::Down => daemon
+                .text_color(p.alarm)
+                .font_weight(FontWeight::BOLD)
+                .child(small(NcIcon::Alarm, p.alarm)),
+            Link::Offline | Link::Connecting => daemon
+                .text_color(p.offline)
+                .child(small(NcIcon::Off, p.offline)),
+        }
+        .child(status.daemon.clone());
+        let alarms = h_flex()
+            .id("status-alarms")
+            .flex_none()
+            .gap(px(6.))
+            .on_click(to_page(Page::Alarms));
+        let alarms = match status.alarm_severity {
+            Some(Severity::Alarm) => alarms
+                .text_color(p.alarm)
+                .font_weight(FontWeight::BOLD)
+                .child(small(NcIcon::Alarm, p.alarm)),
+            Some(Severity::Warning) => alarms
+                .text_color(p.warning)
+                .font_weight(FontWeight::BOLD)
+                .child(small(NcIcon::Warn, p.warning)),
+            None => alarms,
+        }
+        .child(status.alarms.clone());
         h_flex()
             .h(px(28.))
-            .px(px(12.))
-            .gap(px(18.))
-            .items_center()
             .flex_none()
             .debug_selector(|| "shell-status".to_owned())
-            .bg(p.headerbar)
+            .px(px(24.))
+            .gap(px(18.))
+            .overflow_hidden()
             .border_t_1()
             .border_color(p.border)
             .text_size(px(12.))
-            .child(
-                h_flex()
-                    .id("status-daemon")
-                    .gap(px(6.))
-                    .items_center()
-                    .on_click(to_page(Page::Settings))
-                    .child(div().size(px(8.)).rounded_full().bg(dot))
-                    .child(status.daemon.clone()),
-            )
+            .line_height(px(16.))
+            .text_color(p.fg_dim)
+            .child(daemon)
             .children(status.profile.clone().map(|text| {
                 div()
                     .id("status-profile")
+                    .flex_none()
                     .on_click(to_page(Page::Profiles))
                     .child(text)
             }))
-            .child(div().flex_1())
-            .child(
-                div()
-                    .id("status-alarms")
-                    .on_click(to_page(Page::Alarms))
-                    .text_color(match status.alarm_severity {
-                        Some(Severity::Alarm) => p.alarm,
-                        Some(Severity::Warning) => p.warning,
-                        None => p.fg_dim,
-                    })
-                    .child(status.alarms.clone()),
-            )
+            .child(alarms)
     }
 
     fn render_menu(
@@ -349,8 +433,8 @@ impl ShellView {
         let _ = shell;
         v_flex()
             .absolute()
-            .top(px(40.))
-            .right(px(8.))
+            .top(px(42.))
+            .right(px(12.))
             .p(px(6.))
             .rounded(px(12.))
             .bg(p.headerbar)
@@ -485,12 +569,48 @@ impl Render for ShellView {
 
         let menu_button = Button::new("primary-menu")
             .ghost()
-            .small()
-            .label(locale.tr("menu.primary"))
+            .size(px(28.))
+            .rounded(px(7.))
+            .icon(icon(NcIcon::Menu, p.fg))
+            .tooltip(locale.tr("menu.primary"))
             .on_click(self.toggle(|this| &mut this.menu_open, cx));
         let _ = window;
 
-        v_flex()
+        // `TitleBar` pads its left side with 12 px: the same padding at the right keeps the
+        // title in the center.
+        let header = TitleBar::new()
+            .h(px(46.))
+            .bg(p.headerbar)
+            .border_color(p.border)
+            .child(
+                h_flex()
+                    .size_full()
+                    .pr(px(12.))
+                    .child(div().flex_1())
+                    .child(
+                        v_flex()
+                            .flex_none()
+                            .items_center()
+                            .child(
+                                div()
+                                    .font_weight(FontWeight::BOLD)
+                                    .line_height(px(18.))
+                                    .child(title),
+                            )
+                            .children(subtitle.map(|text| {
+                                div()
+                                    .text_size(px(12.))
+                                    .line_height(px(14.))
+                                    .text_color(p.fg_dim)
+                                    .child(text)
+                            })),
+                    )
+                    .child(h_flex().flex_1().justify_end().child(menu_button)),
+            );
+
+        // `h_flex` centers its children on the cross axis. This row must stretch them: the
+        // sidebar and the content column take the height of the window.
+        div()
             .id("shell")
             .key_context("Shell")
             .track_focus(&self.focus)
@@ -499,60 +619,35 @@ impl Render for ShellView {
                     this.on_key(event, window, cx)
                 }),
             )
+            .flex()
             .size_full()
             .bg(p.window)
             .text_color(p.fg)
+            .text_size(px(14.))
+            .line_height(px(20.))
+            .child(self.render_sidebar(&shell, &page, &p, cx))
             .child(
-                div()
-                    .flex_none()
-                    .debug_selector(|| "shell-header".to_owned())
-                    .child(
-                        TitleBar::new().child(
-                            h_flex()
-                                .w_full()
-                                .items_center()
-                                .child(
-                                    v_flex()
-                                        .flex_1()
-                                        .items_center()
-                                        .child(
-                                            div()
-                                                .font_weight(gpui::FontWeight::BOLD)
-                                                .line_height(px(18.))
-                                                .child(title),
-                                        )
-                                        .children(subtitle.map(|text| {
-                                            div()
-                                                .text_size(px(12.))
-                                                .line_height(px(14.))
-                                                .text_color(p.fg_dim)
-                                                .child(text)
-                                        })),
-                                )
-                                .child(menu_button),
-                        ),
-                    ),
-            )
-            .child(
-                // `h_flex` centers its children on the cross axis. This row must stretch them:
-                // the content column takes the height of the row and starts under the header.
-                h_flex()
+                v_flex()
                     .flex_1()
-                    .min_h_0()
-                    .items_stretch()
-                    .child(self.render_sidebar(&shell, &page, &p, cx))
+                    .min_w_0()
+                    .h_full()
                     .child(
-                        v_flex().flex_1().min_w_0().child(banners).child(
-                            div()
-                                .flex_1()
-                                .min_h_0()
-                                .overflow_hidden()
-                                .debug_selector(|| "shell-content".to_owned())
-                                .child(content),
-                        ),
-                    ),
+                        div()
+                            .flex_none()
+                            .debug_selector(|| "shell-header".to_owned())
+                            .child(header),
+                    )
+                    .child(banners)
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_h_0()
+                            .overflow_hidden()
+                            .debug_selector(|| "shell-content".to_owned())
+                            .child(content),
+                    )
+                    .child(self.render_status_bar(&shell, &p, cx)),
             )
-            .child(self.render_status_bar(&shell, &p, cx))
             .when(self.menu_open, |root| {
                 root.child(self.render_menu(&shell, &p, cx))
             })

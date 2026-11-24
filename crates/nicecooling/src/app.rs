@@ -3,7 +3,7 @@
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use gpui::{App, AppContext as _, Entity, QuitMode};
-use gpui_component::{Root, Theme};
+use gpui_component::Root;
 use tokio::sync::broadcast;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
@@ -151,7 +151,7 @@ pub fn init(cx: &mut App, mode: StartMode, backend: Backend) -> Entity<AppModel>
     gpui_component::set_locale(locale.code());
     // Closing the window hides it: only "Quit" ends the app.
     cx.set_quit_mode(QuitMode::Explicit);
-    Theme::sync_system_appearance(None, cx);
+    crate::tokens::apply_theme(cx);
     let model = cx.new(|_| {
         let mut app = AppModel::new(locale);
         app.settings = settings;
