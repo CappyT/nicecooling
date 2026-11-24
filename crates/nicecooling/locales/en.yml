@@ -21,6 +21,8 @@ status:
   profile_with_cause: "Profile: %{name} (%{cause})"
   cause_rule: rule
   cause_manual: manual
+  profile_none: "Profile: none"
+  protection_off: Protection off
   no_alarms: No active Alarms
   alarms:
     one: "%{count} Alarm"
@@ -190,7 +192,6 @@ diagram:
     above_table: above table range
     below_flow: "below %{value} L/h"
     water: water
-    last: "last %{value}"
     last: "last %{value}"
     pumps:
       one: "%{count} pump"

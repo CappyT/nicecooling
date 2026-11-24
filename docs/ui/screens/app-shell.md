@@ -18,7 +18,7 @@ The shell is the frame of every screen: sidebar, header bar, global banners, con
 
 1. Overview, Loops, Channels, Sensors.
 2. Group "Devices": one entry per Leakshield. The label is the device description, or "Leakshield". Two devices with the same label also show the last 5 digits of the serial. A device with an active Alarm, a Warning or no connection has the severity icon at the end of its row.
-3. Group "Control": Profiles, Alarms, History. Alarms shows the count of active Alarms and Warnings.
+3. Group "Control": Profiles, Alarms, History. Alarms shows the count of active Alarms and Warnings. "Daemon down" counts as one.
 4. Settings, at the bottom.
 
 A long label truncates with an ellipsis. Icons and counts keep their width.
@@ -28,8 +28,8 @@ A long label truncates with an ellipsis. Icons and counts keep their width.
 | Item | Text | Click |
 |---|---|---|
 | Daemon | Green dot and "Daemon connected", the offline icon and "Daemon offline", or the octagon and "Daemon down" in the Alarm color | Settings, daemon section |
-| Profile | "Profile: Quiet (rule)" or "Profile: Gaming (manual)" | Profiles |
-| Alarms | "No active Alarms", "2 Warnings", "1 Alarm", or "1 Alarm, poweroff in 0:21" | Alarms |
+| Profile | "Profile: Quiet (rule)" or "Profile: Gaming (manual)". With the daemon down: "Profile: none" | Profiles |
+| Alarms | "No active Alarms", "2 Warnings", "1 Alarm", or "1 Alarm, poweroff in 0:21". With the daemon down: the octagon and "Protection off" in the Alarm color | Alarms |
 
 ## Global banners
 

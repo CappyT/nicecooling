@@ -224,7 +224,8 @@ fn sidebar(state: &AppState, locale: Locale) -> (Vec<NavGroup>, NavEntry) {
         });
     }
 
-    let active = snapshot.alarms.len();
+    // "Daemon down" is an entry of Active Alarms: the count has it.
+    let active = snapshot.alarms.len() + usize::from(state.link == Link::Down);
     groups.push(NavGroup {
         title: Some(locale.tr("nav.control")),
         entries: vec![
@@ -364,6 +365,7 @@ fn status_bar(state: &AppState, now_us: u64, locale: Locale) -> StatusBar {
         Link::Offline => locale.tr("status.daemon_offline"),
         Link::Down => locale.tr("status.daemon_down"),
     };
+    let down = state.link == Link::Down;
     let profile = state
         .is_online()
         .then_some(state.snapshot.active_profile.as_ref())
@@ -381,18 +383,28 @@ fn status_bar(state: &AppState, now_us: u64, locale: Locale) -> StatusBar {
                 ),
                 None => locale.fmt("status.profile", &[("name", &profile.name)]),
             }
-        });
+        })
+        .or_else(|| down.then(|| locale.tr("status.profile_none")));
+    // A daemon that is down runs no alarm response: the bar says so in the Alarm color.
+    let (alarms, alarm_severity) = if down {
+        (locale.tr("status.protection_off"), Some(Severity::Alarm))
+    } else {
+        (
+            alarm_summary(state, now_us, locale),
+            state
+                .snapshot
+                .alarms
+                .iter()
+                .map(|alarm| alarm.severity)
+                .max(),
+        )
+    };
     StatusBar {
         link: state.link,
         daemon,
         profile,
-        alarms: alarm_summary(state, now_us, locale),
-        alarm_severity: state
-            .snapshot
-            .alarms
-            .iter()
-            .map(|alarm| alarm.severity)
-            .max(),
+        alarms,
+        alarm_severity,
     }
 }
 

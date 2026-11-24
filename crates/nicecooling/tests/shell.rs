@@ -114,6 +114,17 @@ async fn start_limit_hit_shows_daemon_down_board_on_bios_curves() {
         Some(&BannerAction::ShowHowToStart)
     );
     assert_eq!(model.status.daemon, "Daemon down");
+    // The status bar says that nothing protects the PC, and "Daemon down" counts as an Alarm.
+    assert_eq!(model.status.profile.as_deref(), Some("Profile: none"));
+    assert_eq!(model.status.alarms, "Protection off");
+    assert_eq!(model.status.alarm_severity, Some(Severity::Alarm));
+    let alarms_entry = model
+        .groups
+        .iter()
+        .flat_map(|group| &group.entries)
+        .find(|entry| entry.page == Page::Alarms)
+        .expect("the Alarms entry");
+    assert_eq!(alarms_entry.badge, Some(NavBadge::Count(1)));
     assert!(!model.writes.enabled);
     assert!(
         model
