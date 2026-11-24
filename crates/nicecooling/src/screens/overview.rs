@@ -27,17 +27,20 @@ pub enum TagTone {
 pub struct ModeTag {
     pub text: String,
     pub tone: TagTone,
+    /// The text is a Mode name, not a running Action.
+    pub mode: bool,
 }
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct LoopCard {
     pub id: String,
     pub name: String,
+    /// The Mode of the Leakshield, or its running Action. `None` while the daemon is down.
     pub mode_tag: Option<ModeTag>,
     pub caption: String,
     /// The tag "Not live" of a daemon that is down.
     pub not_live: Option<String>,
-    /// "Last value 21:40:12" while the daemon is away.
+    /// "Last value 21:40:12" while the daemon is away. It shows in place of the caption.
     pub last_values: Option<String>,
     pub diagram: LoopDiagram,
 }
@@ -53,8 +56,12 @@ pub struct PressureCard {
     pub limit: Option<(f64, String)>,
     /// "Target 300 mbar", from the setpoint sensor of the Leakshield.
     pub target: Option<String>,
+    pub target_value: Option<f64>,
     /// "Minimum 250 mbar", from the low sensor of the Leakshield.
     pub minimum: Option<String>,
+    pub minimum_value: Option<f64>,
+    /// "Pressure change -38 mbar/min", from the pressure change sensor of the Leakshield.
+    pub change: Option<String>,
     /// The time of the vertical line, in Unix microseconds, with its label.
     pub raised: Option<(u64, String)>,
 }
@@ -85,7 +92,11 @@ pub struct KeyTemperature {
 pub struct ProfileCard {
     /// "None" while the daemon is down.
     pub name: String,
+    /// No Profile is active, or the daemon is down: the name is dim.
+    pub none: bool,
     pub tag: Option<String>,
+    /// The tag of a Profile that a Rule group activated has the accent color.
+    pub tag_accent: bool,
     pub detail: Option<String>,
 }
 
@@ -105,6 +116,8 @@ pub struct OverviewModel {
     pub loops: Vec<LoopCard>,
     pub pressure: Option<PressureCard>,
     pub alarms: Vec<AlarmRow>,
+    /// The count of the active Alarms and Warnings of the daemon, with the highest severity.
+    pub alarm_count: Option<(usize, RowTone)>,
     pub no_alarms: String,
     pub temperatures: Vec<KeyTemperature>,
     pub profile: ProfileCard,
@@ -133,7 +146,9 @@ impl OverviewModel {
                     .leakshield
                     .as_ref()
                     .and_then(|id| state.snapshot.leakshields.iter().find(|d| &d.id == id));
-                let mode_tag = device.and_then(|device| mode_tag(input, device));
+                let mode_tag = device
+                    .filter(|_| link != Link::Down)
+                    .and_then(|device| mode_tag(input, device));
                 let leakshield = locale.tr(if device.is_some() {
                     "loop.with_leakshield"
                 } else {
@@ -187,6 +202,13 @@ impl OverviewModel {
         }
         let mut active: Vec<&AlarmEntry> = state.snapshot.alarms.iter().collect();
         active.sort_by_key(|alarm| (std::cmp::Reverse(alarm.severity), alarm.raised_us));
+        let alarm_count = active.first().map(|worst| {
+            let tone = match worst.severity {
+                Severity::Alarm => RowTone::Alarm,
+                Severity::Warning => RowTone::Warning,
+            };
+            (active.len(), tone)
+        });
         for alarm in active {
             alarms.push(alarm_row(input, alarm));
         }
@@ -197,6 +219,7 @@ impl OverviewModel {
             loops,
             pressure: pressure_card(input),
             alarms,
+            alarm_count,
             no_alarms: locale.tr("overview.no_alarms"),
             temperatures: key_temperatures(input),
             profile: profile_card(input),
@@ -214,20 +237,24 @@ fn mode_tag(input: &ScreenInput<'_>, device: &crate::model::LeakshieldInfo) -> O
         return Some(ModeTag {
             text: locale.tr(&key),
             tone: TagTone::Neutral,
+            mode: false,
         });
     }
     match device.mode.as_str() {
         "shield" => Some(ModeTag {
             text: "SHIELD".to_owned(),
             tone: TagTone::Neutral,
+            mode: true,
         }),
         "monitor" => Some(ModeTag {
             text: "MONITOR".to_owned(),
             tone: TagTone::Neutral,
+            mode: true,
         }),
         "release" => Some(ModeTag {
             text: "RELEASE".to_owned(),
             tone: TagTone::Warning,
+            mode: true,
         }),
         _ => None,
     }
@@ -330,12 +357,25 @@ fn pressure_card(input: &ScreenInput<'_>) -> Option<PressureCard> {
                 &[("value", &value_text(locale, limits.target, "mbar"))],
             )
         }),
+        target_value: limits.map(|limits| limits.target),
         minimum: limits.map(|limits| {
             locale.fmt(
                 "overview.pressure.minimum",
                 &[("value", &value_text(locale, limits.min, "mbar"))],
             )
         }),
+        minimum_value: limits.map(|limits| limits.min),
+        change: input
+            .state
+            .sensors
+            .as_ref()
+            .and_then(|sample| sample.sensor_value(&format!("{}_pressure_change", alarm.source)))
+            .map(|change| {
+                locale.fmt(
+                    "overview.pressure.change",
+                    &[("value", &value_text(locale, change, "mbar/min"))],
+                )
+            }),
         raised: (alarm.raised_us != 0).then(|| {
             (
                 alarm.raised_us,
@@ -396,11 +436,14 @@ fn key_temperatures(input: &ScreenInput<'_>) -> Vec<KeyTemperature> {
 fn profile_card(input: &ScreenInput<'_>) -> ProfileCard {
     let locale = input.locale;
     let snapshot = &input.state.snapshot;
-    if input.state.link == Link::Down || snapshot.active_profile.is_none() {
+    let down = input.state.link == Link::Down;
+    if down || snapshot.active_profile.is_none() {
         return ProfileCard {
             name: locale.tr("overview.profile.none"),
+            none: true,
             tag: None,
-            detail: None,
+            tag_accent: false,
+            detail: down.then(|| locale.tr("overview.profile.down_detail")),
         };
     }
     let name = snapshot
@@ -418,5 +461,11 @@ fn profile_card(input: &ScreenInput<'_>) -> ProfileCard {
         ),
         Cause::Default => (None, None),
     };
-    ProfileCard { name, tag, detail }
+    ProfileCard {
+        name,
+        none: false,
+        tag,
+        tag_accent: snapshot.cause == Cause::Rule,
+        detail,
+    }
 }

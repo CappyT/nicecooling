@@ -145,6 +145,7 @@ fn overview_states() {
         BubbleState::Alarm
     );
     assert_eq!(alarmed.alarms[0].tone, RowTone::Alarm);
+    assert_eq!(alarmed.alarm_count, Some((1, RowTone::Alarm)));
     assert_eq!(alarmed.alarms[0].title, "Large leak Alarm");
     assert!(alarmed.alarms[0].detail.starts_with("Leakshield, since "));
     assert!(
@@ -281,7 +282,11 @@ fn overview_states() {
         );
     }
     let tt = card.diagram.bubble(Tag::Tt).unwrap();
-    assert_eq!((tt.caption.as_str(), tt.unit.as_str()), ("last 31.4 °C", ""));
+    assert_eq!(
+        (tt.caption.as_str(), tt.unit.as_str()),
+        ("last 31.4 °C", "")
+    );
+    assert!(card.mode_tag.is_some(), "the Mode stays while offline");
     assert!(offline.temperatures.iter().all(|t| t.value == "--"));
 
     // Daemon down: "Not live", "Last values", a row in Active Alarms and no Profile.
@@ -294,6 +299,16 @@ fn overview_states() {
             .as_ref()
             .unwrap()
             .starts_with("Last values ")
+    );
+    assert!(down.loops[0].mode_tag.is_none(), "\"Not live\" replaces it");
+    assert_eq!(
+        down.alarm_count, None,
+        "the count has the Alarms of the daemon"
+    );
+    assert!(down.profile.none);
+    assert_eq!(
+        down.profile.detail.as_deref(),
+        Some("Profiles and Rule groups need the daemon.")
     );
     assert_eq!(down.alarms[0].title, "Daemon down");
     assert_eq!(down.alarms[0].tone, RowTone::Alarm);
@@ -311,12 +326,40 @@ fn profile_card_follows_the_cause() {
     state.snapshot.cause = nicecooling::model::Cause::Manual;
     let manual = model(&state, EN);
     assert_eq!(manual.profile.tag.as_deref(), Some("Manual"));
+    assert!(!manual.profile.tag_accent && !manual.profile.none);
     assert_eq!(
         manual.profile.detail.as_deref(),
         Some("Rule groups wait until you revoke it.")
     );
     state.snapshot.cause = nicecooling::model::Cause::Rule;
-    assert_eq!(model(&state, EN).profile.tag.as_deref(), Some("By group"));
+    let by_group = model(&state, EN);
+    assert_eq!(by_group.profile.tag.as_deref(), Some("By group"));
+    assert!(
+        by_group.profile.tag_accent,
+        "the accent tag of a Rule group"
+    );
+}
+
+#[test]
+fn pressure_card_shows_the_pressure_change_of_the_leakshield() {
+    let mut state = support::fixtures::with_leakshield();
+    state.snapshot.alarms = vec![alarm(
+        "a1",
+        "leakshield.leak-alarm",
+        LEAKSHIELD,
+        Response::Poweroff,
+        30,
+    )];
+    let card = model(&state, EN).pressure.expect("the pressure card shows");
+    assert_eq!(
+        card.change.as_deref(),
+        Some("Pressure change -0.4 mbar/min")
+    );
+    let card = model(&state, IT).pressure.expect("the pressure card shows");
+    assert_eq!(
+        card.change.as_deref(),
+        Some("Variazione di pressione -0,4 mbar/min")
+    );
 }
 
 #[test]
@@ -400,6 +443,11 @@ fn pressure_card_target_and_minimum_from_sensors() {
     let card = model(&state, EN).pressure.expect("the pressure card shows");
     assert_eq!(card.target.as_deref(), Some("Target 300 mbar"));
     assert_eq!(card.minimum.as_deref(), Some("Minimum 250 mbar"));
+    assert_eq!(
+        (card.target_value, card.minimum_value),
+        (Some(300.0), Some(250.0))
+    );
+    assert_eq!(card.change, None, "no pressure change sensor");
     let italian = model(&state, IT).pressure.expect("the pressure card shows");
     assert_eq!(italian.target.as_deref(), Some("Obiettivo 300 mbar"));
     assert_eq!(italian.minimum.as_deref(), Some("Minimo 250 mbar"));

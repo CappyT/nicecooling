@@ -52,10 +52,11 @@ From the top:
 | ST caption | "Duty 62 %" / "stopped" |
 | FT caption | "calibrated" / "above table range" (flag, with the information icon) / "below 40 L/h" |
 | TT caption | "water" |
-| Pressure card | "Pressure", "Leakshield, last 10 minutes", "Limit 250 mbar", "Target 300 mbar", "Minimum 250 mbar", "Alarm raised 21:46:51". The target is the sensor `<id>_pressure_setpoint`, the minimum is `<id>_pressure_low`, and the PT caption also uses `<id>_pressure_high` |
+| Pressure card | "Pressure", "Leakshield, last 10 minutes", "Limit 250 mbar", "Target 300 mbar", "Minimum 250 mbar", "Alarm raised 21:46:51", and "Pressure change -38 mbar/min" at the right of the header. The target is the sensor `<id>_pressure_setpoint`, the minimum is `<id>_pressure_low`, and the PT caption also uses `<id>_pressure_high` |
 | Active Alarms, empty | "No active Alarms" |
 | Alarm row | "Large leak" and "Leakshield, since 21:46:51. Alarm response: poweroff after 30 s." |
 | Warning row | "Input lost" and "Chassis Fan 3, since 20:58. Alarm response: notify." |
 | Daemon down row | "Daemon down" and "Since 21:52:07. The daemon runs the alarm responses: none runs now." |
+| Profile card, daemon down | "None" and "Profiles and Rule groups need the daemon." |
 | Profile card, group | "Group 2: time window 22:00 to 07:00." |
 | Profile card, manual | "Rule groups wait until you revoke it." |

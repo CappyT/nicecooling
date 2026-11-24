@@ -191,6 +191,7 @@ diagram:
     below_flow: "below %{value} L/h"
     water: water
     last: "last %{value}"
+    last: "last %{value}"
     pumps:
       one: "%{count} pump"
       other: "%{count} pumps"
@@ -236,6 +237,7 @@ overview:
     target: "Target %{value}"
     minimum: "Minimum %{value}"
     raised: "Alarm raised %{time}"
+    change: "Pressure change %{value}"
   temp:
     cpu: CPU
     gpu: GPU
@@ -246,6 +248,7 @@ overview:
     by_group: By group
     manual: Manual
     manual_detail: Rule groups wait until you revoke it.
+    down_detail: Profiles and Rule groups need the daemon.
 sensors:
   empty: No sensor found. Check that the hwmon drivers of the Board are loaded.
   search: Search sensors

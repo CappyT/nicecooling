@@ -191,6 +191,7 @@ diagram:
     below_flow: "sotto %{value} L/h"
     water: acqua
     last: "ultimo %{value}"
+    last: "ultimo %{value}"
     pumps:
       one: "%{count} pompa"
       other: "%{count} pompe"
@@ -236,6 +237,7 @@ overview:
     target: "Obiettivo %{value}"
     minimum: "Minimo %{value}"
     raised: "Allarme alle %{time}"
+    change: "Variazione di pressione %{value}"
   temp:
     cpu: CPU
     gpu: GPU
@@ -246,6 +248,7 @@ overview:
     by_group: Per gruppo
     manual: Manuale
     manual_detail: I gruppi di regole attendono finché non lo revochi.
+    down_detail: I Profili e i gruppi di regole richiedono il demone.
 sensors:
   empty: Nessun sensore trovato. Controlla che i driver hwmon della Scheda siano caricati.
   search: Cerca sensori
