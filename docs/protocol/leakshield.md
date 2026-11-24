@@ -349,7 +349,25 @@ aquasuite reads the struct, changes the fields of the user, and writes back ever
 
 ## Report 5
 
-Report 5 is a feature read of 1028 bytes (P6). Byte 1 is the id of the page on the display (255: none). Bytes 2-1025 are a 128 x 64 monochrome image: 8 rows of 128 column bytes, bit 0 at the top of each byte. aquasuite does not use bytes 1026-1027. The aquasuite library has no write of report 5.
+Report 5 is a feature read of 1028 bytes (P6): the report ID, the id of the page on the display (255: none), the image and 2 bytes that aquasuite does not use. The fw1022 dump holds `00 01` there. The aquasuite library has no write of report 5.
+
+| Offset | Size | Content |
+|---|---|---|
+| 1 | 1 | Index of the page that the display shows, 0 to 9. 255: none |
+| 2 | 1024 | Image, 128 x 64 pixels |
+| 1026 | 2 | Not used by aquasuite |
+
+Image layout (the screenshot decoder, P6): 8 page rows of 128 bytes. Byte `128 x r + x` holds the pixels of column `x` for the lines `8 x r` to `8 x r + 7`. Bit `n` is the line `8 x r + n`, and a set bit is a lit pixel.
+
+### Page preview
+
+aquasuite shows no page of its own drawing. It asks the device (P6):
+
+1. Send `show_page` (command 4) with the parameter `page << 16 | seconds x 10`. aquasuite uses 30 s, so the parameter is `page << 16 | 300`. It waits 25 ms before the command.
+2. Wait 200 ms.
+3. Read report 5. The image is valid when byte 1 is the asked page.
+
+The device then keeps the page on the display for the time of the command. aquasuite does not ask for a preview of a page with no template. What the device does with a page that has bit 1 of `page_options` set is not determined. The daemon sends the command through the same path as the other commands, so a read-only device gets nothing.
 
 ## Report 8
 

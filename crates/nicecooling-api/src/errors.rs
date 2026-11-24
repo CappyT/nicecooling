@@ -22,6 +22,7 @@ pub enum Error {
     Disconnected(String),
     NoPoweroff(String),
     PoweroffStarted(String),
+    PageNotShown(String),
 }
 
 pub type Result<T> = std::result::Result<T, Error>;

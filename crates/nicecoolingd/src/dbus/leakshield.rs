@@ -396,6 +396,16 @@ impl Leakshield {
         Ok(())
     }
 
+    /// The image of display page `page` (0 to 9): width, height and the rows. A row has bytes with
+    /// bit 7 as the leftmost pixel, 1 lit. The device must show the page: the call sends
+    /// `show_page`, which changes no stored setting, so it needs no authorization.
+    #[zbus(out_args("width", "height", "rows"))]
+    async fn get_display_preview(&self, page: u8) -> Result<(u16, u16, Vec<u8>)> {
+        let bitmap = self.device.get_display_preview(page)?;
+        let (width, height) = bitmap.size();
+        Ok((width, height, bitmap.to_rows()))
+    }
+
     #[zbus(out_args("backups"))]
     async fn list_backups(&self) -> Result<Vec<(String, u64, String, u16, String)>> {
         Ok(self

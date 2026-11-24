@@ -1,7 +1,10 @@
+use crate::bitmap::Bitmap;
 use crate::error::{ReportError, check_id, check_size};
 
 pub const REPORT5_ID: u8 = 5;
 pub const REPORT5_SIZE: usize = 1028;
+/// Size of the display in pixels.
+pub const DISPLAY_SIZE: (u16, u16) = (128, 64);
 
 /// Display screenshot. The report has no CRC.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -23,6 +26,12 @@ impl Report5 {
             image: bytes[2..1026].try_into().expect("1024 bytes"),
             trailer: bytes[1026..1028].try_into().expect("2 bytes"),
         })
+    }
+
+    /// The image as pixels.
+    pub fn bitmap(&self) -> Bitmap {
+        Bitmap::from_page_layout(DISPLAY_SIZE.0, DISPLAY_SIZE.1, &self.image)
+            .expect("the image has 1024 bytes")
     }
 
     pub fn encode(&self) -> Vec<u8> {

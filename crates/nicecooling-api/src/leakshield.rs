@@ -42,6 +42,10 @@ pub trait Leakshield {
     #[zbus(property)]
     fn failed_write_backup(&self) -> zbus::Result<String>;
 
+    /// The image that display page `page` (0 to 9) shows: (width, height, rows). A row has bytes
+    /// with bit 7 as the leftmost pixel, 1 lit.
+    fn get_display_preview(&self, page: u8) -> zbus::Result<(u16, u16, Vec<u8>)>;
+
     /// (field id, risk class safety|low, value, writable, reason)
     fn get_fields(&self) -> zbus::Result<Vec<(String, String, OwnedValue, bool, String)>>;
     fn set_fields(&self, fields: HashMap<&str, Value<'_>>) -> zbus::Result<()>;

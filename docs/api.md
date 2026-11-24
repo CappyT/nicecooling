@@ -207,6 +207,18 @@ The device holds 7 refill entries in report 1. The daemon reads them with each r
 - `GetEvents` returns the event list of report 1, oldest first. The identifier is `leakshield.<name>`, with the names of `docs/protocol/leakshield.md` (section Event list). A code that the document does not name gives `leakshield.event-<code>`. The time is the device time in microseconds since the Unix epoch: the clock offset is not applied. `details` holds `entry_id`, `mode`, `procedure_state`, `pressure` (mbar), `pressure_leak_rate`, `volume_leak_rate`, `value_1` and `value_2`, all as `d`. An entry holds both leak rates in 0.1 steps: the daemon sends the stored number times 0.1. A value that the device marks as "no value" is absent.
 - A Software sensor slot is a number from 1 to 12 and maps to Feed message slot 3 + n. `GetSoftwareSensors` returns all 12 slots, with `/` for an empty one. `SetSoftwareSensor` fills a slot with a sensor, or clears it with `/`. A slot outside 1 to 12 and a sensor whose unit has no device unit code fail with `InvalidArgument`. An unknown sensor fails with `NotFound`. The daemon keeps the assignment in `state.json` (`storage.md`), so a restart restores it. A stored sensor that no longer exists leaves its slot empty and stays in `state.json` until the slot is set again. The Feed message of a Loop carries the slots of its Leakshield.
 
+## Leakshield display
+
+Pages are numbered 0 to 9, as in report 3. A bitmap is `width` (q), `height` (q) and `rows` (ay): rows from the top, each row padded to a whole byte, bit 7 the leftmost pixel, 1 lit. A bitmap has `ceil(width / 8) x height` bytes.
+
+`Leakshield.GetDisplayPreview(page y) -> (width q, height q, rows ay)` (class `read`) returns the image that the device shows for a page: 128 x 64, 1024 bytes. The call sends `show_page` for 30 s (25 ms delay before it), waits 200 ms and reads report 5. It returns the image when byte 1 of report 5 names the page. `show_page` stores no setting, so the call needs no authorization. It does need a device that the registry covers, as every command does. The device shows the page for 30 s, so the display shows it too.
+
+- `InvalidArgument`: `page` above 9. Nothing is sent.
+- `ReadOnly`: the device is read-only (unknown firmware or structure). Nothing is sent.
+- `NotSupported`: the registry of the firmware lacks `show_page`.
+- `Disconnected`: the device is not connected.
+- `PageNotShown`: report 5 names another page, or none. A page with no template (255) gives this error. The message holds the page that the device shows. Whether the device shows a page with bit 1 of `page_options` set is not measured.
+
 ## Device response proposals
 
 `GetDeviceResponseProposals` returns one row for each Leakshield event that has a Device response: `leakshield.fill-level-low-warning`, `leakshield.fill-level-low-alarm`, `leakshield.leak-warning`, `leakshield.leak-alarm-small`, `leakshield.leak-alarm` and `leakshield.system-alarm`. A row is (event, current, proposed, overlap). `current` and `proposed` are `none`, `signal-short`, `signal-long` or `key-sequence`. `overlap` is empty or a warning id:
@@ -290,6 +302,7 @@ Error names have the prefix `io.github.cappyt.NiceCooling1.Error.`, except two s
 | `DeviceChanged` | Report 3 changed outside the volatile mask between the first read and the write. |
 | `VerifyFailed` | The read-back differs outside the volatile mask. The message holds the backup id. |
 | `Disconnected` | The device is not connected. |
+| `PageNotShown` | `GetDisplayPreview`: the device shows another page than the one that was asked for. The message names the page that report 5 holds. |
 | `NoPoweroff` | `CancelPoweroff` for an instance with no pending poweroff. |
 | `PoweroffStarted` | `CancelPoweroff` for an instance whose call to logind is under way or was accepted. |
 | `NotSupported` | `ImportBackup`, `GetStoredFields` or `SetStoredFields` with a firmware that the field registry does not cover. `CancelAction`, `ResetAlarms`, `ResetRefillHistory`, `ResetEventLog`, `ToggleRefillPause`, `ResetServiceCounter` or `FactoryReset` when the field registry of the device firmware lacks the command (`cancel_action`, `reset_alarm`, `reset_refill_history`, `reset_event_log`, `set_fill_mode`, `reset_service_counter`, `factory_defaults`). |

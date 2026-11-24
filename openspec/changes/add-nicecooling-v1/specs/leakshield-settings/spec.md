@@ -374,3 +374,18 @@ The user SHALL be able to read the clock of the Leakshield and set it from the P
 #### Scenario: Small drift
 - **WHEN** the device time differs from the PC time by 20 seconds, less than 30 minutes after the last set
 - **THEN** the daemon does not write the device clock
+
+### Requirement: Display page preview from the device
+The daemon SHALL give the image that the device shows for a display page, as the device draws it. It SHALL send `show_page` for the page, wait 200 ms, read report 5 and return the 128 x 64 image only when report 5 names the page. It SHALL fail when the device shows another page. It SHALL send nothing to a device that is read-only. The call SHALL need no authorization, because `show_page` stores no setting.
+
+#### Scenario: Preview of a page
+- **WHEN** the app asks for the preview of page 3
+- **THEN** the daemon sends `show_page` with the page 3 for 30 s and returns the image of report 5
+
+#### Scenario: Another page on the display
+- **WHEN** the device shows page 7 after the daemon sent `show_page` for page 2
+- **THEN** the call fails and returns no image
+
+#### Scenario: Read-only device
+- **WHEN** the firmware of the device is not in the registry
+- **THEN** the call fails and the daemon sends no command

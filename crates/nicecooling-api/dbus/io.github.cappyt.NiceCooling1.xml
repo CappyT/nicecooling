@@ -350,6 +350,17 @@
       <arg name="slot" type="q" direction="in"/>
       <arg name="sensor" type="o" direction="in"/>
     </method>
+    <!-- The image that display page `page` (0 to 9) shows, as width, height and rows: 128 x 64, rows from the top, each row 16 bytes,
+         bit 7 the leftmost pixel, 1 lit. The call sends show_page for 30 s, waits 200 ms and reads report 5. It stores no setting,
+         so it needs no authorization. Fails with InvalidArgument for a page above 9, ReadOnly for a device that is read-only,
+         NotSupported when the registry lacks show_page, Disconnected, and PageNotShown when the device shows another page. -->
+    <method name="GetDisplayPreview">
+      <annotation name="io.github.cappyt.NiceCooling1.Authorization" value="read"/>
+      <arg name="page" type="y" direction="in"/>
+      <arg name="width" type="q" direction="out"/>
+      <arg name="height" type="q" direction="out"/>
+      <arg name="rows" type="ay" direction="out"/>
+    </method>
     <!-- (backup id, time us, sha256 hex, firmware, reason first|before-write|manual|import) -->
     <method name="ListBackups">
       <annotation name="io.github.cappyt.NiceCooling1.Authorization" value="read"/>

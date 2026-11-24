@@ -2,6 +2,7 @@
 //! message. The conventions are in `docs/protocol/leakshield.md`.
 
 pub mod access;
+pub mod bitmap;
 pub mod crc;
 pub mod device;
 pub mod display;

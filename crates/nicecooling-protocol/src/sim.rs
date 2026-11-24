@@ -12,7 +12,7 @@ use crate::firmware::image::Image;
 use crate::report1::Report1;
 use crate::report2::Report2;
 use crate::report3::{REPORT3_ID, REPORT3_SIZE, REPORT3_STRUCT_END, Report3};
-use crate::report8::REPORT8_ID;
+use crate::report8::{REPORT8_ID, REPORT8_SIZE, Report8};
 
 const REPORT1: &[u8] = include_bytes!("../../../tests/fixtures/leakshield/fw1022/report1.bin");
 const REPORT3: &[u8] = include_bytes!("../../../tests/fixtures/leakshield/fw1022/report3.bin");
@@ -53,6 +53,10 @@ struct Faults {
     stall_after_write: u32,
     /// Feature reads that still fail with EPIPE.
     stalled_reads: u32,
+    /// `show_page` shows this page, whatever page it asks for.
+    show_instead: Option<u8>,
+    /// The next report 8 write stores `value` at `offset` instead of the written byte.
+    tamper_next_report8: Option<(usize, u8)>,
 }
 
 /// What the simulated bootloader does with the write of one chunk.
@@ -135,6 +139,7 @@ struct State {
 /// `set_mode` and the codes that it takes, and the others.
 const COMMAND_RESTART: u32 = 1;
 const COMMAND_FACTORY_DEFAULTS: u32 = 3;
+const COMMAND_SHOW_PAGE: u32 = 4;
 const COMMAND_RESET_ALARM: u32 = 11;
 const COMMAND_SET_MODE: u32 = 12;
 const COMMAND_SET_CLOCK: u32 = 37000;
@@ -183,6 +188,14 @@ impl State {
         }
     }
 
+    /// Report 5 while the device shows `page`.
+    fn report5_of(page: u8) -> Vec<u8> {
+        let mut report = REPORT5.to_vec();
+        report[1] = page;
+        report[2..1026].copy_from_slice(&SimDevice::page_image(page));
+        report
+    }
+
     fn finish_action(&mut self) {
         if let Some(mode) = self.base_mode {
             self.edit_report1(|r| r.mode = mode);
@@ -215,6 +228,11 @@ impl State {
             }
             // The settings that the device returns to are the fw1022 dump.
             (COMMAND_FACTORY_DEFAULTS, _) => self.report3 = REPORT3.to_vec(),
+            // The parameter is `page id << 16 | duration in 0.1 s`. Pages 0 to 9 exist.
+            (COMMAND_SHOW_PAGE, parameter) if (parameter >> 16) < 10 => {
+                let page = self.faults.show_instead.unwrap_or((parameter >> 16) as u8);
+                self.report5 = Self::report5_of(page);
+            }
             (COMMAND_SET_CLOCK, seconds) => self.edit_report1(|r| {
                 r.device_clock = seconds;
                 r.status_bits |= 1 << 2;
@@ -329,6 +347,25 @@ impl SimDevice {
             state.connected = false;
         }
         Ok(())
+    }
+
+    /// The image that the simulated device shows for `page`: a different pattern for each page.
+    pub fn page_image(page: u8) -> [u8; 1024] {
+        std::array::from_fn(|i| {
+            ((i % 128) as u8).wrapping_mul(page.wrapping_add(1)) ^ (i / 128) as u8 ^ 0x5a
+        })
+    }
+
+    /// `show_page` shows `page` whatever page it asks for, as a device that has a page that it
+    /// cannot show. `None` restores the normal behavior.
+    pub fn show_page_instead(&self, page: Option<u8>) {
+        self.state().faults.show_instead = page;
+    }
+
+    /// The next report 8 write stores `value` at `offset` instead of the written byte, and the
+    /// CRC follows the stored bytes.
+    pub fn tamper_next_report8(&self, offset: usize, value: u8) {
+        self.state().faults.tamper_next_report8 = Some((offset, value));
     }
 
     fn state(&self) -> MutexGuard<'_, State> {
@@ -571,7 +608,20 @@ impl HidTransport for SimDevice {
                 state.edit_report1(|r| r.active_profile = number);
                 state.faults.stalled_reads = state.faults.stall_after_write;
             }
-            REPORT8_ID => state.report8 = report.to_vec(),
+            REPORT8_ID => {
+                if report.len() != REPORT8_SIZE {
+                    return Err(io_error("wrong report 8 size"));
+                }
+                let mut stored = Report8::decode(report)
+                    .map_err(|_| io_error("report 8 has a bad CRC"))?
+                    .encode();
+                if let Some((offset, value)) = state.faults.tamper_next_report8.take() {
+                    stored[offset] = value;
+                    let crc = crate::crc::crc16_usb(&stored[1..REPORT8_SIZE - 2]);
+                    stored[REPORT8_SIZE - 2..].copy_from_slice(&crc.to_be_bytes());
+                }
+                state.report8 = stored;
+            }
             _ => return Err(io_error("report is not writable")),
         }
         if std::mem::take(&mut state.faults.disconnect_after_set_feature) {

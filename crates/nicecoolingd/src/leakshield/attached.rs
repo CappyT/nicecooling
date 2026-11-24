@@ -12,17 +12,21 @@ use nicecooling_api::errors::Result;
 use nicecooling_api::ids;
 use nicecooling_core::profile::Slot;
 use nicecooling_protocol::access::{Access, WriteRefusal};
+use nicecooling_protocol::bitmap::Bitmap;
 use nicecooling_protocol::device::DeviceError;
+use nicecooling_protocol::display::PAGES;
 use nicecooling_protocol::registry::Registry;
 use nicecooling_protocol::report1::Report1;
 use nicecooling_protocol::report2::Report2;
 use nicecooling_protocol::report3::Report3;
+use nicecooling_protocol::report5::Report5;
 use tokio::sync::{mpsc, watch};
 use tokio::task::JoinHandle;
 use tokio::time::Instant;
 
 use super::action::{self, Action};
 use super::backup::{BackupEntry, BackupSet, Backups, ImportError, Reason};
+use super::display;
 use super::events::{Event, decode_events};
 use super::external::{ExternalDetector, LastKnown};
 use super::feed::FeedSent;
@@ -573,6 +577,36 @@ impl Attached {
         // The device shows the result in its next report 1.
         let _ = self.fresh_report1();
         Ok(())
+    }
+
+    /// The image that the device shows for `page` (0 to 9): `show_page` for 30 s, a wait of
+    /// 200 ms, then report 5 (as aquasuite does). The device shows one page only: when report 5
+    /// names another page, the call fails with `PageNotShown`.
+    pub fn get_display_preview(&self, page: u8) -> Result<Bitmap> {
+        if usize::from(page) >= PAGES {
+            return Err(Error::invalid(format!(
+                "page {page} is not between 0 and {}",
+                PAGES - 1
+            )));
+        }
+        let command = display::show_page_command(&self.registry, page);
+        self.send_late(command.is_some(), display::SHOW_PAGE_DELAY, || command)?;
+        let report5 = blocking(|| {
+            std::thread::sleep(display::PREVIEW_WAIT);
+            self.io.read_report5()
+        })
+        .map_err(device_error)?;
+        let report5 = Report5::decode(&report5).map_err(|e| failed(e.to_string()))?;
+        if report5.shown_page != page {
+            let shown = match report5.shown_page {
+                255 => "none".to_owned(),
+                other => other.to_string(),
+            };
+            return Err(Error::PageNotShown(format!(
+                "the device shows page {shown}, not page {page}"
+            )));
+        }
+        Ok(report5.bitmap())
     }
 
     /// Sets the Mode. The device stores it in report 3 some time later. The daemon then stores it
