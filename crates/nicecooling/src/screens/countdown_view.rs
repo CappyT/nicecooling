@@ -117,6 +117,7 @@ pub fn countdown_overlay(
                 .gap(px(6.))
                 .child(
                     Button::new("countdown-cancel")
+                        .debug_selector(|| "countdown-cancel".to_owned())
                         .primary()
                         .track_focus(focus)
                         .w_full()
@@ -132,6 +133,7 @@ pub fn countdown_overlay(
                 )
                 .child(
                     Button::new("countdown-hide")
+                        .debug_selector(|| "countdown-hide".to_owned())
                         .w_full()
                         .h(px(34.))
                         .rounded(px(9.))

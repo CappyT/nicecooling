@@ -173,6 +173,14 @@ struct Rig {
 }
 
 fn start(cx: &mut TestAppContext, page: Page) -> (gpui::Entity<AppModel>, Rig) {
+    start_with(cx, support::fixtures::full(), page)
+}
+
+fn start_with(
+    cx: &mut TestAppContext,
+    state: nicecooling::model::AppState,
+    page: Page,
+) -> (gpui::Entity<AppModel>, Rig) {
     let runtime = tokio::runtime::Runtime::new().expect("runtime");
     let (events, events_rx) = broadcast::channel(64);
     let (commands, inbox) = mpsc::unbounded_channel();
@@ -188,7 +196,6 @@ fn start(cx: &mut TestAppContext, page: Page) -> (gpui::Entity<AppModel>, Rig) {
         settings: Default::default(),
     };
     let model = cx.update(|cx| app::init(cx, StartMode::Normal, backend));
-    let state = support::fixtures::full();
     events
         .send(DaemonEvent::Snapshot(Box::new(state.snapshot.clone())))
         .unwrap();
@@ -474,4 +481,74 @@ fn a_dialog_keeps_the_focus(cx: &mut TestAppContext) {
         Some(1),
         "Tab moves on the screen again"
     );
+}
+
+/// The poweroff banner and the countdown dialog draw over the scrim of a dialog: "Cancel
+/// poweroff" works in both while a dialog of a screen is open, by a press and by the keyboard.
+#[gpui::test]
+fn cancel_poweroff_works_over_a_dialog(cx: &mut TestAppContext) {
+    use support::fixtures::{LEAKSHIELD, alarm, with_leakshield};
+
+    let state = with_leakshield();
+    let (_model, mut rig) = start_with(cx, state.clone(), Page::Leakshield(LEAKSHIELD.to_owned()));
+    let handle = cx.windows()[0];
+    let mut visual = VisualTestContext::from_window(handle, cx);
+    let click = |visual: &mut VisualTestContext, name: &'static str| {
+        let control = named(visual, name).unwrap_or_else(|| panic!("no control {name}"));
+        visual.simulate_click(control.center(), gpui::Modifiers::none());
+    };
+    let mut cancelled = |what: &str| {
+        let command = rig.inbox.try_recv();
+        assert!(
+            matches!(command, Ok(Command::CancelPoweroff { .. })),
+            "{what}: {command:?}"
+        );
+        assert!(rig.inbox.try_recv().is_err(), "{what}: one command");
+    };
+
+    // A dialog of the screen is open. Then an Alarm starts a poweroff countdown.
+    click(&mut visual, "ls-refill-steps");
+    assert!(named(&mut visual, "modal-scrim").is_some(), "the dialog");
+    let mut snapshot = state.snapshot.clone();
+    let mut leak = alarm(
+        "a1",
+        "leakshield.leak-alarm",
+        LEAKSHIELD,
+        nicecooling::model::Response::Poweroff,
+        30,
+    );
+    leak.raised_us = app::now_us();
+    leak.poweroff_at_us = leak.raised_us + 30_000_000;
+    snapshot.alarms = vec![leak];
+    rig.events
+        .send(DaemonEvent::Snapshot(Box::new(snapshot)))
+        .unwrap();
+
+    // The countdown dialog is over the scrim: its button takes the press.
+    click(&mut visual, "countdown-cancel");
+    cancelled("the countdown dialog");
+    click(&mut visual, "countdown-hide");
+    assert!(named(&mut visual, "countdown-cancel").is_none(), "hidden");
+    assert!(
+        named(&mut visual, "modal-scrim").is_some(),
+        "the dialog stays"
+    );
+
+    // The banner is over the scrim too.
+    click(&mut visual, "banner-cancel");
+    cancelled("the banner");
+
+    // Tab goes to the banner and to the dialog, and to nothing else.
+    visual.simulate_keystrokes("tab");
+    assert!(named(&mut visual, "modal-scrim").is_some());
+    press(&mut visual, "enter");
+    cancelled("Enter on the banner");
+    visual.simulate_keystrokes("tab");
+    assert!(named(&mut visual, "modal-scrim").is_some());
+    press(&mut visual, "enter");
+    assert!(
+        named(&mut visual, "modal-scrim").is_none(),
+        "Enter on Close"
+    );
+    assert!(named(&mut visual, "banner-cancel").is_some());
 }

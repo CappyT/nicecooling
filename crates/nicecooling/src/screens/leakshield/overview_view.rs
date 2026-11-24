@@ -338,11 +338,11 @@ impl ScreenView {
                     )]),
                 ))
                 .child(
-                    Self::link_button("ls-refill-steps", mode.refill.link.clone(), p).on_click(
-                        act(&view, |this, _, _| {
+                    Self::link_button("ls-refill-steps", mode.refill.link.clone(), p)
+                        .debug_selector(|| "ls-refill-steps".to_owned())
+                        .on_click(act(&view, |this, _, _| {
                             this.leakshield.overview.confirm = Some(Confirm::RefillSteps);
-                        }),
-                    ),
+                        })),
                 ),
         );
         card(p)
