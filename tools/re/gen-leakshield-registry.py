@@ -97,7 +97,7 @@ for name, off in (("fill_level_warning", 541), ("fill_level_alarm", 547), ("leak
 f("loop_height", 569, "u8", L(0, 200), "safety", "Height of the loop.", unit="cm")
 f("refill_duration_warning", 570, "u8", L(5, 240), "safety", "Pump duration of a refill above which a warning starts.", unit="s", default=5)
 f("led_strip_brightness", 571, "u8", L(0, 100), "low", "Brightness of the LED strip.", scale=100 / 255, unit="%")
-f("led_strip_flags", 572, "u16", B(0x06), "low", "Bit 1: strip off. Bit 2: strip on in standby.")
+f("led_strip_flags", 572, "u16", B(0x06), "low", "Bit 1: strip off. Bit 2: LEDs off in standby (clear: LEDs stay on in standby).")
 C = dict(count=2, stride=70)
 f("led_controller_strip", 574, "u8", T, "low", "Strip of the LED controller.", **C)
 f("led_controller_first_led", 575, "u8", T, "low", "First LED of the LED controller.", **C)

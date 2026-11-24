@@ -282,7 +282,7 @@ aquasuite reads the struct, changes the fields of the user, and writes back ever
 | `loop_height` | 569 | u8 |  |  | 0 to 200 cm |  | 25 | Height of the loop. |
 | `refill_duration_warning` | 570 | u8 |  |  | 5 to 240 s | 5 | 5 | Pump duration of a refill above which a warning starts. |
 | `led_strip_brightness` | 571 | u8 |  | 1/2.55 | 0 to 100 % |  | 255 | Brightness of the LED strip. |
-| `led_strip_flags` | 572 | u16 |  |  | mask 0x6 |  | 4 | Bit 1: strip off. Bit 2: strip on in standby. |
+| `led_strip_flags` | 572 | u16 |  |  | mask 0x6 |  | 4 | Bit 1: strip off. Bit 2: LEDs off in standby (clear: LEDs stay on in standby). |
 | `led_controller_strip` | 574 | u8 | 2 x 70 |  | type only |  | [0, 0] | Strip of the LED controller. |
 | `led_controller_first_led` | 575 | u8 | 2 x 70 |  | type only |  | [0, 0] | First LED of the LED controller. |
 | `led_controller_led_count` | 576 | u8 | 2 x 70 |  | type only |  | [6, 6] | Number of LEDs of the LED controller. |
