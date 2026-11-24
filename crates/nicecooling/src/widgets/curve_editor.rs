@@ -1,6 +1,8 @@
 //! The editing rules of the Curve editor (`docs/ui/widgets.md`). The plot and the number
 //! inputs edit the same list of points through these functions.
 
+use nicecooling_core::interpolate::{Interpolation, interpolate};
+
 pub const MIN_POINTS: usize = 2;
 pub const MAX_POINTS: usize = 8;
 /// A point snaps to 1 unit on x and 1 % on y.
@@ -73,24 +75,6 @@ pub fn move_point(
     changed
 }
 
-/// The Duty of the line at `x`: the line is horizontal before the first and after the last point.
-pub fn duty_at(points: &[(f64, f64)], x: f64) -> f64 {
-    let (Some(first), Some(last)) = (points.first(), points.last()) else {
-        return 0.0;
-    };
-    if x <= first.0 {
-        return first.1;
-    }
-    if x >= last.0 {
-        return last.1;
-    }
-    let pair = points
-        .windows(2)
-        .find(|w| x <= w[1].0)
-        .expect("x is inside");
-    pair[0].1 + (x - pair[0].0) * (pair[1].1 - pair[0].1) / (pair[1].0 - pair[0].0)
-}
-
 /// Add a point on the line at `x` (a double click). Returns its index.
 pub fn add_point_at(points: &mut Vec<(f64, f64)>, x: f64, floor: Option<f64>) -> Option<usize> {
     if points.len() >= MAX_POINTS {
@@ -100,7 +84,8 @@ pub fn add_point_at(points: &mut Vec<(f64, f64)>, x: f64, floor: Option<f64>) ->
     if points.iter().any(|p| p.0 == x) {
         return None;
     }
-    let y = snap(duty_at(points, x)).clamp(floor.unwrap_or(0.0).ceil(), 100.0);
+    let line = interpolate(points, Interpolation::Linear, x).unwrap_or(0.0);
+    let y = snap(line).clamp(floor.unwrap_or(0.0).ceil(), 100.0);
     let index = points.partition_point(|p| p.0 < x);
     points.insert(index, (x, y));
     Some(index)
@@ -187,9 +172,10 @@ mod tests {
     #[test]
     fn the_line_is_horizontal_outside_the_points() {
         let points = curve();
-        assert_eq!(duty_at(&points, 10.0), 40.0);
-        assert_eq!(duty_at(&points, 99.0), 100.0);
-        assert_eq!(duty_at(&points, 37.5), 55.0);
+        let at = |x| interpolate(&points, Interpolation::Linear, x);
+        assert_eq!(at(10.0), Some(40.0));
+        assert_eq!(at(99.0), Some(100.0));
+        assert_eq!(at(37.5), Some(55.0));
     }
 
     #[test]

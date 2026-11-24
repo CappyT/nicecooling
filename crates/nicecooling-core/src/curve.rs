@@ -1,5 +1,7 @@
 use std::fmt;
 
+use crate::interpolate::{Interpolation, interpolate};
+
 /// The default width of the Input moving average, in seconds.
 pub const DEFAULT_SMOOTHING_S: f64 = 5.0;
 /// The default Duty step limit, in percent per second.
@@ -97,18 +99,7 @@ impl Curve {
     /// The Duty for an Input value. It is linear between points and equals the
     /// Duty of the nearest point outside them. A NaN Input gives 100.
     pub fn duty_at(&self, input: f64) -> f64 {
-        let first = self.points[0];
-        let last = self.points[self.points.len() - 1];
-        if input <= first.0 {
-            return first.1;
-        }
-        if input >= last.0 {
-            return last.1;
-        }
-        let Some(w) = self.points.windows(2).find(|w| input <= w[1].0) else {
-            return FAIL_SAFE_DUTY;
-        };
-        w[0].1 + (input - w[0].0) * (w[1].1 - w[0].1) / (w[1].0 - w[0].0)
+        interpolate(&self.points, Interpolation::Linear, input).unwrap_or(FAIL_SAFE_DUTY)
     }
 }
 
@@ -130,6 +121,45 @@ mod tests {
     fn clamp_both_ends() {
         assert_eq!(curve().duty_at(10.0), 30.0);
         assert_eq!(curve().duty_at(90.0), 70.0);
+    }
+
+    /// The interpolation that the Curve used before the shared function. The new code must
+    /// agree with it for every finite input.
+    fn old_duty_at(points: &[(f64, f64)], input: f64) -> f64 {
+        let first = points[0];
+        let last = points[points.len() - 1];
+        if input <= first.0 {
+            return first.1;
+        }
+        if input >= last.0 {
+            return last.1;
+        }
+        let Some(w) = points.windows(2).find(|w| input <= w[1].0) else {
+            return FAIL_SAFE_DUTY;
+        };
+        w[0].1 + (input - w[0].0) * (w[1].1 - w[0].1) / (w[1].0 - w[0].0)
+    }
+
+    #[test]
+    fn curve_nan_input_gives_the_fail_safe_duty() {
+        assert_eq!(curve().duty_at(f64::NAN), FAIL_SAFE_DUTY);
+    }
+
+    #[test]
+    fn curve_duty_unchanged_for_1000_inputs() {
+        let points = vec![(20.0, 25.0), (35.5, 40.0), (50.0, 80.0), (70.0, 100.0)];
+        let curve = Curve::new("t", points.clone()).unwrap();
+        for i in 0..1000 {
+            let input = -10.0 + f64::from(i) * 0.1;
+            assert_eq!(
+                curve.duty_at(input).to_bits(),
+                old_duty_at(&points, input).to_bits(),
+                "input {input}"
+            );
+        }
+        for input in [f64::NEG_INFINITY, f64::INFINITY, 20.0, 35.5, 70.0] {
+            assert_eq!(curve.duty_at(input), old_duty_at(&points, input));
+        }
     }
 
     #[test]
