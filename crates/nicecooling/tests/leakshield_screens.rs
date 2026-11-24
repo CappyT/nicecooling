@@ -1684,7 +1684,7 @@ fn leakshield_display_states() {
             && !settings.rotate.on
             && !settings.invert.on
             && settings.auto_invert.on
-            && !settings.standby.on
+            && settings.standby.on
     );
     assert_eq!(settings.interval, "10");
     assert!(settings.interval_writable);
@@ -1940,6 +1940,44 @@ fn the_rotate_switch_is_bit_0_of_the_display_flags() {
         flags(set_flag(&en(&rotated, &feedback), LEAKSHIELD, 1, false)),
         FieldValue::Number(12.0)
     );
+}
+
+#[test]
+fn off_in_standby_is_on_while_bit_1_of_the_display_flags_is_clear() {
+    use nicecooling::screens::leakshield::display::{FlagSwitch, OFF_IN_STANDBY, ROTATE};
+    let feedback = Feedback::default();
+    let flags_state =
+        |flags: f64| tweak(|state| set_field(state, "display_flags", FieldValue::Number(flags)));
+    // The reference device has the bit clear and its display goes off in standby.
+    for (flags, on) in [
+        (0.0, true),
+        (1.0, true),
+        (2.0, false),
+        (15.0, false),
+        (13.0, true),
+    ] {
+        assert_eq!(
+            display(&flags_state(flags), &DisplayUi::default())
+                .settings
+                .standby
+                .on,
+            on,
+            "flags {flags}"
+        );
+    }
+    let written = |flag: FlagSwitch, flags: f64, on: bool| {
+        let state = flags_state(flags);
+        let Some(Command::SetLeakshieldFields { fields, .. }) =
+            flag.set(&en(&state, &feedback), LEAKSHIELD, on)
+        else {
+            panic!("a field write");
+        };
+        fields[0].1.clone()
+    };
+    // The switch on clears the bit. The switch off sets it. The other bits stay.
+    assert_eq!(written(OFF_IN_STANDBY, 3.0, true), FieldValue::Number(1.0));
+    assert_eq!(written(OFF_IN_STANDBY, 1.0, false), FieldValue::Number(3.0));
+    assert_eq!(written(ROTATE, 2.0, true), FieldValue::Number(3.0));
 }
 
 #[test]

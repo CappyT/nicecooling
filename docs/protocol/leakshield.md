@@ -246,7 +246,7 @@ aquasuite reads the struct, changes the fields of the user, and writes back ever
 | `display_idle_delay` | 67 | u16 |  |  | type only | 2400 | 3100 | Delay before the display goes idle. aquasuite always writes 2400. Unit not defined in the code. |
 | `clock_flags` | 69 | u8 |  |  | mask 0x7 |  | 1 | Bit 0: daylight saving time on. Bit 1: 12 h format. Bit 2: daylight saving region US (clear: EU). |
 | `clock_timezone` | 70 | i16 |  | 0.1 | -12 to 14 h |  | 10 | Time zone offset of the device local time. |
-| `display_flags` | 72 | u8 |  |  | mask 0xF |  | 0 | Bit 0: rotate the display content by 180 degrees. Bit 1: display standby allowed. Bit 2: invert. Bit 3: automatic invert off. |
+| `display_flags` | 72 | u8 |  |  | mask 0xF |  | 0 | Bit 0: rotate the display content by 180 degrees. Bit 1: display stays on in standby (clear: off after 10 minutes in standby). Bit 2: invert. Bit 3: automatic invert off. |
 | `page_template` | 73 | u8 | 10 x 46 |  | codes 0-13, 255 |  | [13, 2, 1, 3, 3, 1, ...] | Page layout: 0 logo, 1 chart, 2-6 values, 7 time, 8-10 bars, 11 value and bar, 12 value and time, 13 Leakshield state, 255 none. |
 | `page_options` | 74 | u8 | 10 x 46 |  | mask 0x3 |  | [3, 3, 3, 3, 3, 3, ...] | Bit 0: show the page in standby. Bit 1: hide the page in normal operation. |
 | `page_icons` | 75 | u8[4] | 10 x 46 |  | type only |  | [255, 255, 255, 255, 2, 255, ...] | Index into the icons of report 8, 255 none. |

@@ -36,6 +36,7 @@ A dialog, 640 px wide: a grid of previews with the template names, 4 per row. A 
 ## Interactions
 
 - "Automatic page change" is on while `display_page_time` is below 30 s. The switch off writes 30 s. The switch on writes the interval from before, or 29 s. "Interval" takes 1 to 29 s and is disabled while the switch is off. "Rotate 180 degrees" is bit 0 of `display_flags`.
+- "Off in standby" is on while bit 1 of `display_flags` is clear. The display then goes off after 10 minutes in standby.
 
 - A click on a preview selects the page. Arrow keys move in the grid. Enter opens the template gallery.
 - Each change is a Leakshield write with write status in its row. Sliders write when the drag ends.

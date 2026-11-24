@@ -73,7 +73,7 @@ f("display_brightness_idle", 66, "u8", E(*BRIGHTNESS), "low", "0 maximum, 1 mid,
 f("display_idle_delay", 67, "u16", T, "low", "Delay before the display goes idle. aquasuite always writes 2400. Unit not defined in the code.", default=2400)
 f("clock_flags", 69, "u8", B(0x07), "safety", "Bit 0: daylight saving time on. Bit 1: 12 h format. Bit 2: daylight saving region US (clear: EU).")
 f("clock_timezone", 70, "i16", L(-12, 14), "safety", "Time zone offset of the device local time.", scale=0.1, unit="h")
-f("display_flags", 72, "u8", B(0x0F), "low", "Bit 0: rotate the display content by 180 degrees. Bit 1: display standby allowed. Bit 2: invert. Bit 3: automatic invert off.")
+f("display_flags", 72, "u8", B(0x0F), "low", "Bit 0: rotate the display content by 180 degrees. Bit 1: display stays on in standby (clear: off after 10 minutes in standby). Bit 2: invert. Bit 3: automatic invert off.")
 P = dict(count=10, stride=46)
 f("page_template", 73, "u8", E(*TEMPLATES), "low", "Page layout: 0 logo, 1 chart, 2-6 values, 7 time, 8-10 bars, 11 value and bar, 12 value and time, 13 Leakshield state, 255 none.", **P)
 f("page_options", 74, "u8", B(0x03), "low", "Bit 0: show the page in standby. Bit 1: hide the page in normal operation.", **P)

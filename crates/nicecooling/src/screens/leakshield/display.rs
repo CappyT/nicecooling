@@ -172,6 +172,52 @@ impl DisplayUi {
     }
 }
 
+/// A switch of the display settings and the bit of `display_flags` behind it. With `inverted` the
+/// bit is clear while the switch is on.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct FlagSwitch {
+    pub key: &'static str,
+    pub bit: u32,
+    pub inverted: bool,
+}
+
+/// Bit 0: the content turns by 180 degrees.
+pub const ROTATE: FlagSwitch = FlagSwitch {
+    key: "rotate",
+    bit: 1,
+    inverted: false,
+};
+/// Bit 1 clear: the display goes off after 10 minutes in standby.
+pub const OFF_IN_STANDBY: FlagSwitch = FlagSwitch {
+    key: "standby",
+    bit: 2,
+    inverted: true,
+};
+/// Bit 2: the display shows inverted.
+pub const INVERT: FlagSwitch = FlagSwitch {
+    key: "invert",
+    bit: 4,
+    inverted: false,
+};
+/// Bit 3 clear: the device inverts the display by itself.
+pub const AUTO_INVERT: FlagSwitch = FlagSwitch {
+    key: "auto_invert",
+    bit: 8,
+    inverted: true,
+};
+
+impl FlagSwitch {
+    /// The state of the switch for the value of `display_flags`.
+    pub fn is_on(self, flags: u32) -> bool {
+        (flags & self.bit != 0) != self.inverted
+    }
+
+    /// The write for a new state of the switch.
+    pub fn set(self, input: &ScreenInput<'_>, id: &str, on: bool) -> Option<Command> {
+        set_flag(input, id, self.bit, on != self.inverted)
+    }
+}
+
 /// A bit of `display_flags`.
 pub fn set_flag(input: &ScreenInput<'_>, id: &str, bit: u32, on: bool) -> Option<Command> {
     let device = Device::new(input, id);
@@ -590,11 +636,14 @@ impl DisplayModel {
             interval_text: locale.tr("leakshield.display.interval_text"),
             interval: interval.map_or_else(String::new, |v| plain(locale, v)),
             interval_writable: auto_page && device.access("display_page_time").writable,
-            rotate: flag("leakshield.display.rotate", flags & 1 != 0),
-            invert: flag("leakshield.display.invert", flags & 4 != 0),
-            auto_invert: flag("leakshield.display.auto_invert", flags & 8 == 0),
+            rotate: flag("leakshield.display.rotate", ROTATE.is_on(flags)),
+            invert: flag("leakshield.display.invert", INVERT.is_on(flags)),
+            auto_invert: flag("leakshield.display.auto_invert", AUTO_INVERT.is_on(flags)),
             auto_invert_text: locale.tr("leakshield.display.auto_invert_text"),
-            standby: flag("leakshield.display.off_standby", flags & 2 != 0),
+            standby: flag(
+                "leakshield.display.off_standby",
+                OFF_IN_STANDBY.is_on(flags),
+            ),
             standby_text: locale.tr("leakshield.display.off_standby_text"),
             write_line: [
                 "display_brightness_active",

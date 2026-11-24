@@ -10,7 +10,8 @@ use gpui_component::{Disableable as _, Sizable as _, h_flex, v_flex};
 use crate::screen_view::{InputKey, ScreenView, skeleton};
 use crate::screens::controls::{Pick, act};
 use crate::screens::leakshield::display::{
-    DisplayModel, PageCard, Switch as Toggle, set_brightness, set_flag,
+    AUTO_INVERT, DisplayModel, FlagSwitch, INVERT, OFF_IN_STANDBY, PageCard, ROTATE,
+    Switch as Toggle, set_brightness,
 };
 use crate::screens::leakshield::{Tab, TabState};
 use crate::screens::ui::{
@@ -313,19 +314,18 @@ impl ScreenView {
                         p,
                     ))),
             );
-        for (key, toggle, bit, invert) in [
-            ("rotate", &settings.rotate, 1u32, false),
-            ("invert", &settings.invert, 4, false),
-            ("auto_invert", &settings.auto_invert, 8, true),
-            ("standby", &settings.standby, 2, false),
+        for (flag, toggle) in [
+            (ROTATE, &settings.rotate),
+            (INVERT, &settings.invert),
+            (AUTO_INVERT, &settings.auto_invert),
+            (OFF_IN_STANDBY, &settings.standby),
         ] {
-            let text = match key {
-                "auto_invert" => Some(settings.auto_invert_text.as_str()),
-                "standby" => Some(settings.standby_text.as_str()),
+            let text = match flag {
+                AUTO_INVERT => Some(settings.auto_invert_text.as_str()),
+                OFF_IN_STANDBY => Some(settings.standby_text.as_str()),
                 _ => None,
             };
-            settings_card =
-                settings_card.child(self.flag_row(key, toggle, text, id, bit, invert, p, cx));
+            settings_card = settings_card.child(self.flag_row(flag, toggle, text, id, p, cx));
         }
         if let Some(line) = &settings.write_line {
             settings_card = settings_card.child(card_row(p).child(write_line(line, p)));
@@ -476,16 +476,13 @@ impl ScreenView {
             .into_any_element()
     }
 
-    /// A switch of `display_flags`. A flag that means "off" has `invert`.
-    #[allow(clippy::too_many_arguments)]
+    /// A switch of `display_flags`.
     fn flag_row(
         &mut self,
-        key: &str,
+        flag: FlagSwitch,
         toggle: &Toggle,
         text: Option<&str>,
         device: &str,
-        bit: u32,
-        invert: bool,
         p: &Palette,
         cx: &mut Context<Self>,
     ) -> AnyElement {
@@ -494,16 +491,14 @@ impl ScreenView {
         field_row(p)
             .child(name_column(&toggle.label, text, p))
             .child(
-                Switch::new(SharedString::from(format!("ls-flag-{key}")))
+                Switch::new(SharedString::from(format!("ls-flag-{}", flag.key)))
                     .large()
                     .checked(toggle.on)
                     .disabled(!toggle.writable)
                     .on_click(move |on, _, cx| {
-                        let on = if invert { !*on } else { *on };
-                        let device = device.clone();
+                        let (on, device) = (*on, device.clone());
                         view.update(cx, |this, cx| {
-                            let command =
-                                this.with_input(cx, |input| set_flag(input, &device, bit, on));
+                            let command = this.with_input(cx, |input| flag.set(input, &device, on));
                             if let Some(command) = command {
                                 this.send(command);
                             }
