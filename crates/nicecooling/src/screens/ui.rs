@@ -1,8 +1,11 @@
 //! Small building blocks that the screens share. They paint with the tokens of `Palette`.
 
 use gpui::prelude::*;
-use gpui::{AnyElement, BoxShadow, Div, FontWeight, Hsla, SharedString, div, point, px, rgba};
-use gpui_component::{Sizable as _, h_flex, v_flex};
+use gpui::{
+    AnyElement, BoxShadow, Div, ElementId, FontWeight, Hsla, SharedString, Stateful, deferred, div,
+    point, px, relative, rgba,
+};
+use gpui_component::{Icon, Sizable as _, h_flex, v_flex};
 
 use crate::icons::{NcIcon, icon, small_icon};
 use crate::model::Severity;
@@ -91,6 +94,127 @@ pub fn wide_cell() -> Div {
 /// A text next to an icon or a control in a row: it shrinks and truncates.
 pub fn label(text: impl Into<SharedString>) -> Div {
     div().min_w_0().truncate().child(text.into())
+}
+
+/// The track of a segmented control: its items are `seg_item`.
+pub fn seg(p: &Palette) -> Div {
+    h_flex()
+        .flex_none()
+        .p(px(3.))
+        .gap(px(3.))
+        .rounded(px(9.))
+        .bg(p.track)
+}
+
+/// One item of a segmented control: 28 px, bold. The selected item has the `card` fill. The
+/// caller adds the click handler of an enabled item.
+pub fn seg_item(
+    id: impl Into<ElementId>,
+    text: impl Into<SharedString>,
+    on: bool,
+    enabled: bool,
+    p: &Palette,
+) -> Stateful<Div> {
+    div()
+        .id(id)
+        .h(px(28.))
+        .px(px(14.))
+        .flex()
+        .flex_none()
+        .items_center()
+        .rounded(px(7.))
+        .font_weight(FontWeight::BOLD)
+        .whitespace_nowrap()
+        .when(on, |item| {
+            item.bg(p.card).shadow(vec![BoxShadow {
+                color: rgba(0x0000_0633).into(),
+                offset: point(px(0.), px(1.)),
+                blur_radius: px(3.),
+                spread_radius: px(0.),
+                inset: false,
+            }])
+        })
+        .when(enabled && !on, |item| item.cursor_pointer())
+        .when(!enabled, |item| item.opacity(0.5))
+        .child(text.into())
+}
+
+/// The closed look of a select: the `ground` fill, the text, an optional value in bold and a
+/// chevron at the right. 34 px high, or 28 px for a select in a table row. A long text
+/// truncates and the value keeps its width.
+pub fn select_trigger(
+    id: impl Into<ElementId>,
+    text: impl Into<SharedString>,
+    value: Option<SharedString>,
+    small: bool,
+    enabled: bool,
+    ground: Hsla,
+) -> Stateful<Div> {
+    h_flex()
+        .id(id)
+        .w_full()
+        .min_w_0()
+        .h(px(if small { 28. } else { 34. }))
+        .px(px(10.))
+        .gap(px(6.))
+        .rounded(px(if small { 7. } else { 9. }))
+        .bg(ground)
+        .when(enabled, |trigger| trigger.cursor_pointer())
+        .when(!enabled, |trigger| trigger.opacity(0.5))
+        .child(div().flex_1().min_w_0().truncate().child(text.into()))
+        .children(value.map(|value| {
+            div()
+                .flex_none()
+                .font_weight(FontWeight::BOLD)
+                .child(value)
+        }))
+        .child(Icon::new(NcIcon::Down).with_size(px(16.)).flex_none())
+}
+
+/// The ground of a popover: the `card` fill, 12 px radius and the popover shadow.
+pub fn popover(p: &Palette) -> Div {
+    let shadow = |color: gpui::Rgba, y: f32, blur: f32, spread: f32| BoxShadow {
+        color: color.into(),
+        offset: point(px(0.), px(y)),
+        blur_radius: px(blur),
+        spread_radius: px(spread),
+        inset: false,
+    };
+    v_flex()
+        .rounded(px(12.))
+        .bg(p.card)
+        .occlude()
+        .shadow(if p.dark {
+            vec![
+                shadow(rgba(0xFFFF_FF14), 0., 0., 1.),
+                shadow(rgba(0x0000_0080), 8., 24., 0.),
+            ]
+        } else {
+            vec![
+                shadow(rgba(0x0000_060F), 0., 0., 1.),
+                shadow(rgba(0x0000_062E), 8., 24., 0.),
+            ]
+        })
+}
+
+/// A control with its popover under it. The popover paints over the content that follows:
+/// it does not move it.
+pub fn with_popover(control: impl IntoElement, popover: Option<AnyElement>) -> Div {
+    div()
+        .relative()
+        .min_w_0()
+        .child(control)
+        .children(popover.map(|popover| {
+            deferred(
+                div()
+                    .absolute()
+                    .top(relative(1.))
+                    .left_0()
+                    .pt(px(3.))
+                    .child(popover),
+            )
+            .with_priority(1)
+        }))
 }
 
 /// The header line of a table: 12 px bold text in `fg-dim`. `widths` has one entry per
