@@ -123,6 +123,8 @@ fn the_overview_shows_the_days_and_the_empty_text() {
 #[test]
 fn the_limit_line_comes_from_the_field_of_the_device() {
     let mut state = with_refills(Vec::new());
+    let data = state.snapshot.leakshield_data.get_mut(LEAKSHIELD).unwrap();
+    data.fields.retain(|field| field.id != PUMP_LIMIT_FIELD);
     assert_eq!(model(&state, EN).charts.runtime_limit, None);
     let data = state.snapshot.leakshield_data.get_mut(LEAKSHIELD).unwrap();
     data.fields.push(nicecooling::model::FieldEntry {

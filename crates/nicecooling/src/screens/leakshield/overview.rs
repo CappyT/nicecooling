@@ -14,7 +14,7 @@ use crate::screens::{FeedbackLine, ScreenInput, WriteOutcome};
 
 /// The field that holds the limit line of the pump runtime chart: the daily pump time above
 /// which the device warns.
-pub const PUMP_LIMIT_FIELD: &str = "refill_duration_warning";
+pub const PUMP_LIMIT_FIELD: &str = "daily_pump_time_warning";
 /// The event of a finished fill level measurement: the time of the newest one is the time of the
 /// last measurement.
 const MEASUREMENT_FINISHED: &str = "fill-level-measurement-finished";
