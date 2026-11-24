@@ -163,11 +163,13 @@ fn registry_keys_are_firmware_1022_structure_100() {
 }
 
 #[test]
-fn sensor_unit_and_device_profile_are_safety_fields_that_no_write_reaches() {
+fn device_profile_is_a_safety_field_that_no_write_reaches() {
     let registry = Registry::leakshield();
-    for id in ["sensor_unit", "device_profile"] {
-        let field = registry.field(id).unwrap();
-        assert_eq!(field.risk_class, RiskClass::Safety, "{id}");
-        assert!(!field.is_writable(), "{id}");
-    }
+    let field = registry.field("device_profile").unwrap();
+    assert_eq!(field.risk_class, RiskClass::Safety);
+    assert!(!field.is_writable());
+    assert_eq!(
+        registry.field("sensor_unit").unwrap().risk_class,
+        RiskClass::Safety
+    );
 }

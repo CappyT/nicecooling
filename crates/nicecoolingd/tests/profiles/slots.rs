@@ -247,7 +247,8 @@ async fn profile_content_types_follow_the_registry_kind() {
 // Stored settings of another slot (design D18).
 
 const WRITABLE: &str = "display_page_time";
-const NOT_VERIFIED: &str = "shield_pressure_low";
+/// A Safety field with no Verification write: it has no safe test value.
+const NOT_VERIFIED: &str = "alarm_start_delay";
 const DISPLAY_PAGE_TIME: usize = 63;
 
 async fn leakshield(rig: &Rig) -> LeakshieldProxy<'static> {

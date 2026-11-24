@@ -245,10 +245,7 @@ async fn happy_path_prints_registry_change() {
     let results = result.unwrap();
     assert_eq!(verdicts(&results), [Verdict::Pass], "{out}");
     assert!(out.contains("field pump_max_speed:"), "{out}");
-    assert!(
-        out.contains("verification_state = \"code-defined\" -> \"verified-write\""),
-        "{out}"
-    );
+    assert!(out.contains("-> \"verified-write\""), "{out}");
     // The restore brought the backup back and saved it.
     assert_eq!(rig.sim.report3(), rig.original);
     assert_eq!(rig.report3_writes(), 2);
@@ -273,10 +270,7 @@ async fn unexpected_byte_change_aborts_and_restores() {
         out.contains("restore: the device holds the backup bytes"),
         "{out}"
     );
-    assert!(
-        out.contains("verification_state = \"code-defined\" -> \"failed\""),
-        "{out}"
-    );
+    assert!(out.contains("-> \"failed\""), "{out}");
 }
 
 #[tokio::test]

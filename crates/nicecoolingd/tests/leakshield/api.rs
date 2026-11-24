@@ -16,7 +16,8 @@ use crate::support::{LEAKSHIELD, Rig, error_name, none_path, path};
 
 const ERR: &str = "io.github.cappyt.NiceCooling1.Error";
 const WRITABLE: &str = "display_page_time";
-const NOT_VERIFIED: &str = "shield_pressure_low";
+/// A Safety field with no Verification write: it has no safe test value.
+const NOT_VERIFIED: &str = "alarm_start_delay";
 
 async fn leakshield(rig: &Rig) -> LeakshieldProxy<'static> {
     LeakshieldProxy::builder(&rig.client)

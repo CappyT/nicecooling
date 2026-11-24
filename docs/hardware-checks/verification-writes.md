@@ -50,7 +50,7 @@ A group holds fields with the same safe loop state:
 - Test value: the current value plus or minus one raw step (0.01 %).
 - Safe loop state: base. Fill level stable for 5 min. Do not refill or drain during the check.
 - Expected registry change: `code-defined` to `verified-write` on pass, `failed` on fail.
-- Result: open
+- Result: 2026-11-24, firmware 1022, pass, group `reservoir`, Mode RELEASE, no replug.
 
 ### reservoir_model
 
@@ -58,7 +58,7 @@ A group holds fields with the same safe loop state:
 - Test value: the next allowed code after the current value.
 - Safe loop state: base. Fill level stable for 5 min. Do not refill or drain during the check.
 - Expected registry change: `code-defined` to `verified-write` on pass, `failed` on fail.
-- Result: open
+- Result: 2026-11-24, firmware 1022, pass, group `reservoir`, Mode RELEASE, no replug.
 
 ### reservoir_air_volume_full
 
@@ -66,7 +66,7 @@ A group holds fields with the same safe loop state:
 - Test value: the current value plus or minus one raw step (1 ml).
 - Safe loop state: base. Fill level stable for 5 min. Do not refill or drain during the check.
 - Expected registry change: `code-defined` to `verified-write` on pass, `failed` on fail.
-- Result: open
+- Result: 2026-11-24, firmware 1022, pass, group `reservoir`, Mode RELEASE, no replug.
 
 ### reservoir_air_volume_empty
 
@@ -74,7 +74,7 @@ A group holds fields with the same safe loop state:
 - Test value: the current value plus or minus one raw step (1 ml).
 - Safe loop state: base. Fill level stable for 5 min. Do not refill or drain during the check.
 - Expected registry change: `code-defined` to `verified-write` on pass, `failed` on fail.
-- Result: open
+- Result: 2026-11-24, firmware 1022, pass, group `reservoir`, Mode RELEASE, no replug.
 
 ### reservoir_total_volume
 
@@ -82,7 +82,7 @@ A group holds fields with the same safe loop state:
 - Test value: the current value plus or minus one raw step (1 ml).
 - Safe loop state: base. Fill level stable for 5 min. Do not refill or drain during the check.
 - Expected registry change: `code-defined` to `verified-write` on pass, `failed` on fail.
-- Result: open
+- Result: 2026-11-24, firmware 1022, pass, group `reservoir`, Mode RELEASE, no replug.
 
 ### pump_model
 
@@ -90,7 +90,7 @@ A group holds fields with the same safe loop state:
 - Test value: the next allowed code after the current value.
 - Safe loop state: base. Pump runs at its normal duty. No Action runs.
 - Expected registry change: `code-defined` to `verified-write` on pass, `failed` on fail.
-- Result: open
+- Result: 2026-11-24, firmware 1022, pass, group `pump`, Mode RELEASE, no replug.
 
 ### pump_flags
 
@@ -98,7 +98,7 @@ A group holds fields with the same safe loop state:
 - Test value: the current value with one defined bit toggled.
 - Safe loop state: base. Pump runs at its normal duty. No Action runs.
 - Expected registry change: `code-defined` to `verified-write` on pass, `failed` on fail.
-- Result: open
+- Result: 2026-11-24, firmware 1022, pass, group `pump`, Mode RELEASE, no replug.
 
 ### pump_max_speed
 
@@ -106,7 +106,7 @@ A group holds fields with the same safe loop state:
 - Test value: the current value plus or minus one raw step (1 rpm).
 - Safe loop state: base. Pump runs at its normal duty. No Action runs.
 - Expected registry change: `code-defined` to `verified-write` on pass, `failed` on fail.
-- Result: open
+- Result: 2026-11-24, firmware 1022, pass, group `pump`, Mode RELEASE, no replug.
 
 ### pump_max_pressure
 
@@ -114,7 +114,7 @@ A group holds fields with the same safe loop state:
 - Test value: the current value plus or minus one raw step (0.1 mbar).
 - Safe loop state: base. Pump runs at its normal duty. No Action runs.
 - Expected registry change: `code-defined` to `verified-write` on pass, `failed` on fail.
-- Result: open
+- Result: 2026-11-24, firmware 1022, pass, group `pump`, Mode RELEASE, no replug.
 
 ### pump_start_speed
 
@@ -122,7 +122,7 @@ A group holds fields with the same safe loop state:
 - Test value: the current value plus or minus one raw step (1 rpm).
 - Safe loop state: base. Pump runs at its normal duty. No Action runs.
 - Expected registry change: `code-defined` to `verified-write` on pass, `failed` on fail.
-- Result: open
+- Result: 2026-11-24, firmware 1022, pass, group `pump`, Mode RELEASE, no replug.
 
 ### pump_start_flow
 
@@ -130,7 +130,7 @@ A group holds fields with the same safe loop state:
 - Test value: the current value plus or minus one raw step (0.1 l/h).
 - Safe loop state: base. Pump runs at its normal duty. No Action runs.
 - Expected registry change: `code-defined` to `verified-write` on pass, `failed` on fail.
-- Result: open
+- Result: 2026-11-24, firmware 1022, pass, group `pump`, Mode RELEASE, no replug.
 
 ### sensor_unit
 
@@ -138,7 +138,7 @@ A group holds fields with the same safe loop state:
 - Test value: the next allowed code after the current value of copy 0. The other 19 copies keep their values.
 - Safe loop state: base. The unit changes only the display of the device.
 - Expected registry change: `code-defined` to `verified-write` on pass, `failed` on fail.
-- Result: open
+- Result: 2026-11-24, firmware 1022, pass, group `clock`, Mode RELEASE, no replug.
 
 ### clock_flags
 
@@ -146,7 +146,7 @@ A group holds fields with the same safe loop state:
 - Test value: the current value with one defined bit toggled.
 - Safe loop state: base. No time-controlled vacuum window starts within 15 min of the check, also with the test value.
 - Expected registry change: `code-defined` to `verified-write` on pass, `failed` on fail.
-- Result: open
+- Result: 2026-11-24, firmware 1022, pass, group `clock`, Mode RELEASE, no replug.
 
 ### clock_timezone
 
@@ -154,7 +154,7 @@ A group holds fields with the same safe loop state:
 - Test value: the current value plus or minus one raw step (0.1 h).
 - Safe loop state: base. No time-controlled vacuum window starts within 15 min of the check, also with the test value.
 - Expected registry change: `code-defined` to `verified-write` on pass, `failed` on fail.
-- Result: open
+- Result: 2026-11-24, firmware 1022, pass, group `clock`, Mode RELEASE, no replug.
 
 ### standby_conditions
 
@@ -162,7 +162,7 @@ A group holds fields with the same safe loop state:
 - Test value: the current value with one defined bit toggled.
 - Safe loop state: base. The PC does not suspend during the check.
 - Expected registry change: `code-defined` to `verified-write` on pass, `failed` on fail.
-- Result: open
+- Result: 2026-11-24, firmware 1022, pass, group `reservoir`, Mode RELEASE, no replug.
 
 ### alarm_start_delay
 
@@ -177,7 +177,7 @@ A group holds fields with the same safe loop state:
 - Test value: the current value with one defined bit toggled.
 - Safe loop state: base. No Warning or Alarm is active: `alarm_bits` and `alarm_bits_latched` read 0.
 - Expected registry change: `code-defined` to `verified-write` on pass, `failed` on fail.
-- Result: open
+- Result: 2026-11-24, firmware 1022, pass, group `alarms`, Mode RELEASE, no replug.
 
 ### alarm_buzzer
 
@@ -185,7 +185,7 @@ A group holds fields with the same safe loop state:
 - Test value: the current value with one defined bit toggled.
 - Safe loop state: base. No Warning or Alarm is active: `alarm_bits` and `alarm_bits_latched` read 0.
 - Expected registry change: `code-defined` to `verified-write` on pass, `failed` on fail.
-- Result: open
+- Result: 2026-11-24, firmware 1022, pass, group `alarms`, Mode RELEASE, no replug.
 
 ### fill_level_warning_threshold
 
@@ -193,7 +193,7 @@ A group holds fields with the same safe loop state:
 - Test value: the current value plus or minus one raw step (0.01 %).
 - Safe loop state: base. No Warning or Alarm is active: `alarm_bits` and `alarm_bits_latched` read 0.
 - Expected registry change: `code-defined` to `verified-write` on pass, `failed` on fail.
-- Result: open
+- Result: 2026-11-24, firmware 1022, pass, group `alarms`, Mode RELEASE, no replug.
 
 ### fill_level_alarm_threshold
 
@@ -201,7 +201,7 @@ A group holds fields with the same safe loop state:
 - Test value: the current value plus or minus one raw step (0.01 %).
 - Safe loop state: base. No Warning or Alarm is active: `alarm_bits` and `alarm_bits_latched` read 0.
 - Expected registry change: `code-defined` to `verified-write` on pass, `failed` on fail.
-- Result: open
+- Result: 2026-11-24, firmware 1022, pass, group `alarms`, Mode RELEASE, no replug.
 
 ### leak_rate_warning_threshold
 
@@ -209,7 +209,7 @@ A group holds fields with the same safe loop state:
 - Test value: the current value plus or minus one raw step (1 ml/h).
 - Safe loop state: base. No Warning or Alarm is active: `alarm_bits` and `alarm_bits_latched` read 0.
 - Expected registry change: `code-defined` to `verified-write` on pass, `failed` on fail.
-- Result: open
+- Result: 2026-11-24, firmware 1022, pass, group `alarms`, Mode RELEASE, no replug.
 
 ### fill_level_warning_response_action
 
@@ -217,7 +217,7 @@ A group holds fields with the same safe loop state:
 - Test value: 0 (none) when the current value is not 0, else 3 (USB key sequence). Never 1 or 2 (power switch).
 - Safe loop state: base. No Warning or Alarm is active: `alarm_bits` and `alarm_bits_latched` read 0.
 - Expected registry change: `code-defined` to `verified-write` on pass, `failed` on fail.
-- Result: open
+- Result: 2026-11-24, firmware 1022, pass, group `alarms`, Mode RELEASE, no replug.
 
 ### fill_level_warning_response_modifiers
 
@@ -225,7 +225,7 @@ A group holds fields with the same safe loop state:
 - Test value: the current value with one defined bit toggled.
 - Safe loop state: base. No Warning or Alarm is active: `alarm_bits` and `alarm_bits_latched` read 0.
 - Expected registry change: `code-defined` to `verified-write` on pass, `failed` on fail.
-- Result: open
+- Result: 2026-11-24, firmware 1022, pass, group `alarms`, Mode RELEASE, no replug.
 
 ### fill_level_warning_response_key
 
@@ -233,7 +233,7 @@ A group holds fields with the same safe loop state:
 - Test value: the next allowed code after the current value.
 - Safe loop state: base. No Warning or Alarm is active: `alarm_bits` and `alarm_bits_latched` read 0.
 - Expected registry change: `code-defined` to `verified-write` on pass, `failed` on fail.
-- Result: open
+- Result: 2026-11-24, firmware 1022, pass, group `alarms`, Mode RELEASE, no replug.
 
 ### fill_level_alarm_response_action
 
@@ -241,7 +241,7 @@ A group holds fields with the same safe loop state:
 - Test value: 0 (none) when the current value is not 0, else 3 (USB key sequence). Never 1 or 2 (power switch).
 - Safe loop state: base. No Warning or Alarm is active: `alarm_bits` and `alarm_bits_latched` read 0.
 - Expected registry change: `code-defined` to `verified-write` on pass, `failed` on fail.
-- Result: open
+- Result: 2026-11-24, firmware 1022, pass, group `alarms`, Mode RELEASE, no replug.
 
 ### fill_level_alarm_response_modifiers
 
@@ -249,7 +249,7 @@ A group holds fields with the same safe loop state:
 - Test value: the current value with one defined bit toggled.
 - Safe loop state: base. No Warning or Alarm is active: `alarm_bits` and `alarm_bits_latched` read 0.
 - Expected registry change: `code-defined` to `verified-write` on pass, `failed` on fail.
-- Result: open
+- Result: 2026-11-24, firmware 1022, pass, group `alarms`, Mode RELEASE, no replug.
 
 ### fill_level_alarm_response_key
 
@@ -257,7 +257,7 @@ A group holds fields with the same safe loop state:
 - Test value: the next allowed code after the current value.
 - Safe loop state: base. No Warning or Alarm is active: `alarm_bits` and `alarm_bits_latched` read 0.
 - Expected registry change: `code-defined` to `verified-write` on pass, `failed` on fail.
-- Result: open
+- Result: 2026-11-24, firmware 1022, pass, group `alarms`, Mode RELEASE, no replug.
 
 ### leak_rate_warning_response_action
 
@@ -265,7 +265,7 @@ A group holds fields with the same safe loop state:
 - Test value: 0 (none) when the current value is not 0, else 3 (USB key sequence). Never 1 or 2 (power switch).
 - Safe loop state: base. No Warning or Alarm is active: `alarm_bits` and `alarm_bits_latched` read 0.
 - Expected registry change: `code-defined` to `verified-write` on pass, `failed` on fail.
-- Result: open
+- Result: 2026-11-24, firmware 1022, pass, group `alarms`, Mode RELEASE, no replug.
 
 ### leak_rate_warning_response_modifiers
 
@@ -273,7 +273,7 @@ A group holds fields with the same safe loop state:
 - Test value: the current value with one defined bit toggled.
 - Safe loop state: base. No Warning or Alarm is active: `alarm_bits` and `alarm_bits_latched` read 0.
 - Expected registry change: `code-defined` to `verified-write` on pass, `failed` on fail.
-- Result: open
+- Result: 2026-11-24, firmware 1022, pass, group `alarms`, Mode RELEASE, no replug.
 
 ### leak_rate_warning_response_key
 
@@ -281,7 +281,7 @@ A group holds fields with the same safe loop state:
 - Test value: the next allowed code after the current value.
 - Safe loop state: base. No Warning or Alarm is active: `alarm_bits` and `alarm_bits_latched` read 0.
 - Expected registry change: `code-defined` to `verified-write` on pass, `failed` on fail.
-- Result: open
+- Result: 2026-11-24, firmware 1022, pass, group `alarms`, Mode RELEASE, no replug.
 
 ### leak_rate_alarm_1_response_action
 
@@ -289,7 +289,7 @@ A group holds fields with the same safe loop state:
 - Test value: 0 (none) when the current value is not 0, else 3 (USB key sequence). Never 1 or 2 (power switch).
 - Safe loop state: base. No Warning or Alarm is active: `alarm_bits` and `alarm_bits_latched` read 0.
 - Expected registry change: `code-defined` to `verified-write` on pass, `failed` on fail.
-- Result: open
+- Result: 2026-11-24, firmware 1022, pass, group `alarms`, Mode RELEASE, no replug.
 
 ### leak_rate_alarm_1_response_modifiers
 
@@ -297,7 +297,7 @@ A group holds fields with the same safe loop state:
 - Test value: the current value with one defined bit toggled.
 - Safe loop state: base. No Warning or Alarm is active: `alarm_bits` and `alarm_bits_latched` read 0.
 - Expected registry change: `code-defined` to `verified-write` on pass, `failed` on fail.
-- Result: open
+- Result: 2026-11-24, firmware 1022, pass, group `alarms`, Mode RELEASE, no replug.
 
 ### leak_rate_alarm_1_response_key
 
@@ -305,7 +305,7 @@ A group holds fields with the same safe loop state:
 - Test value: the next allowed code after the current value.
 - Safe loop state: base. No Warning or Alarm is active: `alarm_bits` and `alarm_bits_latched` read 0.
 - Expected registry change: `code-defined` to `verified-write` on pass, `failed` on fail.
-- Result: open
+- Result: 2026-11-24, firmware 1022, pass, group `alarms`, Mode RELEASE, no replug.
 
 ### leak_rate_alarm_2_response_action
 
@@ -313,7 +313,7 @@ A group holds fields with the same safe loop state:
 - Test value: 0 (none) when the current value is not 0, else 3 (USB key sequence). Never 1 or 2 (power switch).
 - Safe loop state: base. No Warning or Alarm is active: `alarm_bits` and `alarm_bits_latched` read 0.
 - Expected registry change: `code-defined` to `verified-write` on pass, `failed` on fail.
-- Result: open
+- Result: 2026-11-24, firmware 1022, pass, group `alarms`, Mode RELEASE, no replug.
 
 ### leak_rate_alarm_2_response_modifiers
 
@@ -321,7 +321,7 @@ A group holds fields with the same safe loop state:
 - Test value: the current value with one defined bit toggled.
 - Safe loop state: base. No Warning or Alarm is active: `alarm_bits` and `alarm_bits_latched` read 0.
 - Expected registry change: `code-defined` to `verified-write` on pass, `failed` on fail.
-- Result: open
+- Result: 2026-11-24, firmware 1022, pass, group `alarms`, Mode RELEASE, no replug.
 
 ### leak_rate_alarm_2_response_key
 
@@ -329,7 +329,7 @@ A group holds fields with the same safe loop state:
 - Test value: the next allowed code after the current value.
 - Safe loop state: base. No Warning or Alarm is active: `alarm_bits` and `alarm_bits_latched` read 0.
 - Expected registry change: `code-defined` to `verified-write` on pass, `failed` on fail.
-- Result: open
+- Result: 2026-11-24, firmware 1022, pass, group `alarms`, Mode RELEASE, no replug.
 
 ### system_alarm_response_action
 
@@ -337,7 +337,7 @@ A group holds fields with the same safe loop state:
 - Test value: 0 (none) when the current value is not 0, else 3 (USB key sequence). Never 1 or 2 (power switch).
 - Safe loop state: base. No Warning or Alarm is active: `alarm_bits` and `alarm_bits_latched` read 0.
 - Expected registry change: `code-defined` to `verified-write` on pass, `failed` on fail.
-- Result: open
+- Result: 2026-11-24, firmware 1022, pass, group `alarms`, Mode RELEASE, no replug.
 
 ### system_alarm_response_modifiers
 
@@ -345,7 +345,7 @@ A group holds fields with the same safe loop state:
 - Test value: the current value with one defined bit toggled.
 - Safe loop state: base. No Warning or Alarm is active: `alarm_bits` and `alarm_bits_latched` read 0.
 - Expected registry change: `code-defined` to `verified-write` on pass, `failed` on fail.
-- Result: open
+- Result: 2026-11-24, firmware 1022, pass, group `alarms`, Mode RELEASE, no replug.
 
 ### system_alarm_response_key
 
@@ -353,7 +353,7 @@ A group holds fields with the same safe loop state:
 - Test value: the next allowed code after the current value.
 - Safe loop state: base. No Warning or Alarm is active: `alarm_bits` and `alarm_bits_latched` read 0.
 - Expected registry change: `code-defined` to `verified-write` on pass, `failed` on fail.
-- Result: open
+- Result: 2026-11-24, firmware 1022, pass, group `alarms`, Mode RELEASE, no replug.
 
 ### loop_height
 
@@ -361,7 +361,7 @@ A group holds fields with the same safe loop state:
 - Test value: the current value plus or minus one raw step (1 cm).
 - Safe loop state: base. Pressure stable within 2 mbar of the setpoint for 5 min.
 - Expected registry change: `code-defined` to `verified-write` on pass, `failed` on fail.
-- Result: open
+- Result: 2026-11-24, firmware 1022, pass, group `pressure`, Mode RELEASE, no replug, pressure 1.7 to 2.7 mbar for 5 min with setpoint 0 (RELEASE has no vacuum regulation).
 
 ### refill_duration_warning
 
@@ -369,7 +369,7 @@ A group holds fields with the same safe loop state:
 - Test value: the current value plus or minus one raw step (1 s).
 - Safe loop state: base. No Warning or Alarm is active: `alarm_bits` and `alarm_bits_latched` read 0.
 - Expected registry change: `code-defined` to `verified-write` on pass, `failed` on fail.
-- Result: open
+- Result: 2026-11-24, firmware 1022, pass, group `alarms`, Mode RELEASE, no replug.
 
 ### shield_flags
 
@@ -377,7 +377,7 @@ A group holds fields with the same safe loop state:
 - Test value: the current value with one defined bit toggled.
 - Safe loop state: base. No time-controlled vacuum window starts within 15 min of the check, also with the test value.
 - Expected registry change: `code-defined` to `verified-write` on pass, `failed` on fail.
-- Result: open
+- Result: 2026-11-24, firmware 1022, pass, group `clock`, Mode RELEASE, no replug.
 
 ### vacuum_timer_start_hour
 
@@ -385,7 +385,7 @@ A group holds fields with the same safe loop state:
 - Test value: the current value plus or minus one raw step (1 h).
 - Safe loop state: base. No time-controlled vacuum window starts within 15 min of the check, also with the test value.
 - Expected registry change: `code-defined` to `verified-write` on pass, `failed` on fail.
-- Result: open
+- Result: 2026-11-24, firmware 1022, pass, group `clock`, Mode RELEASE, no replug.
 
 ### vacuum_timer_start_minute
 
@@ -393,7 +393,7 @@ A group holds fields with the same safe loop state:
 - Test value: the current value plus or minus one raw step (1 min).
 - Safe loop state: base. No time-controlled vacuum window starts within 15 min of the check, also with the test value.
 - Expected registry change: `code-defined` to `verified-write` on pass, `failed` on fail.
-- Result: open
+- Result: 2026-11-24, firmware 1022, pass, group `clock`, Mode RELEASE, no replug.
 
 ### vacuum_timer_end_hour
 
@@ -401,7 +401,7 @@ A group holds fields with the same safe loop state:
 - Test value: the current value plus or minus one raw step (1 h).
 - Safe loop state: base. No time-controlled vacuum window starts within 15 min of the check, also with the test value.
 - Expected registry change: `code-defined` to `verified-write` on pass, `failed` on fail.
-- Result: open
+- Result: 2026-11-24, firmware 1022, pass, group `clock`, Mode RELEASE, no replug.
 
 ### vacuum_timer_end_minute
 
@@ -409,7 +409,7 @@ A group holds fields with the same safe loop state:
 - Test value: the current value plus or minus one raw step (1 min).
 - Safe loop state: base. No time-controlled vacuum window starts within 15 min of the check, also with the test value.
 - Expected registry change: `code-defined` to `verified-write` on pass, `failed` on fail.
-- Result: open
+- Result: 2026-11-24, firmware 1022, pass, group `clock`, Mode RELEASE, no replug.
 
 ### default_mode
 
@@ -417,7 +417,7 @@ A group holds fields with the same safe loop state:
 - Test value: 2 (MONITOR) when the current value is not 2, else 1 (SHIELD).
 - Safe loop state: base. After the restore, check that the Mode is RELEASE.
 - Expected registry change: `code-defined` to `verified-write` on pass, `failed` on fail.
-- Result: open
+- Result: 2026-11-24, firmware 1022, pass, group `mode`, Mode RELEASE, no replug.
 
 ### test_pressure
 
@@ -425,7 +425,7 @@ A group holds fields with the same safe loop state:
 - Test value: the current value plus or minus one raw step (0.1 mbar).
 - Safe loop state: base. No Action runs, and none starts during the check.
 - Expected registry change: `code-defined` to `verified-write` on pass, `failed` on fail.
-- Result: open
+- Result: 2026-11-24, firmware 1022, pass, group `pressure`, Mode RELEASE, no replug, pressure 1.7 to 2.7 mbar for 5 min with setpoint 0 (RELEASE has no vacuum regulation).
 
 ### deaeration_pressure
 
@@ -433,7 +433,7 @@ A group holds fields with the same safe loop state:
 - Test value: the current value plus or minus one raw step (0.1 mbar).
 - Safe loop state: base. No Action runs, and none starts during the check.
 - Expected registry change: `code-defined` to `verified-write` on pass, `failed` on fail.
-- Result: open
+- Result: 2026-11-24, firmware 1022, pass, group `pressure`, Mode RELEASE, no replug, pressure 1.7 to 2.7 mbar for 5 min with setpoint 0 (RELEASE has no vacuum regulation).
 
 ### refill_pressure
 
@@ -441,7 +441,7 @@ A group holds fields with the same safe loop state:
 - Test value: the current value plus or minus one raw step (0.1 mbar).
 - Safe loop state: base. No Action runs, and none starts during the check.
 - Expected registry change: `code-defined` to `verified-write` on pass, `failed` on fail.
-- Result: open
+- Result: 2026-11-24, firmware 1022, pass, group `pressure`, Mode RELEASE, no replug, pressure 1.7 to 2.7 mbar for 5 min with setpoint 0 (RELEASE has no vacuum regulation).
 
 ### shield_pressure_low
 
@@ -449,7 +449,7 @@ A group holds fields with the same safe loop state:
 - Test value: the current value plus or minus one raw step (0.1 mbar).
 - Safe loop state: base. Pressure stable within 2 mbar of the setpoint for 5 min. The written value keeps lower limit < setpoint < upper limit.
 - Expected registry change: `code-defined` to `verified-write` on pass, `failed` on fail.
-- Result: open
+- Result: 2026-11-24, firmware 1022, pass, group `pressure`, Mode RELEASE, no replug, pressure 1.7 to 2.7 mbar for 5 min with setpoint 0 (RELEASE has no vacuum regulation).
 
 ### shield_pressure_low_standby
 
@@ -457,7 +457,7 @@ A group holds fields with the same safe loop state:
 - Test value: the current value plus or minus one raw step (0.1 mbar).
 - Safe loop state: base. Pressure stable within 2 mbar of the setpoint for 5 min. The written value keeps lower limit < setpoint < upper limit.
 - Expected registry change: `code-defined` to `verified-write` on pass, `failed` on fail.
-- Result: open
+- Result: 2026-11-24, firmware 1022, pass, group `pressure`, Mode RELEASE, no replug, pressure 1.7 to 2.7 mbar for 5 min with setpoint 0 (RELEASE has no vacuum regulation).
 
 ### shield_pressure_working_range
 
@@ -465,7 +465,7 @@ A group holds fields with the same safe loop state:
 - Test value: the current value plus or minus one raw step (0.1 mbar).
 - Safe loop state: base. Pressure stable within 2 mbar of the setpoint for 5 min. The written value keeps lower limit < setpoint < upper limit.
 - Expected registry change: `code-defined` to `verified-write` on pass, `failed` on fail.
-- Result: open
+- Result: 2026-11-24, firmware 1022, pass, group `pressure`, Mode RELEASE, no replug, pressure 1.7 to 2.7 mbar for 5 min with setpoint 0 (RELEASE has no vacuum regulation).
 
 ### shield_pressure_max_range
 
@@ -473,7 +473,7 @@ A group holds fields with the same safe loop state:
 - Test value: the current value plus or minus one raw step (0.1 mbar).
 - Safe loop state: base. Pressure stable within 2 mbar of the setpoint for 5 min. The written value keeps lower limit < setpoint < upper limit.
 - Expected registry change: `code-defined` to `verified-write` on pass, `failed` on fail.
-- Result: open
+- Result: 2026-11-24, firmware 1022, pass, group `pressure`, Mode RELEASE, no replug, pressure 1.7 to 2.7 mbar for 5 min with setpoint 0 (RELEASE has no vacuum regulation).
 
 ### monitor_pressure_low
 
@@ -481,7 +481,7 @@ A group holds fields with the same safe loop state:
 - Test value: the current value plus or minus one raw step (0.1 mbar).
 - Safe loop state: base. Pressure stable within 2 mbar of the setpoint for 5 min. The written value keeps lower limit < setpoint < upper limit.
 - Expected registry change: `code-defined` to `verified-write` on pass, `failed` on fail.
-- Result: open
+- Result: 2026-11-24, firmware 1022, pass, group `pressure`, Mode RELEASE, no replug, pressure 1.7 to 2.7 mbar for 5 min with setpoint 0 (RELEASE has no vacuum regulation).
 
 ### monitor_pressure_low_standby
 
@@ -489,7 +489,7 @@ A group holds fields with the same safe loop state:
 - Test value: the current value plus or minus one raw step (0.1 mbar).
 - Safe loop state: base. Pressure stable within 2 mbar of the setpoint for 5 min. The written value keeps lower limit < setpoint < upper limit.
 - Expected registry change: `code-defined` to `verified-write` on pass, `failed` on fail.
-- Result: open
+- Result: 2026-11-24, firmware 1022, pass, group `pressure`, Mode RELEASE, no replug, pressure 1.7 to 2.7 mbar for 5 min with setpoint 0 (RELEASE has no vacuum regulation).
 
 ### monitor_pressure_working_range
 
@@ -497,7 +497,7 @@ A group holds fields with the same safe loop state:
 - Test value: the current value plus or minus one raw step (0.1 mbar).
 - Safe loop state: base. Pressure stable within 2 mbar of the setpoint for 5 min. The written value keeps lower limit < setpoint < upper limit.
 - Expected registry change: `code-defined` to `verified-write` on pass, `failed` on fail.
-- Result: open
+- Result: 2026-11-24, firmware 1022, pass, group `pressure`, Mode RELEASE, no replug, pressure 1.7 to 2.7 mbar for 5 min with setpoint 0 (RELEASE has no vacuum regulation).
 
 ### monitor_pressure_max_range
 
@@ -505,7 +505,7 @@ A group holds fields with the same safe loop state:
 - Test value: the current value plus or minus one raw step (0.1 mbar).
 - Safe loop state: base. Pressure stable within 2 mbar of the setpoint for 5 min. The written value keeps lower limit < setpoint < upper limit.
 - Expected registry change: `code-defined` to `verified-write` on pass, `failed` on fail.
-- Result: open
+- Result: 2026-11-24, firmware 1022, pass, group `pressure`, Mode RELEASE, no replug, pressure 1.7 to 2.7 mbar for 5 min with setpoint 0 (RELEASE has no vacuum regulation).
 
 ### device_profile
 

@@ -9,9 +9,8 @@ use nicecooling_protocol::sim::Request;
 use nicecoolingd::leakshield::fields::FieldValue;
 
 use crate::Rig as DeviceRig;
-use crate::support::{LEAKSHIELD, Rig, error_name, path};
+use crate::support::{LEAKSHIELD, Rig, path};
 
-const ERR: &str = "io.github.cappyt.NiceCooling1.Error";
 const SMALL_LEAK_FIELD: &str = "leak_rate_alarm_1_response_action";
 const SMALL_LEAK_OFFSET: usize = 557;
 const LARGE_LEAK_OFFSET: usize = 561;
@@ -139,22 +138,6 @@ async fn accepted_proposal_uses_write_path() {
     assert!(set_feature_count(&rig.sim.requests()) >= 1);
     // The write path saved the state from before in a backup.
     assert_eq!(rig.backups().list().unwrap().len(), 1);
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn accepted_proposal_on_the_bus_meets_the_verification_rule() {
-    // The response fields are Safety fields at `code-defined`: SetFields refuses them, as it
-    // refuses every unverified Safety write.
-    let rig = Rig::start().await;
-    let proxy = leakshield(&rig).await;
-    rig.sim.change_report3(SMALL_LEAK_OFFSET, &[KEY_SEQUENCE]);
-    rig.sim.clear_requests();
-    let error = proxy
-        .set_fields([(SMALL_LEAK_FIELD, zbus::Variant::from("none"))].into())
-        .await
-        .unwrap_err();
-    assert_eq!(error_name(&error), format!("{ERR}.NotVerified"));
-    assert_eq!(set_feature_count(&rig.sim.requests()), 0);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

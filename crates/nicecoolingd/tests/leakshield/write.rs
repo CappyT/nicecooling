@@ -18,7 +18,8 @@ use crate::Rig;
 /// A low-risk field at `plausible-read`: offset 63, scale 0.1 s.
 const WRITABLE: &str = "display_page_time";
 /// A Safety field at `code-defined`.
-const NOT_VERIFIED: &str = "shield_pressure_low";
+/// A Safety field with no Verification write: it has no safe test value.
+const NOT_VERIFIED: &str = "alarm_start_delay";
 
 fn start(rig: &Rig) -> (WriteWorker, mpsc::UnboundedReceiver<DeviceEvent>) {
     let (events, rx) = mpsc::unbounded_channel();
@@ -168,7 +169,7 @@ async fn non_verified_field_refused() {
 
     let job = Job::Write {
         report1: rig.io.read_report1().unwrap(),
-        edits: vec![FieldEdit::scalar(NOT_VERIFIED, 1000)],
+        edits: vec![FieldEdit::scalar(NOT_VERIFIED, 10)],
     };
     rig.sim.clear_requests();
     let error = worker.submit(job).await.unwrap_err();
@@ -330,19 +331,13 @@ async fn write_refuses_report3_of_another_structure() {
 }
 
 #[tokio::test(start_paused = true)]
-async fn set_fields_refuses_sensor_unit_and_device_profile() {
+async fn set_fields_refuses_device_profile() {
     let rig = Rig::new("safety-units");
     seed_last_known(&rig);
     let (worker, _events) = start(&rig);
     let original = rig.sim.report3();
 
-    for edit in [
-        FieldEdit {
-            field: "sensor_unit".into(),
-            raw: vec![3; 20],
-        },
-        FieldEdit::scalar("device_profile", 4),
-    ] {
+    for edit in [FieldEdit::scalar("device_profile", 4)] {
         let id = edit.field.clone();
         let job = Job::Write {
             report1: rig.io.read_report1().unwrap(),
