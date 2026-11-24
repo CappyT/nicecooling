@@ -34,7 +34,10 @@ The three values are the control band of SHIELD. They are not alarm limits: no v
 | Target pressure | The pump builds the vacuum up to it and stops |
 | Maximum pressure | Above it, the Leakshield opens its vent valve and releases vacuum |
 
-- "Pressure values" is `shield_flags` bit 4. Bit set: the recommended values. Bit clear: the values of the user. With the recommended values the three inputs are read-only and have the padlock badge "Recommended value". With own values a warning line shows under the choice.
+- "Pressure values" is `shield_flags` bit 4. Bit set: the recommended values. Bit clear: the values of the user. With the recommended values the three inputs are read-only and have the padlock badge "Recommended value". With own values a warning line shows under the choice. It has the recommended values as numbers.
+- The recommended values come from the pump: the minimum is the maximum pressure of the pump, or twice that with more than one pump, cut to 430 mbar. The target is 50 mbar above the pump pressure. The maximum is 40 mbar above the target. The standby minimum is the pump pressure, 80 mbar at most. For a pump of 375 mbar: 375, 425, 465 and 80 mbar.
+- The wizard puts the recommended values into the pending changes when the user selects "Recommended values", and with each change of the pump type, of the maximum pressure of the pump or of "More than one pump" while that choice is on.
+- The button "Use the recommended values" is in the row of the choice. With own values it writes the recommended values and keeps the choice. With the recommended values it shows only when the Leakshield holds other values. An information line then says so, and the inputs show what the Leakshield holds.
 - The band diagram (`../widgets.md`, "Pressure band diagram") is between the choice and the three inputs. Its lines have the values of the wizard: the device values, or the pending ones. The inputs are in the order of the lines: maximum, target, minimum.
 - The diagram also shows what the Leakshield uses now, from its live sensors: the pressure as a marker, and a second value on each line whose live limit differs from the value of the wizard. The line under the diagram has the three live limits: "Now: minimum 215, target 265, maximum 465 mbar."
 - "Adaptive pressure" is `shield_flags` bit 3. The Leakshield then lowers the minimum and the target with the pump speed of the Feed. It keeps the stored distance between minimum and target and the stored maximum. So the switch never dims or locks the three values.
@@ -80,7 +83,8 @@ The wizard corrects a value of the band. It shows no error for it:
 | Place | Text |
 |---|---|
 | Pressure values | "The three values are a control band for SHIELD: the Leakshield keeps the pressure between the minimum and the maximum. No value raises an Alarm." |
-| Own values, warning | "With your own values the Leakshield can fail to protect the Loop. The recommended minimum is the maximum pressure of your pump." |
+| Own values, warning | "With your own values the Leakshield can fail to protect the Loop. Recommended for your pump: minimum 375, target 425, maximum 465 mbar." |
+| Other values than the recommended ones | "The Leakshield holds other values. Recommended for your pump: minimum 375, target 425, maximum 465 mbar." |
 | Maximum pressure | "Above this value the Leakshield opens its vent valve and releases vacuum." |
 | Target pressure | "The pressure that you want in SHIELD. The pump of the Leakshield builds the vacuum up to this value and stops." |
 | Minimum pressure | "Below this value the Leakshield starts its pump." |

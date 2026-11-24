@@ -131,7 +131,6 @@ fn the_pressure_step_shows_the_control_band_and_two_choices() {
             .unwrap()
             .contains("a control band for SHIELD")
     );
-    assert!(values.note.is_none());
 
     // Each value says what the Leakshield does there. With the recommended values the
     // inputs take no edit, and the badge says why.
@@ -565,6 +564,152 @@ fn a_value_at_a_limit_has_an_information_line() {
     );
 }
 
+#[test]
+fn the_recommended_values_for_the_d5_preset() {
+    // 375 mbar: the pump pressure, 50 mbar more, 40 mbar more, and 80 mbar in standby.
+    assert_eq!(
+        Band::recommended(375.0, false),
+        band(375.0, 425.0, 465.0, 80.0)
+    );
+    // More than one pump: twice the pressure, cut to the highest minimum.
+    assert_eq!(
+        Band::recommended(375.0, true),
+        band(430.0, 450.0, 490.0, 80.0)
+    );
+    assert_eq!(
+        Band::recommended(150.0, true),
+        band(300.0, 350.0, 390.0, 80.0)
+    );
+    // A weak pump: the standby minimum is the pump pressure, and no value leaves its range.
+    assert_eq!(
+        Band::recommended(60.0, false),
+        band(60.0, 110.0, 150.0, 60.0)
+    );
+    assert_eq!(Band::recommended(0.0, false), band(30.0, 50.0, 90.0, 30.0));
+    assert_eq!(
+        Band::recommended(530.0, false),
+        band(430.0, 450.0, 490.0, 80.0)
+    );
+}
+
+#[test]
+fn the_recommended_choice_writes_the_recommended_values() {
+    // The fixture has own values that are not the recommended ones: 250 / 300 / 350.
+    let state = own_values();
+    let data = data_of(&state);
+    let mut ui = SettingsUi::default();
+    let model = step(&state, &ui, Step::Pressure);
+    let values = row(&model, "pressure_values");
+    assert_eq!(
+        values
+            .note
+            .as_ref()
+            .map(|note| (note.text.as_str(), note.warning)),
+        Some((
+            "With your own values the Leakshield can fail to protect the Loop. Recommended for your pump: minimum 375, target 425, maximum 465 mbar.",
+            true
+        ))
+    );
+    assert_eq!(
+        values.action,
+        Some((
+            "Use the recommended values".into(),
+            "use_recommended".into()
+        ))
+    );
+
+    // The button keeps the choice "own values" and writes the four values.
+    ui.edit(&data, "use_recommended", "");
+    assert_eq!(pending(&ui, "shield_flags"), None);
+    assert_eq!(pending(&ui, "shield_pressure_low"), Some(375.0));
+    // The distance to the target is 50 mbar on the device already.
+    assert_eq!(pending(&ui, "shield_pressure_working_range"), None);
+    assert_eq!(pending(&ui, "shield_pressure_max_range"), Some(40.0));
+    // 80 mbar is the device value.
+    assert_eq!(pending(&ui, "shield_pressure_low_standby"), None);
+    let model = step(&state, &ui, Step::Pressure);
+    let texts: Vec<&str> = ["band_min", "band_target", "band_max"]
+        .iter()
+        .map(|key| number_text(row(&model, key)))
+        .collect();
+    assert_eq!(texts, ["375", "425", "465"]);
+
+    // The choice "recommended values" sets bit 4 and writes the same values.
+    let mut ui = SettingsUi::default();
+    ui.edit(&data, "pressure_values", "recommended");
+    assert_eq!(pending(&ui, "shield_flags"), Some(127.0));
+    assert_eq!(pending(&ui, "shield_pressure_low"), Some(375.0));
+    assert_eq!(pending(&ui, "shield_pressure_max_range"), Some(40.0));
+    let model = step(&state, &ui, Step::Pressure);
+    let values = row(&model, "pressure_values");
+    assert!(values.note.is_none() && values.action.is_none());
+    for key in ["band_min", "band_target", "band_max"] {
+        assert!(row(&model, key).fixed, "{key}");
+    }
+}
+
+#[test]
+fn a_leakshield_with_other_values_than_the_recommended_ones_says_so() {
+    // Bit 4 says "recommended", and the device holds 250 / 300 / 350.
+    let state = device();
+    let data = data_of(&state);
+    let mut ui = SettingsUi::default();
+    let model = step(&state, &ui, Step::Pressure);
+    let values = row(&model, "pressure_values");
+    assert_eq!(
+        values
+            .note
+            .as_ref()
+            .map(|note| (note.text.as_str(), note.warning)),
+        Some((
+            "The Leakshield holds other values. Recommended for your pump: minimum 375, target 425, maximum 465 mbar.",
+            false
+        ))
+    );
+    // The inputs show what the device holds, read-only.
+    assert_eq!(number_text(row(&model, "band_min")), "250");
+    assert!(row(&model, "band_min").fixed);
+    assert_eq!(
+        values.action.as_ref().map(|action| action.0.as_str()),
+        Some("Use the recommended values")
+    );
+    ui.edit(&data, "use_recommended", "");
+    let model = step(&state, &ui, Step::Pressure);
+    assert_eq!(number_text(row(&model, "band_min")), "375");
+    let values = row(&model, "pressure_values");
+    assert!(values.note.is_none() && values.action.is_none());
+}
+
+#[test]
+fn a_pump_change_writes_the_recommended_values() {
+    let state = device();
+    let data = data_of(&state);
+    let mut ui = SettingsUi::default();
+    ui.edit(&data, "pump_max_pressure", "400");
+    assert_eq!(pending(&ui, "shield_pressure_low"), Some(400.0));
+    assert_eq!(
+        pending(&ui, "shield_pressure_working_range"),
+        None,
+        "50 mbar"
+    );
+    assert_eq!(pending(&ui, "shield_pressure_max_range"), Some(40.0));
+    // The device value of the pump again: the recommended values for it stay pending,
+    // because the device holds other ones.
+    ui.edit(&data, "pump_max_pressure", "375");
+    assert_eq!(pending(&ui, "pump_max_pressure"), None);
+    assert_eq!(pending(&ui, "shield_pressure_low"), Some(375.0));
+
+    // With own values a pump change leaves the band alone.
+    let state = own_values();
+    let data = data_of(&state);
+    let mut ui = SettingsUi::default();
+    ui.edit(&data, "pump_max_pressure", "400");
+    assert_eq!(
+        ui.pending.keys().map(String::as_str).collect::<Vec<_>>(),
+        ["pump_max_pressure"]
+    );
+}
+
 mod layout {
     use gpui::{AppContext as _, Bounds, Pixels, TestAppContext, VisualTestContext, px};
     use nicecooling::app::{self, Backend, StartMode};
@@ -703,23 +848,35 @@ mod layout {
 
     fn untouched(_: &mut SettingsUi) {}
 
+    /// The state with the most text: own values, with their warning and their button.
+    fn edited(ui: &mut SettingsUi) {
+        ui.pending.insert(
+            "shield_flags".into(),
+            nicecooling::model::FieldValue::Number(111.0),
+        );
+    }
+
     #[gpui::test]
     fn the_wizard_steps_fit_at_1100_in_english(cx: &mut TestAppContext) {
         check(cx, Language::English, 1100., untouched);
+        check(cx, Language::English, 1100., edited);
     }
 
     #[gpui::test]
     fn the_wizard_steps_fit_at_1100_in_italian(cx: &mut TestAppContext) {
         check(cx, Language::Italian, 1100., untouched);
+        check(cx, Language::Italian, 1100., edited);
     }
 
     #[gpui::test]
     fn the_wizard_steps_fit_at_1280_in_english(cx: &mut TestAppContext) {
         check(cx, Language::English, 1280., untouched);
+        check(cx, Language::English, 1280., edited);
     }
 
     #[gpui::test]
     fn the_wizard_steps_fit_at_1280_in_italian(cx: &mut TestAppContext) {
         check(cx, Language::Italian, 1280., untouched);
+        check(cx, Language::Italian, 1280., edited);
     }
 }

@@ -17,6 +17,9 @@ const BIT_ADAPTIVE: u32 = 8;
 /// Set: the Leakshield holds the recommended pressure values. Clear: the values of the user.
 const BIT_RECOMMENDED: u32 = 16;
 const BIT_STANDBY_PRESSURE: u32 = 32;
+const PUMP_FLAGS: &str = "pump_flags";
+/// The Loop has more than one pump in a row: their pressures add up.
+const BIT_TWO_PUMPS: u32 = 2;
 /// The pump pressure above which the Leakshield can only work as a leak monitor, in mbar.
 const MONITOR_ONLY_PRESSURE: f64 = 470.0;
 
@@ -156,6 +159,29 @@ impl Band {
     pub fn set_standby(&mut self, value: f64) {
         self.standby = value.max(Self::MIN_RANGE.0).min(self.min);
     }
+
+    /// The values that the wizard recommends for a pump: the minimum is the maximum pressure
+    /// of the pump, or twice that with more than one pump. The target is 50 mbar above the
+    /// pump pressure and the maximum 40 mbar above the target. The standby minimum is the
+    /// pump pressure, 80 mbar at most.
+    pub fn recommended(pump_max_pressure: f64, two_pumps: bool) -> Self {
+        let pressure = if two_pumps {
+            2.0 * pump_max_pressure
+        } else {
+            pump_max_pressure
+        };
+        let mut band = Self {
+            min: Self::MIN_RANGE.0,
+            target: Self::TARGET_RANGE.0,
+            max: Self::MAX_RANGE.0,
+            standby: Self::MIN_RANGE.0,
+        };
+        band.set_min(pressure);
+        band.set_target(pressure + 50.0);
+        band.set_max(band.target + 40.0);
+        band.set_standby(pressure.min(80.0));
+        band
+    }
 }
 
 /// A difference of two values with one decimal, as the fields of the band hold it.
@@ -260,6 +286,22 @@ impl SettingsUi {
         }
     }
 
+    fn two_pumps(&self, data: &LeakshieldData) -> bool {
+        self.number(data, PUMP_FLAGS).unwrap_or(0.0) as u32 & BIT_TWO_PUMPS != 0
+    }
+
+    /// The recommended band for the pump of the wizard.
+    pub fn recommended(&self, data: &LeakshieldData) -> Option<Band> {
+        let pressure = self.number(data, "pump_max_pressure")?;
+        Some(Band::recommended(pressure, self.two_pumps(data)))
+    }
+
+    fn store_recommended(&mut self, data: &LeakshieldData) {
+        if let Some(band) = self.recommended(data) {
+            self.store_band(data, band);
+        }
+    }
+
     /// An edit of one value of the band, in whole mbar. `which` is 0 for the minimum, 1 for
     /// the target and 2 for the maximum.
     fn set_band(&mut self, data: &LeakshieldData, which: usize, value: f64) {
@@ -332,7 +374,11 @@ impl SettingsUi {
             }
             "pressure_values" => {
                 self.set_bit(data, SHIELD_FLAGS, BIT_RECOMMENDED, text == "recommended");
+                if text == "recommended" {
+                    self.store_recommended(data);
+                }
             }
+            "use_recommended" => self.store_recommended(data),
             "band_min" | "band_target" | "band_max" => {
                 if let Some(value) = parse(text) {
                     let which = ["band_min", "band_target", "band_max"]
@@ -357,6 +403,12 @@ impl SettingsUi {
                 }
             }
             _ => {}
+        }
+        // The recommended values follow the pump.
+        let recommended =
+            self.number(data, SHIELD_FLAGS).unwrap_or(0.0) as u32 & BIT_RECOMMENDED != 0;
+        if recommended && matches!(key, "pump_model" | "pump_max_pressure" | "two_pumps") {
+            self.store_recommended(data);
         }
     }
 
@@ -546,6 +598,8 @@ pub struct Row {
     pub link: Option<(String, Link)>,
     /// The button "Use the current value".
     pub use_current: Option<String>,
+    /// A button of the row: its label and the key of its edit.
+    pub action: Option<(String, String)>,
     /// Dim: the setting does not apply now.
     pub dim: bool,
     /// Another setting gives this value: the control takes no edit, and the badge says why.
@@ -790,6 +844,7 @@ impl RowCtx<'_> {
                 )
             }),
             use_current: None,
+            action: None,
             dim: false,
             fixed: false,
             note: None,
@@ -928,6 +983,7 @@ fn info_row(ctx: &RowCtx<'_>, key: &str, label_key: &str, text: String) -> Row {
         changed: false,
         link: Some((ctx.locale.tr("leakshield.settings.open_loop"), Link::Loops)),
         use_current: None,
+        action: None,
         dim: false,
         fixed: false,
         note: None,
@@ -1078,11 +1134,39 @@ fn pressure_rows(ctx: &RowCtx<'_>, input: &ScreenInput<'_>) -> Vec<Row> {
     );
     values.caption = Some(locale.tr("leakshield.settings.values_text"));
     values.changed = ctx.bits_changed(SHIELD_FLAGS, BIT_RECOMMENDED);
-    if own {
+    let band = ctx.ui.band(ctx.data);
+    let recommended = ctx.ui.recommended(ctx.data);
+    let differs = match (band, recommended) {
+        (Some(band), Some(recommended)) => {
+            (band.min, band.target, band.max)
+                != (recommended.min, recommended.target, recommended.max)
+        }
+        _ => false,
+    };
+    // The recommended values as numbers: with own values as the reference, and with the
+    // recommended choice when the Leakshield holds other values.
+    if own || differs {
+        let number =
+            |value: Option<f64>| value.map_or_else(|| "--".to_owned(), |v| compact(locale, v));
         values.note = Some(Note {
-            text: locale.tr("leakshield.settings.values_own_warning"),
-            warning: true,
+            text: locale.fmt(
+                if own {
+                    "leakshield.settings.values_own_warning"
+                } else {
+                    "leakshield.settings.values_differ"
+                },
+                &[
+                    ("min", &number(recommended.map(|b| b.min))),
+                    ("target", &number(recommended.map(|b| b.target))),
+                    ("max", &number(recommended.map(|b| b.max))),
+                ],
+            ),
+            warning: own,
         });
+        values.action = Some((
+            locale.tr("leakshield.settings.use_recommended"),
+            "use_recommended".to_owned(),
+        ));
     }
     let mut rows = vec![values];
 
@@ -1100,11 +1184,11 @@ fn pressure_rows(ctx: &RowCtx<'_>, input: &ScreenInput<'_>) -> Vec<Row> {
         changed: false,
         link: None,
         use_current: None,
+        action: None,
         dim: false,
         fixed: false,
         note: None,
     });
-    let band = ctx.ui.band(ctx.data);
     for (key, field, value, range) in [
         (
             "band_max",

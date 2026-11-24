@@ -31,6 +31,39 @@ The user SHALL choose between the recommended pressure values and own values. Th
 - **WHEN** bit 4 of `shield_flags` is set
 - **THEN** the three values are read-only and the wizard says that they are the recommended values
 
+### Requirement: Recommended pressure values
+The recommended values SHALL come from the maximum pressure of the pump, doubled with more than one pump: the minimum is that pressure cut to 430 mbar, the target is 50 mbar above that pressure, the maximum is 40 mbar above the target, and the standby minimum is that pressure and at most 80 mbar. The limits of the pressure values SHALL apply to them.
+
+#### Scenario: D5 preset
+- **WHEN** the maximum pressure of the pump is 375 mbar with one pump
+- **THEN** the recommended values are minimum 375, target 425, maximum 465 and standby minimum 80 mbar
+
+#### Scenario: Two pumps
+- **WHEN** the maximum pressure of the pump is 375 mbar with more than one pump
+- **THEN** the recommended values are minimum 430, target 450 and maximum 490 mbar
+
+### Requirement: Recommended values follow the pump
+The wizard SHALL put the recommended values into the pending changes when the user selects the recommended values, and with each change of the pump type, of the maximum pressure of the pump or of the option for more than one pump while the recommended values are selected.
+
+#### Scenario: Pump pressure changed with the recommended values
+- **WHEN** the recommended values are selected and the user sets the maximum pressure of the pump to 400 mbar
+- **THEN** the pending changes hold the minimum 400 mbar, the target 450 mbar and the maximum 490 mbar
+
+#### Scenario: Pump pressure changed with own values
+- **WHEN** own values are selected and the user changes the maximum pressure of the pump
+- **THEN** the pressure values do not change
+
+### Requirement: Button for the recommended values
+With own values, a button SHALL put the recommended values into the pending changes and keep the choice. When the recommended values are selected and the Leakshield holds other values, the wizard SHALL say so and offer the same button.
+
+#### Scenario: Button with own values
+- **WHEN** own values are selected and the user selects the button for the recommended values
+- **THEN** the pending changes hold the recommended values and bit 4 of `shield_flags` stays clear
+
+#### Scenario: Leakshield holds other values
+- **WHEN** bit 4 of `shield_flags` is set and the Leakshield holds 250, 300 and 350 mbar for a pump of 375 mbar
+- **THEN** the wizard shows the three values that the Leakshield holds, a line with the recommended values and the button
+
 ### Requirement: Adaptive pressure is its own switch
 Adaptive pressure SHALL be a switch on `shield_flags` bit 3. It SHALL NOT lock or dim the three pressure values, because the Leakshield keeps the stored distance between minimum and target and the stored maximum while it lowers the minimum and the target with the pump speed.
 

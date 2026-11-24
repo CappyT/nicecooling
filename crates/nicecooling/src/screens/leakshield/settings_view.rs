@@ -476,6 +476,22 @@ impl ScreenView {
                 })),
             );
         }
+        if let Some((label, edit)) = &row.action {
+            let (device, edit) = (device.clone(), edit.clone());
+            let name = format!("ls-action-{}", row.key);
+            line = line.child(
+                Self::small_button(
+                    SharedString::from(format!("ls-action-{}", row.key)),
+                    label.clone(),
+                    None,
+                )
+                .disabled(!enabled)
+                .debug_selector(move || name)
+                .on_click(act(&view, move |this, _, cx| {
+                    this.settings_edit(&device, &edit, "", cx)
+                })),
+            );
+        }
         // The link to the Fields tab is after the reason. Without a reason it is in the row.
         if let Some((label, target)) = row
             .link

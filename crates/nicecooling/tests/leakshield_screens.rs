@@ -3368,7 +3368,9 @@ fn leakshield_settings_summary_and_apply() {
     assert!(!summary.apply_enabled);
     assert_eq!(summary.apply, "Apply 0 changes");
 
-    // Five changes: the monitor mode warning, the pump pressure warning and a read-only field.
+    // Five edits: the monitor mode warning, the pump pressure warning and a read-only field.
+    // The fixture has the recommended pressure values, so the new pump pressure also gives
+    // the three values of the band. They are read-only in the fixture.
     ui.edit(&data, "default_mode", "monitor");
     ui.edit(&data, "pump_max_pressure", "480");
     ui.edit(&data, "pump_max_speed", "4900");
@@ -3376,7 +3378,15 @@ fn leakshield_settings_summary_and_apply() {
     ui.edit(&data, "reservoir_total_volume", "300");
     let model = settings(&state, &ui);
     let summary = model.summary.unwrap();
-    assert_eq!(summary.rows.len(), 5);
+    assert_eq!(summary.rows.len(), 8);
+    assert_eq!(
+        summary
+            .rows
+            .iter()
+            .filter(|r| r.field.starts_with("shield_pressure_") && r.padlock && !r.counted)
+            .count(),
+        3
+    );
     assert_eq!(
         summary.apply, "Apply 4 changes",
         "the read-only row is not counted"
@@ -3506,7 +3516,7 @@ fn leakshield_settings_summary_and_apply() {
     ui.request_discard();
     assert!(!ui.confirm_discard, "nothing to discard");
     ui.edit(&data, "pump_max_speed", "4900");
-    ui.edit(&data, "pump_max_pressure", "380");
+    ui.edit(&data, "reservoir_air_volume_full", "70");
     ui.request_discard();
     assert_eq!(
         settings(&state, &ui).discard.unwrap().0,
