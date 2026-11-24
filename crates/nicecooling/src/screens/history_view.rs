@@ -4,28 +4,31 @@ use std::rc::Rc;
 
 use gpui::prelude::*;
 use gpui::{
-    AnyElement, Bounds, Context, FontWeight, KeyDownEvent, MouseButton, MouseDownEvent,
-    MouseMoveEvent, MouseUpEvent, Pixels, ScrollEvent, SharedString, Window, canvas, div, px, size,
+    AnyElement, Bounds, Context, KeyDownEvent, MouseButton, MouseDownEvent, MouseMoveEvent,
+    MouseUpEvent, Pixels, ScrollEvent, SharedString, Window, canvas, div, px, size,
 };
-use gpui_component::button::{Button, ButtonVariants as _};
-use gpui_component::{Selectable as _, Sizable as _, h_flex};
+use gpui_component::{Disableable as _, h_flex, v_flex};
 
 use crate::history::query::Resolution;
+use crate::icons::NcIcon;
 use crate::model::Severity;
 use crate::screen_view::{Drag, ScreenView};
+use crate::screens::controls::act;
 use crate::screens::format::clock;
 use crate::screens::history::{
     ChartModel, HistoryModel, HistoryState, SeriesModel, Side, picker_rows,
 };
 use crate::screens::sensors_view::PickRow;
-use crate::screens::ui::{caption, card, page, severity_icon};
+use crate::screens::ui::{
+    caption, card, heading, page, seg, seg_item, select_trigger, severity_icon, with_popover,
+};
 use crate::tokens::Palette;
 use crate::widgets::paint::{at, hatch, polygon, polyline, rect};
 
 const CHART_HEIGHT: f32 = 340.0;
-const LEFT: f32 = 56.0;
-const RIGHT: f32 = 56.0;
-const TOP: f32 = 18.0;
+const LEFT: f32 = 44.0;
+const RIGHT: f32 = 44.0;
+const TOP: f32 = 12.0;
 const BOTTOM: f32 = 26.0;
 
 type Pick = Rc<dyn Fn(&mut ScreenView, String, &mut Window, &mut Context<ScreenView>)>;
@@ -45,89 +48,8 @@ impl ScreenView {
         let locale = self.model.read(cx).locale;
         let view = cx.entity();
 
-        // The toolbar.
-        let mut toolbar = h_flex().w_full().gap(px(12.)).items_center().flex_wrap();
-        toolbar = toolbar.child({
-            let view = view.clone();
-            Button::new("history-sensors")
-                .label(model.sensors_label.clone())
-                .selected(self.history.picker_open)
-                .on_click(move |_, _, cx| {
-                    view.update(cx, |this, cx| {
-                        this.history.picker_open = !this.history.picker_open;
-                        cx.notify();
-                    })
-                })
-        });
-        let mut ranges = h_flex().gap(px(2.));
-        for button in &model.ranges {
-            let view = view.clone();
-            let range = button.range;
-            ranges = ranges.child(
-                Button::new(SharedString::from(format!("range-{}", button.label)))
-                    .small()
-                    .label(button.label.clone())
-                    .selected(button.active)
-                    .on_click(move |_, _, cx| {
-                        view.update(cx, |this, cx| {
-                            this.history.set_range(range);
-                            cx.notify();
-                        })
-                    }),
-            );
-        }
-        toolbar = toolbar.child(ranges);
-        let nav =
-            |id: &'static str, label: String, enabled: bool, action: fn(&mut ScreenView, i64)| {
-                let view = view.clone();
-                Button::new(id)
-                    .small()
-                    .ghost()
-                    .label(label)
-                    .disabled(!enabled)
-                    .on_click(move |_, _, cx| {
-                        view.update(cx, |this, cx| {
-                            action(this, (crate::app::now_us() / 1_000_000) as i64);
-                            cx.notify();
-                        })
-                    })
-            };
-        use gpui_component::Disableable as _;
-        toolbar = toolbar
-            .child(nav(
-                "history-back",
-                locale.tr("history.back"),
-                true,
-                |this, now| this.history.back(now),
-            ))
-            .child(nav(
-                "history-forward",
-                locale.tr("history.forward"),
-                model.can_forward,
-                |this, now| this.history.forward(now),
-            ))
-            .child(nav(
-                "history-now",
-                locale.tr("history.now"),
-                !model.now_active,
-                |this, _| this.history.go_now(),
-            ))
-            .child(nav(
-                "history-reset",
-                locale.tr("history.reset_zoom"),
-                model.can_reset_zoom,
-                |this, _| this.history.reset_zoom(),
-            ));
-
-        let mut content = page().child(toolbar);
-        if self.history_progress() {
-            content = content.child(
-                gpui_component::progress::Progress::new("history-progress")
-                    .loading(true)
-                    .color(p.accent),
-            );
-        }
-        if self.history.picker_open || model.state == HistoryState::Empty {
+        // The toolbar: the sensor picker, the range and the navigation.
+        let picker = (self.history.picker_open || model.state == HistoryState::Empty).then(|| {
             let rows: Vec<PickRow> = self.with_input(cx, |input| {
                 picker_rows(input)
                     .into_iter()
@@ -146,55 +68,153 @@ impl ScreenView {
                 this.history.picker_open = true;
                 cx.notify();
             });
-            content = content.child(self.picker_list("history", rows, pick, p, window, cx));
+            self.picker_list("history", rows, pick, p, window, cx)
+        });
+        let sensors = select_trigger(
+            "history-sensors",
+            model.sensors_label.clone(),
+            None,
+            false,
+            true,
+            p.track,
+        )
+        .on_click(act(&view, |this, _, _| {
+            this.history.picker_open = !this.history.picker_open;
+        }));
+        let mut ranges = seg(p);
+        for button in &model.ranges {
+            let range = button.range;
+            ranges = ranges.child(
+                seg_item(
+                    SharedString::from(format!("range-{}", button.label)),
+                    button.label.clone(),
+                    button.active,
+                    true,
+                    p,
+                )
+                .px(px(10.))
+                .on_click(act(&view, move |this, _, _| this.history.set_range(range))),
+            );
         }
+        let nav = |id: &'static str,
+                   label: String,
+                   icon: Option<NcIcon>,
+                   enabled: bool,
+                   action: fn(&mut ScreenView, i64)| {
+            Self::small_button(id, label, icon)
+                .disabled(!enabled)
+                .on_click(act(&view, move |this, _, _| {
+                    action(this, (crate::app::now_us() / 1_000_000) as i64);
+                }))
+        };
+        let toolbar = h_flex()
+            .w_full()
+            .gap_x(px(12.))
+            .gap_y(px(6.))
+            .items_center()
+            .flex_wrap()
+            .child(with_popover(sensors, picker).w(px(190.)).flex_none())
+            .child(ranges)
+            .child(
+                h_flex()
+                    .gap(px(6.))
+                    .child(nav(
+                        "history-back",
+                        locale.tr("history.back"),
+                        Some(NcIcon::Left),
+                        true,
+                        |this, now| this.history.back(now),
+                    ))
+                    .child(nav(
+                        "history-forward",
+                        locale.tr("history.forward"),
+                        Some(NcIcon::Right),
+                        model.can_forward,
+                        |this, now| this.history.forward(now),
+                    ))
+                    .child(nav(
+                        "history-now",
+                        locale.tr("history.now"),
+                        None,
+                        !model.now_active,
+                        |this, _| this.history.go_now(),
+                    ))
+                    .child(nav(
+                        "history-reset",
+                        locale.tr("history.reset_zoom"),
+                        None,
+                        model.can_reset_zoom,
+                        |this, _| this.history.reset_zoom(),
+                    )),
+            );
+
+        let mut content = page().child(toolbar);
+        if self.history_progress() {
+            content = content.child(
+                gpui_component::progress::Progress::new("history-progress")
+                    .loading(true)
+                    .color(p.accent),
+            );
+        }
+        // A state without a chart keeps the place of the chart: the text is in its middle.
+        let placeholder = |text: String, more: Vec<AnyElement>| {
+            card(p).child(
+                v_flex()
+                    .w_full()
+                    .h(px(CHART_HEIGHT + 36.))
+                    .p(px(18.))
+                    .gap(px(9.))
+                    .items_center()
+                    .justify_center()
+                    .text_color(p.fg_dim)
+                    .child(div().text_center().child(text))
+                    .children(more),
+            )
+        };
 
         match model.state {
             HistoryState::Empty => {
-                content = content.child(card(p).p(px(18.)).child(model.empty_text.clone()));
+                content = content.child(placeholder(model.empty_text.clone(), Vec::new()));
             }
             HistoryState::DatabaseError => {
-                let view = view.clone();
-                content = content.child(
-                    card(p)
-                        .p(px(18.))
-                        .gap(px(8.))
-                        .child(
-                            div()
-                                .font_weight(FontWeight::BOLD)
-                                .child(model.error_text.clone()),
-                        )
-                        .children(model.error_path.clone().map(|text| caption(text, p)))
-                        .child(
-                            h_flex().child(
-                                Button::new("history-retry")
-                                    .label(locale.tr("history.retry"))
-                                    .on_click(move |_, _, cx| {
-                                        view.update(cx, |this, cx| this.retry_history(cx))
-                                    }),
-                            ),
-                        ),
+                let mut more: Vec<AnyElement> = model
+                    .error_path
+                    .clone()
+                    .map(|text| caption(text, p).into_any_element())
+                    .into_iter()
+                    .collect();
+                more.push(
+                    Self::button("history-retry", locale.tr("history.retry"))
+                        .on_click(act(&view, |this, _, cx| this.retry_history(cx)))
+                        .into_any_element(),
                 );
+                content = content.child(placeholder(model.error_text.clone(), more));
             }
             HistoryState::NoData => {
-                content = content.child(card(p).p(px(18.)).child(model.no_data_text.clone()));
+                content = content.child(placeholder(model.no_data_text.clone(), Vec::new()));
             }
             HistoryState::Ready => {
+                // Each chart is a card: the plot, then the legend rows of its series.
                 for (index, chart) in model.charts.iter().enumerate() {
-                    content = content.child(self.history_chart(index, chart, &model, p, cx));
+                    let mut chart_card = card(p).child(
+                        div()
+                            .px(px(18.))
+                            .pt(px(12.))
+                            .pb(px(12.))
+                            .child(self.history_chart(index, chart, &model, p, cx)),
+                    );
+                    for series_index in &chart.series {
+                        if let Some(series) = model.series.get(*series_index) {
+                            chart_card =
+                                chart_card.child(self.legend_row(*series_index, series, p, cx));
+                        }
+                    }
+                    content = content.child(chart_card);
                 }
                 if let Some(hint) = &model.aggregate_hint {
                     content = content.child(caption(hint.clone(), p));
                 }
             }
-        }
-        // The legend: one row for each series.
-        if !model.series.is_empty() && model.state == HistoryState::Ready {
-            let mut legend = card(p).p(px(12.)).gap(px(4.));
-            for (index, series) in model.series.iter().enumerate() {
-                legend = legend.child(self.legend_row(index, series, p, cx));
-            }
-            content = content.child(legend);
         }
         content.into_any_element()
     }
@@ -211,9 +231,16 @@ impl ScreenView {
         let color = p.series[series.color];
         h_flex()
             .id(("legend", index))
-            .gap(px(8.))
+            .w_full()
+            .min_h(px(30.))
+            .px(px(18.))
+            .py(px(3.))
+            .gap(px(9.))
             .items_center()
+            .border_t_1()
+            .border_color(p.border)
             .cursor_pointer()
+            .hover(|row| row.bg(p.hover))
             .opacity(if series.hidden { 0.4 } else { 1.0 })
             .on_click(move |_, _, cx| {
                 let sensor = sensor.clone();
@@ -222,14 +249,17 @@ impl ScreenView {
                     cx.notify();
                 })
             })
-            .child(div().w(px(16.)).h(px(3.)).bg(color))
             .child(
                 div()
-                    .font_weight(FontWeight::BOLD)
-                    .child(series.legend.name.clone()),
+                    .w(px(16.))
+                    .h(px(3.))
+                    .flex_none()
+                    .rounded_full()
+                    .bg(color),
             )
-            .child(div().child(series.legend.value.clone()))
-            .child(caption(series.legend.extremes.clone(), p))
+            .child(heading(series.legend.name.clone()).flex_1().truncate())
+            .child(div().flex_none().child(series.legend.value.clone()))
+            .child(caption(series.legend.extremes.clone(), p).flex_none())
             .into_any_element()
     }
 
@@ -246,8 +276,9 @@ impl ScreenView {
         let (from, to) = model.window;
         let span = (to - from).max(1) as f32;
         let colors = p.series;
-        let (grid, dash_color, hatch_color, alarm, warning, cursor_color) = (
+        let (grid, axis_color, dash_color, hatch_color, alarm, warning, cursor_color) = (
             p.border,
+            p.border_strong,
             p.fg_dim,
             p.border_strong,
             p.alarm,
@@ -282,7 +313,7 @@ impl ScreenView {
             move |bounds: Bounds<Pixels>, _, window, _| {
                 let (w, h) = (f32::from(bounds.size.width), f32::from(bounds.size.height));
                 let x_of = |t: i64| ((t - from) as f32 / span * w).clamp(0.0, w);
-                for step in 0..=4 {
+                for step in 0..4 {
                     let y = h * step as f32 / 4.0;
                     polyline(
                         window,
@@ -292,6 +323,13 @@ impl ScreenView {
                         None,
                     );
                 }
+                polyline(
+                    window,
+                    &[at(bounds.origin, 0.0, h), at(bounds.origin, w, h)],
+                    1.0,
+                    axis_color,
+                    None,
+                );
                 for (start, end) in &gaps {
                     let region = Bounds::new(
                         at(bounds.origin, x_of(*start), 0.0),
@@ -386,27 +424,30 @@ impl ScreenView {
             .relative()
             .w_full()
             .h(px(CHART_HEIGHT))
-            .rounded(px(12.))
-            .bg(p.view)
-            .border_1()
-            .border_color(p.border)
-            .text_size(px(11.))
+            .text_size(px(12.))
+            .line_height(px(16.))
             .text_color(p.fg_dim);
         // The y axes: one for each unit, at most two.
         for axis in &chart.axes {
+            // A narrow range needs a decimal: two ticks never show the same number.
+            let digits = usize::from(axis.max - axis.min < 8.0);
             for step in 0..=4 {
                 let value = axis.max - (axis.max - axis.min) * step as f64 / 4.0;
-                let top = TOP - 7.0 + (CHART_HEIGHT - TOP - BOTTOM) * step as f32 / 4.0;
-                let label = div().absolute().top(px(top)).child(format!("{value:.0}"));
+                let top = TOP - 8.0 + (CHART_HEIGHT - TOP - BOTTOM) * step as f32 / 4.0;
+                let label = div()
+                    .absolute()
+                    .top(px(top))
+                    .w(px(LEFT - 8.0))
+                    .child(format!("{value:.digits$}"));
                 frame = frame.child(match axis.side {
-                    Side::Left => label.left(px(6.)),
-                    Side::Right => label.right(px(6.)),
+                    Side::Left => label.left(px(0.)).text_right(),
+                    Side::Right => label.right(px(0.)),
                 });
             }
             let title = div().absolute().top(px(0.)).child(axis.unit_text.clone());
             frame = frame.child(match axis.side {
-                Side::Left => title.left(px(6.)),
-                Side::Right => title.right(px(6.)),
+                Side::Left => title.left(px(LEFT + 6.0)),
+                Side::Right => title.right(px(RIGHT + 6.0)),
             });
         }
         // The x axis: 5 times.
@@ -422,7 +463,7 @@ impl ScreenView {
                     .absolute()
                     .left(px(LEFT))
                     .right(px(RIGHT))
-                    .bottom(px(6.))
+                    .bottom(px(4.))
                     .child(
                         div()
                             .absolute()
@@ -438,7 +479,7 @@ impl ScreenView {
                 div()
                     .absolute()
                     .left(px(LEFT + 8.0))
-                    .top(px(TOP + 6.0))
+                    .top(px(TOP + 22.0))
                     .text_color(p.fg_dim)
                     .child(model.gap_label.clone()),
             );
