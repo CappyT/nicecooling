@@ -196,15 +196,48 @@ async fn tray_menu_has_cancel_poweroff() {
         .unwrap();
 }
 
+/// At login the app starts before the tray host of the desktop: the item waits and registers
+/// when the host comes.
 #[tokio::test(flavor = "multi_thread")]
-async fn spawn_fails_when_no_status_notifier_host_runs() {
+async fn the_item_waits_for_a_host_that_starts_later() {
     let _guard = SESSION_LOCK.lock().await;
-    let bus = PrivateBus::start("tray-no-host");
+    let bus = PrivateBus::start("tray-late-host");
     use_as_session_bus(&bus);
     let (tx, _commands) = unbounded_channel();
     let view = TrayView::build(&online(), NOW_US, EN);
-    let result = tokio::task::spawn_blocking(move || Tray::spawn(tx, view))
+    let tray = tokio::task::spawn_blocking(move || Tray::spawn(tx, view).expect("tray"))
         .await
         .unwrap();
-    assert!(result.is_err(), "no StatusNotifierWatcher on the bus");
+    assert!(
+        !tray.host_online(),
+        "no StatusNotifierWatcher on the bus yet"
+    );
+
+    let host = FakeTrayHost::start(bus.connect().await).await;
+    let name = host.item_name().await;
+    assert!(name.starts_with("org.kde.StatusNotifierItem-"), "{name}");
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(5);
+    while !tray.host_online() && tokio::time::Instant::now() < deadline {
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+    assert!(tray.host_online());
+    tokio::task::spawn_blocking(move || tray.shutdown())
+        .await
+        .unwrap();
+}
+
+/// At login the tray host comes some seconds after the app: the window stays closed while the
+/// app waits, and it opens once when no host came.
+#[test]
+fn the_window_opens_only_when_no_tray_host_came() {
+    use nicecooling::services::{TRAY_HOST_GRACE, opens_window_without_host};
+    use std::time::Duration;
+    let before = TRAY_HOST_GRACE - Duration::from_secs(1);
+    assert!(!opens_window_without_host(false, before, false));
+    assert!(opens_window_without_host(false, TRAY_HOST_GRACE, false));
+    assert!(
+        !opens_window_without_host(false, TRAY_HOST_GRACE, true),
+        "once only"
+    );
+    assert!(!opens_window_without_host(true, TRAY_HOST_GRACE, false));
 }

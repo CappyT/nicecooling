@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use tokio::sync::broadcast::{self, error::RecvError};
 use tokio::sync::mpsc::UnboundedSender;
@@ -41,7 +41,17 @@ fn small_runtime() -> tokio::runtime::Runtime {
         .expect("a current-thread runtime")
 }
 
-/// The tray icon. No StatusNotifier host: the window opens, so the user has a way in.
+/// How long the app waits for a StatusNotifier host before it opens the window. At login the
+/// host of the desktop starts some seconds after the app.
+pub const TRAY_HOST_GRACE: Duration = Duration::from_secs(30);
+
+/// True when the window must open because no tray host came: once, after the grace time.
+pub fn opens_window_without_host(host_online: bool, waited: Duration, opened: bool) -> bool {
+    !host_online && !opened && waited >= TRAY_HOST_GRACE
+}
+
+/// The tray icon. No StatusNotifier host after the grace time: the window opens, so the user
+/// has a way in.
 pub fn spawn_tray(
     mut events: broadcast::Receiver<DaemonEvent>,
     commands: UnboundedSender<Command>,
@@ -62,11 +72,18 @@ pub fn spawn_tray(
             }
         };
         let mut shown = view;
+        let started = Instant::now();
+        let mut opened = false;
         while let Ok(event) = next_event(&runtime, &mut events) {
             if let Some(event) = event {
                 state.apply(&event);
             }
-            visible.store(tray.host_online(), Ordering::Relaxed);
+            let host_online = tray.host_online();
+            visible.store(host_online, Ordering::Relaxed);
+            if opens_window_without_host(host_online, started.elapsed(), opened) {
+                opened = true;
+                let _ = commands.send(Command::OpenWindow(None));
+            }
             let view = TrayView::build(&state, now_us(), locale);
             if view != shown {
                 tray.update(view.clone());

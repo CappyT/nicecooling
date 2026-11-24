@@ -43,9 +43,9 @@ The tray icon is a StatusNotifierItem. GNOME Shell does not show it without the 
 
 The extension is a setting of each user. Turn it on in each account that runs the app.
 
-Without a StatusNotifier host, the app does the following:
+At login the app can start before the StatusNotifier host of the desktop. The app waits for the host, and the tray icon shows when the host comes. Without a host after 30 s, the app does the following:
 
-- It opens its window at start, also with `--background`.
+- It opens its window, also with `--background`.
 - Settings shows the hint "The tray icon is not visible. On GNOME, turn on the AppIndicator extension."
 - "Do not show this again" on the hint stores the hint id `appindicator` in `settings.toml`.
 

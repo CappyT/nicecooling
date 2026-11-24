@@ -349,7 +349,9 @@ pub struct Tray {
 }
 
 impl Tray {
-    /// Register the item on the session bus. It fails when no StatusNotifier host runs.
+    /// Register the item on the session bus. At login the app can start before the
+    /// StatusNotifier host: the item then waits for it, and `host_online` is false until it
+    /// comes.
     pub fn spawn(commands: UnboundedSender<Command>, view: TrayView) -> Result<Self, ksni::Error> {
         let host_online = Arc::new(AtomicBool::new(true));
         let handle = NiceTray {
@@ -357,6 +359,7 @@ impl Tray {
             commands,
             host_online: host_online.clone(),
         }
+        .assume_sni_available(true)
         .spawn()?;
         Ok(Self {
             handle,
