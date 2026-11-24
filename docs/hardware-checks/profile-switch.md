@@ -14,7 +14,8 @@ The daemon logs no Leakshield write: it prints a line only for a failure. So the
 ## Preconditions
 
 - Fedora 45 on the reference desktop. The daemon runs. The Leakshield is on its USB cable and `Writable` is true.
-- The first start created `profile_default` (slot 1), `profile_2` (slot 2), `profile_3` (slot 3) and `profile_4` (slot 4). The Default Profile is active.
+- The first start created `profile_default` (slot 1), `profile_2` (slot 2), `profile_3` (slot 3) and `profile_4` (slot 4). The Default Profile is active. A state written by hand has only `profile_default`: create the three Profiles with `CreateProfile` and `SetSlot`, and use their object names in place of `profile_2` to `profile_4`.
+- The app does not run (`pkill -x nicecooling`): when `ActiveSlot` changes it calls `GetFields`, and these reads of report 3 come within 1 s of a write, so step 9 cannot tell them from a read-back.
 - `rg`, `xxd` and `lsusb` are installed. The kernel module `usbmon` loads: `sudo modprobe usbmon`. debugfs is mounted: `ls /sys/kernel/debug/usb/usbmon` lists files.
 - No other program uses the Leakshield: aquasuite does not run, and the VM does not hold the device.
 - A second terminal runs `busctl --system monitor io.github.cappyt.NiceCooling1` for the whole check. It prints `ProfileActivated`.
@@ -37,7 +38,7 @@ GETF=" S Ci:$BUS:$DEV:0 s a1 01 0303 "
 SAVE="= 02000000 02000000 0034c6"
 ```
 
-The USB capture reads the text interface of `usbmon` (kernel documentation, `Documentation/usb/usbmon.rst`). Field 2 of a line is the time in microseconds. A control write of report 3 is a SET_REPORT: type `21 09`, value `0303` (feature report, id 3), length `02ee` (750). A read of report 3 is a GET_REPORT: `a1 01 0303`. The save-settings command is the report 2 payload `02 00000002 00000000 34C6`: `$SAVE` matches it, as a control write or as an interrupt write. TODO(owner): the line format and the choice between a control write and an interrupt write for report 2 come from the kernel documentation and the HID specification. They have not been run on this host. Look at one capture line of each kind in step 2 and correct `SETF`, `GETF` and `SAVE` if they do not match.
+The USB capture reads the text interface of `usbmon` (kernel documentation, `Documentation/usb/usbmon.rst`). Field 2 of a line is the time in microseconds. A control write of report 3 is a SET_REPORT: type `21 09`, value `0303` (feature report, id 3), length `02ee` (750). A read of report 3 is a GET_REPORT: `a1 01 0303`. The save-settings command is the report 2 payload `02 00000002 00000000 34C6`. The HID interface has no interrupt OUT endpoint, so the kernel sends it as a control write: `S Co:1:013:0 s 21 09 0202 0001 000b 11 = 02000000 02000000 0034c6`. `$SAVE` matches it. The filters match the capture of the reference host (2026-11-24, device 013): `S Co:1:013:0 s 21 09 0303 0001 02ee 750` for a write of report 3 and `S Ci:1:013:0 s a1 01 0303 0001 02ee 750` for a read. The device number changes at each replug: set `DEV` again after one.
 
 Report 1 `active_profile` is at offset 50: `r1 50 1` prints `01` to `04`.
 
