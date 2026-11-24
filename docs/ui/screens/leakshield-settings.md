@@ -16,13 +16,51 @@ Each setting row has: the name, the verification badge, a caption, and the contr
 
 | Step | Settings |
 |---|---|
-| Reservoir | "Reservoir": select with the known models and "Custom". With "Custom": "Total volume" (ml), "Air volume at maximum fill level" (ml), "Air volume at minimum fill level" (ml). "Automatic fill-level measurement": switch, with a warning caption |
-| Pump | "Pump": select with the known types and "Custom". With "Custom": "Maximum pressure" (mbar), "Maximum speed" (rpm). "Speed source": read-only text "Pump channel of Main loop: Waterpump" with the link "Open Loop" |
+| Reservoir | "Reservoir": select with the known types and "Custom". "Total volume" (ml), "Air volume at maximum fill level" (ml), "Air volume at minimum fill level" (ml): read-only with a known type. "Automatic fill-level measurement": switch, with a warning caption |
+| Pump | "Pump": select with the known types and "Custom". "Maximum pressure" (mbar), "Maximum speed" (rpm): read-only with a known type. "More than one pump": switch. "Pump pressure now" and "Speed limit": read-only texts. "Speed source": read-only text "Pump channel of Main loop: Waterpump" with the link "Open Loop" |
 | Flow | "Flow source": read-only text "Flow sensor of Main loop: Water Flow, 115 L/h" with "Open Loop". Without a flow sensor: "None. The Leakshield uses the pump speed only." |
 | Pressure | "Pressure values": the radio rows "Recommended values" and "My own values". The band diagram. "Maximum pressure", "Target pressure", "Minimum pressure" in mbar, each with a caption. "Adaptive pressure": switch. "Time-controlled vacuum generation": switch and two times. See "Pressure step" |
 | Standby | "Default pump speed" (rpm) and "Default flow" (L/h), each with the button "Use the current value". "Reduced vacuum in standby": switch and a value in mbar |
 | Mode | The three Modes as radio rows with their captions |
 | Summary | The diff table (see `../widgets.md`), notes and warnings above it, and the button "Apply 5 changes" |
+
+## Presets
+
+A known type writes its numbers into the pending changes when the user selects it. The numbers then show read-only with the padlock badge "Preset value". "Custom" keeps the numbers and opens them for an edit.
+
+| Pump | Maximum speed (rpm) | Start speed (rpm) | Maximum pressure (mbar) |
+|---|---|---|---|
+| D5 | 4800 | 4800 | 375 |
+| aquastream | 5500 | 5500 | 400 |
+| DDC-1T | 3900 | 3900 | 350 |
+| DDC-1T Plus | 4500 | 4500 | 450 |
+| DDC 3.25 | 4850 | 5500 | 530 |
+| Eheim 1046 | 3000 | 3000 | 120 |
+| Eheim 1048 | 3000 | 3000 | 150 |
+| Eheim 1250 | 3000 | 3000 | 200 |
+
+| Reservoir | Total volume (ml) | Air volume at maximum fill level (ml) | Air volume at minimum fill level (ml) |
+|---|---|---|---|
+| ULTITUBE 100 | 240 | 50 | 200 |
+| ULTITUBE 150 | 360 | 50 | 300 |
+| ULTITUBE 200 | 470 | 70 | 400 |
+| aqualis 100 | 100 | 40 | 80 |
+| aqualis 150 | 150 | 50 | 100 |
+| aqualis 450 | 450 | 70 | 350 |
+| aqualis 880 | 880 | 100 | 750 |
+| aquainlet 100 | 100 | 40 | 80 |
+| aquainlet 150 | 150 | 50 | 100 |
+| aquatube | 160 | 50 | 100 |
+| aquabox | 114 | 50 | 80 |
+
+- The start speed of a pump preset goes to the field of "Assumed pump speed" on the Standby step. It stays editable there.
+- A type that is not in the tables, as "undefined" after a factory reset, shows as the first choice of its select. Its numbers accept an edit.
+
+## Pump step
+
+- "More than one pump" is `pump_flags` bit 1. Pumps in a row add their pressures, so the wizard counts twice the maximum pressure: for the recommended values, for the warning below and for the helper. While the switch is on, a warning line shows under it.
+- The pump pressure, twice with more than one pump, above 430 mbar gives a warning row at the top of the Pump, Pressure and Mode steps: 430 mbar is the highest minimum of the control band. The Summary has the same warning while a change of the pump is pending. It does not disable "Apply".
+- The helper is two read-only rows. "Pump pressure now" is the pressure of the pump at the speed of the Pump channel of the Loop: the maximum pressure times the square of speed over maximum speed. "Speed limit" is the speed at which the pump makes 450 mbar, the highest target pressure, when that speed is below the maximum speed.
 
 ## Pressure step
 
@@ -75,13 +113,18 @@ The wizard corrects a value of the band. It shows no error for it:
 
 - The wizard writes nothing before "Apply". "Cancel" discards the pending changes after a confirmation: "Discard 2 changes?"
 - Leaving the tab with pending changes keeps them. The tab label then has a dot.
-- Summary warnings come from the settings: "MONITOR does not prevent a leak.", "The pump pressure is above 470 mbar: the Leakshield can only work as a leak monitor.", "Automatic fill-level measurement releases the pressure for a short time."
+- Summary warnings come from the settings: "MONITOR does not prevent a leak.", "The pump can make 480 mbar. The Leakshield holds 430 mbar at most, so it cannot fully protect the Loop at full pump speed.", "Automatic fill-level measurement releases the pressure for a short time." A warning never disables "Apply".
 - Left and Right arrow keys do not change the step. Alt+Left and Alt+Right do.
 
 ## Copy
 
 | Place | Text |
 |---|---|
+| Reservoir | "A known reservoir sets the three volumes. Select Custom to enter your own." |
+| Pump | "A known pump sets its maximum pressure, its maximum speed and its start speed. Select Custom to enter your own." |
+| More than one pump | "Pumps in a row add their pressures. nicecooling then counts twice the maximum pressure." With the switch on: "With more than one pump the Leakshield needs twice the vacuum. Check the values on the Pressure step." |
+| Pump pressure now | "About 131 mbar at 2 840 rpm." Without a speed: "No pump speed from the Loop. Without a speed the Leakshield counts with the maximum speed." |
+| Speed limit | "Above 4 469 rpm the pump makes more than 450 mbar, the highest target pressure of the Leakshield." or "At every speed the pump stays under 450 mbar, the highest target pressure of the Leakshield." |
 | Pressure values | "The three values are a control band for SHIELD: the Leakshield keeps the pressure between the minimum and the maximum. No value raises an Alarm." |
 | Own values, warning | "With your own values the Leakshield can fail to protect the Loop. Recommended for your pump: minimum 375, target 425, maximum 465 mbar." |
 | Other values than the recommended ones | "The Leakshield holds other values. Recommended for your pump: minimum 375, target 425, maximum 465 mbar." |

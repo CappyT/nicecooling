@@ -3396,7 +3396,7 @@ fn leakshield_settings_summary_and_apply() {
         summary.warnings,
         [
             "MONITOR does not prevent a leak.",
-            "The pump pressure is above 470 mbar: the Leakshield can only work as a leak monitor."
+            "The pump can make 480 mbar. The Leakshield holds 430 mbar at most, so it cannot fully protect the Loop at full pump speed."
         ]
     );
     let locked = summary

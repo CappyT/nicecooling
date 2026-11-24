@@ -13,6 +13,46 @@ nicecooling SHALL read the Leakshield settings from the device and show them. Th
 - **WHEN** a Leakshield is connected
 - **THEN** the user can read each of those settings, writable or not
 
+### Requirement: Presets write their numbers
+A pump preset SHALL write the maximum speed, the start speed and the maximum pressure of the pump type into the pending changes. A reservoir preset SHALL write the total volume and the two air volumes of the reservoir type. With a preset these numbers SHALL be read-only in the wizard. The choice "Custom" SHALL keep the numbers and open them for an edit. `docs/ui/screens/leakshield-settings.md` has the tables of the presets.
+
+#### Scenario: Pump preset
+- **WHEN** the user selects the pump type DDC-1T
+- **THEN** the pending changes hold the maximum speed 3900 rpm, the start speed 3900 rpm and the maximum pressure 350 mbar
+
+#### Scenario: Reservoir preset
+- **WHEN** the user selects the reservoir type aqualis 450
+- **THEN** the pending changes hold the total volume 450 ml and the air volumes 70 ml and 350 ml
+
+#### Scenario: Custom
+- **WHEN** the user selects "Custom" after a preset
+- **THEN** the numbers keep their values and accept an edit
+
+### Requirement: More than one pump
+The Pump step SHALL have the option "More than one pump" on `pump_flags` bit 1. With the option on, the wizard SHALL count twice the maximum pressure of the pump and SHALL show a warning under the option.
+
+#### Scenario: Option turned on
+- **WHEN** the user turns the option on for a pump of 375 mbar with the recommended values selected
+- **THEN** the write sets bit 1 of `pump_flags` and the recommended minimum is 430 mbar
+
+### Requirement: Warning for a pump above 430 mbar
+When the maximum pressure of the pump, doubled with more than one pump, is above 430 mbar, the Pump, Pressure and Mode steps SHALL show a warning that the Leakshield cannot fully protect the Loop at full pump speed. The Summary SHALL show it while a change of the pump is pending. The warning SHALL NOT disable "Apply".
+
+#### Scenario: Pump of 431 mbar
+- **WHEN** the maximum pressure of the pump is 431 mbar
+- **THEN** the Pressure step and the Mode step show the warning and "Apply" stays enabled
+
+#### Scenario: Pump of 430 mbar
+- **WHEN** the maximum pressure of the pump is 430 mbar with one pump
+- **THEN** no step shows the warning
+
+### Requirement: Speed and pressure helper
+The Pump step SHALL show, read-only, the pressure of the pump at the current speed of the Pump channel of the Loop and the speed at which the pump makes 450 mbar. The pressure of the pump SHALL be the maximum pressure times the square of speed over maximum speed.
+
+#### Scenario: D5 at 2840 rpm
+- **WHEN** the pump has 4800 rpm and 375 mbar and the Pump channel runs at 2840 rpm
+- **THEN** the helper shows about 131 mbar
+
 ### Requirement: SHIELD pressure values are a control band
 The wizard SHALL present the minimum, the target and the maximum pressure of SHIELD as a control band and not as alarm limits. Each value SHALL have a caption with what the Leakshield does there: it starts its pump below the minimum, it builds the vacuum up to the target, and it opens its vent valve above the maximum.
 

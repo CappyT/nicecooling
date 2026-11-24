@@ -20,8 +20,73 @@ const BIT_STANDBY_PRESSURE: u32 = 32;
 const PUMP_FLAGS: &str = "pump_flags";
 /// The Loop has more than one pump in a row: their pressures add up.
 const BIT_TWO_PUMPS: u32 = 2;
-/// The pump pressure above which the Leakshield can only work as a leak monitor, in mbar.
-const MONITOR_ONLY_PRESSURE: f64 = 470.0;
+/// The highest pump pressure that the Leakshield can protect against, in mbar: the highest
+/// minimum of the control band.
+const PROTECT_LIMIT: f64 = 430.0;
+
+/// A type that the Leakshield knows: its identifier, its name and the values of its fields.
+type Preset = (&'static str, &'static str, [f64; 3]);
+
+const PUMP_FIELDS: [&str; 3] = ["pump_max_speed", "pump_start_speed", "pump_max_pressure"];
+/// The pump types: maximum speed in rpm, start speed in rpm, maximum pressure in mbar.
+const PUMPS: [Preset; 8] = [
+    ("d5", "D5", [4800.0, 4800.0, 375.0]),
+    ("aquastream", "aquastream", [5500.0, 5500.0, 400.0]),
+    ("ddc-1t", "DDC-1T", [3900.0, 3900.0, 350.0]),
+    ("ddc-1t-plus", "DDC-1T Plus", [4500.0, 4500.0, 450.0]),
+    ("ddc-325", "DDC 3.25", [4850.0, 5500.0, 530.0]),
+    ("eheim-1046", "Eheim 1046", [3000.0, 3000.0, 120.0]),
+    ("eheim-1048", "Eheim 1048", [3000.0, 3000.0, 150.0]),
+    ("eheim-1250", "Eheim 1250", [3000.0, 3000.0, 200.0]),
+];
+
+const RESERVOIR_FIELDS: [&str; 3] = [
+    "reservoir_total_volume",
+    "reservoir_air_volume_full",
+    "reservoir_air_volume_empty",
+];
+/// The reservoir types: total volume, air volume at the maximum fill level and air volume at
+/// the minimum fill level, in ml.
+const RESERVOIRS: [Preset; 11] = [
+    ("ultitube-100", "ULTITUBE 100", [240.0, 50.0, 200.0]),
+    ("ultitube-150", "ULTITUBE 150", [360.0, 50.0, 300.0]),
+    ("ultitube-200", "ULTITUBE 200", [470.0, 70.0, 400.0]),
+    ("aqualis-100", "aqualis 100", [100.0, 40.0, 80.0]),
+    ("aqualis-150", "aqualis 150", [150.0, 50.0, 100.0]),
+    ("aqualis-450", "aqualis 450", [450.0, 70.0, 350.0]),
+    ("aqualis-880", "aqualis 880", [880.0, 100.0, 750.0]),
+    ("aquainlet-100", "aquainlet 100", [100.0, 40.0, 80.0]),
+    ("aquainlet-150", "aquainlet 150", [150.0, 50.0, 100.0]),
+    ("aquatube", "aquatube", [160.0, 50.0, 100.0]),
+    ("aquabox", "aquabox", [114.0, 50.0, 80.0]),
+];
+
+/// The presets and the fields of a type field.
+fn presets_of(field: &str) -> (&'static [Preset], [&'static str; 3]) {
+    if field == "pump_model" {
+        (&PUMPS, PUMP_FIELDS)
+    } else {
+        (&RESERVOIRS, RESERVOIR_FIELDS)
+    }
+}
+
+/// The pressure of a pump at `speed` in mbar: it grows with the square of the speed.
+pub fn pump_pressure_at(speed: f64, max_speed: f64, max_pressure: f64) -> f64 {
+    if max_speed > 0.0 {
+        ((speed / max_speed).powi(2) * max_pressure).round()
+    } else {
+        0.0
+    }
+}
+
+/// The speed in rpm at which a pump makes `pressure`.
+pub fn pump_speed_for(pressure: f64, max_speed: f64, max_pressure: f64) -> f64 {
+    if max_pressure > 0.0 {
+        ((pressure / max_pressure).sqrt() * max_speed).round()
+    } else {
+        0.0
+    }
+}
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum Step {
@@ -290,6 +355,17 @@ impl SettingsUi {
         self.number(data, PUMP_FLAGS).unwrap_or(0.0) as u32 & BIT_TWO_PUMPS != 0
     }
 
+    /// The maximum pressure of the pumps of the Loop in mbar: twice the pressure of one pump
+    /// with more than one.
+    pub fn pumps_pressure(&self, data: &LeakshieldData) -> Option<f64> {
+        let pressure = self.number(data, "pump_max_pressure")?;
+        Some(if self.two_pumps(data) {
+            2.0 * pressure
+        } else {
+            pressure
+        })
+    }
+
     /// The recommended band for the pump of the wizard.
     pub fn recommended(&self, data: &LeakshieldData) -> Option<Band> {
         let pressure = self.number(data, "pump_max_pressure")?;
@@ -389,9 +465,18 @@ impl SettingsUi {
                 }
             }
             "timer_1" | "timer_2" => self.set_timer(data, usize::from(key == "timer_2"), text),
-            "reservoir_model" | "pump_model" | "default_mode" => {
+            "default_mode" => self.set(data, key, FieldValue::Text(text.to_owned())),
+            // A known type writes its numbers. "Custom" keeps them, for the user to edit.
+            "reservoir_model" | "pump_model" => {
                 self.set(data, key, FieldValue::Text(text.to_owned()));
+                let (presets, fields) = presets_of(key);
+                if let Some((_, _, values)) = presets.iter().find(|preset| preset.0 == text) {
+                    for (field, value) in fields.iter().zip(values) {
+                        self.set(data, field, FieldValue::Number(*value));
+                    }
+                }
             }
+            "two_pumps" => self.set_bit(data, PUMP_FLAGS, BIT_TWO_PUMPS, text == "1"),
             field if range_of(field).is_some() => {
                 if let Some(value) = parse(text) {
                     let value = if is_whole(field) {
@@ -417,25 +502,15 @@ impl SettingsUi {
         let Some(data) = input.state.snapshot.leakshield_data.get(id) else {
             return;
         };
-        let sample = input
-            .state
-            .sensors
-            .as_ref()
-            .or(input.state.last_sensors.as_ref());
-        let loop_info = input
-            .state
-            .snapshot
-            .loops
-            .iter()
-            .find(|l| l.leakshield.as_deref() == Some(id));
         let value = match field {
-            "pump_start_speed" => loop_info
-                .and_then(|l| l.pump_channels.first())
-                .and_then(|channel| input.state.fan_sensor(channel))
-                .and_then(|fan| sample.and_then(|s| s.sensor_value(&fan))),
-            _ => loop_info
+            "pump_start_speed" => loop_pump_rpm(input, id),
+            _ => loop_of(input, id)
                 .and_then(|l| l.flow.as_ref())
-                .and_then(|flow| sample.and_then(|s| s.sensor_value(flow))),
+                .and_then(|flow| {
+                    let state = input.state;
+                    let sample = state.sensors.as_ref().or(state.last_sensors.as_ref())?;
+                    sample.sensor_value(flow)
+                }),
         };
         if let Some(value) = value {
             self.set(data, field, FieldValue::Number(value.round()));
@@ -679,6 +754,8 @@ pub struct SettingsModel {
     pub pending: Vec<PendingChange>,
     pub no_changes: Option<String>,
     pub unknown_firmware: bool,
+    /// The warnings of the step, above its rows.
+    pub notices: Vec<String>,
     pub write_line: Option<FeedbackLine>,
 }
 
@@ -732,6 +809,12 @@ impl SettingsModel {
             Step::Summary => Vec::new(),
         };
         let summary = (step == Step::Summary).then(|| summary(input, ui, &device, data));
+        let notices = match step {
+            Step::Pump | Step::Pressure | Step::Mode => pump_pressure_warning(locale, ui, data)
+                .into_iter()
+                .collect(),
+            _ => Vec::new(),
+        };
 
         let neighbor = |delta: isize| {
             let index = step.index().checked_add_signed(delta)?;
@@ -790,6 +873,7 @@ impl SettingsModel {
                 .then(|| locale.tr("leakshield.settings.no_change")),
             pending,
             unknown_firmware: unknown,
+            notices,
             write_line: write_line(input, id, "wizard"),
         }
     }
@@ -883,18 +967,25 @@ impl RowCtx<'_> {
         row
     }
 
+    /// The select of a type field: the known types, then "Custom".
     fn select(&self, key: &str, field: &str, label_key: &str) -> Row {
         let current = self
             .ui
             .text(self.data, field)
             .unwrap_or("custom")
             .to_owned();
-        let mut options = vec![(
+        let (presets, _) = presets_of(field);
+        let mut options: Vec<(String, String, bool)> = presets
+            .iter()
+            .map(|(id, name, _)| ((*id).to_owned(), (*name).to_owned(), *id == current))
+            .collect();
+        options.push((
             "custom".to_owned(),
             self.locale.tr("leakshield.settings.custom"),
             current == "custom",
-        )];
-        if current != "custom" {
+        ));
+        // A value that is no known type, as "undefined" after a factory reset.
+        if !options.iter().any(|(_, _, selected)| *selected) {
             options.insert(0, (current.clone(), humanize(&current), true));
         }
         let shown = options
@@ -903,55 +994,171 @@ impl RowCtx<'_> {
             .map_or_else(String::new, |(_, text, _)| text.clone());
         self.row(key, field, label_key, Control::Select { shown, options })
     }
+
+    /// The number rows of a type field. With a known type they take no edit.
+    fn preset_numbers(&self, field: &str, rows: &[(&str, &str)]) -> Vec<Row> {
+        let (presets, _) = presets_of(field);
+        let current = self.ui.text(self.data, field).unwrap_or("custom");
+        let preset = presets.iter().any(|preset| preset.0 == current);
+        rows.iter()
+            .map(|(field, label_key)| {
+                let mut row = self.number(field, field, label_key);
+                if preset && row.writable {
+                    row.fixed = true;
+                    row.badge = self.locale.tr("leakshield.settings.preset_value");
+                }
+                row
+            })
+            .collect()
+    }
+}
+
+/// The warning of a pump that the Leakshield cannot fully protect against.
+fn pump_pressure_warning(locale: Locale, ui: &SettingsUi, data: &LeakshieldData) -> Option<String> {
+    let pressure = ui.pumps_pressure(data)?;
+    (pressure > PROTECT_LIMIT).then(|| {
+        locale.fmt(
+            "leakshield.settings.warn_pump_pressure",
+            &[
+                ("value", &compact(locale, pressure)),
+                ("limit", &compact(locale, PROTECT_LIMIT)),
+            ],
+        )
+    })
 }
 
 fn reservoir_rows(ctx: &RowCtx<'_>) -> Vec<Row> {
-    let mut rows = vec![ctx.select(
-        "reservoir_model",
-        "reservoir_model",
-        "leakshield.settings.reservoir",
+    let mut rows = vec![RowCtx::caption(
+        ctx.select(
+            "reservoir_model",
+            "reservoir_model",
+            "leakshield.settings.reservoir",
+        ),
+        Some(ctx.locale.tr("leakshield.settings.reservoir_text")),
     )];
-    if ctx.ui.text(ctx.data, "reservoir_model").unwrap_or("custom") == "custom" {
-        rows.push(ctx.number(
-            "reservoir_total_volume",
-            "reservoir_total_volume",
-            "leakshield.settings.volume_sum",
-        ));
-        rows.push(ctx.number(
-            "reservoir_air_volume_full",
-            "reservoir_air_volume_full",
-            "leakshield.settings.air_full",
-        ));
-        rows.push(ctx.number(
-            "reservoir_air_volume_empty",
-            "reservoir_air_volume_empty",
-            "leakshield.settings.air_empty",
-        ));
-    }
+    rows.extend(ctx.preset_numbers(
+        "reservoir_model",
+        &[
+            ("reservoir_total_volume", "leakshield.settings.volume_sum"),
+            ("reservoir_air_volume_full", "leakshield.settings.air_full"),
+            (
+                "reservoir_air_volume_empty",
+                "leakshield.settings.air_empty",
+            ),
+        ],
+    ));
     rows
 }
 
-fn pump_rows(ctx: &RowCtx<'_>, input: &ScreenInput<'_>, id: &str) -> Vec<Row> {
-    let locale = ctx.locale;
-    let mut rows = vec![ctx.select("pump_model", "pump_model", "leakshield.settings.pump")];
-    if ctx.ui.text(ctx.data, "pump_model").unwrap_or("custom") == "custom" {
-        rows.push(ctx.number(
-            "pump_max_pressure",
-            "pump_max_pressure",
-            "leakshield.settings.max_pressure",
-        ));
-        rows.push(ctx.number(
-            "pump_max_speed",
-            "pump_max_speed",
-            "leakshield.settings.max_speed",
-        ));
-    }
-    let source = input
+/// The Loop that this Leakshield belongs to.
+fn loop_of<'a>(input: &'a ScreenInput<'_>, id: &str) -> Option<&'a crate::model::LoopInfo> {
+    input
         .state
         .snapshot
         .loops
         .iter()
         .find(|l| l.leakshield.as_deref() == Some(id))
+}
+
+/// The speed of the first Pump channel of the Loop in rpm.
+fn loop_pump_rpm(input: &ScreenInput<'_>, id: &str) -> Option<f64> {
+    let fan = input
+        .state
+        .fan_sensor(loop_of(input, id)?.pump_channels.first()?)?;
+    let sample = input
+        .state
+        .sensors
+        .as_ref()
+        .or(input.state.last_sensors.as_ref())?;
+    sample.sensor_value(&fan)
+}
+
+fn pump_rows(ctx: &RowCtx<'_>, input: &ScreenInput<'_>, id: &str) -> Vec<Row> {
+    let locale = ctx.locale;
+    let mut rows = vec![RowCtx::caption(
+        ctx.select("pump_model", "pump_model", "leakshield.settings.pump"),
+        Some(locale.tr("leakshield.settings.pump_text")),
+    )];
+    rows.extend(ctx.preset_numbers(
+        "pump_model",
+        &[
+            ("pump_max_pressure", "leakshield.settings.max_pressure"),
+            ("pump_max_speed", "leakshield.settings.max_speed"),
+        ],
+    ));
+    let mut two = RowCtx::caption(
+        ctx.switch(
+            "two_pumps",
+            PUMP_FLAGS,
+            BIT_TWO_PUMPS,
+            "leakshield.settings.two_pumps",
+        ),
+        Some(locale.tr("leakshield.settings.two_pumps_text")),
+    );
+    if two.control == Control::Switch(true) {
+        two.note = Some(Note {
+            text: locale.tr("leakshield.settings.two_pumps_warning"),
+            warning: true,
+        });
+    }
+    rows.push(two);
+
+    // The helper: the pressure of the pump at its speed now, and the speed at which it
+    // reaches the highest target of the Leakshield.
+    let max_speed = ctx.ui.number(ctx.data, "pump_max_speed");
+    let pressure = ctx.ui.pumps_pressure(ctx.data);
+    let now = match (loop_pump_rpm(input, id), max_speed, pressure) {
+        (Some(speed), Some(max_speed), Some(pressure)) if max_speed > 0.0 => locale.fmt(
+            "leakshield.settings.pump_now_text",
+            &[
+                ("speed", &compact(locale, speed.round())),
+                (
+                    "pressure",
+                    &compact(locale, pump_pressure_at(speed, max_speed, pressure)),
+                ),
+            ],
+        ),
+        _ => locale.tr("leakshield.settings.pump_now_none"),
+    };
+    let mut row = info_row(
+        ctx,
+        "pump_pressure_now",
+        "leakshield.settings.pump_now",
+        now,
+    );
+    row.link = None;
+    rows.push(row);
+    if let (Some(max_speed), Some(pressure)) = (max_speed, pressure)
+        && max_speed > 0.0
+        && pressure > 0.0
+    {
+        let highest = Band::TARGET_RANGE.1;
+        let speed = pump_speed_for(highest, max_speed, pressure);
+        let text = if speed < max_speed {
+            locale.fmt(
+                "leakshield.settings.pump_limit_text",
+                &[
+                    ("speed", &compact(locale, speed)),
+                    ("pressure", &compact(locale, highest)),
+                ],
+            )
+        } else {
+            locale.fmt(
+                "leakshield.settings.pump_limit_none",
+                &[("pressure", &compact(locale, highest))],
+            )
+        };
+        let mut row = info_row(
+            ctx,
+            "pump_speed_limit",
+            "leakshield.settings.pump_limit",
+            text,
+        );
+        row.link = None;
+        rows.push(row);
+    }
+
+    let source = loop_of(input, id)
         .and_then(|l| {
             let channel = l.pump_channels.first()?;
             let name = input.state.snapshot.channels.get(channel)?.name.clone();
@@ -1375,12 +1582,10 @@ fn summary(
     if ui.pending.contains_key("default_mode") && ui.text(data, "default_mode") == Some("monitor") {
         warnings.push(locale.tr("leakshield.settings.warn_monitor"));
     }
-    if ui
-        .pending
-        .get("pump_max_pressure")
-        .is_some_and(|v| matches!(v, FieldValue::Number(n) if *n > MONITOR_ONLY_PRESSURE))
+    if (ui.pending.contains_key("pump_max_pressure") || ui.pending.contains_key(PUMP_FLAGS))
+        && let Some(text) = pump_pressure_warning(locale, ui, data)
     {
-        warnings.push(locale.tr("leakshield.settings.warn_pressure"));
+        warnings.push(text);
     }
     let apply_command = {
         let mut copy = ui.clone();

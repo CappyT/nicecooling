@@ -111,6 +111,9 @@ impl ScreenView {
                 p,
             ));
         }
+        for text in &model.notices {
+            step_card = step_card.child(notice_row(text.clone(), true, p));
+        }
         for row in &model.rows {
             step_card = step_card.child(self.setting_row(id, row, ready, p, window, cx));
         }

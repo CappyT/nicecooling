@@ -6,7 +6,8 @@ mod support;
 use nicecooling::i18n::{EN, IT, Locale};
 use nicecooling::model::{AppState, FieldEntry, FieldRisk, FieldValue, LeakshieldData};
 use nicecooling::screens::leakshield::settings::{
-    Band, Control, Row, SettingsModel, SettingsUi, Step, marker_place,
+    Band, Control, Row, SettingsModel, SettingsUi, Step, marker_place, pump_pressure_at,
+    pump_speed_for,
 };
 use nicecooling::screens::{Feedback, ScreenInput};
 use support::fixtures::{LEAKSHIELD, NOW_US, with_leakshield};
@@ -710,6 +711,264 @@ fn a_pump_change_writes_the_recommended_values() {
     );
 }
 
+fn text(ui: &SettingsUi, field: &str) -> Option<String> {
+    match ui.pending.get(field) {
+        Some(FieldValue::Text(text)) => Some(text.clone()),
+        _ => None,
+    }
+}
+
+#[test]
+fn a_pump_preset_writes_its_speeds_and_its_pressure() {
+    // The device: D5 with 4800 rpm, start speed 2500 rpm, 375 mbar.
+    let state = device();
+    let data = data_of(&state);
+    let mut ui = SettingsUi::default();
+    let model = step(&state, &ui, Step::Pump);
+    let Control::Select { shown, options } = &row(&model, "pump_model").control else {
+        panic!("a select");
+    };
+    assert_eq!(shown, "D5");
+    assert_eq!(
+        options.iter().map(|o| o.1.as_str()).collect::<Vec<_>>(),
+        [
+            "D5",
+            "aquastream",
+            "DDC-1T",
+            "DDC-1T Plus",
+            "DDC 3.25",
+            "Eheim 1046",
+            "Eheim 1048",
+            "Eheim 1250",
+            "Custom"
+        ]
+    );
+    // With a preset the numbers show and take no edit.
+    for key in ["pump_max_pressure", "pump_max_speed"] {
+        let row = row(&model, key);
+        assert!(row.fixed && row.writable, "{key}");
+        assert_eq!(row.badge, "Preset value");
+    }
+    assert_eq!(number_text(row(&model, "pump_max_pressure")), "375");
+
+    ui.edit(&data, "pump_model", "ddc-1t");
+    assert_eq!(text(&ui, "pump_model").as_deref(), Some("ddc-1t"));
+    assert_eq!(pending(&ui, "pump_max_speed"), Some(3900.0));
+    assert_eq!(pending(&ui, "pump_start_speed"), Some(3900.0));
+    assert_eq!(pending(&ui, "pump_max_pressure"), Some(350.0));
+    // The recommended values follow: 350 / 400 / 440.
+    assert_eq!(pending(&ui, "shield_pressure_low"), Some(350.0));
+    assert_eq!(pending(&ui, "shield_pressure_max_range"), Some(40.0));
+
+    // The preset with a start speed above its maximum speed.
+    ui.edit(&data, "pump_model", "ddc-325");
+    assert_eq!(pending(&ui, "pump_max_speed"), Some(4850.0));
+    assert_eq!(pending(&ui, "pump_start_speed"), Some(5500.0));
+    assert_eq!(pending(&ui, "pump_max_pressure"), Some(530.0));
+    assert_eq!(pending(&ui, "shield_pressure_low"), Some(430.0));
+
+    // "Custom" keeps the numbers and opens them.
+    ui.edit(&data, "pump_model", "custom");
+    assert_eq!(pending(&ui, "pump_max_pressure"), Some(530.0));
+    let model = step(&state, &ui, Step::Pump);
+    for key in ["pump_max_pressure", "pump_max_speed"] {
+        let row = row(&model, key);
+        assert!(!row.fixed, "{key}");
+        assert_eq!(row.badge, "Verified field");
+    }
+    ui.edit(&data, "pump_max_pressure", "410");
+    assert_eq!(pending(&ui, "pump_max_pressure"), Some(410.0));
+    assert_eq!(pending(&ui, "shield_pressure_low"), Some(410.0));
+}
+
+#[test]
+fn a_reservoir_preset_writes_its_three_volumes() {
+    // The device: "Custom" with 270 / 65 / 260 ml.
+    let state = device();
+    let data = data_of(&state);
+    let mut ui = SettingsUi::default();
+    let model = step(&state, &ui, Step::Reservoir);
+    let Control::Select { shown, options } = &row(&model, "reservoir_model").control else {
+        panic!("a select");
+    };
+    assert_eq!(shown, "Custom");
+    assert_eq!(options.len(), 12);
+    assert_eq!(options[0].1, "ULTITUBE 100");
+    for key in [
+        "reservoir_total_volume",
+        "reservoir_air_volume_full",
+        "reservoir_air_volume_empty",
+    ] {
+        assert!(!row(&model, key).fixed, "{key} with Custom");
+    }
+
+    ui.edit(&data, "reservoir_model", "aqualis-450");
+    assert_eq!(pending(&ui, "reservoir_total_volume"), Some(450.0));
+    assert_eq!(pending(&ui, "reservoir_air_volume_full"), Some(70.0));
+    assert_eq!(pending(&ui, "reservoir_air_volume_empty"), Some(350.0));
+    let model = step(&state, &ui, Step::Reservoir);
+    for (key, value) in [
+        ("reservoir_total_volume", "450"),
+        ("reservoir_air_volume_full", "70"),
+        ("reservoir_air_volume_empty", "350"),
+    ] {
+        let row = row(&model, key);
+        assert!(row.fixed, "{key} with a preset");
+        assert_eq!(row.badge, "Preset value");
+        assert_eq!(number_text(row), value);
+    }
+    // A pump preset or a reservoir preset does not touch the fields of the other one.
+    assert!(!ui.pending.keys().any(|field| field.starts_with("pump_")));
+}
+
+#[test]
+fn more_than_one_pump_is_bit_1_of_the_pump_flags() {
+    let state = device();
+    let data = data_of(&state);
+    let mut ui = SettingsUi::default();
+    let model = step(&state, &ui, Step::Pump);
+    let two = row(&model, "two_pumps");
+    assert_eq!(two.label, "More than one pump");
+    assert_eq!(two.control, Control::Switch(false));
+    assert!(two.note.is_none());
+    assert!(model.notices.is_empty(), "375 mbar is under the limit");
+
+    ui.edit(&data, "two_pumps", "1");
+    assert_eq!(pending(&ui, "pump_flags"), Some(2.0));
+    // The recommended values count twice the pump pressure: 750 mbar, cut to 430.
+    assert_eq!(pending(&ui, "shield_pressure_low"), Some(430.0));
+    assert_eq!(pending(&ui, "shield_pressure_working_range"), Some(20.0));
+    assert_eq!(pending(&ui, "shield_pressure_max_range"), Some(40.0));
+    let model = step(&state, &ui, Step::Pump);
+    let two = row(&model, "two_pumps");
+    assert_eq!(two.control, Control::Switch(true));
+    assert!(two.changed);
+    let note = two.note.as_ref().expect("the warning of two pumps");
+    assert!(note.warning && note.text.starts_with("With more than one pump"));
+
+    // A device that has bit 0 of the flags keeps it.
+    let mut state = device();
+    set_field(&mut state, "pump_flags", FieldValue::Number(1.0));
+    let data = data_of(&state);
+    let mut ui = SettingsUi::default();
+    ui.edit(&data, "two_pumps", "1");
+    assert_eq!(pending(&ui, "pump_flags"), Some(3.0));
+    ui.edit(&data, "two_pumps", "0");
+    assert_eq!(pending(&ui, "pump_flags"), None);
+}
+
+#[test]
+fn a_pump_above_430_mbar_has_a_warning_on_the_pressure_and_mode_steps() {
+    let state = device();
+    let data = data_of(&state);
+    let mut ui = SettingsUi::default();
+    for step_name in [Step::Pump, Step::Pressure, Step::Mode] {
+        assert!(step(&state, &ui, step_name).notices.is_empty());
+    }
+    // 430 mbar is the limit itself: no warning.
+    ui.edit(&data, "pump_model", "custom");
+    ui.edit(&data, "pump_max_pressure", "430");
+    assert!(step(&state, &ui, Step::Pressure).notices.is_empty());
+    ui.edit(&data, "pump_max_pressure", "431");
+    let warning = "The pump can make 431 mbar. The Leakshield holds 430 mbar at most, so it cannot fully protect the Loop at full pump speed.";
+    for step_name in [Step::Pump, Step::Pressure, Step::Mode] {
+        assert_eq!(
+            step(&state, &ui, step_name).notices,
+            [warning],
+            "{step_name:?}"
+        );
+    }
+    for step_name in [Step::Reservoir, Step::Flow, Step::Standby] {
+        assert!(
+            step(&state, &ui, step_name).notices.is_empty(),
+            "{step_name:?}"
+        );
+    }
+    // The Summary has it with the pending pump change, and Apply stays on.
+    let summary = step(&state, &ui, Step::Summary).summary.unwrap();
+    assert_eq!(summary.warnings, [warning]);
+    assert!(summary.apply_enabled, "a warning never blocks Apply");
+
+    // Two pumps of 375 mbar count as 750 mbar.
+    let mut ui = SettingsUi::default();
+    ui.edit(&data, "two_pumps", "1");
+    assert_eq!(
+        step(&state, &ui, Step::Mode).notices,
+        [
+            "The pump can make 750 mbar. The Leakshield holds 430 mbar at most, so it cannot fully protect the Loop at full pump speed."
+        ]
+    );
+}
+
+#[test]
+fn the_pump_step_has_a_speed_and_pressure_helper() {
+    // The pressure follows the square of the speed.
+    assert_eq!(pump_pressure_at(4800.0, 4800.0, 375.0), 375.0);
+    assert_eq!(pump_pressure_at(2400.0, 4800.0, 375.0), 94.0);
+    assert_eq!(pump_pressure_at(2840.0, 4800.0, 375.0), 131.0);
+    assert_eq!(pump_pressure_at(2840.0, 0.0, 375.0), 0.0);
+    assert_eq!(pump_speed_for(375.0, 4800.0, 375.0), 4800.0);
+    assert_eq!(pump_speed_for(450.0, 4850.0, 530.0), 4469.0);
+    assert_eq!(pump_speed_for(450.0, 4800.0, 0.0), 0.0);
+
+    // The Pump channel of the Loop runs at 2 840 rpm.
+    let state = device();
+    let data = data_of(&state);
+    let mut ui = SettingsUi::default();
+    let model = step(&state, &ui, Step::Pump);
+    let keys: Vec<&str> = model.rows.iter().map(|r| r.key.as_str()).collect();
+    assert_eq!(
+        keys,
+        [
+            "pump_model",
+            "pump_max_pressure",
+            "pump_max_speed",
+            "two_pumps",
+            "pump_pressure_now",
+            "pump_speed_limit",
+            "pump_source"
+        ]
+    );
+    let now = row(&model, "pump_pressure_now");
+    assert_eq!(
+        now.control,
+        Control::Info("About 131 mbar at 2\u{a0}840 rpm.".into())
+    );
+    assert!(now.link.is_none() && !now.writable);
+    assert_eq!(
+        row(&model, "pump_speed_limit").control,
+        Control::Info(
+            "At every speed the pump stays under 450 mbar, the highest target pressure of the Leakshield."
+                .into()
+        )
+    );
+    // Two pumps: twice the pressure, and the limit is inside the speed range.
+    ui.edit(&data, "two_pumps", "1");
+    let model = step(&state, &ui, Step::Pump);
+    assert_eq!(
+        row(&model, "pump_pressure_now").control,
+        Control::Info("About 263 mbar at 2\u{a0}840 rpm.".into())
+    );
+    assert_eq!(
+        row(&model, "pump_speed_limit").control,
+        Control::Info(
+            "Above 3\u{a0}718 rpm the pump makes more than 450 mbar, the highest target pressure of the Leakshield."
+                .into()
+        )
+    );
+    // Without a Pump channel the helper has no speed.
+    let mut without = device();
+    without.snapshot.loops[0].pump_channels.clear();
+    let model = step(&without, &SettingsUi::default(), Step::Pump);
+    assert_eq!(
+        row(&model, "pump_pressure_now").control,
+        Control::Info(
+            "No pump speed from the Loop. Without a speed the Leakshield counts with the maximum speed."
+                .into()
+        )
+    );
+}
+
 mod layout {
     use gpui::{AppContext as _, Bounds, Pixels, TestAppContext, VisualTestContext, px};
     use nicecooling::app::{self, Backend, StartMode};
@@ -850,10 +1109,10 @@ mod layout {
 
     /// The state with the most text: own values, with their warning and their button.
     fn edited(ui: &mut SettingsUi) {
-        ui.pending.insert(
-            "shield_flags".into(),
-            nicecooling::model::FieldValue::Number(111.0),
-        );
+        use nicecooling::model::FieldValue::Number;
+        ui.pending.insert("shield_flags".into(), Number(111.0));
+        // Two pumps with their warning, and the warning of a pump above the limit.
+        ui.pending.insert("pump_flags".into(), Number(2.0));
     }
 
     #[gpui::test]
