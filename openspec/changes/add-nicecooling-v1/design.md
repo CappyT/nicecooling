@@ -51,6 +51,7 @@ Terms that the safety decisions use (`GLOSSARY.md` has the full list):
 - Compatibility with aquasuite profile files.
 - Use next to aquasuite or another program that writes the Leakshield or the Channels.
 - Protection against other local users or other software: the desktop has one trusted user.
+- Protection against an unplug of the Leakshield while the PC runs: it sits on an internal USB 2 header of the Board.
 
 ## Repository and install layout
 
