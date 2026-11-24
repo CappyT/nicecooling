@@ -265,6 +265,11 @@ mod tests {
             .count();
         assert_eq!(lit, 2262);
         assert!((0..128).all(|x| !logo.get(x, 0)));
+        // The lit count is the same in every layout, and the logo is near symmetric: one pixel
+        // whose mirror and whose upside-down copy are dark pins the orientation.
+        assert!(logo.get(39, 13));
+        assert!(!logo.get(127 - 39, 13));
+        assert!(!logo.get(39, 63 - 13));
     }
 
     #[test]
