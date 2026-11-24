@@ -7,14 +7,14 @@ Defines the MQTT client of the app: the broker settings, the connection and reco
 ## ADDED Requirements
 
 ### Requirement: Broker settings
-The app SHALL hold one broker: host, port, TLS on or off, an optional CA file, user name, password, client id, base topic and value interval. The port SHALL default to 1883, or 8883 with TLS. The client id SHALL default to `nicecooling-<hostname>`. The base topic SHALL default to `nicecooling`. The value interval SHALL be 1 s to 1 h, default 10 s. The settings SHALL belong to the user.
+The app SHALL hold one broker in `settings.toml`, table `[mqtt]`: `host`, `port`, `tls`, `ca_file`, `user`, `client_id`, `base_topic` and `interval_s`. The password SHALL be in `secrets.toml`. The port SHALL default to 1883, or 8883 with TLS. The client id SHALL default to `nicecooling-<hostname>`. The base topic SHALL default to `nicecooling`. The interval SHALL be 1 s to 1 h, default 10 s. The settings SHALL belong to the user.
 
 #### Scenario: Defaults
 - **WHEN** the user sets only the host `broker.lan` and TLS on
 - **THEN** the port is 8883, the client id is `nicecooling-<hostname>`, the base topic is `nicecooling` and the interval is 10 s
 
 #### Scenario: Interval above the limit
-- **WHEN** the user sets the value interval 7200 s
+- **WHEN** the user sets the interval 7200 s
 - **THEN** the app refuses it
 
 #### Scenario: Wildcard in the base topic
@@ -59,7 +59,7 @@ After a lost or failed connection the client SHALL wait 1 s, then double the wai
 - **THEN** the next wait is 1 s
 
 ### Requirement: No block of the evaluation
-The MQTT client SHALL run in its own task. A broker that is unreachable or slow SHALL never delay the evaluation of the Graphs, the feed of the Graph sensors or the interface of the app.
+The MQTT client SHALL run in its own task. A broker that is unreachable or slow SHALL never delay the evaluation of the Graphs, the sending of the Graph sensor values or the interface of the app.
 
 #### Scenario: Broker unreachable
 - **WHEN** the broker host does not answer
@@ -122,7 +122,7 @@ A sensor that has no value SHALL publish an object with `value` set to `null`, s
 - **THEN** its next message has `value` null
 
 ### Requirement: Event topics
-The client SHALL publish one JSON object to `<base>/event/<event id>` for each raise and each clear of an Alarm or Warning, with QoS 1 and no retain flag. The object SHALL have `event`, `source`, `severity` (`alarm` or `warning`), `state` (`raised` or `cleared`), `time` and `details`. `details` SHALL hold the keys of the event, such as `value`, `limit` and `unit`, when they apply.
+The client SHALL publish one JSON object to `<base>/event/<event id>` for each raise and each clear of an Alarm or Warning that the daemon reports, with QoS 1 and no retain flag. The object SHALL have `event`, `source`, `severity` (`alarm` or `warning`), `state` (`raised` or `cleared`), `time` (microseconds since the Unix epoch) and `details`. `details` SHALL hold the keys of the event, such as `value`, `limit` and `unit`, when they apply.
 
 #### Scenario: Raise
 - **WHEN** the pump-stop Alarm of `loop_1` rises

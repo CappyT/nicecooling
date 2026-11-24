@@ -22,7 +22,7 @@ A response end node SHALL have a kind, a hold time, "repeat every" and a minimum
 - **THEN** the validator refuses it
 
 ### Requirement: Response state machine
-The app SHALL evaluate each response end node once per second. An input that is false or has no value SHALL clear the trigger time and set the state "not run". A rise from false to true SHALL set the trigger time to now. In the state "not run", when the trigger time plus the hold time is not after now, the node SHALL run its response and set the state "run".
+The app SHALL evaluate each response end node once per second. A false input SHALL clear the trigger time and set the state "not run". An input with no value SHALL keep the state and clear the trigger time. An input that is true after false or no value SHALL set the trigger time to now. In the state "not run", when the trigger time plus the hold time is not after now, the node SHALL run its response and set the state "run".
 
 #### Scenario: Hold time
 - **WHEN** the hold time is 10 s and the input rises at second 100 and stays true
@@ -36,9 +36,13 @@ The app SHALL evaluate each response end node once per second. An input that is 
 - **WHEN** the input falls after a run
 - **THEN** the response does not run and the state returns to "not run"
 
-#### Scenario: No value counts as false
-- **WHEN** the input has no value for one second inside the hold time
-- **THEN** the trigger time is forgotten and a later true input starts the hold time again
+#### Scenario: No value in the state run
+- **WHEN** the node is in the state "run", the input has no value for 30 s and then reads 1 again
+- **THEN** the state stays "run" and the response does not run again
+
+#### Scenario: No value in the hold time
+- **WHEN** the hold time is 10 s, the input is true from second 100, has no value at second 105 and is true again from second 106
+- **THEN** the response runs at second 116
 
 ### Requirement: Repeat
 In the state "run" with repeat on, the node SHALL run its response again when the last run plus the repeat interval is not after now and the input is still true. Without repeat the node SHALL run once for each rise.
@@ -67,7 +71,7 @@ A run that would start before the last run plus the minimum interval SHALL be dr
 - **THEN** the response does not run before 10:10:00
 
 ### Requirement: Stored run state
-The app SHALL store the state and the last run time of each response end node with the wall clock. After a restart of the app, a response whose stored state is "run" and whose input is true SHALL stay in the state "run" and SHALL not run again.
+The app SHALL store the state and the last run time of each response end node with the wall clock, in `graph-state.json`. After a restart of the app, a node whose stored state is "run" and whose input is true SHALL stay in the state "run" and SHALL not run again. A node whose stored state is "not run" and whose input is true SHALL see a rise at the first evaluation.
 
 #### Scenario: Restart with the condition true
 - **WHEN** a response ran, the app restarts, and the input is still true
@@ -77,19 +81,12 @@ The app SHALL store the state and the last run time of each response end node wi
 - **WHEN** a response ran, the app restarts, and the input is false
 - **THEN** the state is "not run"
 
-### Requirement: Start delay
-For 10 s after its start the app SHALL evaluate the Graphs and SHALL run no response. An input that is true at the end of the delay, with a stored state other than "run", SHALL count as a rising edge at that time.
-
-#### Scenario: Condition true at login
-- **WHEN** the input of a response with hold time 0 s and stored state "not run" is true from the start
-- **THEN** the response runs at second 10 after the start and not before
-
-#### Scenario: Graph sensor at login
-- **WHEN** a sensor Graph has a value in the first second
-- **THEN** the app feeds it in the first second
+#### Scenario: Not run before the restart
+- **WHEN** a response did not run, the app restarts, and the input is true at the first evaluation with hold time 0 s
+- **THEN** the response runs at the first evaluation
 
 ### Requirement: Run once
-"Run once" on a response end node SHALL run the response one time at once with the parameters of the draft and SHALL ignore the minimum interval and the state. It SHALL run in the response pause too, because the user asks for this one run.
+"Run once" on a response end node SHALL run the response one time at once with the parameters of the draft. It SHALL ignore the state, the minimum interval and the Response pause. A poweroff or reboot from "Run once" SHALL count for the Response pause. It SHALL not run a power response while the daemon reports a poweroff countdown of an Alarm.
 
 #### Scenario: Run once inside the interval
 - **WHEN** the response ran 10 s ago with a minimum interval of 300 s and the user presses "Run once"
@@ -100,8 +97,16 @@ For 10 s after its start the app SHALL evaluate the Graphs and SHALL run no resp
 - **THEN** the response runs with the parameters in the editor
 
 #### Scenario: In the pause
-- **WHEN** the response pause is on and the user presses "Run once" on a notification response
-- **THEN** the notification shows once, and the response pause stays on
+- **WHEN** the Response pause is on and the user presses "Run once" on a notification response
+- **THEN** the response runs
+
+#### Scenario: Counts for the pause
+- **WHEN** the count is 2 and the user presses "Run once" on a reboot response
+- **THEN** the count is 3 and the pause starts
+
+#### Scenario: Alarm countdown
+- **WHEN** an Alarm poweroff countdown runs and the user presses "Run once" on a poweroff response
+- **THEN** nothing runs and the app shows the reason
 
 ### Requirement: Response process
 The app SHALL run every response kind in the user session: notification, sound, command, e-mail, MQTT message, poweroff, reboot and suspend. The daemon SHALL run none and SHALL accept no request for a response. Only the app of the active session of logind SHALL run responses. No kind SHALL ask for a password.
@@ -117,6 +122,21 @@ The app SHALL run every response kind in the user session: notification, sound, 
 #### Scenario: App not running
 - **WHEN** the app does not run and a condition holds
 - **THEN** no response runs
+
+### Requirement: Active session
+Only the app of the active session SHALL run responses. The app SHALL find its session with the id in `XDG_SESSION_ID`, call `GetSession` on `org.freedesktop.login1.Manager` at `/org/freedesktop/login1` on the system bus, and read the property `Active` of `org.freedesktop.login1.Session`. It SHALL follow the signal `PropertiesChanged` of that property.
+
+#### Scenario: Active
+- **WHEN** `Active` is true
+- **THEN** the app runs responses
+
+#### Scenario: Inactive
+- **WHEN** `Active` is false
+- **THEN** the app runs no response and keeps evaluating the Graphs
+
+#### Scenario: Session switch
+- **WHEN** the user switches to another session and back
+- **THEN** the app runs no response while `Active` is false and runs again when it is true
 
 ### Requirement: Notification response
 A notification response SHALL have a title of 1 to 64 characters, a text of up to 1024 characters and an urgency of low, normal or critical, default normal. The app SHALL show it as a desktop notification.
@@ -141,7 +161,7 @@ A sound response SHALL have one name from the sound theme of the desktop. The ap
 - **THEN** the validator refuses it
 
 ### Requirement: Command response
-A command response SHALL have an absolute program path, a list of arguments and a time limit of 1 to 3600 s, default 30 s. The app SHALL start the program with no shell, SHALL discard its output and SHALL kill it, with its process group, at the time limit. The app SHALL set environment variables with the Graph id, the Graph name, the run id and the value of each node.
+A command response SHALL have an absolute program path, a list of arguments and a time limit of 1 to 3600 s, default 30 s. The app SHALL start the program with no shell, SHALL discard its output and SHALL kill it, with its process group, at the time limit. The app SHALL set `NICECOOLING_GRAPH_ID`, `NICECOOLING_GRAPH_NAME`, `NICECOOLING_RUN_ID` and `NICECOOLING_NODE_<id>` for each node, with the number as decimal text, or empty with no value.
 
 #### Scenario: Run with arguments
 - **WHEN** the path is `/usr/bin/notify-send` and the arguments are `Hot` and `Water`
@@ -152,12 +172,12 @@ A command response SHALL have an absolute program path, a list of arguments and 
 - **THEN** the app kills it and the outcome is `timeout`
 
 #### Scenario: Environment
-- **WHEN** the Graph `graph_2` named "Hot water" fires with a node that gives 46.2
-- **THEN** the program sees the Graph id, the name and the value 46.2 in its environment
+- **WHEN** the Graph `graph_2` named "Hot water" fires and node 4 gives 46.2 and node 5 has no value
+- **THEN** the program sees `NICECOOLING_GRAPH_ID=graph_2`, `NICECOOLING_GRAPH_NAME=Hot water`, `NICECOOLING_NODE_4=46.2` and `NICECOOLING_NODE_5=` empty
 
 #### Scenario: Relative path
 - **WHEN** a Graph has the path `notify-send`
-- **THEN** the validator refuses it
+- **THEN** the validator refuses it with the code `bad-parameter`
 
 #### Scenario: Program missing
 - **WHEN** the path does not exist
@@ -183,15 +203,19 @@ An e-mail response SHALL have one recipient address, a subject of up to 128 char
 - **THEN** the message has the subject on one line
 
 ### Requirement: MQTT message response
-An MQTT message response SHALL have a topic below the base topic and a payload template of up to 4096 bytes. The app SHALL publish `<base topic>/<topic>` with QoS 1 and no retain flag. The topic SHALL have 1 to 128 characters, no wildcard, no empty level and no leading or trailing slash. An empty template SHALL give a JSON object with the Graph id, the Graph name and the time.
+An MQTT message response SHALL have a topic below the base topic and a payload template of up to 4096 bytes. The app SHALL publish `<base topic>/<topic>` with QoS 1 and no retain flag. The topic SHALL have 1 to 128 characters, no wildcard, no empty level and no leading or trailing slash. An empty template SHALL give the JSON object `{"graph_id":"<id>","graph_name":"<name>","time":<microseconds since the Unix epoch>}`.
 
 #### Scenario: Publish
 - **WHEN** the base topic is `nicecooling`, the topic is `alerts/water` and the broker acknowledges the message
 - **THEN** the message goes to `nicecooling/alerts/water` and the outcome is `ok`
 
+#### Scenario: Default payload
+- **WHEN** the template is empty and `graph_2` named "Hot water" fires at 1766000000000000 us
+- **THEN** the payload is `{"graph_id":"graph_2","graph_name":"Hot water","time":1766000000000000}`
+
 #### Scenario: Wildcard in the topic
 - **WHEN** a Graph has the topic `alerts/#`
-- **THEN** the validator refuses it
+- **THEN** the validator refuses it with the code `bad-parameter`
 
 #### Scenario: MQTT off
 - **WHEN** no broker host is set and the response fires
@@ -202,11 +226,11 @@ An MQTT message response SHALL have a topic below the base topic and a payload t
 - **THEN** the outcome is `timeout` and the message stays in the queue
 
 ### Requirement: Power responses
-The poweroff, reboot and suspend kinds SHALL have a countdown of 10 to 3600 s, default 30 s. After the countdown the app SHALL call logind with the rights of the session, with no interactive authorization. When logind refuses, the outcome SHALL be `failed` and the app SHALL not ask for a password. The app SHALL show the countdown with a button "Cancel" in a notification of critical urgency, in the tray menu and in the window.
+The poweroff, reboot and suspend kinds SHALL have a countdown of 10 to 3600 s, default 30 s. After the countdown the app SHALL call `PowerOff`, `Reboot` or `Suspend` on `org.freedesktop.login1.Manager` with the argument `interactive` false. When logind refuses, the outcome SHALL be `failed` and the app SHALL not ask for a password. The app SHALL show the countdown with "Cancel" in a notification of critical urgency, in the tray menu and in the window.
 
 #### Scenario: Countdown ends
 - **WHEN** the countdown of a poweroff response is 30 s and nobody cancels
-- **THEN** the app calls logind to power off after 30 s and the outcome is `ok`
+- **THEN** the app calls `PowerOff(false)` after 30 s and the outcome is `ok`
 
 #### Scenario: Logind refuses
 - **WHEN** another user is logged in and logind refuses the poweroff
@@ -214,7 +238,7 @@ The poweroff, reboot and suspend kinds SHALL have a countdown of 10 to 3600 s, d
 
 #### Scenario: Countdown below the limit
 - **WHEN** a Graph has a countdown of 5 s
-- **THEN** the validator refuses it
+- **THEN** the validator refuses it with the code `bad-parameter`
 
 #### Scenario: App stops in the countdown
 - **WHEN** the app stops 10 s into a 30 s countdown
@@ -247,7 +271,7 @@ The app SHALL run one power countdown at a time. A power run that starts while a
 - **THEN** the new run gets the outcome `busy` and the app starts no second program
 
 ### Requirement: Alarm poweroff wins
-While the daemon reports a poweroff countdown of an Alarm, the app SHALL start no power response and SHALL cancel its own power countdown. No Graph SHALL change the alarm response table or delay the poweroff of an Alarm.
+While the daemon reports a poweroff countdown of an Alarm, the app SHALL start no power response, "Run once" included, and SHALL cancel its own power countdown. No Graph SHALL change the alarm response table or delay the poweroff of an Alarm.
 
 #### Scenario: Alarm countdown starts
 - **WHEN** a Graph poweroff countdown has 20 s left and the pump-stop Alarm starts its poweroff countdown
@@ -262,18 +286,22 @@ While the daemon reports a poweroff countdown of an Alarm, the app SHALL start n
 - **THEN** the pump-stop Alarm still powers off after its delay
 
 ### Requirement: Response pause
-The app SHALL count the poweroff and reboot runs that it starts. The count SHALL go back to 0 when the app has run 10 minutes since the last such run. At a count of 3 the app SHALL enter the response pause: no Graph response runs and the Graph sensors still work. The pause SHALL stay over a restart. The app SHALL show a banner with "Turn the Graph responses on", which sets the count to 0 and ends the pause.
+The app SHALL count the poweroff and reboot runs that it starts, "Run once" included. The count SHALL go back to 0 after 60 minutes of app run time with no such run. The app SHALL store this run time, so it adds up over restarts. At a count of 3 the app SHALL enter the Response pause: no Graph response runs by itself and the Graph sensors still work. The pause SHALL stay over a restart. A banner with "Turn the Graph responses on" SHALL set the count to 0 and end the pause.
 
 #### Scenario: Third reboot
-- **WHEN** reboot responses run 3 times with less than 10 minutes of app time between them
-- **THEN** the app enters the response pause at the third run
+- **WHEN** reboot responses start 3 times with less than 60 minutes of app run time between them
+- **THEN** the app enters the Response pause at the third run
 
 #### Scenario: Count resets
-- **WHEN** one poweroff ran and the app then runs 10 minutes
+- **WHEN** one poweroff ran and the app then runs 60 minutes
+- **THEN** the count is 0
+
+#### Scenario: Run time over a restart
+- **WHEN** the app runs 40 minutes, restarts, and runs 20 minutes
 - **THEN** the count is 0
 
 #### Scenario: Pause over a restart
-- **WHEN** the app restarts in the response pause
+- **WHEN** the app restarts in the Response pause
 - **THEN** the pause is still on and the banner shows
 
 #### Scenario: Turn on
@@ -284,12 +312,27 @@ The app SHALL count the poweroff and reboot runs that it starts. The count SHALL
 - **WHEN** the user cancels a poweroff countdown
 - **THEN** the count does not change
 
+#### Scenario: Suspend
+- **WHEN** a suspend response runs
+- **THEN** the count does not change
+
 ### Requirement: Message placeholders
-The text of a notification, the subject and text of an e-mail and the payload template of an MQTT message SHALL expand `{graph}`, `{time}`, `{value:<label>}` and `{unit:<label>}`, where the label names a node of the Graph. `{time}` SHALL be the local date and time as `YYYY-MM-DD HH:MM:SS`. `{{` SHALL give `{` and `}}` SHALL give `}`. A node without a value SHALL give `--`. An unknown label SHALL keep the placeholder as written. A value SHALL have at most 2 decimals, with no trailing zero.
+The text of a notification, the subject and text of an e-mail and the payload template of an MQTT message SHALL expand `{graph}`, `{time}`, `{value:<label>}` and `{unit:<label>}`, where the label names a node of the Graph. `{time}` SHALL be the local date and time as `YYYY-MM-DD HH:MM:SS`. `{{` SHALL give `{` and `}}` SHALL give `}`.
 
 #### Scenario: Value and unit
 - **WHEN** the node labelled `water` gives 46.2 and its unit is `°C`, and the text is "Water {value:water} {unit:water}"
 - **THEN** the message is "Water 46.2 °C"
+
+#### Scenario: Escaped brace
+- **WHEN** the text holds `{{graph}}`
+- **THEN** the message holds `{graph}`
+
+#### Scenario: Time
+- **WHEN** the response runs at 14:05:09 on 2026-11-25 and the text is "{time}"
+- **THEN** the message is "2026-11-25 14:05:09"
+
+### Requirement: Placeholder values
+A node without a value SHALL give `--`. An unknown label SHALL keep the placeholder as written. A value SHALL have at most 2 decimals, with no trailing zero. The unit of a sensor source node SHALL be the unit text of its sensor. The unit of every other node SHALL be empty.
 
 #### Scenario: No value
 - **WHEN** the node labelled `water` has no value
@@ -299,12 +342,16 @@ The text of a notification, the subject and text of an e-mail and the payload te
 - **WHEN** the text holds `{value:pump}` and no node has the label `pump`
 - **THEN** the message holds `{value:pump}` as written
 
-#### Scenario: Escaped brace
-- **WHEN** the text holds `{{graph}}`
-- **THEN** the message holds `{graph}`
+#### Scenario: Decimals
+- **WHEN** a node gives 46.2000001
+- **THEN** `{value:water}` gives `46.2`
+
+#### Scenario: Unit of a node that is not a source
+- **WHEN** the node labelled `limit` is a constant with the value 50 and the text is "Limit {value:limit}{unit:limit}"
+- **THEN** the message is "Limit 50"
 
 ### Requirement: Response log
-The app SHALL write one row for each run: time, Graph id, Graph name, kind and outcome, in `response-log.json` in `$XDG_DATA_HOME/nicecooling/`. The outcome SHALL be `ok`, `failed`, `timeout`, `not-configured`, `busy` or `cancelled`. The log SHALL hold the newest 500 rows. The editor SHALL show the newest rows of its Graph.
+`response-log.json` in `$XDG_DATA_HOME/nicecooling/` SHALL hold `schema_version` (1) and `rows`. A row SHALL have `time_us`, `graph_id`, `graph_name`, `kind` and `outcome`. The outcome SHALL be `ok`, `failed`, `timeout`, `not-configured`, `busy` or `cancelled`. The app SHALL write one row for each run and keep the newest 500. The editor SHALL show the newest rows of its Graph.
 
 #### Scenario: Row written
 - **WHEN** an e-mail response runs and the server accepts
@@ -319,22 +366,22 @@ The app SHALL write one row for each run: time, Graph id, Graph name, kind and o
 - **THEN** the editor shows those 3 rows
 
 ### Requirement: SMTP account
-The app SHALL hold one SMTP account: host, port, security (STARTTLS, TLS or none), user name, password and sender address. The ports SHALL default to 587, 465 and 25 for the three securities. The app SHALL check the server certificate in the secure modes. With the security none and a user name set, the app SHALL log in and the settings SHALL show a warning that the login is not encrypted.
+The app SHALL hold one SMTP account in `settings.toml`, table `[smtp]`: `host`, `port`, `security` (`starttls`, `tls` or `none`), `user` and `sender`. The password SHALL be in `secrets.toml`. The ports SHALL default to 587, 465 and 25 for the three securities. The app SHALL check the server certificate in the secure modes. With the security `none` and a user set, the app SHALL log in and the settings SHALL show a warning that the login is not encrypted.
 
 #### Scenario: STARTTLS
-- **WHEN** the security is STARTTLS and the server certificate is not valid
+- **WHEN** the security is `starttls` and the server certificate is not valid
 - **THEN** the send fails with the outcome `failed`
 
 #### Scenario: None with a password
-- **WHEN** the security is none and a user name and password are set
+- **WHEN** the security is `none` and a user and password are set
 - **THEN** the app logs in and sends the message, and the settings show the warning
 
 #### Scenario: Default port
-- **WHEN** the user picks TLS and leaves the port empty
+- **WHEN** the user picks `tls` and leaves the port empty
 - **THEN** the port is 465
 
 ### Requirement: SMTP password storage
-The app SHALL store the SMTP password in `secrets.toml` in `$XDG_CONFIG_HOME/nicecooling/` with the mode 0600. The app SHALL never show the stored password. The password field SHALL show a placeholder when a password is set. The app SHALL never write the password to a log or to an export file.
+`secrets.toml` in `$XDG_CONFIG_HOME/nicecooling/` SHALL have the mode 0600 and the keys `schema_version` (1), `[mqtt] password` and `[smtp] password`. The app SHALL never show the stored password. The password field SHALL show a placeholder when a password is set. The app SHALL never write a password to a log or to an export file.
 
 #### Scenario: File mode
 - **WHEN** the app writes `secrets.toml`
