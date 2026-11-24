@@ -8,21 +8,21 @@ Every check starts from this state. A field section adds its own conditions.
 
 1. The daemon is stopped, so the tool owns the device. The out-of-tree driver is not loaded.
 2. The loop is filled and leak-free. The pump runs at its normal duty. The PC is idle: no load that needs full cooling.
-3. The Leakshield is in Mode SHIELD. No Action runs. `alarm_bits` reads 0.
+3. The Leakshield is in Mode RELEASE (owner decision): the loop holds no vacuum, so a test value of a pressure or timer field acts on nothing. No Action runs. `alarm_bits` reads 0.
 4. A person watches the loop for the whole check and can stop the pump.
 5. The test value stays inside the registry range. For a field with repeats, the check writes copy 0 only.
 6. The tool takes a backup first and restores it at the end. A failed check also ends with the restore.
 
 ## Result
 
-- Pass: the read-back differs from the backup only in the field, the CRC and the volatile mask, the value persists after the USB replug, and the restore brings back the backup bytes. Registry change: `verification_state` from `code-defined` to `verified-write`.
+- Pass: the read-back differs from the backup only in the field, the CRC and the volatile mask, the read-back after the save-settings command still holds the value, and the restore brings back the backup bytes. Registry change: `verification_state` from `code-defined` to `verified-write`.
 - Fail: any other result. Registry change: `verification_state` from `code-defined` to `failed`. Record the tool output.
 
 Record each result in the section of the field as `Result: <date>, firmware 1022, pass|fail, <note>`.
 
 ## Groups
 
-The tool verifies a group of fields with one replug: `nicecooling-verify --confirm-serial 20417-31072 --field <id> --value <raw> [--field <id> --value <raw> ...]`. Each field gets its own write and its own read-back check. The group shares the save-settings, the replug and the restore. A field that does not hold its test value fails alone. A byte that no written field explains fails the whole group. On the reference Board the replug is a cable pull: the hub does not switch port power, so a port disable does not restart the device.
+The tool verifies a group of fields in one run: `nicecooling-verify --confirm-serial 20417-31072 --field <id> --value <raw> [--field <id> --value <raw> ...]`. Each field gets its own write and its own read-back check. The group shares the save-settings command and the restore. A field that does not hold its test value fails alone. A byte that no written field explains fails the whole group.
 
 A group holds fields with the same safe loop state:
 
@@ -33,9 +33,7 @@ A group holds fields with the same safe loop state:
 | clock | `sensor_unit` (copy 0), `clock_flags`, `clock_timezone`, `shield_flags`, `vacuum_timer_start_hour`, `vacuum_timer_start_minute`, `vacuum_timer_end_hour`, `vacuum_timer_end_minute` | No time-controlled vacuum window starts within 15 min. The test values of the group give the window 08:01-10:02: `vacuum_timer_start_hour` goes one step down. |
 | alarms | `alarm_enable`, `alarm_buzzer`, the three thresholds, the 18 response fields, `refill_duration_warning` | `alarm_bits` and `alarm_bits_latched` read 0. |
 | pressure | `loop_height`, `test_pressure`, `deaeration_pressure`, `refill_pressure`, the four `shield_pressure_*` and the four `monitor_pressure_*` fields | Pressure stable within 2 mbar of the setpoint for 5 min. |
-| mode | `default_mode` | Runs last: the replug powers the device up in the Mode of the test value. Set the Mode back after the restore. |
-
-Item 3 of the base safe state asks for Mode SHIELD. A replug powers the device up in `default_mode`, which is RELEASE on the reference device, and the daemon stays stopped during the check. So the checks run in RELEASE (owner decision): write `Mode RELEASE` in each Result.
+| mode | `default_mode` | Runs last, alone. After the restore, check the Mode with `busctl get-property $B $LS $B.Leakshield Mode`. |
 
 ## Fields
 
@@ -417,7 +415,7 @@ Item 3 of the base safe state asks for Mode SHIELD. A replug powers the device u
 
 - Offset 724, u8. Value in the fw1022 dump: 3.
 - Test value: 2 (MONITOR) when the current value is not 2, else 1 (SHIELD).
-- Safe loop state: base. The replug step powers the device up in the Mode of the test value. Set the Mode back after the restore.
+- Safe loop state: base. After the restore, check that the Mode is RELEASE.
 - Expected registry change: `code-defined` to `verified-write` on pass, `failed` on fail.
 - Result: open
 
