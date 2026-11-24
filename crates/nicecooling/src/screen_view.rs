@@ -128,6 +128,16 @@ pub struct ScreenView {
     /// that it closed.
     pub(crate) closing_press: Option<(gpui::Point<gpui::Pixels>, Option<String>)>,
     pub(crate) preset_menu_open: bool,
+    /// The focus of each select of `select_field`, by its key.
+    pub(crate) select_focus: HashMap<String, gpui::FocusHandle>,
+    /// What has the focus in this frame.
+    pub(crate) focused: Option<gpui::FocusHandle>,
+    /// The row that the keyboard marks in the open list of a select or a picker: the key of
+    /// the list and the row.
+    pub(crate) picker_cursor: Option<(String, usize)>,
+    /// A picker that the keyboard opened: its key, the select that gets the focus back, and
+    /// whether the search input took the focus.
+    pub(crate) picker_keys: Option<(String, gpui::FocusHandle, bool)>,
 }
 
 impl ScreenView {
@@ -171,6 +181,10 @@ impl ScreenView {
             open_picker: None,
             closing_press: None,
             preset_menu_open: false,
+            select_focus: HashMap::new(),
+            focused: None,
+            picker_cursor: None,
+            picker_keys: None,
         }
     }
 
@@ -473,6 +487,8 @@ impl Render for ScreenView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let page = self.model.read(cx).page.clone();
         let p = Self::palette(cx);
+        self.return_picker_focus(window, cx);
+        self.focused = window.focused(cx);
         // Each page, and each tab of a Leakshield, keeps its own scroll position.
         let scroll_id = match &page {
             Page::Leakshield(_) => format!("screen-leakshield-{:?}", self.leakshield.tab),

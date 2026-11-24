@@ -112,6 +112,13 @@ impl ShellView {
             if let Some(page) = pages.get(number - 1) {
                 self.go(page.clone(), cx);
             }
+        } else if keys.key == "tab" && !keys.modifiers.control && !keys.modifiers.alt {
+            // Tab and Shift+Tab move the focus through the controls.
+            if keys.modifiers.shift {
+                window.focus_prev(cx);
+            } else {
+                window.focus_next(cx);
+            }
         } else if keys.key == "f10" {
             self.menu_open = !self.menu_open;
             cx.notify();

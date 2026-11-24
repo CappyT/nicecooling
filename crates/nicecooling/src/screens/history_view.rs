@@ -13,7 +13,7 @@ use crate::history::query::Resolution;
 use crate::icons::NcIcon;
 use crate::model::Severity;
 use crate::screen_view::{Drag, ScreenView};
-use crate::screens::controls::act;
+use crate::screens::controls::{HISTORY_PICKER, act};
 use crate::screens::format::clock;
 use crate::screens::history::{
     ChartModel, HistoryModel, HistoryState, SeriesModel, Side, picker_rows,
@@ -68,7 +68,7 @@ impl ScreenView {
                 this.history.picker_open = true;
                 cx.notify();
             });
-            self.picker_list("history", rows, pick, p, window, cx)
+            self.picker_list(HISTORY_PICKER, rows, pick, p, window, cx)
         });
         let sensors = select_trigger(
             "history-sensors",
@@ -77,11 +77,18 @@ impl ScreenView {
             false,
             true,
             p.track,
+            window,
+            cx,
         )
-        .on_click(act(&view, |this, _, _| {
-            this.history.picker_open = !this.history.picker_open;
-        }));
-        let mut ranges = seg(p);
+        .debug_selector(|| "history-sensors".to_owned());
+        let sensors = Self::opens_picker(
+            sensors,
+            &view,
+            HISTORY_PICKER,
+            self.history.picker_open,
+            |this| this.history.picker_open = !this.history.picker_open,
+        );
+        let mut ranges = seg("history-range", p, window, cx);
         for button in &model.ranges {
             let range = button.range;
             ranges = ranges.child(
@@ -91,6 +98,8 @@ impl ScreenView {
                     button.active,
                     true,
                     p,
+                    window,
+                    cx,
                 )
                 .px(px(10.))
                 .on_click(act(&view, move |this, _, _| this.history.set_range(range))),

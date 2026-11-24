@@ -796,7 +796,7 @@ fn loops_and_first_run_use_the_shared_widgets(cx: &mut TestAppContext) {
             });
         });
     };
-    let mut bounds = |cx: &mut TestAppContext, name: &'static str| {
+    let bounds = |cx: &mut TestAppContext, name: &'static str| {
         cx.run_until_parked();
         let mut visual = VisualTestContext::from_window(handle, cx);
         visual.update(|window, cx| window.draw(cx).clear(cx));

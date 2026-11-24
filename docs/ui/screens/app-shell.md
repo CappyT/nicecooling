@@ -63,6 +63,7 @@ Every write shows its steps next to the control that started it: see "Write stat
 ## Interactions
 
 - Alt+1 to Alt+9 open the first nine sidebar entries. F10 opens the primary menu. Ctrl+W hides the window.
+- Tab and Shift+Tab move the focus through the controls. The control with the focus has the focus ring. Enter and Space press it. In a segmented control, Left and Right move the focus between its items. On a select, Down opens the list, Up and Down move the mark, Enter picks the marked row and Escape closes the list. A disabled control takes no focus.
 - Primary menu: "Keyboard shortcuts", "About nicecooling", "Quit".
 - Escape closes a popover or a dialog. It never cancels a poweroff.
 

@@ -4,16 +4,16 @@ use std::rc::Rc;
 
 use gpui::prelude::*;
 use gpui::{
-    AnyElement, App, ClickEvent, Context, Entity, FontWeight, Hsla, MouseDownEvent, SharedString,
-    Window, div, px,
+    AnyElement, App, ClickEvent, Context, Div, Entity, Focusable as _, FontWeight, Hsla,
+    KeyDownEvent, MouseDownEvent, SharedString, Stateful, Window, div, px,
 };
 use gpui_component::Sizable as _;
 use gpui_component::button::{Button, ButtonVariants as _};
 use gpui_component::input::{Input, InputState};
 
 use crate::icons::{NcIcon, icon, text_icon};
-use crate::screen_view::ScreenView;
-use crate::screens::ui::{card_row, popover, select_trigger, with_popover};
+use crate::screen_view::{InputKey, ScreenView};
+use crate::screens::ui::{card_row, popover, select_trigger_with, with_popover};
 use crate::tokens::Palette;
 
 pub(crate) type Pick = Rc<dyn Fn(&mut ScreenView, String, &mut Window, &mut Context<ScreenView>)>;
@@ -71,6 +71,104 @@ impl ScreenView {
     }
 }
 
+/// The key of the sensor picker of History: its open state is not in `open_picker`.
+pub(crate) const HISTORY_PICKER: &str = "history";
+
+/// What a key does in the open list of a select or a picker.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ListKey {
+    /// Up or Down: the row that the key marks.
+    Mark(usize),
+    /// Enter: pick the marked row.
+    Pick,
+    Close,
+}
+
+/// The meaning of `event` for an open list of `count` rows with the mark on `cursor`.
+pub(crate) fn list_key(event: &KeyDownEvent, cursor: usize, count: usize) -> Option<ListKey> {
+    let keys = &event.keystroke;
+    if keys.modifiers.modified() {
+        return None;
+    }
+    match keys.key.as_str() {
+        "down" => Some(ListKey::Mark((cursor + 1).min(count.saturating_sub(1)))),
+        "up" => Some(ListKey::Mark(cursor.saturating_sub(1))),
+        "enter" => Some(ListKey::Pick),
+        "escape" => Some(ListKey::Close),
+        _ => None,
+    }
+}
+
+impl ScreenView {
+    /// True when the list of the select or the picker `key` is open.
+    pub(crate) fn picker_open(&self, key: &str) -> bool {
+        self.open_picker.as_deref() == Some(key)
+            || (key == HISTORY_PICKER && self.history.picker_open)
+    }
+
+    /// The row that the keyboard marks in the list `key`. `start` is the row of a list that
+    /// has no mark yet. The mark stays in the `count` rows.
+    pub(crate) fn cursor(&self, key: &str, start: usize, count: usize) -> usize {
+        let cursor = match &self.picker_cursor {
+            Some((list, row)) if list == key => *row,
+            _ => start,
+        };
+        cursor.min(count.saturating_sub(1))
+    }
+
+    /// Give the focus back to the select of a picker that the keyboard opened, when the
+    /// picker closes. A focus that moved to another control stays there.
+    pub(crate) fn return_picker_focus(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some((key, select, _)) = &self.picker_keys else {
+            return;
+        };
+        if self.picker_open(key) {
+            return;
+        }
+        let search = self.inputs.get(&InputKey::PickerSearch(key.clone()));
+        if search.is_none_or(|search| search.read(cx).focus_handle(cx).is_focused(window)) {
+            window.focus(select, cx);
+        }
+        self.picker_keys = None;
+    }
+
+    /// The handlers of the select of a sensor picker. A press, Enter and Space run `toggle`.
+    /// Down opens a closed picker. A picker that the keyboard opens takes the focus in its
+    /// search input: Up and Down then move in its list, Enter picks and Escape closes.
+    pub(crate) fn opens_picker(
+        trigger: Stateful<Div>,
+        view: &Entity<Self>,
+        key: &str,
+        open: bool,
+        toggle: impl Fn(&mut Self) + 'static,
+    ) -> Stateful<Div> {
+        let run = {
+            let (view, key) = (view.clone(), key.to_owned());
+            Rc::new(move |by_keys: bool, window: &mut Window, cx: &mut App| {
+                let select = window.focused(cx).filter(|_| by_keys && !open);
+                view.update(cx, |this, cx| {
+                    if let Some(select) = select {
+                        this.picker_cursor = None;
+                        this.picker_keys = Some((key.clone(), select, false));
+                    }
+                    toggle(this);
+                    cx.notify();
+                });
+            })
+        };
+        let from_key = run.clone();
+        trigger
+            .on_click(move |click, window, cx| run(click.is_keyboard(), window, cx))
+            .capture_key_down(move |event, window, cx| {
+                let keys = &event.keystroke;
+                if !open && keys.key == "down" && !keys.modifiers.modified() {
+                    from_key(true, window, cx);
+                    cx.stop_propagation();
+                }
+            })
+    }
+}
+
 /// One choice of a select: identifier, text and whether it is the current one.
 pub(crate) type Choice = (String, String, bool);
 
@@ -116,23 +214,73 @@ impl ScreenView {
         let open = enabled && self.open_picker.as_deref() == Some(key);
         let name = key.to_owned();
         let (trigger_name, list_name) = (format!("select-{key}"), format!("select-list-{key}"));
-        let trigger = select_trigger(
+        // The select keeps the focus while its list is open: the keys go to the select.
+        let focus = enabled.then(|| {
+            let focus = self
+                .select_focus
+                .entry(key.to_owned())
+                .or_insert_with(|| cx.focus_handle().tab_stop(true))
+                .clone();
+            let focused = self.focused.as_ref() == Some(&focus);
+            (focus, focused)
+        });
+        let current = choices.iter().position(|(_, _, selected)| *selected);
+        let cursor = self.cursor(key, current.unwrap_or(0), choices.len());
+        let ids: Vec<String> = choices.iter().map(|(id, _, _)| id.clone()).collect();
+        let trigger = select_trigger_with(
             SharedString::from(format!("select-{key}")),
             shown.to_owned(),
             None,
             small,
-            enabled,
             ground,
+            focus,
         )
         .debug_selector(move || trigger_name)
         .when(enabled, |trigger| {
-            trigger.on_click(act(&view, move |this, _, _| {
-                this.open_picker = if this.open_picker.as_deref() == Some(name.as_str()) {
-                    None
-                } else {
-                    Some(name.clone())
-                };
-            }))
+            let (view, name, pick) = (view.clone(), name.clone(), pick.clone());
+            let toggle = name.clone();
+            trigger
+                .on_click(act(&view, move |this, _, _| {
+                    this.picker_cursor = None;
+                    this.open_picker = if this.open_picker.as_deref() == Some(toggle.as_str()) {
+                        None
+                    } else {
+                        Some(toggle.clone())
+                    };
+                }))
+                // Down opens the list. In the open list Up and Down move the mark, Enter and
+                // Space pick the marked row. Escape goes to the shell: it closes the list.
+                .capture_key_down(move |event, window, cx| {
+                    let keys = &event.keystroke;
+                    let action = if !open {
+                        (keys.key == "down" && !keys.modifiers.modified())
+                            .then_some(ListKey::Mark(cursor))
+                    } else if keys.key == "space" && !keys.modifiers.modified() {
+                        Some(ListKey::Pick)
+                    } else {
+                        list_key(event, cursor, ids.len()).filter(|key| *key != ListKey::Close)
+                    };
+                    let Some(action) = action else {
+                        return;
+                    };
+                    cx.stop_propagation();
+                    view.update(cx, |this, cx| {
+                        match action {
+                            ListKey::Mark(row) => {
+                                this.open_picker = Some(name.clone());
+                                this.picker_cursor = Some((name.clone(), row));
+                            }
+                            ListKey::Pick => {
+                                this.open_picker = None;
+                                if let Some(id) = ids.get(cursor) {
+                                    pick(this, id.clone(), window, cx);
+                                }
+                            }
+                            ListKey::Close => {}
+                        }
+                        cx.notify();
+                    });
+                })
         });
         let list = open.then(|| {
             let mut list = popover(p)
@@ -144,6 +292,7 @@ impl ScreenView {
                 let view = view.clone();
                 let hover = p.hover;
                 let marked = p.accent_tint;
+                let row_name = format!("choice-{key}-{index}");
                 list = list.child(
                     div()
                         .id(SharedString::from(format!("choice-{key}-{index}")))
@@ -155,6 +304,10 @@ impl ScreenView {
                         .whitespace_nowrap()
                         .cursor_pointer()
                         .hover(move |row| row.bg(hover))
+                        // The row that the keyboard marks has the hover fill.
+                        .when(index == cursor, move |row| {
+                            row.bg(hover).debug_selector(move || row_name)
+                        })
                         .when(selected, move |row| {
                             row.bg(marked).font_weight(FontWeight::BOLD)
                         })

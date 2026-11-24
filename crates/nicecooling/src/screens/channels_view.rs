@@ -373,7 +373,7 @@ impl ScreenView {
             );
 
         // Control: a segmented control.
-        let mut group = seg(p);
+        let mut group = seg("channel-control", p, window, cx);
         for button in &detail.controls {
             let control = button.control;
             let item = seg_item(
@@ -382,6 +382,8 @@ impl ScreenView {
                 button.active,
                 enabled,
                 p,
+                window,
+                cx,
             );
             group = group.child(if enabled {
                 item.on_click(act(&view, move |this, _, cx| {
@@ -612,15 +614,17 @@ impl ScreenView {
             false,
             enabled,
             p.track,
+            window,
+            cx,
         )
         .when(enabled, |trigger| {
-            trigger.on_click(act(&view, |this, _, _| {
+            Self::opens_picker(trigger, &view, "curve-input", input_open, |this| {
                 this.open_picker = if this.open_picker.as_deref() == Some("curve-input") {
                     None
                 } else {
                     Some("curve-input".to_owned())
                 };
-            }))
+            })
         });
         // The label wraps: an Italian label is longer than its field at the minimum window.
         let field = |label: String, control: AnyElement, grow: f32| {

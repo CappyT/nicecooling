@@ -12,7 +12,7 @@ use crate::command::Command;
 use crate::icons::{NcIcon, icon, small_icon};
 use crate::model::Severity;
 use crate::screen_view::{InputKey, ScreenView, skeleton};
-use crate::screens::controls::act;
+use crate::screens::controls::{ListKey, act, list_key};
 use crate::screens::sensors::{
     DerivedEditor, DerivedEditorModel, FUNCTIONS, SensorRow, SensorSection, SensorsModel,
     SensorsState,
@@ -556,7 +556,7 @@ impl ScreenView {
             cx,
         );
 
-        let mut functions = seg(p);
+        let mut functions = seg("derived-function", p, window, cx);
         for function in FUNCTIONS {
             let active = model.function == function;
             functions = functions.child(
@@ -566,6 +566,8 @@ impl ScreenView {
                     active,
                     true,
                     p,
+                    window,
+                    cx,
                 )
                 .on_click(act(&view, move |this, _, _| {
                     if let Some(editor) = this.sensors.editor.as_mut() {
@@ -600,16 +602,18 @@ impl ScreenView {
                 false,
                 true,
                 p.track,
-            )
-            .on_click({
+                window,
+                cx,
+            );
+            let trigger = Self::opens_picker(trigger, &view, &picker_key, open, {
                 let key = picker_key.clone();
-                act(&view, move |this, _, _| {
+                move |this| {
                     this.open_picker = if this.open_picker.as_deref() == Some(key.as_str()) {
                         None
                     } else {
                         Some(key.clone())
                     };
-                })
+                }
             });
             let mut line = h_flex()
                 .gap(px(9.))
@@ -809,22 +813,61 @@ impl ScreenView {
         );
         let query = search.read(cx).value().to_lowercase();
         let view = cx.entity();
-        let mut list = v_flex()
-            .id(SharedString::from(format!("picker-{key}")))
-            .max_h(px(360.))
-            .overflow_y_scroll();
-        for (index, row) in rows
+        let search_focus = gpui::Focusable::focus_handle(search.read(cx), cx);
+        // A picker that the keyboard opened takes the focus in its search input, once.
+        if let Some((list, _, entered)) = &mut self.picker_keys
+            && list == key
+            && !*entered
+        {
+            *entered = true;
+            window.focus(&search_focus, cx);
+        }
+        let rows: Vec<PickRow> = rows
             .into_iter()
             .filter(|row| {
                 query.is_empty()
                     || row.name.to_lowercase().contains(&query)
                     || row.caption.to_lowercase().contains(&query)
             })
-            .enumerate()
-        {
+            .collect();
+        let current = rows.iter().position(|row| row.selected).unwrap_or(0);
+        let cursor = self.cursor(key, current, rows.len());
+        // The keys of the list, while the search input has the focus.
+        let keys = {
+            let (view, pick, name) = (view.clone(), pick.clone(), key.to_owned());
+            let ids: Vec<String> = rows.iter().map(|row| row.id.clone()).collect();
+            let search_focus = search_focus.clone();
+            move |event: &gpui::KeyDownEvent, window: &mut Window, cx: &mut gpui::App| {
+                if !search_focus.is_focused(window) {
+                    return;
+                }
+                let Some(action) = list_key(event, cursor, ids.len()) else {
+                    return;
+                };
+                cx.stop_propagation();
+                view.update(cx, |this, cx| {
+                    match action {
+                        ListKey::Mark(row) => this.picker_cursor = Some((name.clone(), row)),
+                        ListKey::Pick => {
+                            if let Some(id) = ids.get(cursor) {
+                                pick(this, id.clone(), window, cx);
+                            }
+                        }
+                        ListKey::Close => this.close_popovers(),
+                    }
+                    cx.notify();
+                });
+            }
+        };
+        let mut list = v_flex()
+            .id(SharedString::from(format!("picker-{key}")))
+            .max_h(px(360.))
+            .overflow_y_scroll();
+        for (index, row) in rows.into_iter().enumerate() {
             let pick = pick.clone();
             let view = view.clone();
             let id = row.id.clone();
+            let row_name = format!("pick-{key}-{index}");
             list = list.child(
                 h_flex()
                     .id(SharedString::from(format!("pick-{key}-{index}")))
@@ -834,6 +877,10 @@ impl ScreenView {
                     .items_center()
                     .cursor_pointer()
                     .hover(|row| row.bg(p.hover))
+                    // The row that the keyboard marks has the hover fill.
+                    .when(index == cursor && search_focus.is_focused(window), |line| {
+                        line.bg(p.hover).debug_selector(move || row_name)
+                    })
                     .when(row.selected, |line| line.bg(p.accent_tint))
                     .on_click(move |_, window, cx| {
                         let (id, pick) = (id.clone(), pick.clone());
@@ -863,6 +910,7 @@ impl ScreenView {
             .w(px(360.))
             .overflow_hidden()
             .debug_selector(move || selector)
+            .capture_key_down(keys)
             .child(div().p(px(6.)).child(
                 Self::field_input(&search, None, false, p).prefix(icon(NcIcon::Search, p.fg_dim)),
             ))

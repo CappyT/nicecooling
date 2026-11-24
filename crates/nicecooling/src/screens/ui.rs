@@ -5,8 +5,9 @@ use std::rc::Rc;
 
 use gpui::prelude::*;
 use gpui::{
-    AnyElement, App, Bounds, BoxShadow, Div, ElementId, FontWeight, Hsla, MouseDownEvent, Pixels,
-    SharedString, Stateful, Window, deferred, div, point, px, relative, rgba,
+    AnyElement, App, Bounds, BoxShadow, Div, ElementId, FocusHandle, FontWeight, Hsla,
+    KeyDownEvent, MouseDownEvent, Pixels, SharedString, Stateful, Window, deferred, div, point, px,
+    relative, rgba,
 };
 use gpui_component::tooltip::Tooltip;
 use gpui_component::{Icon, Sizable as _, h_flex, v_flex};
@@ -132,25 +133,117 @@ pub fn label(text: impl Into<SharedString>) -> Div {
     div().min_w_0().truncate().child(text.into())
 }
 
-/// The track of a segmented control: its items are `seg_item`.
-pub fn seg(p: &Palette) -> Div {
+/// The focus of a control that is a plain element. It lives while the control is drawn. GPUI
+/// reads the Tab stop from the handle, not from the element that tracks it.
+fn keyed_focus(id: &ElementId, tab_stop: bool, window: &mut Window, cx: &mut App) -> FocusHandle {
+    window
+        .use_keyed_state(id.clone(), cx, move |_, cx| {
+            cx.focus_handle().tab_stop(tab_stop)
+        })
+        .read(cx)
+        .clone()
+}
+
+/// The focus ring of `DESIGN.md`: 2 px, 2 px from the control. `radius` is the radius of the
+/// control.
+fn focus_ring(radius: f32, color: Hsla) -> Div {
+    div()
+        .absolute()
+        .top(px(-4.))
+        .left(px(-4.))
+        .right(px(-4.))
+        .bottom(px(-4.))
+        .rounded(px(radius + 4.))
+        .border_2()
+        .border_color(color)
+        .debug_selector(|| "nc-focus-ring".to_owned())
+}
+
+/// True for Enter and Space without a modifier: the keys that press a control.
+fn presses(event: &KeyDownEvent) -> bool {
+    let keys = &event.keystroke;
+    (keys.key == "enter" || keys.key == "space") && !keys.modifiers.modified()
+}
+
+/// Make a plain element a control of the keyboard: a Tab stop with the focus ring. Enter and
+/// Space run its click handler, as GPUI does for the element that has the focus. As a button,
+/// it takes no focus from a press: the ring shows for the keyboard only.
+fn keyboard_control(
+    control: Stateful<Div>,
+    focus: &FocusHandle,
+    radius: f32,
+    ring: Hsla,
+    focused: bool,
+) -> Stateful<Div> {
+    control
+        .track_focus(focus)
+        .on_any_mouse_down(|_, window, _| window.prevent_default())
+        // The key stays here: a screen that takes Enter for its list does not get it too.
+        .on_key_down(|event, _, cx| {
+            if presses(event) {
+                cx.stop_propagation();
+            }
+        })
+        .when(focused, |control| control.child(focus_ring(radius, ring)))
+}
+
+/// The track of a segmented control: its items are `seg_item`. Tab stops at each item that
+/// is enabled. Left and Right move the focus between them and do not leave the control.
+pub fn seg(
+    id: impl Into<ElementId>,
+    p: &Palette,
+    window: &mut Window,
+    cx: &mut App,
+) -> Stateful<Div> {
+    let id: ElementId = id.into();
+    let group = keyed_focus(&id, false, window, cx);
     h_flex()
+        .id(id)
         .flex_none()
         .p(px(3.))
         .gap(px(3.))
         .rounded(px(9.))
         .bg(p.track)
+        .track_focus(&group)
+        .on_key_down(move |event, window, cx| {
+            let keys = &event.keystroke;
+            let forward = match keys.key.as_str() {
+                "right" => true,
+                "left" => false,
+                _ => return,
+            };
+            let Some(from) = window.focused(cx) else {
+                return;
+            };
+            if keys.modifiers.modified() || from == group {
+                return;
+            }
+            if forward {
+                window.focus_next(cx);
+            } else {
+                window.focus_prev(cx);
+            }
+            if !group.contains_focused(window, cx) {
+                window.focus(&from, cx);
+            }
+            cx.stop_propagation();
+        })
 }
 
 /// One item of a segmented control: 28 px, bold. The selected item has the `card` fill. The
-/// caller adds the click handler of an enabled item.
+/// caller adds the click handler of an enabled item: Enter and Space run it too. A disabled
+/// item takes no focus.
 pub fn seg_item(
     id: impl Into<ElementId>,
     text: impl Into<SharedString>,
     on: bool,
     enabled: bool,
     p: &Palette,
+    window: &mut Window,
+    cx: &mut App,
 ) -> Stateful<Div> {
+    let id: ElementId = id.into();
+    let focus = enabled.then(|| keyed_focus(&id, true, window, cx));
     div()
         .id(id)
         .h(px(28.))
@@ -173,11 +266,17 @@ pub fn seg_item(
         .when(enabled && !on, |item| item.cursor_pointer())
         .when(!enabled, |item| item.opacity(0.5))
         .child(text.into())
+        .when_some(focus, |item, focus| {
+            let focused = focus.is_focused(window);
+            keyboard_control(item, &focus, 7., p.accent_bg, focused)
+        })
 }
 
 /// The closed look of a select: the `ground` fill, the text, an optional value in bold and a
 /// chevron at the right. 34 px high, or 28 px for a select in a table row. A long text
-/// truncates and the value keeps its width.
+/// truncates and the value keeps its width. An enabled select is a Tab stop: Enter and Space
+/// run the click handler that the caller adds. A disabled select takes no focus.
+#[allow(clippy::too_many_arguments)]
 pub fn select_trigger(
     id: impl Into<ElementId>,
     text: impl Into<SharedString>,
@@ -185,7 +284,28 @@ pub fn select_trigger(
     small: bool,
     enabled: bool,
     ground: Hsla,
+    window: &mut Window,
+    cx: &mut App,
 ) -> Stateful<Div> {
+    let id: ElementId = id.into();
+    let focus = enabled.then(|| keyed_focus(&id, true, window, cx));
+    let focused = focus.as_ref().is_some_and(|focus| focus.is_focused(window));
+    select_trigger_with(id, text, value, small, ground, focus.map(|f| (f, focused)))
+}
+
+/// `select_trigger` with the focus of the caller: the handle, and whether it has the focus
+/// now. `None` is a disabled select.
+pub fn select_trigger_with(
+    id: impl Into<ElementId>,
+    text: impl Into<SharedString>,
+    value: Option<SharedString>,
+    small: bool,
+    ground: Hsla,
+    focus: Option<(FocusHandle, bool)>,
+) -> Stateful<Div> {
+    let enabled = focus.is_some();
+    // `accent-bg` is the same in the light and the dark theme.
+    let (radius, ring) = (if small { 7. } else { 9. }, Palette::new(false).accent_bg);
     h_flex()
         .id(id)
         .w_full()
@@ -193,13 +313,16 @@ pub fn select_trigger(
         .h(px(if small { 28. } else { 34. }))
         .px(px(10.))
         .gap(px(6.))
-        .rounded(px(if small { 7. } else { 9. }))
+        .rounded(px(radius))
         .bg(ground)
         .when(enabled, |trigger| trigger.cursor_pointer())
         .when(!enabled, |trigger| trigger.opacity(0.5))
         .child(div().flex_1().min_w_0().truncate().child(text.into()))
         .children(value.map(|value| div().flex_none().font_weight(FontWeight::BOLD).child(value)))
         .child(Icon::new(NcIcon::Down).with_size(px(16.)).flex_none())
+        .when_some(focus, |trigger, (focus, focused)| {
+            keyboard_control(trigger, &focus, radius, ring, focused)
+        })
 }
 
 /// The shadow of a dialog and a popover (`DESIGN.md`, "Elevation & Depth").

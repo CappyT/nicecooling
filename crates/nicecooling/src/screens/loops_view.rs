@@ -11,7 +11,6 @@ use gpui_component::{Disableable as _, h_flex, v_flex};
 use crate::icons::{NcIcon, icon};
 use crate::model::Severity;
 use crate::screen_view::{InputKey, ScreenView, skeleton, with_screen_input};
-use crate::screens::controls::act;
 use crate::screens::format::plain;
 use crate::screens::loops::{Choice, LoopDetail, LoopRow, LoopsModel, LoopsState, PartRow};
 use crate::screens::sensors_view::PickRow;
@@ -447,18 +446,20 @@ impl ScreenView {
             false,
             enabled,
             p.track,
+            window,
+            cx,
         )
         .debug_selector(move || selector)
         .tip(tooltip.to_owned())
         .when(enabled, |trigger| {
-            let key = key.clone();
-            trigger.on_click(act(&view, move |this, _, _| {
-                this.open_picker = if this.open_picker.as_deref() == Some(key.as_str()) {
+            let toggle = key.clone();
+            Self::opens_picker(trigger, &view, &key, open, move |this| {
+                this.open_picker = if this.open_picker.as_deref() == Some(toggle.as_str()) {
                     None
                 } else {
-                    Some(key.clone())
+                    Some(toggle.clone())
                 };
-            }))
+            })
         });
         let line = card_row(p)
             .child(

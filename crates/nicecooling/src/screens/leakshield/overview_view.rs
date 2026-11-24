@@ -155,11 +155,11 @@ impl ScreenView {
         if let Some(text) = &model.mode.release_banner {
             content = content.child(card(p).child(notice_row(text.clone(), true, p)));
         }
-        content = content.child(self.mode_card(id, &model.mode, p, cx));
+        content = content.child(self.mode_card(id, &model.mode, p, window, cx));
 
         content = content.child(match &model.action_view {
             Some(action) => self.action_view(id, action, p, window, cx),
-            None => self.charts_row(id, &model, p, cx),
+            None => self.charts_row(id, &model, p, window, cx),
         });
 
         let mut root = div().relative().w_full().child(content);
@@ -205,10 +205,11 @@ impl ScreenView {
         id: &str,
         mode: &ModeCard,
         p: &Palette,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let view = cx.entity();
-        let mut selector = seg(p);
+        let mut selector = seg("ls-mode", p, window, cx);
         for choice in &mode.buttons {
             let (device, name) = (id.to_owned(), choice.mode.clone());
             let mut item = seg_item(
@@ -217,6 +218,8 @@ impl ScreenView {
                 choice.selected,
                 choice.enabled,
                 p,
+                window,
+                cx,
             );
             if choice.enabled {
                 item = item.on_click(act(&view, move |this, _, cx| {
@@ -411,6 +414,7 @@ impl ScreenView {
         id: &str,
         model: &OverviewModel,
         p: &Palette,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let view = cx.entity();
@@ -440,7 +444,7 @@ impl ScreenView {
                 .map(|time| (time as f64, time_label(time, range, false))),
         );
         x_labels.push((now as f64, model.charts.now.clone()));
-        let mut ranges = seg(p);
+        let mut ranges = seg("ls-range", p, window, cx);
         for (range, label, selected) in &model.charts.ranges {
             let range = *range;
             ranges = ranges.child(
@@ -450,6 +454,8 @@ impl ScreenView {
                     *selected,
                     true,
                     p,
+                    window,
+                    cx,
                 )
                 .on_click(act(&view, move |this, _, _| {
                     this.leakshield.overview.range = range;
