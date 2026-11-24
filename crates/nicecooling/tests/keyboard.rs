@@ -552,3 +552,164 @@ fn cancel_poweroff_works_over_a_dialog(cx: &mut TestAppContext) {
     );
     assert!(named(&mut visual, "banner-cancel").is_some());
 }
+
+/// Raise an Alarm with a poweroff countdown on the Leakshield of the fixture.
+fn raise_poweroff(rig: &Rig, state: &nicecooling::model::AppState) {
+    use support::fixtures::{LEAKSHIELD, alarm};
+    let mut snapshot = state.snapshot.clone();
+    let mut leak = alarm(
+        "a1",
+        "leakshield.leak-alarm",
+        LEAKSHIELD,
+        nicecooling::model::Response::Poweroff,
+        30,
+    );
+    leak.raised_us = app::now_us();
+    leak.poweroff_at_us = leak.raised_us + 30_000_000;
+    snapshot.alarms = vec![leak];
+    rig.events
+        .send(DaemonEvent::Snapshot(Box::new(snapshot)))
+        .unwrap();
+}
+
+/// Review: while the countdown dialog is open, Tab never puts the focus on a control under its
+/// scrim, and Enter after Tab sends no command but "Cancel poweroff".
+#[gpui::test]
+fn tab_stays_in_the_countdown_dialog(cx: &mut TestAppContext) {
+    use support::fixtures::{LEAKSHIELD, with_leakshield};
+    let state = with_leakshield();
+    let (_model, mut rig) = start_with(cx, state.clone(), Page::Leakshield(LEAKSHIELD.to_owned()));
+    let handle = cx.windows()[0];
+    let mut visual = VisualTestContext::from_window(handle, cx);
+    raise_poweroff(&rig, &state);
+    assert!(
+        named(&mut visual, "countdown-cancel").is_some(),
+        "the countdown dialog"
+    );
+    let mut under = Vec::new();
+    for step in 0..40 {
+        visual.simulate_keystrokes("tab");
+        if let Some(ring) = ring(&mut visual) {
+            press(&mut visual, "enter");
+            let sent: Vec<_> = std::iter::from_fn(|| rig.inbox.try_recv().ok()).collect();
+            under.push((step, ring, sent));
+        }
+        if named(&mut visual, "countdown-cancel").is_none() {
+            break;
+        }
+    }
+    assert!(
+        under.is_empty(),
+        "controls under the countdown scrim: {under:#?}"
+    );
+}
+
+/// Review: a dialog of a screen is open, then the countdown dialog opens over it. Tab from
+/// "Cancel poweroff" never reaches the screen dialog under the countdown scrim.
+#[gpui::test]
+fn tab_does_not_reach_a_dialog_under_the_countdown(cx: &mut TestAppContext) {
+    use support::fixtures::{LEAKSHIELD, with_leakshield};
+    let state = with_leakshield();
+    let (_model, rig) = start_with(cx, state.clone(), Page::Leakshield(LEAKSHIELD.to_owned()));
+    let handle = cx.windows()[0];
+    let mut visual = VisualTestContext::from_window(handle, cx);
+    let steps = named(&mut visual, "ls-refill-steps").expect("the refill button");
+    visual.simulate_click(steps.center(), gpui::Modifiers::none());
+    assert!(named(&mut visual, "modal-scrim").is_some(), "the dialog");
+    raise_poweroff(&rig, &state);
+    assert!(
+        named(&mut visual, "countdown-cancel").is_some(),
+        "the countdown dialog"
+    );
+    for step in 0..6 {
+        visual.simulate_keystrokes("tab");
+        press(&mut visual, "enter");
+        assert!(
+            named(&mut visual, "modal-scrim").is_some(),
+            "Tab {step} + Enter pressed Close of the dialog under the countdown scrim"
+        );
+        if named(&mut visual, "countdown-cancel").is_none() {
+            // Enter on "Hide": the countdown dialog is gone, the rest is the next case.
+            break;
+        }
+    }
+}
+
+/// Review: Tab and Enter, again and again, while the countdown dialog is open. No command but
+/// "Cancel poweroff" goes out.
+#[gpui::test]
+fn tab_and_enter_under_the_countdown_write_nothing(cx: &mut TestAppContext) {
+    use support::fixtures::{LEAKSHIELD, with_leakshield};
+    let state = with_leakshield();
+    let (_model, mut rig) = start_with(cx, state.clone(), Page::Leakshield(LEAKSHIELD.to_owned()));
+    let handle = cx.windows()[0];
+    let mut visual = VisualTestContext::from_window(handle, cx);
+    raise_poweroff(&rig, &state);
+    assert!(
+        named(&mut visual, "countdown-cancel").is_some(),
+        "the countdown dialog"
+    );
+    let mut writes = Vec::new();
+    // Two Tabs reach the first control under the scrim; then Enter, and Tab/Enter in turn.
+    visual.simulate_keystrokes("tab tab");
+    for step in 0..12 {
+        visual.simulate_keystrokes("tab");
+        press(&mut visual, "enter");
+        while let Ok(command) = rig.inbox.try_recv() {
+            if !matches!(command, Command::CancelPoweroff { .. }) {
+                writes.push((step, command));
+            }
+        }
+        if named(&mut visual, "countdown-cancel").is_none() {
+            break;
+        }
+    }
+    assert!(writes.is_empty(), "writes under the countdown: {writes:#?}");
+}
+
+/// Review: the countdown dialog closes (the poweroff is cancelled) while a dialog of a screen
+/// is open. The focus goes back into that dialog: Tab and Enter press only its controls.
+#[gpui::test]
+fn focus_returns_to_the_dialog_after_the_countdown(cx: &mut TestAppContext) {
+    use support::fixtures::{LEAKSHIELD, with_leakshield};
+    let state = with_leakshield();
+    let (model, mut rig) = start_with(cx, state.clone(), Page::Leakshield(LEAKSHIELD.to_owned()));
+    let handle = cx.windows()[0];
+    let mut visual = VisualTestContext::from_window(handle, cx);
+    let steps = named(&mut visual, "ls-refill-steps").expect("the refill button");
+    visual.simulate_click(steps.center(), gpui::Modifiers::none());
+    assert!(named(&mut visual, "modal-scrim").is_some(), "the dialog");
+    raise_poweroff(&rig, &state);
+    assert!(
+        named(&mut visual, "countdown-cancel").is_some(),
+        "the countdown dialog"
+    );
+    // The poweroff ends: the Alarm goes away, and the countdown dialog with it.
+    rig.events
+        .send(DaemonEvent::Snapshot(Box::new(state.snapshot.clone())))
+        .unwrap();
+    assert!(
+        named(&mut visual, "countdown-cancel").is_none(),
+        "the countdown closed"
+    );
+    assert!(
+        named(&mut visual, "modal-scrim").is_some(),
+        "the dialog stays"
+    );
+    let page = || Page::Leakshield(LEAKSHIELD.to_owned());
+    for step in 0..10 {
+        visual.simulate_keystrokes("tab");
+        let ring = ring(&mut visual);
+        press(&mut visual, "enter");
+        let sent: Vec<_> = std::iter::from_fn(|| rig.inbox.try_recv().ok()).collect();
+        let now = visual.update(|_, cx| model.read(cx).page.clone());
+        assert!(
+            sent.is_empty() && now == page() && ring.is_none(),
+            "Tab {step} + Enter under the scrim: ring {ring:?}, sent {sent:?}, page {now:?}"
+        );
+        if named(&mut visual, "modal-scrim").is_none() {
+            return;
+        }
+    }
+    panic!("Tab and Enter never reached Close of the dialog");
+}

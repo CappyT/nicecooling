@@ -718,6 +718,20 @@ pub fn dialog_tab(back: bool, window: &mut Window, cx: &mut App) -> bool {
         return false;
     };
     let extra = dialogs.extra.get(&id).cloned();
+    tab_in(&scope, extra, back, window, cx);
+    true
+}
+
+/// Tab and Shift+Tab in `scope`: the focus goes through the controls in it, then to `extra`,
+/// and starts again.
+pub fn tab_in(
+    scope: &FocusHandle,
+    extra: Option<FocusHandle>,
+    back: bool,
+    window: &mut Window,
+    cx: &mut App,
+) {
+    let scope = scope.clone();
     let inside = |window: &Window, cx: &App| {
         window
             .focused(cx)
@@ -742,7 +756,7 @@ pub fn dialog_tab(back: bool, window: &mut Window, cx: &mut App) -> bool {
     };
     if extra.as_ref().is_some_and(|extra| extra.is_focused(window)) {
         edge(back, window, cx);
-        return true;
+        return;
     }
     if back {
         window.focus_prev(cx);
@@ -755,7 +769,6 @@ pub fn dialog_tab(back: bool, window: &mut Window, cx: &mut App) -> bool {
             None => edge(back, window, cx),
         }
     }
-    true
 }
 
 impl RenderOnce for Scrim {

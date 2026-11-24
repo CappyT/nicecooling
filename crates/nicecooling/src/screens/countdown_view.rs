@@ -14,6 +14,7 @@ use crate::tokens::Palette;
 /// The dialog over the scrim. "Cancel poweroff" has `focus` when the dialog opens.
 pub fn countdown_overlay(
     dialog: &CountdownDialog,
+    scope: &FocusHandle,
     focus: &FocusHandle,
     on_cancel: impl Fn(&mut Window, &mut App) + 'static,
     on_hide: impl Fn(&mut Window, &mut App) + 'static,
@@ -148,6 +149,8 @@ pub fn countdown_overlay(
         );
     }
     div()
+        // Tab stays in the dialog: the shell cycles the focus through `scope`.
+        .track_focus(scope)
         .absolute()
         .top_0()
         .left_0()

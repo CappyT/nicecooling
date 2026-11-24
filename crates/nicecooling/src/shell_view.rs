@@ -32,8 +32,17 @@ pub fn bind_keys(cx: &mut gpui::App) {
 }
 
 /// Move the focus to the next or the previous control. While a dialog is open, the focus
-/// stays in it.
-fn move_focus(back: bool, window: &mut Window, cx: &mut gpui::App) {
+/// stays in it. The countdown dialog draws over every other dialog: it keeps the focus first.
+fn move_focus(
+    countdown: Option<&FocusHandle>,
+    back: bool,
+    window: &mut Window,
+    cx: &mut gpui::App,
+) {
+    if let Some(scope) = countdown {
+        crate::screens::ui::tab_in(scope, None, back, window, cx);
+        return;
+    }
     if crate::screens::ui::dialog_tab(back, window, cx) {
         return;
     }
@@ -54,6 +63,12 @@ pub struct ShellView {
     /// The Alarm whose countdown dialog the user hid with "Hide".
     countdown_hidden: Option<String>,
     countdown_focus: FocusHandle,
+    /// The focus of the countdown dialog: its buttons are in it.
+    countdown_scope: FocusHandle,
+    /// True while the countdown dialog shows.
+    countdown_open: bool,
+    /// What had the focus when the countdown dialog opened. It gets the focus back.
+    countdown_opener: Option<FocusHandle>,
     /// The focus of "Cancel poweroff" in the banner: it stays in the Tab order of a dialog.
     banner_focus: FocusHandle,
     /// The Alarm that had the focus for its dialog: the focus moves once, when it opens.
@@ -101,6 +116,9 @@ impl ShellView {
             notices_open: false,
             countdown_hidden: None,
             countdown_focus: cx.focus_handle(),
+            countdown_scope: cx.focus_handle(),
+            countdown_open: false,
+            countdown_opener: None,
             banner_focus: cx.focus_handle().tab_stop(true),
             countdown_focused: None,
             bar_press: false,
@@ -731,14 +749,30 @@ impl Render for ShellView {
             && self.countdown_focused.as_ref() != Some(&dialog.instance)
         {
             self.countdown_focused = Some(dialog.instance.clone());
+            if !self.countdown_open {
+                self.countdown_opener = window.focused(cx);
+            }
             window.focus(&self.countdown_focus, cx);
         }
+        if self.countdown_open && countdown.is_none() {
+            // The buttons of the dialog go away. A focus that was on them goes back.
+            let focused = window.focused(cx);
+            let opener = self.countdown_opener.take();
+            if focused.is_none()
+                || self.countdown_focus.is_focused(window)
+                || self.countdown_scope.is_focused(window)
+            {
+                window.focus(opener.as_ref().unwrap_or(&self.focus), cx);
+            }
+        }
+        self.countdown_open = countdown.is_some();
         let countdown_element = countdown.map(|dialog| {
             let hide_view = cx.entity();
             let (commands, command) = (self.commands.clone(), dialog.cancel_command());
             let instance = dialog.instance.clone();
             crate::screens::countdown_view::countdown_overlay(
                 &dialog,
+                &self.countdown_scope,
                 &self.countdown_focus,
                 move |_, cx| {
                     let _ = commands.send(command.clone());
@@ -767,8 +801,14 @@ impl Render for ShellView {
             .id("shell")
             .key_context("Shell")
             .track_focus(&self.focus)
-            .on_action(|_: &FocusNext, window, cx| move_focus(false, window, cx))
-            .on_action(|_: &FocusPrev, window, cx| move_focus(true, window, cx))
+            .on_action(cx.listener(|this, _: &FocusNext, window, cx| {
+                let scope = this.countdown_open.then_some(&this.countdown_scope);
+                move_focus(scope, false, window, cx)
+            }))
+            .on_action(cx.listener(|this, _: &FocusPrev, window, cx| {
+                let scope = this.countdown_open.then_some(&this.countdown_scope);
+                move_focus(scope, true, window, cx)
+            }))
             .on_key_down(
                 cx.listener(|this, event: &KeyDownEvent, window, cx| {
                     this.on_key(event, window, cx)
