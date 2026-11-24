@@ -90,15 +90,18 @@ Comp: `comps/leakshield-overview.html`.
 
 ## Pressure band diagram
 
-Used by the Pressure step of the Leakshield wizard. It is a scheme, not a scale: the lines keep their place.
+Used by the Pressure step of the Leakshield wizard. It is true to scale: one linear mbar axis holds every value.
 
-- A plot 184 px high and, at its right, the values of its three lines.
-- Three horizontal lines at a quarter, a half and three quarters of the height: the maximum (1.5 px `fg`), the target (2 px `accent`) and the minimum (1.5 px `fg`).
+- A plot 220 px high. At its left the marks of the axis, at its right the values of its lines.
+- The axis covers the live limits, the stored values, the values of the wizard and the live pressure, with a margin of a fifth of their span at each end. Its marks are round values, six at most, as 12 px `fg-dim` text with a 5 px tick.
+- Solid lines: the maximum (1.5 px `fg`), the target (2 px `accent`) and the minimum (1.5 px `fg`) of the band that the Leakshield uses now. These are its live limits. While it does not regulate in SHIELD, they are the stored values: see the last item.
 - The band between the maximum and the minimum has the `accent-tint` fill. The zones above the maximum and below the minimum have a 45 degree hatch in `fg-dim`.
-- Each zone has one line of 12 px text on a `card` plate at its left: "Vent valve open: releases vacuum" above the maximum, "Pump off, vent valve closed" in the band, "Pump on: builds vacuum up to the target" below the minimum. A text that does not fit truncates.
-- The value of a line is bold text at the right of the plot, on the height of the line: "Maximum 465 mbar". The target value is in `accent`. When the Leakshield uses another limit now, a caption under the value has it: "now 215 mbar".
-- The live pressure is an `fg` disc r 6 near the right edge of the plot, with the bold text "Now 398 mbar" on a `card` plate at its left. Between two lines its height follows the pressure between the two live limits. Outside the band it stays in the hatched zone.
-- Without a live pressure the diagram has no marker.
+- Each zone has one line of 12 px text on a `card` plate at its left: "Vent valve open: releases vacuum" above the maximum, "Pump off, vent valve closed" in the wider part of the band, "Pump on: builds vacuum up to the target" below the minimum. A text that does not fit truncates. A zone lower than 26 px has no text.
+- The value of a solid line is bold text at the right of the plot, on the height of the line: "Maximum 465 mbar". The target value is in `accent`. When the stored value differs from the live one, a caption under it has the stored value: "set: 425 mbar".
+- Dashed lines: the values of the wizard, when they differ from the stored values. They have the colors and the widths of the solid lines, and the 12 px text "new: 490 mbar" at the right of the plot.
+- Two values at the right that are close together move apart, so that no text covers another one.
+- The live pressure is an `fg` disc r 6 near the right edge of the plot, at its place on the axis, with the bold text "Now 398 mbar" on a `card` plate at its left.
+- Without a live band the diagram has the stored band as solid lines and no marker. This is the case while the Leakshield does not answer, in RELEASE, in MONITOR, during an Action, and while the three live limits are not in order.
 - No interaction.
 
 ## LED timeline editor

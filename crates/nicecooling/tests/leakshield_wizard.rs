@@ -5,8 +5,9 @@ mod support;
 
 use nicecooling::i18n::{EN, IT, Locale};
 use nicecooling::model::{AppState, FieldEntry, FieldRisk, FieldValue, LeakshieldData};
+use nicecooling::screens::leakshield::band::stack;
 use nicecooling::screens::leakshield::settings::{
-    Band, Control, Row, SettingsModel, SettingsUi, Step, marker_place, pump_pressure_at,
+    Band, BandAxis, BandDiagram, Control, Row, SettingsModel, SettingsUi, Step, pump_pressure_at,
     pump_speed_for,
 };
 use nicecooling::screens::{Feedback, ScreenInput};
@@ -230,122 +231,288 @@ fn adaptive_pressure_is_bit_3_and_never_dims_the_values() {
     }
 }
 
-#[test]
-fn the_band_diagram_shows_the_set_values_and_the_live_values() {
-    let mut state = device();
-    let ui = SettingsUi::default();
-    let diagram = |state: &AppState| {
-        let model = step(state, &ui, Step::Pressure);
-        let row = row(&model, "band").clone();
-        let Control::Band(diagram) = row.control else {
-            panic!("the diagram");
-        };
-        (diagram, row.label, row.caption)
+/// The diagram of the Pressure step and the caption under it.
+fn diagram(state: &AppState, ui: &SettingsUi, locale: Locale) -> (BandDiagram, String) {
+    let mut ui = ui.clone();
+    ui.go(Step::Pressure);
+    let model = SettingsModel::build(&input(state, &Feedback::default(), locale), &ui, LEAKSHIELD);
+    let row = row(&model, "band").clone();
+    let Control::Band(diagram) = row.control else {
+        panic!("the diagram");
     };
+    (*diagram, row.caption.expect("the caption of the diagram"))
+}
 
-    // The live limits equal the stored values: no second value on a line.
-    let (band, title, now) = diagram(&state);
-    assert_eq!(title, "What the Leakshield does in SHIELD");
+fn labels(
+    lines: &[nicecooling::screens::leakshield::settings::BandLine; 3],
+) -> Vec<(&str, Option<&str>)> {
+    lines
+        .iter()
+        .map(|line| (line.label.as_str(), line.note.as_deref()))
+        .collect()
+}
+
+/// The reference device in adaptive mode: 375 / 425 / 465 stored, and the Leakshield uses
+/// 172.8 / 222.8 / 465 at 389 mbar.
+fn adaptive() -> AppState {
+    let mut state = device();
+    set_field(&mut state, "shield_pressure_low", FieldValue::Number(375.0));
+    set_field(
+        &mut state,
+        "shield_pressure_max_range",
+        FieldValue::Number(40.0),
+    );
+    set_sensor(&mut state, "pressure_low", 172.8);
+    set_sensor(&mut state, "pressure_setpoint", 222.8);
+    set_sensor(&mut state, "pressure_high", 465.0);
+    set_sensor(&mut state, "pressure", 389.0);
+    state
+}
+
+#[test]
+fn the_band_diagram_is_true_to_scale() {
+    // One linear axis: the same distance in mbar is the same distance in the diagram.
+    let axis = BandAxis::covering([172.8, 222.8, 465.0, 375.0, 425.0, 389.0]);
+    assert!(
+        axis.low < 172.8 && axis.high > 465.0,
+        "a margin at both ends"
+    );
+    assert_eq!(axis.place(axis.high), 0.0);
+    assert_eq!(axis.place(axis.low), 1.0);
+    let step = axis.place(300.0) - axis.place(350.0);
+    assert!((axis.place(400.0) - axis.place(450.0) - step).abs() < 1e-6);
+    // The marks are round values inside the axis.
+    assert_eq!(axis.ticks(), [200.0, 300.0, 400.0, 500.0]);
     assert_eq!(
-        band.zones,
+        BandAxis::covering([375.0, 425.0, 465.0]).ticks(),
+        [400.0, 450.0]
+    );
+    // A band without a height keeps a span, and no value gives the whole range.
+    let flat = BandAxis::covering([100.0, 100.0, 100.0]);
+    assert!(flat.high - flat.low >= 20.0);
+    assert_eq!(
+        BandAxis::covering([]),
+        BandAxis {
+            low: 0.0,
+            high: 500.0
+        }
+    );
+
+    // The solid lines are the limits that the Leakshield uses now. A stored value that
+    // differs shows under the live one.
+    let state = adaptive();
+    let (band, caption) = diagram(&state, &SettingsUi::default(), EN);
+    assert!(band.live);
+    assert_eq!(
+        labels(&band.lines),
         [
-            "Vent valve open: releases vacuum",
-            "Pump off, vent valve closed",
-            "Pump on: builds vacuum up to the target"
+            ("Maximum 465 mbar", None),
+            ("Target 222.8 mbar", Some("set: 425 mbar")),
+            ("Minimum 172.8 mbar", Some("set: 375 mbar"))
         ]
     );
     assert_eq!(
-        band.lines
-            .iter()
-            .map(|l| (l.label.as_str(), l.now.as_deref()))
-            .collect::<Vec<_>>(),
+        caption,
+        "Now: minimum 172.8, target 222.8, maximum 465 mbar."
+    );
+    assert!(band.draft.is_none(), "the wizard holds the device values");
+    let [max, target, min] = [0, 1, 2].map(|index| band.lines[index].place);
+    assert!(0.0 < max && max < target && target < min && min < 1.0);
+    // 389 mbar is between the live target 222.8 and the live maximum 465, at its place on
+    // the axis: 76 mbar under the maximum of a distance of 242.2 mbar.
+    let (place, text) = band.marker.clone().expect("the live pressure");
+    assert_eq!(text, "Now 389 mbar");
+    assert!(max < place && place < target, "{max} < {place} < {target}");
+    let part = (place - max) / (target - max);
+    assert!((part - 76.0 / 242.2).abs() < 1e-4, "{part}");
+    // The marks of the axis are at the places of their values.
+    let (tick_place, tick) = &band.ticks[0];
+    assert_eq!(tick, "200");
+    assert!(
+        target < *tick_place && *tick_place < min,
+        "200 is between 172.8 and 222.8"
+    );
+
+    // The same pressure against a draft: dashed lines at 380 / 425 / 490, and the marker is
+    // under the dashed 425 and above the dashed 380.
+    let mut own = adaptive();
+    set_field(&mut own, "shield_flags", FieldValue::Number(111.0));
+    let data = data_of(&own);
+    let mut ui = SettingsUi::default();
+    ui.edit(&data, "band_min", "380");
+    ui.edit(&data, "band_max", "490");
+    let (band, caption) = diagram(&own, &ui, EN);
+    let draft = band.draft.as_ref().expect("the draft band");
+    assert_eq!(
+        labels(draft),
+        [
+            ("new: 490 mbar", None),
+            ("new: 425 mbar", None),
+            ("new: 380 mbar", None)
+        ]
+    );
+    let (place, _) = band.marker.unwrap();
+    assert!(
+        draft[1].place < place && place < draft[2].place,
+        "389 is between the dashed 425 and the dashed 380"
+    );
+    assert!(draft[0].place < band.lines[0].place, "490 is above 465");
+    // The solid lines stay the live band, with the stored values under them.
+    assert_eq!(
+        labels(&band.lines),
+        [
+            ("Maximum 465 mbar", None),
+            ("Target 222.8 mbar", Some("set: 425 mbar")),
+            ("Minimum 172.8 mbar", Some("set: 375 mbar"))
+        ]
+    );
+    assert_eq!(
+        caption,
+        "Now: minimum 172.8, target 222.8, maximum 465 mbar. Dashed lines: the new values, not written yet."
+    );
+
+    // Italian.
+    let (band, _) = diagram(&own, &ui, IT);
+    assert_eq!(band.lines[1].label, "Obiettivo 222,8 mbar");
+    assert_eq!(band.lines[1].note.as_deref(), Some("impostato: 425 mbar"));
+    assert_eq!(band.draft.unwrap()[0].label, "nuovo: 490 mbar");
+}
+
+#[test]
+fn the_dashed_band_shows_only_for_a_changed_draft() {
+    // The fixture: 250 / 300 / 350 stored and in use, at 298 mbar.
+    let state = own_values();
+    let data = data_of(&state);
+    let mut ui = SettingsUi::default();
+    let (band, _) = diagram(&state, &ui, EN);
+    assert!(band.draft.is_none());
+    assert_eq!(
+        labels(&band.lines),
         [
             ("Maximum 350 mbar", None),
             ("Target 300 mbar", None),
             ("Minimum 250 mbar", None)
         ]
     );
-    assert_eq!(
-        now.as_deref(),
-        Some("Now: minimum 250, target 300, maximum 350 mbar.")
-    );
-    // 298 mbar is just under the target of 300: between the target line and the minimum line.
-    let (place, text) = band.marker.expect("the live pressure");
-    assert_eq!(text, "Now 298 mbar");
-    assert!((0.5..0.52).contains(&place), "{place}");
+    let (place, _) = band.marker.clone().unwrap();
+    assert!(band.lines[1].place < place && place < band.lines[2].place);
 
-    // Adaptive pressure: the device lowered the minimum and the target, not the maximum.
-    set_sensor(&mut state, "pressure_low", 215.4);
-    set_sensor(&mut state, "pressure_setpoint", 265.4);
-    let (band, _, now) = diagram(&state);
+    // A change of another setting is no draft band.
+    ui.edit(&data, "adaptive", "0");
+    ui.edit(&data, "loop_height", "45");
+    assert!(diagram(&state, &ui, EN).0.draft.is_none());
+
+    // One edited value: the three dashed lines of the new band.
+    ui.edit(&data, "band_max", "400");
+    let (band, _) = diagram(&state, &ui, EN);
     assert_eq!(
-        band.lines
-            .iter()
-            .map(|l| (l.label.as_str(), l.now.as_deref()))
-            .collect::<Vec<_>>(),
+        labels(band.draft.as_ref().unwrap()),
         [
-            ("Maximum 350 mbar", None),
-            ("Target 300 mbar", Some("now 265.4 mbar")),
-            ("Minimum 250 mbar", Some("now 215.4 mbar"))
+            ("new: 400 mbar", None),
+            ("new: 300 mbar", None),
+            ("new: 250 mbar", None)
         ]
     );
     assert_eq!(
-        now.as_deref(),
-        Some("Now: minimum 215.4, target 265.4, maximum 350 mbar.")
+        band.lines[0].label, "Maximum 350 mbar",
+        "the solid line stays"
     );
-    // The marker follows the live limits: 298 is now above the target.
-    let (place, _) = band.marker.unwrap();
-    assert!((0.25..0.5).contains(&place), "{place}");
+    assert_eq!(band.draft.as_ref().unwrap()[1].place, band.lines[1].place);
+    // The device value again: no dashed band.
+    ui.edit(&data, "band_max", "350");
+    assert!(diagram(&state, &ui, EN).0.draft.is_none());
 
-    // A pending value moves the line of the wizard, not the live value.
-    set_field(&mut state, "shield_flags", FieldValue::Number(111.0));
+    // The recommended values pending: 375 / 425 / 465.
+    let state = device();
     let data = data_of(&state);
-    let mut edited = SettingsUi::default();
-    edited.edit(&data, "band_max", "400");
-    let model = step(&state, &edited, Step::Pressure);
-    let Control::Band(band) = &row(&model, "band").control else {
-        panic!("the diagram");
-    };
-    assert_eq!(band.lines[0].label, "Maximum 400 mbar");
-    assert_eq!(band.lines[0].now.as_deref(), Some("now 350 mbar"));
-
-    // Without an answer of the Leakshield the diagram has the stored values only.
-    state.snapshot.leakshields[0].connected = false;
-    let (band, _, now) = diagram(&state);
-    assert!(band.marker.is_none() && now.is_none());
-    assert_eq!(band.lines[2].label, "Minimum 250 mbar");
-    assert!(band.lines.iter().all(|line| line.now.is_none()));
-
-    // Italian.
-    let model = {
-        let mut ui = SettingsUi::default();
-        ui.go(Step::Pressure);
-        SettingsModel::build(&input(&device(), &Feedback::default(), IT), &ui, LEAKSHIELD)
-    };
-    assert_eq!(row(&model, "band_target").label, "Pressione obiettivo");
-    let Control::Band(band) = &row(&model, "band").control else {
-        panic!("the diagram");
-    };
-    assert_eq!(band.lines[1].label, "Obiettivo 300 mbar");
+    let mut ui = SettingsUi::default();
+    ui.edit(&data, "use_recommended", "");
+    let (band, _) = diagram(&state, &ui, EN);
+    assert_eq!(
+        labels(band.draft.as_ref().unwrap()),
+        [
+            ("new: 465 mbar", None),
+            ("new: 425 mbar", None),
+            ("new: 375 mbar", None)
+        ]
+    );
 }
 
 #[test]
-fn the_marker_of_the_diagram_keeps_its_zone() {
-    // The lines are at a quarter, a half and three quarters of the height.
-    assert_eq!(marker_place(465.0, 375.0, 425.0, 465.0), 0.25);
-    assert_eq!(marker_place(425.0, 375.0, 425.0, 465.0), 0.5);
-    assert_eq!(marker_place(375.0, 375.0, 425.0, 465.0), 0.75);
-    assert_eq!(marker_place(400.0, 375.0, 425.0, 465.0), 0.625);
-    assert_eq!(marker_place(445.0, 375.0, 425.0, 465.0), 0.375);
-    // Outside the band the marker is in the hatched zone and stays in the diagram.
-    let below = marker_place(350.0, 375.0, 425.0, 465.0);
-    assert!(below > 0.75 && below <= 0.94, "{below}");
-    assert_eq!(marker_place(0.0, 375.0, 425.0, 465.0), 0.94);
-    let above = marker_place(480.0, 375.0, 425.0, 465.0);
-    assert!((0.06..0.25).contains(&above), "{above}");
-    assert_eq!(marker_place(900.0, 375.0, 425.0, 465.0), 0.06);
-    // Limits without a distance give a place and no division by zero.
-    assert_eq!(marker_place(100.0, 100.0, 100.0, 100.0), 0.25);
+fn without_a_live_band_the_diagram_has_the_stored_band_alone() {
+    let stored = [
+        ("Maximum 465 mbar", None),
+        ("Target 425 mbar", None),
+        ("Minimum 375 mbar", None),
+    ];
+    let caption =
+        "The Leakshield is not regulating in SHIELD now. The lines are the stored values.";
+    let check = |state: &AppState, why: &str| {
+        let (band, text) = diagram(state, &SettingsUi::default(), EN);
+        assert!(!band.live, "{why}");
+        assert!(band.marker.is_none(), "{why}: no marker");
+        assert_eq!(labels(&band.lines), stored, "{why}");
+        assert_eq!(text, caption, "{why}");
+        let [max, target, min] = [0, 1, 2].map(|index| band.lines[index].place);
+        assert!(
+            0.0 < max && max < target && target < min && min < 1.0,
+            "{why}"
+        );
+    };
+
+    // The Leakshield does not answer.
+    let mut offline = adaptive();
+    offline.snapshot.leakshields[0].connected = false;
+    check(&offline, "offline");
+    // RELEASE: the limits of report 1 are no SHIELD band.
+    let mut release = adaptive();
+    release.snapshot.leakshields[0].mode = "release".into();
+    check(&release, "RELEASE");
+    let mut monitor = adaptive();
+    monitor.snapshot.leakshields[0].mode = "monitor".into();
+    check(&monitor, "MONITOR");
+    // An Action: the three limits read the pressure of the Action.
+    let mut action = adaptive();
+    action.snapshot.leakshields[0].running_action = "test".into();
+    for name in ["pressure_low", "pressure_setpoint", "pressure_high"] {
+        set_sensor(&mut action, name, 300.0);
+    }
+    check(&action, "an Action");
+    // Limits that are not in order, as during the fill-level measurement.
+    let mut measuring = adaptive();
+    for name in ["pressure_low", "pressure_setpoint", "pressure_high"] {
+        set_sensor(&mut measuring, name, 100.0);
+    }
+    check(&measuring, "equal limits");
+
+    // A draft still shows as dashed lines, and the caption names them.
+    let mut own = release.clone();
+    set_field(&mut own, "shield_flags", FieldValue::Number(111.0));
+    let data = data_of(&own);
+    let mut ui = SettingsUi::default();
+    ui.edit(&data, "band_target", "440");
+    let (band, text) = diagram(&own, &ui, EN);
+    assert_eq!(band.draft.as_ref().unwrap()[1].label, "new: 440 mbar");
+    assert!(band.marker.is_none());
+    assert_eq!(
+        text,
+        format!("{caption} Dashed lines: the new values, not written yet.")
+    );
+}
+
+#[test]
+fn the_values_of_two_close_lines_move_apart() {
+    // Nothing in the way: each block keeps its place.
+    assert_eq!(stack(&[(10.0, 18.0), (60.0, 34.0)], 220.0), [10.0, 60.0]);
+    // The second block starts in the first one: it moves down.
+    assert_eq!(stack(&[(10.0, 34.0), (30.0, 18.0)], 220.0), [10.0, 44.0]);
+    // A block at the lower edge moves up, and pushes the one above it.
+    assert_eq!(
+        stack(&[(180.0, 18.0), (210.0, 34.0)], 220.0),
+        [168.0, 186.0]
+    );
+    // A line at the upper edge: its text stays in the column.
+    assert_eq!(stack(&[(-9.0, 18.0)], 220.0), [0.0]);
 }
 
 /// The device with own values: 250 / 300 / 350 mbar, standby 80.
@@ -1275,13 +1442,42 @@ mod layout {
                         marker.left() >= plot.left() && marker.right() <= plot.right(),
                         "{tag}: the marker text is {marker:?} in {plot:?}"
                     );
-                    for zone in ["above", "inside", "below"] {
-                        let zone = found(format!("ls-band-zone-{zone}")).expect("a zone");
+                    assert!(
+                        marker.top() >= plot.top() && marker.bottom() <= plot.bottom(),
+                        "{tag}: the marker text is {marker:?} in {plot:?}"
+                    );
+                    // A zone that is too low for its text has none.
+                    let zones: Vec<_> = ["above", "inside", "below"]
+                        .into_iter()
+                        .filter_map(|zone| found(format!("ls-band-zone-{zone}")))
+                        .collect();
+                    assert!(zones.len() >= 2, "{tag}: {} zone texts", zones.len());
+                    for zone in zones {
                         assert!(
                             zone.left() >= plot.left() && zone.right() <= marker.left(),
                             "{tag}: the zone text is {zone:?}, the marker text {marker:?}"
                         );
+                        assert!(
+                            zone.top() >= plot.top() && zone.bottom() <= plot.bottom(),
+                            "{tag}: the zone text is {zone:?} in {plot:?}"
+                        );
                     }
+                    // The values of the lines: one under the other, in the height of the plot.
+                    let labels: Vec<_> = (0..6)
+                        .filter_map(|index| found(format!("ls-band-label-{index}")))
+                        .collect();
+                    assert!(labels.len() >= 3, "{tag}: {} line values", labels.len());
+                    for pair in labels.windows(2) {
+                        assert!(
+                            pair[1].top() >= pair[0].bottom() - px(0.5),
+                            "{tag}: two line values overlap: {pair:?}"
+                        );
+                    }
+                    assert!(
+                        labels[0].top() >= plot.top() - px(0.5)
+                            && labels[labels.len() - 1].bottom() <= plot.bottom() + px(0.5),
+                        "{tag}: the line values leave the plot: {labels:?}"
+                    );
                 }
             }
         }
@@ -1294,6 +1490,11 @@ mod layout {
     fn edited(ui: &mut SettingsUi) {
         use nicecooling::model::FieldValue::Number;
         ui.pending.insert("shield_flags".into(), Number(111.0));
+        // A draft band next to the stored one: three dashed lines with their values.
+        ui.pending
+            .insert("shield_pressure_low".into(), Number(260.0));
+        ui.pending
+            .insert("shield_pressure_max_range".into(), Number(60.0));
         // Two pumps with their warning, and the warning of a pump above the limit.
         ui.pending.insert("pump_flags".into(), Number(2.0));
         ui.pending.insert("loop_height".into(), Number(150.0));

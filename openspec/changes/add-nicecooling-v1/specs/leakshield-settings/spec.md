@@ -167,16 +167,34 @@ The wizard SHALL store the minimum in `shield_pressure_low`, target minus minimu
 - **WHEN** the values are 250, 300 and 350 mbar and the user sets the target to 320 mbar
 - **THEN** the pending changes hold a working range of 70 mbar and a maximum range of 30 mbar, and no change of the minimum
 
-### Requirement: Band diagram with live values
-The Pressure step SHALL show a band diagram with the three lines maximum, target and minimum, the zone where the Leakshield releases vacuum and the zone where it builds vacuum. The lines SHALL carry the values of the wizard. The diagram SHALL show the live pressure and each live limit of the Leakshield that differs from the value of the wizard, and the step SHALL show one line of text with the three live limits.
+### Requirement: Band diagram true to scale
+The Pressure step SHALL show a band diagram on one linear mbar axis. Its solid lines and its zones SHALL be the band that the Leakshield uses now: the lower limit, the setpoint and the upper limit that the Leakshield reports. Each line SHALL carry the live value, and the stored value under it when the two differ. The marker of the live pressure SHALL be at its place on the axis.
 
 #### Scenario: Adaptive pressure lowers the limits
-- **WHEN** the stored values are 375, 425 and 465 mbar and the Leakshield reports the limits 215, 265 and 465 mbar
-- **THEN** the lines read 465, 425 and 375 mbar, the target and the minimum also show 265 and 215 mbar as the values in use now, and the text line reads minimum 215, target 265, maximum 465 mbar
+- **WHEN** the stored values are 375, 425 and 465 mbar, the Leakshield reports the limits 172.8, 222.8 and 465 mbar and the pressure is 389 mbar
+- **THEN** the solid lines are at 465, 222.8 and 172.8 mbar, the target and the minimum show the stored 425 and 375 mbar under their values, and the marker is between the target line and the maximum line
 
-#### Scenario: Leakshield does not answer
-- **WHEN** the Leakshield does not answer
-- **THEN** the diagram shows the values of the wizard and no live value
+### Requirement: Draft band before Apply
+When the values of the wizard differ from the values that the Leakshield holds, the diagram SHALL draw them as three dashed lines with their new values. It SHALL draw no dashed line otherwise.
+
+#### Scenario: Edited maximum
+- **WHEN** the Leakshield holds 375, 425 and 465 mbar and the user sets the maximum to 490 mbar
+- **THEN** the diagram has dashed lines at 490, 425 and 375 mbar and the solid lines stay
+
+#### Scenario: No change
+- **WHEN** the pending changes hold no pressure value
+- **THEN** the diagram has no dashed line
+
+### Requirement: Diagram without a live band
+While the Leakshield does not answer, is in RELEASE or in MONITOR, runs an Action, or reports limits that are not in order, the diagram SHALL draw the stored band alone, without a marker, and a caption SHALL say that the Leakshield is not regulating in SHIELD now.
+
+#### Scenario: RELEASE
+- **WHEN** the Mode is RELEASE
+- **THEN** the solid lines are the stored values, the diagram has no marker and the caption says that the Leakshield is not regulating in SHIELD now
+
+#### Scenario: Action
+- **WHEN** an Action runs and the three limits read 300 mbar
+- **THEN** the solid lines are the stored values and the diagram has no marker
 
 ### Requirement: No firmware update
 nicecooling SHALL NOT update the Leakshield firmware.

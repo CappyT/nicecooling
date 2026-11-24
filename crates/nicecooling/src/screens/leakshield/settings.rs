@@ -215,6 +215,24 @@ impl Band {
     /// The least distance from the target to the maximum.
     pub const MAX_DISTANCE: f64 = 30.0;
 
+    /// The band of the fields that `number` reads.
+    fn read(number: impl Fn(&str) -> Option<f64>) -> Option<Self> {
+        let min = number("shield_pressure_low")?;
+        let working = number("shield_pressure_working_range")?;
+        let upper = number("shield_pressure_max_range")?;
+        Some(Self {
+            min,
+            target: tenth(min + working),
+            max: tenth(min + working + upper),
+            standby: number("shield_pressure_low_standby").unwrap_or(min),
+        })
+    }
+
+    /// The maximum, the target and the minimum: the lines of the band diagram from the top.
+    fn lines(self) -> [f64; 3] {
+        [self.max, self.target, self.min]
+    }
+
     /// A higher minimum raises the target. A lower minimum lowers the standby minimum.
     pub fn set_min(&mut self, value: f64) {
         self.min = value.clamp(Self::MIN_RANGE.0, Self::MIN_RANGE.1);
@@ -339,17 +357,7 @@ impl SettingsUi {
 
     /// The control band of SHIELD: the device values with the pending changes.
     pub fn band(&self, data: &LeakshieldData) -> Option<Band> {
-        let min = self.number(data, "shield_pressure_low")?;
-        let working = self.number(data, "shield_pressure_working_range")?;
-        let upper = self.number(data, "shield_pressure_max_range")?;
-        Some(Band {
-            min,
-            target: tenth(min + working),
-            max: tenth(min + working + upper),
-            standby: self
-                .number(data, "shield_pressure_low_standby")
-                .unwrap_or(min),
-        })
+        Band::read(|field| self.number(data, field))
     }
 
     /// Put a band into the pending changes. The device holds the minimum, the distance from
@@ -640,49 +648,91 @@ pub enum Control {
     /// The choices of a setting as radio rows: identifier, text, selected.
     Radio(Vec<(String, String, bool)>),
     /// The band diagram of the Pressure step.
-    Band(BandDiagram),
+    Band(Box<BandDiagram>),
 }
-
-/// The lines of the band diagram, as parts of its height from the top: the maximum, the
-/// target and the minimum. The diagram is a scheme: the lines keep their place.
-pub const BAND_LINES: [f32; 3] = [0.25, 0.5, 0.75];
 
 /// One line of the band diagram.
 #[derive(Clone, Debug, PartialEq)]
 pub struct BandLine {
-    /// The value of the wizard: "Maximum 465 mbar".
+    /// The place of the line on the axis, from the top of the diagram (0 to 1).
+    pub place: f32,
+    /// "Maximum 465 mbar" on a solid line, "new: 490 mbar" on a dashed line.
     pub label: String,
-    /// The value that the Leakshield uses now, when it differs: "now 215 mbar".
-    pub now: Option<String>,
+    /// The stored value, when the Leakshield uses another one now: "set: 425 mbar".
+    pub note: Option<String>,
 }
 
-/// The band diagram: what the Leakshield does above, in and below the control band.
+/// The band diagram: what the Leakshield does above, in and below the control band, on one
+/// linear mbar axis.
 #[derive(Clone, Debug, PartialEq)]
 pub struct BandDiagram {
     /// The zone above the maximum, the zone between the limits and the zone below the minimum.
     pub zones: [String; 3],
-    /// The maximum, the target and the minimum, from the top.
+    /// The solid lines, from the top: the maximum, the target and the minimum. With `live`
+    /// they are the limits that the Leakshield uses now. Else they are the stored values.
     pub lines: [BandLine; 3],
-    /// The live pressure: its place from the top of the diagram (0 to 1) and its text.
+    /// The values of the wizard as dashed lines, when they differ from the stored values.
+    pub draft: Option<[BandLine; 3]>,
+    /// The live pressure: its place on the axis and its text.
     pub marker: Option<(f32, String)>,
+    /// The marks of the axis: the place and the mbar.
+    pub ticks: Vec<(f32, String)>,
+    /// The Leakshield regulates in SHIELD now, and the solid lines are its limits.
+    pub live: bool,
 }
 
-/// The place of the live pressure in the band diagram, from the top (0 to 1). Between two
-/// lines the place follows the pressure. Outside the band it stays in the zone.
-pub fn marker_place(pressure: f64, min: f64, target: f64, max: f64) -> f32 {
-    let [top, middle, bottom] = BAND_LINES.map(f64::from);
-    // The part of `from..to` that `value` covers. A span without a width counts as 1 mbar.
-    let part = |value: f64, from: f64, to: f64| (value - from) / (to - from).max(1.0);
-    let place = if pressure >= max {
-        top - (middle - top) * part(pressure, max, 2.0 * max - target)
-    } else if pressure >= target {
-        middle - (middle - top) * part(pressure, target, max)
-    } else if pressure >= min {
-        bottom - (bottom - middle) * part(pressure, min, target)
-    } else {
-        bottom + (bottom - middle) * part(min, pressure, pressure + target - min)
-    };
-    place.clamp(0.06, 0.94) as f32
+/// The linear mbar axis of the band diagram.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct BandAxis {
+    pub low: f64,
+    pub high: f64,
+}
+
+impl BandAxis {
+    /// An axis that covers `values` with a margin of a fifth of their span at each end, so
+    /// that the zones outside the band have room for their text.
+    pub fn covering(values: impl IntoIterator<Item = f64>) -> Self {
+        let (low, high) = values
+            .into_iter()
+            .fold((f64::INFINITY, f64::NEG_INFINITY), |(low, high), value| {
+                (low.min(value), high.max(value))
+            });
+        if low > high {
+            return Self {
+                low: 0.0,
+                high: Band::MAX_RANGE.1,
+            };
+        }
+        // Values that are close together do not get the whole height.
+        let margin = 0.2 * (high - low).max(50.0);
+        Self {
+            low: low - margin,
+            high: high + margin,
+        }
+    }
+
+    /// The place of `value` from the top of the diagram: 0 at the high end, 1 at the low end.
+    pub fn place(self, value: f64) -> f32 {
+        ((self.high - value) / (self.high - self.low)) as f32
+    }
+
+    /// The marks of the axis: round values, six at most, away from the two ends.
+    pub fn ticks(self) -> Vec<f64> {
+        let span = self.high - self.low;
+        let step = [10.0, 20.0, 50.0, 100.0, 200.0, 500.0]
+            .into_iter()
+            .find(|step| span / step <= 6.0)
+            .unwrap_or(1000.0);
+        let mut ticks = Vec::new();
+        let mut value = (self.low / step).ceil().max(0.0) * step;
+        while value <= self.high {
+            if (0.05..=0.95).contains(&self.place(value)) {
+                ticks.push(value);
+            }
+            value += step;
+        }
+        ticks
+    }
 }
 
 /// A line under a setting: an information, or a warning.
@@ -1280,70 +1330,104 @@ fn flow_rows(ctx: &RowCtx<'_>, input: &ScreenInput<'_>, id: &str) -> Vec<Row> {
     )]
 }
 
-/// The band diagram: the values of the wizard on the lines, and the live values of the
-/// Leakshield next to them.
-fn band_diagram(ctx: &RowCtx<'_>, input: &ScreenInput<'_>) -> (BandDiagram, Option<String>) {
+/// The band diagram and the caption under it. The solid lines are the band that the Leakshield
+/// uses now: its live limits. While it does not regulate in SHIELD they are the stored
+/// values. The dashed lines are the values of the wizard that are not on the device yet.
+fn band_diagram(ctx: &RowCtx<'_>, input: &ScreenInput<'_>) -> (BandDiagram, String) {
     let locale = ctx.locale;
-    let ready = ctx.device.can_write();
-    let live = |name: &str| ctx.device.sensor(input, name).filter(|_| ready);
-    let set = ctx.ui.band(ctx.data);
-    let now = match (
-        live("pressure_low"),
-        live("pressure_setpoint"),
-        live("pressure_high"),
+    let text = |name: &str, value: Option<f64>| {
+        locale.fmt(
+            &format!("leakshield.settings.diagram.{name}"),
+            &[(
+                "value",
+                &value.map_or_else(|| "--".to_owned(), |v| compact(locale, v)),
+            )],
+        )
+    };
+    let stored = Band::read(|field| ctx.data.number(field)).map(Band::lines);
+    let draft = ctx
+        .ui
+        .band(ctx.data)
+        .map(Band::lines)
+        .filter(|draft| stored.is_some_and(|stored| stored != *draft));
+    // In RELEASE, in MONITOR and in an Action the limits of report 1 are not the SHIELD
+    // band. Limits that are not in order are no band either.
+    let regulating = ctx.device.can_write()
+        && ctx
+            .device
+            .info
+            .is_some_and(|info| info.mode == "shield" && info.running_action.is_empty());
+    let sensor = |name: &str| ctx.device.sensor(input, name).filter(|_| regulating);
+    let live = match (
+        sensor("pressure_high"),
+        sensor("pressure_setpoint"),
+        sensor("pressure_low"),
     ) {
-        (Some(min), Some(target), Some(max)) => Some((min, target, max)),
+        (Some(max), Some(target), Some(min)) if min < target && target < max => {
+            Some([max, target, min])
+        }
         _ => None,
     };
-    let line = |name: &str, index: usize| {
-        let value = set.map(|band| [band.max, band.target, band.min][index]);
+    let pressure = sensor("pressure").filter(|_| live.is_some());
+    let solid = live.or(stored);
+    let axis = BandAxis::covering(
+        [solid, stored, draft]
+            .into_iter()
+            .flatten()
+            .flatten()
+            .chain(pressure),
+    );
+
+    let names = ["maximum", "target", "minimum"];
+    let lines = [0, 1, 2].map(|index| {
+        let value = solid.map(|values| values[index]);
         BandLine {
-            label: locale.fmt(
-                &format!("leakshield.settings.diagram.{name}"),
-                &[(
-                    "value",
-                    &value.map_or_else(|| "--".to_owned(), |v| compact(locale, v)),
-                )],
-            ),
+            // Without a value the line keeps a place of its own.
+            place: value.map_or(0.25 * (index + 1) as f32, |value| axis.place(value)),
+            label: text(names[index], value),
             // A difference under half a mbar is the rounding of the device.
-            now: now
-                .map(|(min, target, max)| [max, target, min][index])
-                .filter(|now| value.is_none_or(|value| (now - value).abs() >= 0.5))
-                .map(|now| {
-                    locale.fmt(
-                        "leakshield.settings.diagram.now_value",
-                        &[("value", &compact(locale, now))],
-                    )
-                }),
+            note: stored
+                .map(|stored| stored[index])
+                .filter(|stored| live.is_some_and(|live| (live[index] - stored).abs() >= 0.5))
+                .map(|stored| text("set_value", Some(stored))),
         }
-    };
-    let marker = live("pressure").and_then(|pressure| {
-        let (min, target, max) = now.or(set.map(|band| (band.min, band.target, band.max)))?;
-        Some((
-            marker_place(pressure, min, target, max),
-            locale.fmt(
-                "leakshield.settings.diagram.marker",
-                &[("value", &compact(locale, pressure.round()))],
-            ),
-        ))
     });
-    let now_line = now.map(|(min, target, max)| {
-        locale.fmt(
+    let diagram = BandDiagram {
+        zones: ["above", "inside", "below"]
+            .map(|zone| locale.tr(&format!("leakshield.settings.diagram.{zone}"))),
+        lines,
+        draft: draft.map(|draft| {
+            draft.map(|value| BandLine {
+                place: axis.place(value),
+                label: text("new_value", Some(value)),
+                note: None,
+            })
+        }),
+        marker: pressure
+            .map(|pressure| (axis.place(pressure), text("marker", Some(pressure.round())))),
+        ticks: axis
+            .ticks()
+            .into_iter()
+            .map(|value| (axis.place(value), compact(locale, value)))
+            .collect(),
+        live: live.is_some(),
+    };
+    let mut caption = match live {
+        Some([max, target, min]) => locale.fmt(
             "leakshield.settings.diagram.now",
             &[
                 ("min", &compact(locale, min)),
                 ("target", &compact(locale, target)),
                 ("max", &compact(locale, max)),
             ],
-        )
-    });
-    let diagram = BandDiagram {
-        zones: ["above", "inside", "below"]
-            .map(|zone| locale.tr(&format!("leakshield.settings.diagram.{zone}"))),
-        lines: [line("maximum", 0), line("target", 1), line("minimum", 2)],
-        marker,
+        ),
+        None => locale.tr("leakshield.settings.diagram.not_regulating"),
     };
-    (diagram, now_line)
+    if draft.is_some() {
+        caption.push(' ');
+        caption.push_str(&locale.tr("leakshield.settings.diagram.draft_text"));
+    }
+    (diagram, caption)
 }
 
 /// The information line of a value of the band that is at a limit.
@@ -1423,13 +1507,13 @@ fn pressure_rows(ctx: &RowCtx<'_>, input: &ScreenInput<'_>) -> Vec<Row> {
     let mut rows = vec![values];
 
     // The diagram, then the three values from its top line to its bottom line.
-    let (diagram, now_line) = band_diagram(ctx, input);
+    let (diagram, caption) = band_diagram(ctx, input);
     rows.push(Row {
         key: "band".to_owned(),
         label: locale.tr("leakshield.settings.diagram.title"),
-        caption: now_line,
+        caption: Some(caption),
         badge: String::new(),
-        control: Control::Band(diagram),
+        control: Control::Band(Box::new(diagram)),
         writable: false,
         reason: None,
         error: None,
