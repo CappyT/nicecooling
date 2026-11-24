@@ -493,6 +493,6 @@ Measured on the reference device on 2026-11-24 (task 5.11, step 7, fw 1022, Mode
 | Transport of Mode and Action | Report 2 command 12 with the Mode or Action code | P4 |
 | Software sensor slots in the Feed message | 16 slots. The code fills them from user links and does not fix a slot meaning. The dump and the kernel driver give slot 0 pump speed, slot 1 flow, slots 2-3 spare, slots 4-15 the 12 Software sensors | P8 |
 | Device clock offsets | `device_clock` at offset 35, validity bit 2 of `status_bits` at offset 15, `local_time` at offset 39 | P5 |
-| Write path of display assets | Report 8 feature write of the whole struct with a new CRC. No save-settings command follows | P7 |
+| Write path of display assets | Report 8 feature write of the whole struct with a new CRC. aquasuite sends no save-settings command after it. The daemon sends one 4 s later, as after a report 3 write | P7 |
 | Command that cancels an Action | Report 2 command 12 with code 0 (`cancel_action`). The aquasuite debug page sends it with its "Stop" button | P4 |
 | Command that clears the pump runtime | The device has none. "Reset pump history" of aquasuite clears only the aquasuite log on the PC, so nicecooling has no such function. Command 13 (`reset_refill_history`) is the "Reset history" button under the refill history table. Command 25000 (`reset_service_counter`, the serial XOR 0xFFFFFFFF) is the "Reset service counter" button in a hidden service section. The code does not say which report 1 values these two commands clear | P4 |
