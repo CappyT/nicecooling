@@ -890,7 +890,8 @@ fn layout(
             .items_start()
             .mt(px(y - 20.))
             .ml(px(left))
-            .mr(px(26.))
+            // The text ends 5 px before the next bubble at least.
+            .mr(px(23.))
             .child(
                 div()
                     .flex()

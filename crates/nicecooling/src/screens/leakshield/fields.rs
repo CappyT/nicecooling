@@ -4,7 +4,7 @@
 use crate::i18n::Locale;
 use crate::model::{FieldEntry, FieldRisk, FieldValue};
 use crate::screens::ScreenInput;
-use crate::screens::format::plain;
+use crate::screens::format::compact;
 use crate::screens::leakshield::{Device, TabState};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -212,10 +212,10 @@ fn value_text(locale: Locale, field: &FieldEntry) -> String {
         } else {
             "leakshield.no"
         }),
-        FieldValue::Number(number) => with_unit(plain(locale, *number)),
+        FieldValue::Number(number) => with_unit(compact(locale, *number)),
         FieldValue::Text(text) => text.clone(),
         FieldValue::List(list) => {
-            let shown: Vec<String> = list.iter().take(6).map(|v| plain(locale, *v)).collect();
+            let shown: Vec<String> = list.iter().take(6).map(|v| compact(locale, *v)).collect();
             let more = if list.len() > 6 { ", ..." } else { "" };
             format!("[{}{more}]", shown.join(", "))
         }

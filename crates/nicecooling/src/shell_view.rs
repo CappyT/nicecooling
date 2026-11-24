@@ -717,6 +717,7 @@ impl Render for ShellView {
             .text_color(p.fg)
             .text_size(px(14.))
             .line_height(px(20.))
+            .font_features(crate::tokens::font_features())
             .child(self.render_sidebar(&shell, &page, &p, cx))
             .child(
                 v_flex()

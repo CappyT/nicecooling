@@ -2,8 +2,9 @@
 //! gpui-component theme that gives its controls the same tokens.
 
 use std::rc::Rc;
+use std::sync::Arc;
 
-use gpui::{App, Hsla, SharedString, rgb};
+use gpui::{App, FontFeatures, Hsla, SharedString, rgb};
 use gpui_component::{Theme, ThemeConfig, ThemeMode};
 
 pub struct Palette {
@@ -99,6 +100,11 @@ fn hex(color: Hsla) -> SharedString {
     let rgb = color.to_rgb();
     let byte = |channel: f32| (channel * 255.0).round() as u8;
     format!("#{:02X}{:02X}{:02X}", byte(rgb.r), byte(rgb.g), byte(rgb.b)).into()
+}
+
+/// The font features of every text: tabular figures, so a live value does not move.
+pub fn font_features() -> FontFeatures {
+    FontFeatures(Arc::new(vec![("tnum".to_owned(), 1)]))
 }
 
 /// The first family of the design that has a bold face of its own. GPUI loads a variable font

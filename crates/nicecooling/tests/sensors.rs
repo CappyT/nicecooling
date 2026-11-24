@@ -76,7 +76,7 @@ fn sensors_states() {
     let water = row(&ready, "nct6798_temp1");
     assert_eq!(water.value, "31.4 °C");
     assert!(!water.no_value && !water.dim);
-    assert_eq!(row(&ready, "nct6798_fan6").value, "2840 rpm");
+    assert_eq!(row(&ready, "nct6798_fan6").value, "2\u{a0}840 rpm");
     assert_eq!(row(&ready, "loop_1_flow").value, "115 L/h");
 
     // Used by: a Curve, a Loop. A sensor in use cannot be hidden.

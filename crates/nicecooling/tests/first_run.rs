@@ -80,7 +80,7 @@ fn first_run_states() {
     assert_eq!(ready.board.counts, "2 Channels and 7 sensors found.");
     assert_eq!(ready.board.channels[0].name, "Chassis Fan 1");
     assert_eq!(ready.board.channels[1].name, "Waterpump");
-    assert_eq!(ready.board.channels[1].rpm, "2840 rpm");
+    assert_eq!(ready.board.channels[1].rpm, "2\u{a0}840 rpm");
     assert_eq!(ready.board.channels[1].duty, "62 %");
     assert!(ready.footer.next_enabled && ready.footer.back.is_none());
     assert_eq!(ready.steps.len(), 5);

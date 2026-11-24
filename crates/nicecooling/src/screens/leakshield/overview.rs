@@ -5,7 +5,7 @@ use nicecooling_core::loops::tach_sensor;
 use crate::command::Command;
 use crate::i18n::Locale;
 use crate::model::{AppState, PressureLimits, Severity};
-use crate::screens::format::{clock_minutes, number, optional_value, plain, value_text};
+use crate::screens::format::{clock_minutes, compact, number, optional_value, plain, value_text};
 use crate::screens::leakshield::charts::GaugeLabels;
 use crate::screens::leakshield::{Device, TabState, change_text, severity_of, write_line};
 use crate::screens::ui::TagKind;
@@ -480,7 +480,7 @@ impl OverviewModel {
                 let label = |name: &str, value: f64| {
                     locale.fmt(
                         &format!("leakshield.overview.{name}"),
-                        &[("value", &plain(locale, value))],
+                        &[("value", &compact(locale, value))],
                     )
                 };
                 GaugeLabels {
@@ -499,9 +499,9 @@ impl OverviewModel {
                     "leakshield.overview.gauge_tooltip",
                     &[
                         ("value", &optional_value(locale, pressure, "mbar")),
-                        ("min", &plain(locale, l.min)),
-                        ("target", &plain(locale, l.target)),
-                        ("max", &plain(locale, l.max)),
+                        ("min", &compact(locale, l.min)),
+                        ("target", &compact(locale, l.target)),
+                        ("max", &compact(locale, l.max)),
                     ],
                 )
             }),
@@ -719,8 +719,8 @@ impl OverviewModel {
                         locale.fmt(
                             "leakshield.range",
                             &[
-                                ("min", &plain(locale, TEST_PRESSURE_RANGE.0)),
-                                ("max", &plain(locale, TEST_PRESSURE_RANGE.1)),
+                                ("min", &compact(locale, TEST_PRESSURE_RANGE.0)),
+                                ("max", &compact(locale, TEST_PRESSURE_RANGE.1)),
                                 ("unit", "mbar"),
                             ],
                         )
@@ -789,8 +789,8 @@ impl OverviewModel {
                     locale.fmt(
                         "leakshield.overview.dotted",
                         &[
-                            ("min", &plain(locale, l.min)),
-                            ("max", &plain(locale, l.max)),
+                            ("min", &compact(locale, l.min)),
+                            ("max", &compact(locale, l.max)),
                         ],
                     )
                 }),

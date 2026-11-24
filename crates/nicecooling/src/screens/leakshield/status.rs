@@ -7,7 +7,7 @@ use crate::i18n::{Locale, event_key};
 use crate::model::{DeviceEvent, LeakshieldInfo, PressureLimits, Severity};
 use crate::screens::ScreenInput;
 use crate::screens::alarms::event_severity;
-use crate::screens::format::{date_time_seconds, optional_value, plain};
+use crate::screens::format::{compact, date_time_seconds, optional_value};
 use crate::screens::leakshield::overview::{limits_of, status_key, status_text};
 use crate::screens::leakshield::{Device, TabState, change_text, severity_of};
 
@@ -286,7 +286,7 @@ impl StatusModel {
         let target_text = limits.map(|l| {
             locale.fmt(
                 "leakshield.status.target",
-                &[("value", &plain(locale, l.target))],
+                &[("value", &compact(locale, l.target))],
             )
         });
         let tiles = Tile::ALL
@@ -381,7 +381,7 @@ impl StatusModel {
             target_label: limits.map(|l| {
                 locale.fmt(
                     "leakshield.status.target_line",
-                    &[("value", &plain(locale, l.target))],
+                    &[("value", &compact(locale, l.target))],
                 )
             }),
             target: limits.map(|l| l.target),

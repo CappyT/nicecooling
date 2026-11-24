@@ -83,7 +83,7 @@ fn loops_states() {
             .is_some()
     );
     let feed = detail.feed.as_ref().unwrap();
-    assert_eq!(feed.feed_pump, "Pump speed 2840 rpm");
+    assert_eq!(feed.feed_pump, "Pump speed 2\u{a0}840 rpm");
     assert_eq!(feed.flow, "Flow 115 L/h");
     assert_eq!(feed.sent, "Sent 2 s ago");
     assert!(!feed.stale);
@@ -577,7 +577,10 @@ fn loops_labels() {
         &LoopsUi::default(),
     );
     let detail = italian.detail.unwrap();
-    assert_eq!(detail.feed.unwrap().feed_pump, "Velocità pompa 2840 rpm");
+    assert_eq!(
+        detail.feed.unwrap().feed_pump,
+        "Velocità pompa 2\u{a0}840 rpm"
+    );
     assert_eq!(
         detail.calibration.unwrap().plot.marker.unwrap().label,
         "671 rpm, 114 L/h"
@@ -605,7 +608,7 @@ fn feed_card_from_last_feed() {
     state.sensors.as_mut().unwrap().sensors[2].1 = 1000.0;
     state.sensors.as_mut().unwrap().sensors[4].1 = 50.0;
     let feed = feed_card_at(&state, NOW_US + 2_000_000);
-    assert_eq!(feed.feed_pump, "Pump speed 2840 rpm");
+    assert_eq!(feed.feed_pump, "Pump speed 2\u{a0}840 rpm");
     assert_eq!(feed.flow, "Flow 115 L/h");
     assert_eq!(feed.sent, "Sent 2 s ago");
     assert!(!feed.stale);

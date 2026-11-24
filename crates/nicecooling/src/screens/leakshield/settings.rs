@@ -6,7 +6,7 @@ use std::collections::BTreeMap;
 use crate::command::Command;
 use crate::i18n::Locale;
 use crate::model::{FieldValue, LeakshieldData, WriteFailure};
-use crate::screens::format::plain;
+use crate::screens::format::{compact, plain};
 use crate::screens::leakshield::fields::{humanize, unit_of};
 use crate::screens::leakshield::{Device, TabState, fields_command, write_line};
 use crate::screens::{FeedbackLine, ScreenInput, WriteOutcome};
@@ -483,8 +483,8 @@ pub struct SettingsModel {
 fn field_value_text(locale: Locale, field: &str, value: Option<&FieldValue>) -> String {
     let unit = unit_of(field);
     match value {
-        Some(FieldValue::Number(n)) if unit.is_empty() => plain(locale, *n),
-        Some(FieldValue::Number(n)) => format!("{} {unit}", plain(locale, *n)),
+        Some(FieldValue::Number(n)) if unit.is_empty() => compact(locale, *n),
+        Some(FieldValue::Number(n)) => format!("{} {unit}", compact(locale, *n)),
         Some(FieldValue::Text(text)) => text.clone(),
         Some(FieldValue::Flag(on)) => locale.tr(if *on {
             "leakshield.yes"
@@ -494,7 +494,7 @@ fn field_value_text(locale: Locale, field: &str, value: Option<&FieldValue>) -> 
         Some(FieldValue::List(list)) => format!(
             "[{}]",
             list.iter()
-                .map(|v| plain(locale, *v))
+                .map(|v| compact(locale, *v))
                 .collect::<Vec<_>>()
                 .join(", ")
         ),
@@ -611,8 +611,8 @@ impl RowCtx<'_> {
                 Some(self.locale.fmt(
                     "leakshield.range",
                     &[
-                        ("min", &plain(self.locale, min)),
-                        ("max", &plain(self.locale, max)),
+                        ("min", &compact(self.locale, min)),
+                        ("max", &compact(self.locale, max)),
                         ("unit", unit_of(field)),
                     ],
                 ))

@@ -56,7 +56,7 @@ fn overview_states() {
     let st = diagram.bubble(Tag::St).unwrap();
     assert_eq!(
         (st.value.as_str(), st.caption.as_str()),
-        ("2840", "Duty 62 %")
+        ("2\u{a0}840", "Duty 62 %")
     );
     assert_eq!(st.opens, Page::Channels);
     let ft = diagram.bubble(Tag::Ft).unwrap();
@@ -71,7 +71,7 @@ fn overview_states() {
     assert!(diagram.no_leakshield.is_none());
     assert_eq!(
         diagram.accessible,
-        "Main loop. Pressure 298 mbar, target 300. Fill level 68 %. Pump 2840 rpm. Flow 115 L/h. Water 31.4 °C."
+        "Main loop. Pressure 298 mbar, target 300. Fill level 68 %. Pump 2\u{a0}840 rpm. Flow 115 L/h. Water 31.4 °C."
     );
     assert!(normal.pressure.is_none());
     assert!(normal.alarms.is_empty());
@@ -259,7 +259,7 @@ fn overview_states() {
     let st = two.loops[0].diagram.bubble(Tag::St).unwrap();
     assert_eq!(
         (st.value.as_str(), st.caption.as_str()),
-        ("1200", "2 pumps")
+        ("1\u{a0}200", "2 pumps")
     );
 
     // Daemon offline: dashed bubbles with "--", the last value as caption, the time on the card.

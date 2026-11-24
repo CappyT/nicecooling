@@ -146,7 +146,7 @@ fn leakshield_overview_states() {
     );
     assert_eq!(rows[1], ("Volume change", "+2 ml/h"));
     assert_eq!(rows[2], ("Pressure change", "-0.4 mbar/min"));
-    assert_eq!(rows[3], ("Feed", "2840 rpm, 115 L/h"));
+    assert_eq!(rows[3], ("Feed", "2\u{a0}840 rpm, 115 L/h"));
     assert!(
         model.status.rows[3]
             .caption

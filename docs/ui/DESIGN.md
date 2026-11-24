@@ -216,6 +216,7 @@ One family: Adwaita Sans, the GNOME interface font. Use tabular figures everywhe
 - A small button (28 px high) has 13 px text.
 - Sentence case for every label. Mode names stay in capitals: SHIELD, MONITOR, RELEASE.
 - A value and its unit are separate text runs: the unit is `fg-dim` and regular weight.
+- A space groups the thousands of a number in a text, in English and in Italian: "2 840 rpm". The space does not break the line. A number in an input has no grouping.
 - Text length: an Italian string is often 20 to 30% longer. A label never has a fixed width. A long name truncates with an ellipsis and the value next to it keeps its width.
 
 ## Layout

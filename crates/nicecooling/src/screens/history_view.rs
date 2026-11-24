@@ -428,6 +428,7 @@ impl ScreenView {
             .line_height(px(16.))
             .text_color(p.fg_dim);
         // The y axes: one for each unit, at most two.
+        let locale = self.model.read(cx).locale;
         for axis in &chart.axes {
             // A narrow range needs a decimal: two ticks never show the same number.
             let digits = usize::from(axis.max - axis.min < 8.0);
@@ -438,7 +439,7 @@ impl ScreenView {
                     .absolute()
                     .top(px(top))
                     .w(px(LEFT - 8.0))
-                    .child(format!("{value:.digits$}"));
+                    .child(locale.decimal(value, digits));
                 frame = frame.child(match axis.side {
                     Side::Left => label.left(px(0.)).text_right(),
                     Side::Right => label.right(px(0.)),

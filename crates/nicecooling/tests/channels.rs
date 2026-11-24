@@ -55,7 +55,10 @@ fn channels_states() {
     let pump = &ready.rows[1];
     assert_eq!(pump.line2, "Curve on Water temperature");
     assert_eq!(pump.pump_tag.as_deref(), Some("Pump channel"));
-    assert_eq!((pump.rpm.as_str(), pump.duty.as_str()), ("2840", "62 %"));
+    assert_eq!(
+        (pump.rpm.as_str(), pump.duty.as_str()),
+        ("2\u{a0}840", "62 %")
+    );
     assert!(pump.no_signal.is_none());
     // Without a selection the first Channel opens: "Chassis Fan 1" has the Hardware curve.
     let detail = ready.detail.as_ref().unwrap();

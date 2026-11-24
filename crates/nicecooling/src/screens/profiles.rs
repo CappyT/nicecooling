@@ -6,7 +6,7 @@ use crate::i18n::Locale;
 use crate::model::{
     AppState, Control, FieldValue, Link, ProfileContent, ProfileInfo, Rule, RuleGroup,
 };
-use crate::screens::format::{clock_minutes, plain, value_text};
+use crate::screens::format::{clock_minutes, compact, value_text};
 use crate::screens::leakshield::fields::humanize;
 use crate::screens::leakshield::refused_text;
 use crate::screens::{FeedbackLine, ScreenInput, WriteOutcome};
@@ -693,7 +693,7 @@ fn differing_slots(
 /// A field value as text, for the diff table.
 fn field_text(locale: Locale, value: &FieldValue) -> String {
     match value {
-        FieldValue::Number(n) => plain(locale, *n),
+        FieldValue::Number(n) => compact(locale, *n),
         FieldValue::Flag(on) => locale.tr(if *on {
             "profiles.diff.on"
         } else {
@@ -702,7 +702,7 @@ fn field_text(locale: Locale, value: &FieldValue) -> String {
         FieldValue::Text(text) => text.clone(),
         FieldValue::List(list) => list
             .iter()
-            .map(|n| plain(locale, *n))
+            .map(|n| compact(locale, *n))
             .collect::<Vec<_>>()
             .join(", "),
         FieldValue::TextList(names) => names.join(", "),
@@ -1121,9 +1121,9 @@ fn thresholds(
         locale.fmt(
             "profiles.leakshield.thresholds_value",
             &[
-                ("warning", &plain(locale, warning)),
-                ("alarm", &plain(locale, alarm)),
-                ("leak", &plain(locale, leak)),
+                ("warning", &compact(locale, warning)),
+                ("alarm", &compact(locale, alarm)),
+                ("leak", &compact(locale, leak)),
             ],
         ),
         [warning, alarm, leak],
@@ -1168,7 +1168,7 @@ fn leakshield_rows(
             locale.tr("profiles.leakshield.lighting"),
             locale.fmt(
                 "profiles.leakshield.lighting_value",
-                &[("value", &plain(locale, brightness))],
+                &[("value", &compact(locale, brightness))],
             ),
         ));
     }
@@ -1486,7 +1486,7 @@ pub fn rule_sentence(locale: Locale, state: &AppState, rule: &Rule) -> String {
                     "profiles.rule.sensor_between",
                     &[
                         ("sensor", &name),
-                        ("low", &plain(locale, *value)),
+                        ("low", &compact(locale, *value)),
                         ("high", &value_text(locale, *value_max, unit)),
                     ],
                 )
