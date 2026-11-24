@@ -7,7 +7,6 @@ use gpui::{
 };
 use gpui_component::button::ButtonVariants as _;
 use gpui_component::progress::Progress;
-use gpui_component::tooltip::Tooltip;
 use gpui_component::{Disableable as _, h_flex, v_flex};
 
 use crate::app::now_us;
@@ -24,6 +23,7 @@ use crate::screens::leakshield::overview::{
     ActionView, ChartRange, Confirm, GaugeState, ModeCard, OverviewModel, TestSource,
 };
 use crate::screens::leakshield::parts::{header, loading_card, state_tag};
+use crate::screens::ui::Tip as _;
 use crate::screens::ui::{
     caption, card, card_header, card_row, modal, notice_row, page, seg, seg_item, severity_icon,
     write_line,
@@ -79,11 +79,7 @@ impl ScreenView {
                     .id("ls-gauge")
                     .px(px(18.))
                     .pb(px(12.))
-                    .when(!tooltip.is_empty(), |body| {
-                        body.tooltip(move |window, cx| {
-                            Tooltip::new(tooltip.clone()).build(window, cx)
-                        })
-                    })
+                    .when(!tooltip.is_empty(), |body| body.tip(tooltip))
                     .child(
                         h_flex()
                             .items_baseline()
@@ -235,8 +231,7 @@ impl ScreenView {
                 }));
             }
             if let Some(tooltip) = mode.tooltip.clone() {
-                item =
-                    item.tooltip(move |window, cx| Tooltip::new(tooltip.clone()).build(window, cx));
+                item = item.tip(tooltip);
             }
             selector = selector.child(item);
         }
@@ -274,7 +269,7 @@ impl ScreenView {
                     }
                 }));
                 if let Some(tooltip) = &mode.tooltip {
-                    item = item.tooltip(tooltip.clone());
+                    item = item.tip(tooltip.clone());
                 }
                 actions = actions.child(item);
             }

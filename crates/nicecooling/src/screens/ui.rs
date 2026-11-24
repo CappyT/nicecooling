@@ -8,12 +8,34 @@ use gpui::{
     AnyElement, App, Bounds, BoxShadow, Div, ElementId, FontWeight, Hsla, MouseDownEvent, Pixels,
     SharedString, Stateful, Window, deferred, div, point, px, relative, rgba,
 };
+use gpui_component::tooltip::Tooltip;
 use gpui_component::{Icon, Sizable as _, h_flex, v_flex};
 
 use crate::icons::{NcIcon, icon, small_icon};
 use crate::model::Severity;
 use crate::screens::FeedbackLine;
-use crate::tokens::Palette;
+use crate::tokens::{Palette, font_features};
+
+/// A tooltip with the tabular figures of the shell. A tooltip draws outside the shell root,
+/// so it does not inherit them.
+pub fn tooltip(text: impl Into<SharedString>) -> Tooltip {
+    Tooltip::new(text.into()).font_features(font_features())
+}
+
+/// Every tooltip of the app goes through `tip`.
+pub trait Tip: InteractiveElement + Sized {
+    /// Show `text` as the tooltip of this element. An empty text gives no tooltip.
+    fn tip(mut self, text: impl Into<SharedString>) -> Self {
+        let text: SharedString = text.into();
+        if !text.is_empty() {
+            self.interactivity()
+                .tooltip(move |window, cx| tooltip(text.clone()).build(window, cx));
+        }
+        self
+    }
+}
+
+impl<E: InteractiveElement> Tip for E {}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TagKind {

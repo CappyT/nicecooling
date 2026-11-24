@@ -23,6 +23,7 @@ use crate::screens::profiles::{
     COMPARISONS, Dialog, DiffDialog, EditorModel, GroupRow, NoticeKind, PROCESS_MATCHES,
     ProfileDetail, ProfilesModel, ProfilesState, RuleEditorModel, RuleKind, minutes_text,
 };
+use crate::screens::ui::Tip as _;
 use crate::screens::ui::{
     TagKind, caption, card, card_header, card_row, heading, label, modal, notice_row, page,
     popover, tag, with_menu, with_popover, write_line,
@@ -115,7 +116,7 @@ impl ScreenView {
             card_header(locale.tr("profiles.list.title"), p).child(
                 Self::small_button("profile-new", locale.tr("profiles.new"), Some(NcIcon::Plus))
                     .disabled(!enabled)
-                    .tooltip(tooltip.clone())
+                    .tip(tooltip.clone())
                     .on_click(act(&view, |this, _, cx| {
                         let command = this.with_input(cx, |input| this.profiles.new_profile(input));
                         this.send(command);
@@ -510,7 +511,7 @@ impl ScreenView {
                 .child(
                     item("profile-delete", detail.delete_label.clone())
                         .disabled(!detail.delete_enabled)
-                        .tooltip(delete_tooltip)
+                        .tip(delete_tooltip)
                         .on_click(act(&view, |this, _, _| {
                             this.profiles.menu_open = false;
                             this.profiles.delete_dialog = true;

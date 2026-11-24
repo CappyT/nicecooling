@@ -6,7 +6,6 @@ use gpui::prelude::*;
 use gpui::{AnyElement, Context, FontWeight, SharedString, Window, div, px};
 use gpui_component::slider::Slider;
 use gpui_component::switch::Switch;
-use gpui_component::tooltip::Tooltip;
 use gpui_component::{Disableable as _, Sizable as _, h_flex, v_flex};
 
 use crate::icons::{NcIcon, icon};
@@ -16,6 +15,7 @@ use crate::screens::controls::{FieldMode, Pick, act};
 use crate::screens::format::plain;
 use crate::screens::leakshield::TabState;
 use crate::screens::leakshield::alarms::{AlarmsModel, EventRow, RecommendationKind};
+use crate::screens::ui::Tip as _;
 use crate::screens::ui::{
     caption, card, card_header, card_row, locked, notice_row, page, severity_icon, table_header,
     write_line,
@@ -221,11 +221,7 @@ impl ScreenView {
                         "ls-device-reason-{}",
                         row.event
                     )))
-                    .when_some(reason, |select, reason| {
-                        select.tooltip(move |window, cx| {
-                            Tooltip::new(reason.clone()).build(window, cx)
-                        })
-                    })
+                    .when_some(reason, |select, reason| select.tip(reason))
                     .child(select),
             );
             if let Some(sound) = &row.sound {

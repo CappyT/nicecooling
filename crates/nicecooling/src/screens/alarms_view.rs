@@ -5,7 +5,6 @@ use std::rc::Rc;
 use gpui::prelude::*;
 use gpui::{AnyElement, Context, Div, FontWeight, SharedString, Window, div, px};
 use gpui_component::button::ButtonVariants as _;
-use gpui_component::tooltip::Tooltip;
 use gpui_component::{h_flex, v_flex};
 
 use crate::command::Command;
@@ -16,6 +15,7 @@ use crate::screens::alarms::{
     ActiveRow, AlarmsModel, AlarmsState, HistoryRow, ResponseGroup, ResponseRow,
 };
 use crate::screens::controls::{Pick, act};
+use crate::screens::ui::Tip as _;
 use crate::screens::ui::{
     caption, card, card_header, card_row, cell, heading, label, page, severity_icon, table_header,
     table_row, wrap_cell, write_line,
@@ -315,7 +315,7 @@ impl ScreenView {
             marks = marks.child(
                 div()
                     .id(SharedString::from(format!("response-overlap-{}", row.key)))
-                    .tooltip(move |window, cx| Tooltip::new(text.clone()).build(window, cx))
+                    .tip(text)
                     .child(severity_icon(Severity::Warning, p)),
             );
         }

@@ -12,6 +12,7 @@ use crate::screen_view::{InputKey, ScreenView, skeleton};
 use crate::screens::controls::{Pick, act};
 use crate::screens::leakshield::TabState;
 use crate::screens::leakshield::lighting::{Hsv, LightingModel, ToolbarButton};
+use crate::screens::ui::Tip as _;
 use crate::screens::ui::{
     caption, card, card_header, card_row, field_row, modal, notice_row, page, write_line,
 };
@@ -42,7 +43,7 @@ fn toolbar(
     .disabled(!button.enabled)
     .on_click(act(view, move |this, _, cx| handler(this, cx)));
     if let Some(tooltip) = &button.tooltip {
-        b = b.tooltip(tooltip.clone());
+        b = b.tip(tooltip.clone());
     }
     b
 }

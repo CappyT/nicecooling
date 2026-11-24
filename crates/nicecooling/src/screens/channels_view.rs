@@ -9,7 +9,6 @@ use gpui::{
 };
 use gpui_component::button::ButtonVariants as _;
 use gpui_component::slider::Slider;
-use gpui_component::tooltip::Tooltip;
 use gpui_component::{Disableable as _, h_flex, v_flex};
 
 use crate::icons::{NcIcon, icon};
@@ -21,6 +20,7 @@ use crate::screens::channels::{
 use crate::screens::controls::act;
 use crate::screens::format::plain;
 use crate::screens::sensors_view::PickRow;
+use crate::screens::ui::Tip as _;
 use crate::screens::ui::{
     TagKind, caption, card, card_row, heading, modal, page, seg, seg_item, select_trigger,
     severity_icon, table_row, tag, with_popover, write_line,
@@ -346,7 +346,7 @@ impl ScreenView {
         });
         let rename = Self::icon_button("channel-rename", NcIcon::Pencil)
             .disabled(!enabled)
-            .tooltip(if reason.is_empty() {
+            .tip(if reason.is_empty() {
                 locale.tr("channels.rename")
             } else {
                 reason.clone()
@@ -392,9 +392,7 @@ impl ScreenView {
                 }))
             } else {
                 let reason = reason.clone();
-                item.when(!reason.is_empty(), |item| {
-                    item.tooltip(move |window, cx| Tooltip::new(reason.clone()).build(window, cx))
-                })
+                item.when(!reason.is_empty(), |item| item.tip(reason))
             });
         }
         let mut body = v_flex().w_full().child(header).child(
@@ -635,11 +633,7 @@ impl ScreenView {
             column.style().flex_grow = Some(grow);
             column
         };
-        let help = |id: &'static str, text: String, column: Div| {
-            column
-                .id(id)
-                .tooltip(move |window, cx| Tooltip::new(text.clone()).build(window, cx))
-        };
+        let help = |id: &'static str, text: String, column: Div| column.id(id).tip(text);
         let fields = h_flex()
             .w_full()
             .px(px(18.))

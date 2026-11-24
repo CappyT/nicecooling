@@ -16,6 +16,7 @@ use crate::command::Command;
 use crate::icons::{NcIcon, icon, small_icon, text_icon};
 use crate::model::{Link, Severity};
 use crate::screen_view::ScreenView;
+use crate::screens::ui::Tip as _;
 use crate::shell::{Banner, BannerAction, BannerStyle, NavBadge, NavEntry, Page, ShellModel};
 use crate::tokens::Palette;
 
@@ -398,7 +399,7 @@ impl ShellView {
             .size(px(28.))
             .rounded(px(7.))
             .icon(text_icon(NcIcon::Menu))
-            .tooltip(locale.tr("menu.primary"))
+            .tip(locale.tr("menu.primary"))
             .on_click(self.toggle(|this| &mut this.menu_open, cx));
         // The close button hides the window. The app stays in the tray.
         let close_button = Button::new("window-close")
@@ -415,7 +416,7 @@ impl ShellView {
             .p_0()
             .rounded(px(12.))
             .child(small_icon(NcIcon::X, p.fg))
-            .tooltip(locale.tr("menu.close"))
+            .tip(locale.tr("menu.close"))
             .on_click(|_, window, _| window.remove_window());
         Self::moves_window(
             div()

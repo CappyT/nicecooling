@@ -698,3 +698,27 @@ fn a_dialog_scrim_blocks_the_controls_under_it(cx: &mut TestAppContext) {
     let pressed = window.update(cx, |screen, _, _| screen.pressed).unwrap();
     assert_eq!(pressed, 0, "the press went through the scrim");
 }
+
+/// A tooltip draws outside the shell root, so it sets the tabular figures itself. No screen
+/// builds a tooltip another way: a gpui-component tooltip has no font features.
+#[test]
+fn every_tooltip_has_tabular_figures() {
+    use gpui::Styled as _;
+
+    let mut tooltip = nicecooling::screens::ui::tooltip("2 840 rpm");
+    assert_eq!(
+        tooltip.style().text.font_features,
+        Some(nicecooling::tokens::font_features())
+    );
+    for (file, text) in support::labels::sources() {
+        if file == "screens/ui.rs" {
+            continue;
+        }
+        for call in [".tooltip(", "Tooltip::new("] {
+            assert!(
+                !text.contains(call),
+                "{file} builds a tooltip with `{call}`: use `Tip::tip`"
+            );
+        }
+    }
+}

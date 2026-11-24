@@ -17,6 +17,7 @@ use crate::screens::sensors::{
     DerivedEditor, DerivedEditorModel, FUNCTIONS, SensorRow, SensorSection, SensorsModel,
     SensorsState,
 };
+use crate::screens::ui::Tip as _;
 use crate::screens::ui::{
     caption, card, heading, page, popover, seg, seg_item, select_trigger, severity_icon, table_row,
     with_popover,
@@ -89,7 +90,7 @@ impl ScreenView {
                 let view = view.clone();
                 Self::button("new-derived", locale.tr("sensors.new_derived"))
                     .disabled(!writes)
-                    .tooltip(tooltip.clone())
+                    .tip(tooltip.clone())
                     .on_click(move |_, _, cx| {
                         view.update(cx, |this, cx| {
                             this.sensors.editor = Some(DerivedEditor::new_sensor());
@@ -346,7 +347,7 @@ impl ScreenView {
                 SharedString::from(format!("rename-{}", row.id)),
                 NcIcon::Pencil,
             )
-            .tooltip(locale.tr("sensors.rename"))
+            .tip(locale.tr("sensors.rename"))
             .disabled(!enabled)
             .on_click({
                 let view = view.clone();
@@ -375,7 +376,7 @@ impl ScreenView {
                     SharedString::from(format!("edit-{}", row.id)),
                     NcIcon::Sliders,
                 )
-                .tooltip(locale.tr("sensors.edit"))
+                .tip(locale.tr("sensors.edit"))
                 .disabled(!enabled)
                 .on_click(act(&view, move |this, _, cx| {
                     let state = this.state(cx);
@@ -392,7 +393,7 @@ impl ScreenView {
                     SharedString::from(format!("delete-{}", row.id)),
                     NcIcon::Trash,
                 )
-                .tooltip(
+                .tip(
                     row.delete_reason
                         .clone()
                         .unwrap_or_else(|| locale.tr("sensors.delete")),
@@ -413,7 +414,7 @@ impl ScreenView {
             buttons = buttons.child({
                 let sensor = row.id.clone();
                 Self::icon_button(SharedString::from(format!("hide-{}", row.id)), NcIcon::Eye)
-                    .tooltip(
+                    .tip(
                         row.hide_reason
                             .clone()
                             .unwrap_or_else(|| locale.tr(label_key)),
@@ -723,7 +724,7 @@ impl ScreenView {
                                 .primary()
                                 .disabled(!model.can_save);
                         if let Some(reason) = &model.save_reason {
-                            save = save.tooltip(reason.clone());
+                            save = save.tip(reason.clone());
                         }
                         save.on_click(move |_, _, cx| {
                             let command = save_command.clone();

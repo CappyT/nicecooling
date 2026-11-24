@@ -5,6 +5,7 @@ use crate::icons::{NcIcon, small_icon};
 use crate::model::{AlarmEntry, ChannelInfo, LoopInfo, Severity};
 use crate::screens::ScreenInput;
 use crate::screens::format::{clock, number, optional_value, unit_text, value_text};
+use crate::screens::ui::Tip as _;
 use crate::shell::Page;
 
 /// The instrument tag of a bubble.
@@ -524,7 +525,6 @@ use gpui::{
     px, relative, size,
 };
 use gpui_component::ActiveTheme as _;
-use gpui_component::tooltip::Tooltip;
 
 use crate::tokens::Palette;
 use crate::widgets::paint::{at, disc, polygon, polyline, rect};
@@ -950,7 +950,7 @@ fn layout(
             .font_weight(FontWeight::BOLD)
             .cursor_pointer()
             .debug_selector(move || format!("loop-bubble-{name}"))
-            .tooltip(move |window, cx| Tooltip::new(tooltip.clone()).build(window, cx))
+            .tip(tooltip)
             .on_click(move |_, window, cx| open(page.clone(), window, cx))
             .child(bubble.tag.text())
     };

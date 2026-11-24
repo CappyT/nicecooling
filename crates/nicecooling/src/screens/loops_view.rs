@@ -15,6 +15,7 @@ use crate::screen_view::{InputKey, ScreenView, skeleton, with_screen_input};
 use crate::screens::format::plain;
 use crate::screens::loops::{Choice, LoopDetail, LoopRow, LoopsModel, LoopsState, PartRow};
 use crate::screens::sensors_view::PickRow;
+use crate::screens::ui::Tip as _;
 use crate::screens::ui::{
     TagKind, caption, card, card_header, card_row, page, severity_icon, tag, write_line,
 };
@@ -198,7 +199,7 @@ impl ScreenView {
                     .ghost()
                     .icon(text_icon(NcIcon::Pencil))
                     .disabled(!enabled)
-                    .tooltip(if enabled {
+                    .tip(if enabled {
                         locale.tr("loops.rename")
                     } else {
                         tooltip.clone()
@@ -217,7 +218,7 @@ impl ScreenView {
                     .small()
                     .ghost()
                     .icon(text_icon(NcIcon::Menu))
-                    .tooltip(locale.tr("loops.menu"))
+                    .tip(locale.tr("loops.menu"))
                     .on_click(move |_, _, cx| {
                         view.update(cx, |this, cx| {
                             this.open_picker = if this.open_picker.as_deref() == Some(menu_key) {
@@ -240,7 +241,7 @@ impl ScreenView {
                         .icon(text_icon(NcIcon::Trash))
                         .label(locale.tr("loops.delete_loop"))
                         .disabled(!enabled)
-                        .tooltip(tooltip.clone())
+                        .tip(tooltip.clone())
                         .on_click(move |_, _, cx| {
                             view.update(cx, |this, cx| {
                                 this.open_picker = None;
@@ -464,7 +465,7 @@ impl ScreenView {
                     .label(row.shown.clone())
                     .child(text_icon(NcIcon::Down))
                     .disabled(!enabled)
-                    .tooltip(tooltip.to_owned())
+                    .tip(tooltip.to_owned())
                     .on_click(move |_, _, cx| {
                         let key = key.clone();
                         view.update(cx, |this, cx| {

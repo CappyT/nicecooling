@@ -112,3 +112,24 @@ pub fn missing_labels(screen_file: &str, examples: &[&str]) -> Vec<String> {
         .filter(|label| !en.values().any(|text| text.contains(label.as_str())))
         .collect()
 }
+
+/// Every source file of the app: the path under `src` and the text.
+pub fn sources() -> Vec<(String, String)> {
+    fn walk(dir: &Path, root: &Path, out: &mut Vec<(String, String)>) {
+        for entry in std::fs::read_dir(dir).expect("source dir") {
+            let path = entry.expect("entry").path();
+            if path.is_dir() {
+                walk(&path, root, out);
+            } else if path.extension().is_some_and(|ext| ext == "rs") {
+                let name = path.strip_prefix(root).expect("under src");
+                let text = std::fs::read_to_string(&path).expect("source file");
+                out.push((name.to_string_lossy().into_owned(), text));
+            }
+        }
+    }
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let mut out = Vec::new();
+    walk(&root, &root, &mut out);
+    out.sort();
+    out
+}
