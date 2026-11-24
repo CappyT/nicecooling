@@ -9,3 +9,4 @@ Terminal=false
 Categories=System;Monitor;HardwareSettings;
 Keywords=fan;pump;cooling;leakshield;
 StartupNotify=true
+StartupWMClass=io.github.cappyt.NiceCooling

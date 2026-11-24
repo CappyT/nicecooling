@@ -36,4 +36,9 @@ fn desktop_entry_opens_the_window() {
         value(&desktop, "Icon"),
         Some("io.github.cappyt.NiceCooling")
     );
+    // The window has this app id: the desktop then shows the entry name and icon for it.
+    assert_eq!(
+        value(&desktop, "StartupWMClass"),
+        Some(nicecooling::app::APP_ID)
+    );
 }

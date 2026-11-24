@@ -16,6 +16,9 @@ use crate::screens::{Feedback, WriteOutcome};
 use crate::shell::{Page, ShellModel};
 use crate::shell_view::ShellView;
 
+/// The app id of the window: the name of the desktop entry.
+pub const APP_ID: &str = "io.github.cappyt.NiceCooling";
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum StartMode {
     Normal,
@@ -312,7 +315,12 @@ pub fn show_window(cx: &mut App, model: &Entity<AppModel>, commands: &UnboundedS
     }
     // The header bar of the shell is the title bar of the window. These options leave the
     // decorations to the platform: a compositor that draws its own title bar adds it above.
-    let options = gpui_component::TitleBar::window_options();
+    let mut options = gpui_component::TitleBar::window_options();
+    // The desktop finds the entry and the icon of a window through its app id.
+    options.app_id = Some(APP_ID.to_owned());
+    if let Some(titlebar) = options.titlebar.as_mut() {
+        titlebar.title = Some("NiceCooling".into());
+    }
     let model = model.clone();
     let commands = commands.clone();
     let opened = cx.open_window(options, move |window, cx| {
