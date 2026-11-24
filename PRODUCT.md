@@ -44,7 +44,7 @@ nicecooling controls the cooling of one Linux desktop: the fans and the pump on 
 - GNOME on Wayland, desktop window, minimum 1100x700, light and dark theme from the system.
 - Background app with a StatusNotifierItem tray icon and desktop notifications. On GNOME the tray icon needs the AppIndicator extension.
 - English and Italian. Italian strings are often 20-30% longer.
-- polkit authorizes writes. Three controls need an admin password: factory reset, setting RELEASE directly and restoring a backup.
+- polkit authorizes every action of a wheel member in the active session without a password. The app warns before an action that lowers the protection and does not refuse it.
 - Units: degrees Celsius, L/h, mbar, rpm, percent Duty, ml, ml/h, mbar/min.
 
 ## Capabilities and Constraints

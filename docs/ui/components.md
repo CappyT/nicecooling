@@ -16,7 +16,7 @@ This inventory lists every screen, state and widget that the nicecooling desktop
 - Status bar: daemon connection, active Profile (manual, by rule or the Default Profile), count of active Alarms.
 - Global banners, one style per severity: daemon offline; "daemon down, Board on BIOS curves" when the restart limit is reached; Leakshield unreachable; Leakshield with unknown firmware (read-only); Immediate switching on; poweroff countdown running.
 - Write feedback for every device write: pending, backup saved, written, read-back verified, or failed with an offer to restore the backup.
-- Authorization: no control has a lock icon and the app asks no password. The system polkit dialog shows only for a user outside the group `wheel`. The app warns before an action that lowers the protection and does not refuse it.
+- Authorization: no control has a lock icon for authorization and the app asks no password. The read-only lock of a field that is not Verified stays (`widgets.md`). The system polkit dialog shows only for a user outside the group `wheel`. The app warns before an action that lowers the protection and does not refuse it.
 
 ## Tray icon
 

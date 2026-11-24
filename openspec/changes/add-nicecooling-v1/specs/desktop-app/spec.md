@@ -108,7 +108,7 @@ The app SHALL offer English and Italian.
 - **THEN** the app shows Italian text
 
 ### Requirement: Authorization prompts
-The app SHALL NOT ask for a password and SHALL NOT mark a control with a lock icon. A user outside the group `wheel` gets the system polkit dialog. The app SHALL report a denial. The app SHALL warn before an action that lowers the protection and SHALL NOT refuse the choice of the user.
+The app SHALL NOT ask for a password and SHALL NOT mark a control with a lock icon for authorization; the read-only lock of a field that is not Verified stays. A user outside the group `wheel` gets the system polkit dialog. The app SHALL report a denial. The app SHALL warn before an action that lowers the protection and SHALL NOT refuse the choice of the user.
 
 #### Scenario: Wheel member sets RELEASE
 - **WHEN** a wheel member in the active local session confirms Mode RELEASE

@@ -1,5 +1,4 @@
-//! Saving a Profile with Mode RELEASE needs no admin password (ADR-0007), although setting the
-//! Mode RELEASE directly does.
+//! Saving a Profile with Mode RELEASE asks `write`, as every Profile method does (ADR-0007).
 
 mod support;
 

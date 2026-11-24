@@ -364,9 +364,9 @@ The daemon SHALL emit a progress signal for each step and for each chunk, and on
 ### Requirement: Update method authorization
 The method that starts an update SHALL use the polkit action `io.github.cappyt.NiceCooling1.critical`. The method that lists images and their checks SHALL use the polkit action `io.github.cappyt.NiceCooling1.write`, and it SHALL NOT start an update.
 
-#### Scenario: Polkit asks the admin password
+#### Scenario: Start without a prompt
 - **WHEN** a wheel member in the active local session starts an update
-- **THEN** polkit asks for the admin password
+- **THEN** polkit authorizes it without a password
 
 #### Scenario: List without a prompt
 - **WHEN** a wheel member in the active local session lists the images
