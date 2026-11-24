@@ -18,7 +18,7 @@ A Graph SHALL have an id, a name, an enabled flag, nodes and connections. A Grap
 - **THEN** the validator accepts the Graph and both nodes read the same value
 
 #### Scenario: Sensor link
-- **WHEN** a sensor Graph has the `sensor_id` `graph_3`
+- **WHEN** a Graph with a sensor end node has the `sensor_id` `graph_3`
 - **THEN** its sensor end node gives the value of the Graph sensor `graph_3`
 
 ### Requirement: Validator refusal codes
@@ -37,7 +37,7 @@ The validator SHALL name each refusal with one code: `no-end-node`, `two-end-nod
 - **THEN** the validator returns `duplicate-label`
 
 #### Scenario: Sensor id
-- **WHEN** a response Graph has a `sensor_id`
+- **WHEN** a Graph with a response end node has a `sensor_id`
 - **THEN** the validator returns `bad-sensor-id`
 
 ### Requirement: One end node
@@ -56,7 +56,7 @@ A Graph SHALL have exactly one end node: a sensor end node or a response end nod
 - **THEN** the validator refuses the Graph with the code `end-node-output`
 
 ### Requirement: Graph limits
-The app SHALL store at most 64 Graphs and at most 256 nodes in one Graph. A Graph name and a node label SHALL have at most 64 characters. The validator SHALL refuse a Graph above a limit. The limits of the window samples and of the Graph sensors are in their own requirements.
+The app SHALL store at most 64 Graphs and at most 256 nodes in one Graph. A Graph name SHALL have at most 64 characters. A node label SHALL have 1 to 32 characters of letters, digits and `_`, and SHALL be unique in its Graph. The validator SHALL refuse a Graph above a limit. The limits of the window samples and of the Graph sensors are in their own requirements.
 
 #### Scenario: 65th Graph
 - **WHEN** 64 Graphs exist and the user applies a new Graph
@@ -69,6 +69,33 @@ The app SHALL store at most 64 Graphs and at most 256 nodes in one Graph. A Grap
 #### Scenario: Name of 65 characters
 - **WHEN** a Graph has a name of 65 characters
 - **THEN** the validator refuses it with the code `limit-name`
+
+#### Scenario: Label with a space
+- **WHEN** a node has the label `hot water`
+- **THEN** the validator refuses it with the code `bad-parameter` for `label`
+
+### Requirement: Parameter types
+Every time parameter SHALL be a whole number of seconds, except the period of a generator and of the counter, which is a number of at least 0.1. A comment node SHALL have a width of 60 to 800 and a height of 20 to 600. An e-mail address SHALL have one `@` and at most 254 characters. A command SHALL have at most 32 arguments of at most 1024 characters each. A sound name SHALL have at most 64 characters.
+
+#### Scenario: Fraction of a second
+- **WHEN** a response has a hold time of 2.5 s
+- **THEN** the validator refuses it with the code `bad-parameter` for `hold_s`
+
+#### Scenario: Counter period
+- **WHEN** the counter has the period 0.5 s
+- **THEN** the validator accepts it
+
+#### Scenario: Comment too wide
+- **WHEN** a comment node has the width 900
+- **THEN** the validator refuses it with the code `bad-parameter` for `width`
+
+#### Scenario: Address without an @
+- **WHEN** an e-mail response has the address `owner.example.org`
+- **THEN** the validator refuses it with the code `bad-parameter` for `to`
+
+#### Scenario: 33 arguments
+- **WHEN** a command response has 33 arguments
+- **THEN** the validator refuses it with the code `bad-parameter` for `args`
 
 ### Requirement: Window sample limit
 The Graphs together SHALL hold at most 200 000 window samples. A window node holds at most its span in seconds plus 1 samples, because it gets one sample per second. The validator SHALL add this number for each window node of every Graph, and SHALL refuse a total above the limit. A sample takes at most 24 bytes, so the limit bounds the memory to 4.8 MB.
@@ -282,7 +309,7 @@ The limiter node SHALL hold A between a minimum and a maximum. The defaults SHAL
 - **THEN** the node gives 42
 
 ### Requirement: Table node
-The table node SHALL map A through 2 to 64 pairs of an input and an output with the interpolation function that it shares with the Calibration table. The validator SHALL sort the pairs by input and refuse two pairs with the same input. The mode SHALL be linear or step. A at or below the first input SHALL give the first output. A at or above the last input SHALL give the last output. The default pairs SHALL be (-100, -100) and (100, 100).
+The table node SHALL map A through 2 to 64 pairs of an input and an output with the interpolation function that it shares with the Curve. The validator SHALL sort the pairs by input and refuse two pairs with the same input. The mode SHALL be linear or step. A at or below the first input SHALL give the first output. A at or above the last input SHALL give the last output. The default pairs SHALL be (-100, -100) and (100, 100).
 
 #### Scenario: Linear between two pairs
 - **WHEN** the pairs are (20, 30) and (40, 80), the mode is linear and A = 30
@@ -296,9 +323,13 @@ The table node SHALL map A through 2 to 64 pairs of an input and an output with 
 - **WHEN** the pairs are (20, 30) and (40, 80) and A = 90
 - **THEN** the node gives 80
 
+#### Scenario: Input that is not a number
+- **WHEN** A is not a number
+- **THEN** the node gives no value
+
 #### Scenario: Same input twice
 - **WHEN** a Graph has two pairs with the input 20
-- **THEN** the validator refuses it
+- **THEN** the validator refuses it with the code `duplicate-table-input`
 
 ### Requirement: Comparison nodes
 The nodes less, less or equal, equal, greater or equal, greater and not equal SHALL compare A with B as the `Comparison` of the Profile rules does and SHALL give 1 when true and 0 when false. Equal SHALL hold when the difference is at most 1e-9. Not equal SHALL hold when the difference is above 1e-9. The other four SHALL compare exactly.
@@ -414,10 +445,10 @@ The on delay node SHALL give 1 when A has been true for at least the delay, and 
 - **THEN** the node gives no value from second 11 and drops the delay
 
 ### Requirement: Counter node
-The counter node SHALL have the inputs count, enable, reset and time. While enable is true it SHALL add count to its output once each time seconds. Reset true SHALL set the output and the timer to 0. The output SHALL start at 0. It SHALL add at most once per tick.
+The counter node SHALL have the inputs count, enable, reset and period. While enable is true it SHALL add count to its output once each period. Reset true SHALL set the output and the timer to 0. The output SHALL start at 0. It SHALL add at most once per tick.
 
 #### Scenario: Count every 5 seconds
-- **WHEN** count is 2, time is 5 s and enable stays 1 for 12 s
+- **WHEN** count is 2, period is 5 s and enable stays 1 for 12 s
 - **THEN** the output is 0 at second 0, 2 at second 5 and 4 at second 10
 
 #### Scenario: Reset
@@ -534,7 +565,7 @@ The sensor end node SHALL have one input pin and a unit. Its value SHALL be the 
 - **THEN** the app sends the no-value entry and a Curve that uses the sensor follows the Lost Input rule
 
 #### Scenario: Unit change
-- **WHEN** the user changes the unit of an applied sensor Graph from `degC` to `%`
+- **WHEN** the user changes the unit of an applied Graph with a sensor end node from `degC` to `%`
 - **THEN** the app calls `GraphSensor.SetDefinition` with the new unit
 
 ### Requirement: Response end node
@@ -566,12 +597,12 @@ The app SHALL evaluate every enabled Graph once per second in a service thread o
 ### Requirement: Disabled Graph
 A disabled Graph SHALL not be evaluated. Its Graph sensor SHALL get the no-value entry and its response SHALL not run. The app SHALL keep its nodes and stored values.
 
-#### Scenario: Disable a sensor Graph
-- **WHEN** the user disables a sensor Graph
+#### Scenario: Disable a Graph with a sensor end node
+- **WHEN** the user disables a Graph with a sensor end node
 - **THEN** the app sends the no-value entry for its sensor from the next second
 
-#### Scenario: Disable a response Graph
-- **WHEN** the user disables a response Graph while its input is true
+#### Scenario: Disable a Graph with a response end node
+- **WHEN** the user disables a Graph with a response end node while its input is true
 - **THEN** the response does not run
 
 ### Requirement: Clock
@@ -619,14 +650,14 @@ The validator SHALL refuse a Graph that closes a loop through the Graph sensors 
 - **THEN** the validator refuses it with the reason `loop-across-graphs`
 
 #### Scenario: Graph reads itself
-- **WHEN** a sensor Graph has a source on its own Graph sensor
+- **WHEN** a Graph with a sensor end node has a source on its own Graph sensor
 - **THEN** the validator refuses it
 
 ### Requirement: Graph file format
 `graphs.json` SHALL hold `schema_version` (1) and `graphs`. A Graph SHALL have `id`, `name`, `enabled`, `sensor_id`, `nodes` and `connections`. A node SHALL have `id`, `kind`, `label`, `params`, `x` and `y`. A connection SHALL have `from` and `to`, each with `node` and `pin`. The output pin SHALL be named `out`.
 
 #### Scenario: Example
-- **WHEN** a sensor Graph has a constant node 1 with `value` 5 and a sensor end node 2
+- **WHEN** a Graph with a sensor end node has a constant node 1 with `value` 5 and a sensor end node 2
 - **THEN** the file holds `{"id":"graph_1","name":"Five","enabled":true,"sensor_id":"graph_1","nodes":[...],"connections":[{"from":{"node":1,"pin":"out"},"to":{"node":2,"pin":"a"}}]}` with the two nodes
 
 #### Scenario: Kind names
@@ -642,7 +673,7 @@ The validator SHALL refuse a Graph that closes a loop through the Graph sensors 
 - **THEN** `params` uses `sensor`; `event` and `source`; `value`; `min` and `max`; `name`; `decimals` and `mode` (`nearest`, `down`, `up`); `mode` (`linear`, `step`) and `pairs` (a list of [input, output]); `delay_s`; `span_s`; `span_s` and `damping`; `unit`; `text`, `width` and `height`; and for `response_end`: `kind` (`notification`, `sound`, `command`, `email`, `mqtt`, `poweroff`, `reboot`, `suspend`), `hold_s`, `repeat_s` (null for off), `min_interval_s`, and `title`, `text`, `urgency`; `sound`; `path`, `args`, `time_limit_s`; `to`, `subject`, `text`; `topic`, `payload`; `countdown_s`
 
 ### Requirement: Graph storage
-The app SHALL store all Graphs in `graphs.json` in `$XDG_CONFIG_HOME/nicecooling/` with an atomic write. The app SHALL run the validator on each Graph at load. A Graph that fails SHALL stay in the file, run nothing and show the state "invalid". A file that does not parse, or has a higher schema version, SHALL stay unchanged and the app SHALL show an error.
+The app SHALL store all Graphs in `graphs.json` in `$XDG_CONFIG_HOME/nicecooling/` with an atomic write. The app SHALL parse the file one Graph at a time and run the validator on each. A Graph that does not parse, has an unknown kind or fails the validator SHALL stay in the file with its stored text, run nothing and show the state "invalid". The other Graphs SHALL load. A file that is not a JSON list of Graphs, or has a higher schema version, SHALL stay unchanged and the app SHALL show an error.
 
 #### Scenario: Restart
 - **WHEN** the user applies a Graph and the app restarts
@@ -651,6 +682,10 @@ The app SHALL store all Graphs in `graphs.json` in `$XDG_CONFIG_HOME/nicecooling
 #### Scenario: Invalid Graph at load
 - **WHEN** one of 3 stored Graphs breaks a rule of the validator
 - **THEN** the app evaluates 2 Graphs and lists the third as "invalid"
+
+#### Scenario: Unknown kind
+- **WHEN** one of 3 stored Graphs has a node of the kind `quantum`
+- **THEN** the app evaluates 2 Graphs, lists the third as "invalid" and keeps its text when it writes the file
 
 #### Scenario: Higher schema version
 - **WHEN** `graphs.json` has `schema_version` 2 and the app knows 1
@@ -712,19 +747,23 @@ The app SHALL import a Graph from one file of at most 1 MiB. It SHALL give the G
 - **WHEN** the file has `format_version` 2
 - **THEN** the app refuses it with a message
 
-### Requirement: Enable of a sensor Graph without a sensor
-When the user enables a sensor Graph that has no `sensor_id`, the app SHALL call `Manager.CreateGraphSensor` first and store the returned id. When the daemon refuses, the Graph SHALL stay disabled and the app SHALL show the reason.
+### Requirement: Enable of a Graph with a sensor end node without a sensor
+When the user enables a Graph with a sensor end node that has no `sensor_id`, the app SHALL call `Manager.CreateGraphSensor` first and store the returned id. When the daemon refuses, the Graph SHALL stay disabled and the app SHALL show the reason.
 
-#### Scenario: Enable an imported sensor Graph
-- **WHEN** the user enables an imported sensor Graph named "Hot water" with the unit `degC`
+#### Scenario: Enable an imported Graph with a sensor end node
+- **WHEN** the user enables an imported Graph with a sensor end node named "Hot water" with the unit `degC`
 - **THEN** the app creates a Graph sensor `Hot water` and stores its id in `sensor_id`
 
 #### Scenario: Limit reached
-- **WHEN** 64 Graph sensors exist and the user enables an imported sensor Graph
+- **WHEN** 64 Graph sensors exist and the user enables an imported Graph with a sensor end node
 - **THEN** the Graph stays disabled and the app shows that the limit is reached
 
 ### Requirement: Graph sensor in the daemon
-The daemon SHALL keep Graph sensors in `state.json`: the key `graph_sensors` (a list of `id`, `name` and `unit`) and the key `graph_sensor_next`. `Manager.CreateGraphSensor(name, unit)` SHALL return the object path of a Sensor with the origin `graph` and the id `graph_<n>`. The counter SHALL never give an id twice. At most 64 SHALL exist. A name SHALL have up to 64 characters. The daemon SHALL run no Graph code.
+The daemon SHALL keep Graph sensors in `state.json`: the key `graph_sensors` (a list of `id`, `name` and `unit`) and the key `graph_sensor_next`, which is 1 in a new state. `Manager.CreateGraphSensor(name, unit)` SHALL return the object path of a Sensor with the origin `graph` and the id `graph_<n>`. The counter SHALL never give an id twice. At most 64 SHALL exist. A name SHALL have up to 64 characters. The daemon SHALL run no Graph code.
+
+#### Scenario: First sensor
+- **WHEN** a new state has no Graph sensor
+- **THEN** the first `CreateGraphSensor` returns `/io/github/cappyt/NiceCooling1/sensor/graph_1`
 
 #### Scenario: Create
 - **WHEN** the counter is 5
@@ -758,18 +797,37 @@ The unit of a Graph sensor SHALL be one of `degC`, `rpm`, `%`, `V`, `A`, `W`, `l
 - **THEN** the `Kind` becomes `flow` and the id stays `graph_2`
 
 ### Requirement: Graph sensor definition
-`GraphSensor.SetDefinition(name, unit)` SHALL change the name and the unit and keep the id. `GraphSensor.Delete()` SHALL remove the sensor. A delete of a Graph sensor that a Curve, a sensor Profile rule or a Software sensor slot uses SHALL fail with `InUse` and the name of the user.
+`GraphSensor.SetDefinition(name, unit)` SHALL change the default name and the unit and keep the id. A name that the user set with `Sensor.SetName` SHALL still show. After it the daemon SHALL remove the object and add it again. A change of the unit SHALL fail with `InUse` while a Software sensor slot uses the sensor. `GraphSensor.Delete()` SHALL remove the sensor.
 
 #### Scenario: Rename
 - **WHEN** the app calls `SetDefinition("Hot water", "degC")` on `graph_2`
-- **THEN** the id stays `graph_2` and every user keeps working
+- **THEN** the id stays `graph_2`, the daemon emits `InterfacesRemoved` and `InterfacesAdded`, and every user keeps working
+
+#### Scenario: User name wins
+- **WHEN** the user named `graph_2` "Mine" with `Sensor.SetName` and the app calls `SetDefinition("Hot water", "degC")`
+- **THEN** the sensor still shows "Mine" and its default name is "Hot water"
+
+#### Scenario: Unit change in a slot
+- **WHEN** slot 4 of a Leakshield holds `graph_2` and the app changes its unit from `degC` to `l/h`
+- **THEN** the daemon answers `InUse`
+
+#### Scenario: Unit change not in a slot
+- **WHEN** no slot holds `graph_2` and the app changes its unit from `degC` to `l/h`
+- **THEN** the `Kind` becomes `flow`
+
+### Requirement: Graph sensor in use
+The delete of a Graph sensor that a Curve, a sensor Profile rule or a Software sensor slot uses SHALL fail with `InUse` and the name of the user. The delete of any sensor that a Software sensor slot uses SHALL fail with `InUse`: a Graph sensor, a Derived sensor and a calibrated flow.
 
 #### Scenario: Used by a Curve
 - **WHEN** a Curve has `graph_2` as Input and the app calls `Delete` on it
 - **THEN** the daemon answers `InUse` and names the Curve
 
-#### Scenario: Used by a Software sensor slot
-- **WHEN** slot 4 of a Leakshield holds `graph_2` and the app calls `Delete`
+#### Scenario: Derived sensor in a slot
+- **WHEN** slot 5 holds `derived_1` and a client calls `DerivedSensor.Delete` on it
+- **THEN** the daemon answers `InUse` and names the slot
+
+#### Scenario: Loop with a calibrated flow in a slot
+- **WHEN** slot 6 holds `loop_1_flow` and a client calls `Loop.Delete` on `loop_1`
 - **THEN** the daemon answers `InUse` and names the slot
 
 ### Requirement: Graph sensor consumers
@@ -788,7 +846,7 @@ The daemon SHALL accept a Graph sensor as the Input of a Curve, as the source of
 - **THEN** the daemon refuses it with `InvalidArgument`
 
 ### Requirement: Graph sensor values
-`Manager.SetGraphSensorValues(a(sbd))` SHALL take one entry per Graph sensor: the id, "has a value" and the value. The app SHALL send it once per second. An entry with "has a value" false SHALL make the sensor lose its value at once. A number that is not finite SHALL fail the whole call with `InvalidArgument`. An entry for an unknown id SHALL be skipped.
+`Manager.SetGraphSensorValues(a(sbd))` SHALL take one entry per Graph sensor: the id, "has a value" and the value. The app SHALL send it once per second. An entry with "has a value" false SHALL make the sensor lose its value at once. A number that is not finite SHALL fail the whole call with `InvalidArgument`. An entry whose id is not the id of a Graph sensor SHALL be skipped.
 
 #### Scenario: Values
 - **WHEN** the app sends (`graph_1`, true, 55.0) and (`graph_2`, false, 0.0)
@@ -802,6 +860,25 @@ The daemon SHALL accept a Graph sensor as the Input of a Curve, as the source of
 - **WHEN** an entry names a sensor that was removed
 - **THEN** the daemon skips it and accepts the others
 
+#### Scenario: Entry for a measured sensor
+- **WHEN** an entry names `nct6798_temp1`
+- **THEN** the daemon skips it and the sensor keeps its measured value
+
+### Requirement: Graph sensors at start
+At its start and at each new snapshot of the daemon, the app SHALL compare the Graphs with a sensor end node with the Graph sensors of the daemon. It SHALL create a missing one and store the new id in the Graph. It SHALL leave a Graph sensor that none of its Graphs holds. The Graphs screen SHALL list such a sensor with a remove command. An app in a session that is not active SHALL send no Graph sensor values.
+
+#### Scenario: Missing sensor
+- **WHEN** a Graph holds `graph_3` and the daemon has no such sensor
+- **THEN** the app creates a Graph sensor with the name and unit of the Graph and stores its id
+
+#### Scenario: Sensor of another user
+- **WHEN** the daemon holds `graph_7` and none of the Graphs holds it
+- **THEN** the app leaves it and the Graphs screen lists it with "Remove"
+
+#### Scenario: Inactive session
+- **WHEN** the session of the app is not active
+- **THEN** the app sends no Graph sensor values
+
 ### Requirement: Graph sensor without the app
 A Graph sensor value older than 3 s SHALL count as no value, as for every sensor. So a Graph sensor SHALL have no value when the app does not run, stops or hangs.
 
@@ -814,7 +891,7 @@ A Graph sensor value older than 3 s SHALL count as no value, as for every sensor
 - **THEN** every Graph sensor has no value
 
 ### Requirement: Graph sensor authorization
-The four members `CreateGraphSensor`, `SetDefinition`, `Delete` and `SetGraphSensorValues` SHALL need the polkit action `io.github.cappyt.NiceCooling1.write`. The daemon SHALL ask polkit at every call. The app SHALL call `SetGraphSensorValues` without the interactive flag. After a denial the app SHALL stop for 60 s and show that it has no access.
+The four members `CreateGraphSensor`, `SetDefinition`, `Delete` and `SetGraphSensorValues` SHALL need the polkit action `io.github.cappyt.NiceCooling1.write`. The daemon SHALL ask polkit at every call. The app SHALL call `SetGraphSensorValues` on its own call path without the interactive flag. After a denial the app SHALL stop for 60 s and show that it has no access.
 
 #### Scenario: Wheel member
 - **WHEN** a `wheel` member in the active session sends the values
@@ -827,6 +904,10 @@ The four members `CreateGraphSensor`, `SetDefinition`, `Delete` and `SetGraphSen
 #### Scenario: After the pause
 - **WHEN** 60 s pass after a denial
 - **THEN** the app tries the call again
+
+#### Scenario: Other writes
+- **WHEN** the app calls `CreateGraphSensor`
+- **THEN** the call carries the interactive flag
 
 ### Requirement: Graph sensor as a source
 A Graph sensor SHALL be a normal sensor with the origin `graph`. It SHALL serve as the Input of a Curve, as the source of a sensor Profile rule, as a Software sensor of a Leakshield, as a series of the app history, as a topic of MQTT and as the source of a Graph.
@@ -866,13 +947,13 @@ When the user picks a Graph sensor as the Input of a Curve, the Curve editor SHA
 - **THEN** the editor shows no such text
 
 ### Requirement: Graphs list screen
-The app SHALL show a screen "Graphs" in the group "Control". It SHALL list each Graph with its name, its end node kind, its state and its live result. It SHALL offer "New sensor", "New response" and "Import". Each row SHALL offer an enable switch, "Edit", "Export" and "Delete" with a confirmation.
+The app SHALL show a screen "Graphs" in the group "Control". It SHALL list each Graph with its name, the kind of its end node, its state and its live result. It SHALL offer "New sensor", "New response" and "Import". Each row SHALL offer an enable switch, "Edit", "Export" and "Delete" with a confirmation.
 
-#### Scenario: Live result of a sensor Graph
-- **WHEN** a sensor Graph gives 46.2 in degrees Celsius
+#### Scenario: Live result of a Graph with a sensor end node
+- **WHEN** a Graph with a sensor end node gives 46.2 in degrees Celsius
 - **THEN** its row shows "46.2 °C" and its state "Running"
 
-#### Scenario: Live result of a response Graph
+#### Scenario: Live result of a Graph with a response end node
 - **WHEN** a response end node is in the state "run"
 - **THEN** its row shows "Fired" and the time of its last run
 
@@ -907,7 +988,7 @@ The editor SHALL show the nodes, the pins and the connections on a canvas. The u
 - **THEN** the zoom stays at 25%
 
 ### Requirement: Editor node list
-The editor SHALL show a node list grouped by family: sources, math, logic, state and time, filters, generators and other. It SHALL have a search field. A new node SHALL appear at the centre of the view by double click or by drag onto the canvas. The list SHALL disable the end node kinds because the Graph has its end node.
+The editor SHALL show a node list grouped by family: sources, math, logic, state and time, filters, generators and other. It SHALL have a search field. A new node SHALL appear at the centre of the view by double click or by drag onto the canvas. The list SHALL disable the kind of the end nodes because the Graph has its end node.
 
 #### Scenario: Search
 - **WHEN** the user types "delay"
@@ -937,14 +1018,18 @@ The editor SHALL show the value of each node of the applied Graph on the node, w
 - **THEN** the node shows "--" until Apply
 
 ### Requirement: Editor Try
-The editor SHALL offer "Try" for a draft. A sensor source node SHALL offer a test value and a test time of 1 to 600 s, default 60 s. Try SHALL evaluate the draft in the app with these values, show the node values and the banner "Try running, nothing is published", and stop at the end of the time or on "Stop". A try SHALL send no Graph sensor value and SHALL run no response.
+The editor SHALL offer "Try" for a draft. A sensor source node SHALL offer a test value and a test time of 1 to 600 s, default 60 s. A source with no test value SHALL read its live value. Try SHALL evaluate the draft in the app, show the node values and the banner "Try running, nothing is published", and stop at the end of the time or on "Stop". A try SHALL send no Graph sensor value and SHALL run no response.
 
 #### Scenario: Run a try
 - **WHEN** the user gives the source 80 for 30 s and presses "Try"
 - **THEN** the nodes show the values of the try and the banner is visible
 
+#### Scenario: Source with no test value
+- **WHEN** a draft has two sources, one with the test value 80 and one with none, and the second sensor reads 20
+- **THEN** the second source gives 20
+
 #### Scenario: Nothing published
-- **WHEN** a try runs on a sensor Graph whose Graph sensor a Curve uses
+- **WHEN** a try runs on a Graph with a sensor end node whose Graph sensor a Curve uses
 - **THEN** the app still sends the value of the applied Graph
 
 #### Scenario: Stop
@@ -963,7 +1048,7 @@ The editor SHALL keep 100 steps of undo and redo for the draft. One drag SHALL b
 - **THEN** the node is deleted again
 
 ### Requirement: Editor draft and Apply
-The editor SHALL work on a draft. The app SHALL store the Graph only at "Apply". The button SHALL be off when nothing changed or when the draft breaks a rule of the validator, and the editor SHALL show the first broken rule. Apply of a sensor Graph SHALL create or rename its Graph sensor first and SHALL fail when the daemon refuses. Leaving with an unapplied draft SHALL ask: Apply, Discard or Cancel.
+The editor SHALL work on a draft. The app SHALL store the Graph only at "Apply". The button SHALL be off when nothing changed or when the draft breaks a rule of the validator, and the editor SHALL show the first broken rule. Apply of a Graph with a sensor end node SHALL create or rename its Graph sensor first and SHALL fail when the daemon refuses. Leaving with an unapplied draft SHALL ask: Apply, Discard or Cancel.
 
 #### Scenario: Apply
 - **WHEN** the user presses "Apply" on a valid draft
@@ -981,16 +1066,16 @@ The editor SHALL work on a draft. The app SHALL store the Graph only at "Apply".
 - **WHEN** the daemon refuses the Graph sensor at Apply with `InvalidArgument`
 - **THEN** the editor keeps the draft, stores nothing and shows the reason
 
-#### Scenario: Change the end kind of a used sensor
-- **WHEN** the user changes a sensor Graph into a response Graph while a Curve uses its Graph sensor
+#### Scenario: Change the kind of the end node of a used Graph sensor
+- **WHEN** the user changes a Graph with a sensor end node into a Graph with a response end node while a Curve uses its Graph sensor
 - **THEN** Apply fails with `InUse` and the app stores nothing
 
 ### Requirement: Editor states
-The editor SHALL show these states. Daemon offline: a banner, dim values, the draft stays and "Apply" is off for a sensor Graph. Read error: a message with "Retry"; a Graph file that cannot be read opens no editor, and a failed value read shows dim `--`. Unbound source: the node shows a warning icon, the stored sensor id and "Sensor not found", and the user can choose another sensor.
+The editor SHALL show these states. Daemon offline: a banner, dim values, the draft stays and "Apply" is off for a Graph with a sensor end node. Read error: a message with "Retry"; a Graph file that cannot be read opens no editor, and a failed value read shows dim `--`. Unbound source: the node shows a warning icon, the stored sensor id and "Sensor not found", and the user can choose another sensor.
 
 #### Scenario: Daemon goes offline
 - **WHEN** the daemon becomes unreachable while the editor is open
-- **THEN** the editor shows the banner, keeps the draft and turns "Apply" off for a sensor Graph
+- **THEN** the editor shows the banner, keeps the draft and turns "Apply" off for a Graph with a sensor end node
 
 #### Scenario: Graph file unreadable
 - **WHEN** the app cannot read `graphs.json`
@@ -1010,3 +1095,4 @@ The editor SHALL use the theme tokens of the app in the light and dark theme. Ev
 #### Scenario: Escape
 - **WHEN** the user edits a parameter and presses Escape
 - **THEN** the parameter keeps its earlier value
+

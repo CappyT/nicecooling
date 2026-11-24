@@ -45,11 +45,15 @@ The app SHALL evaluate each response end node once per second. A false input SHA
 - **THEN** the response runs at second 116
 
 ### Requirement: Repeat
-In the state "run" with repeat on, the node SHALL run its response again when the last run plus the repeat interval is not after now and the input is still true. Without repeat the node SHALL run once for each rise.
+In the state "run" with repeat on, the node SHALL run its response again when the last run plus the repeat interval is not after now and the input is still true. After a start of the app with the stored state "run", the repeat interval SHALL count from the start of the app. Without repeat the node SHALL run once for each rise.
 
 #### Scenario: Repeat
 - **WHEN** repeat is on at 60 s and the response ran at second 110 while the input stays true
 - **THEN** the response runs again at seconds 170 and 230
+
+#### Scenario: Repeat after a restart
+- **WHEN** repeat is on at 60 s, the state is stored as "run" and the app starts at second 500 with the input true
+- **THEN** the response runs at second 560
 
 #### Scenario: No repeat
 - **WHEN** repeat is off and the input stays true for 1 hour after the run
@@ -161,7 +165,7 @@ A sound response SHALL have one name from the sound theme of the desktop. The ap
 - **THEN** the validator refuses it
 
 ### Requirement: Command response
-A command response SHALL have an absolute program path, a list of arguments and a time limit of 1 to 3600 s, default 30 s. The app SHALL start the program with no shell, SHALL discard its output and SHALL kill it, with its process group, at the time limit. The app SHALL set `NICECOOLING_GRAPH_ID`, `NICECOOLING_GRAPH_NAME`, `NICECOOLING_RUN_ID` and `NICECOOLING_NODE_<id>` for each node, with the number as decimal text, or empty with no value.
+A command response SHALL have an absolute program path, a list of arguments and a time limit of 1 to 3600 s, default 30 s. The app SHALL start the program with no shell, SHALL discard its output and SHALL kill it, with its process group, at the time limit. The app SHALL set `NICECOOLING_GRAPH_ID`, `NICECOOLING_GRAPH_NAME`, `NICECOOLING_RUN_ID` and `NICECOOLING_NODE_<LABEL>` for each labelled node, with the label in upper case. The value SHALL be decimal text, or empty with no value.
 
 #### Scenario: Run with arguments
 - **WHEN** the path is `/usr/bin/notify-send` and the arguments are `Hot` and `Water`
@@ -172,8 +176,8 @@ A command response SHALL have an absolute program path, a list of arguments and 
 - **THEN** the app kills it and the outcome is `timeout`
 
 #### Scenario: Environment
-- **WHEN** the Graph `graph_2` named "Hot water" fires and node 4 gives 46.2 and node 5 has no value
-- **THEN** the program sees `NICECOOLING_GRAPH_ID=graph_2`, `NICECOOLING_GRAPH_NAME=Hot water`, `NICECOOLING_NODE_4=46.2` and `NICECOOLING_NODE_5=` empty
+- **WHEN** the Graph `graph_2` named "Hot water" fires, the node labelled `water` gives 46.2, the node labelled `pump` has no value and a third node has no label
+- **THEN** the program sees `NICECOOLING_GRAPH_ID=graph_2`, `NICECOOLING_GRAPH_NAME=Hot water`, `NICECOOLING_NODE_WATER=46.2` and `NICECOOLING_NODE_PUMP=` empty, and no variable for the third node
 
 #### Scenario: Relative path
 - **WHEN** a Graph has the path `notify-send`
@@ -285,6 +289,21 @@ While the daemon reports a poweroff countdown of an Alarm, the app SHALL start n
 - **WHEN** all Graphs are deleted
 - **THEN** the pump-stop Alarm still powers off after its delay
 
+### Requirement: Stop of the app
+"Quit" and the end of the session (SIGTERM) SHALL take one path. The app SHALL tell the Graph service to stop. The service SHALL write `graph-state.json` and cancel a running countdown with no power call. The app SHALL wait for it for at most 2 s before it quits.
+
+#### Scenario: Quit in a countdown
+- **WHEN** a poweroff countdown has 20 s left and the user chooses "Quit"
+- **THEN** the app writes `graph-state.json`, makes no power call and quits within 2 s
+
+#### Scenario: SIGTERM
+- **WHEN** the session ends and the app gets SIGTERM
+- **THEN** the app takes the same path
+
+#### Scenario: Service does not answer
+- **WHEN** the service does not stop in 2 s
+- **THEN** the app quits after 2 s
+
 ### Requirement: Response pause
 The app SHALL count the poweroff and reboot runs that it starts, "Run once" included. The count SHALL go back to 0 after 60 minutes of app run time with no such run. The app SHALL store this run time, so it adds up over restarts. At a count of 3 the app SHALL enter the Response pause: no Graph response runs by itself and the Graph sensors still work. The pause SHALL stay over a restart. A banner with "Turn the Graph responses on" SHALL set the count to 0 and end the pause.
 
@@ -332,7 +351,7 @@ The text of a notification, the subject and text of an e-mail and the payload te
 - **THEN** the message is "2026-11-25 14:05:09"
 
 ### Requirement: Placeholder values
-A node without a value SHALL give `--`. An unknown label SHALL keep the placeholder as written. A value SHALL have at most 2 decimals, with no trailing zero. The unit of a sensor source node SHALL be the unit text of its sensor. The unit of every other node SHALL be empty.
+A node without a value SHALL give `--`. An unknown label SHALL keep the placeholder as written. A value SHALL have at most 2 decimals, with no trailing zero. The unit of a sensor source node SHALL be the display text of its sensor unit in the app (`°C` for `degC`). The unit of every other node SHALL be empty.
 
 #### Scenario: No value
 - **WHEN** the node labelled `water` has no value
@@ -419,3 +438,4 @@ The app SHALL show the SMTP settings on the Settings screen, in the group "Netwo
 #### Scenario: Settings card
 - **WHEN** the user opens the Settings screen
 - **THEN** the group "Network" shows the SMTP fields and the unencrypted-login warning when it applies
+

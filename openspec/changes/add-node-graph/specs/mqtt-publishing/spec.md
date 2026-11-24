@@ -96,7 +96,7 @@ The client SHALL publish `online` to `<base>/status` with QoS 1 and the retain f
 - **THEN** the broker publishes `offline` on `<base>/status`
 
 ### Requirement: Sensor topics
-For each sensor that the user has not hidden in the app, the client SHALL publish one JSON object to `<base>/sensor/<sensor id>` at each value interval and at once after a connect, with QoS 0 and the retain flag. The object SHALL have `value`, `unit`, `name` and `time`. `time` SHALL be microseconds since the Unix epoch. The sensors SHALL be those that the app knows: measured, Derived and Graph sensors.
+For each sensor that the user has not hidden in the app, the client SHALL publish one JSON object to `<base>/sensor/<sensor id>` at each value interval and at once after a connect, with QoS 0 and the retain flag. The object SHALL have `value`, `unit` (the display text of the app, `°C` for `degC`), `name` and `time`. `time` SHALL be microseconds since the Unix epoch. The sensors SHALL be those that the app knows: measured, Derived and Graph sensors.
 
 #### Scenario: Value message
 - **WHEN** the sensor `nct6798_temp1` named "CPU" reads 46.2 °C
@@ -118,11 +118,11 @@ A sensor that has no value SHALL publish an object with `value` set to `null`, s
 - **THEN** its next message has `value` null
 
 #### Scenario: Disabled Graph
-- **WHEN** the user disables a sensor Graph
+- **WHEN** the user disables a Graph with a sensor end node
 - **THEN** its next message has `value` null
 
 ### Requirement: Event topics
-The client SHALL publish one JSON object to `<base>/event/<event id>` for each raise and each clear of an Alarm or Warning that the daemon reports, with QoS 1 and no retain flag. The object SHALL have `event`, `source`, `severity` (`alarm` or `warning`), `state` (`raised` or `cleared`), `time` (microseconds since the Unix epoch) and `details`. `details` SHALL hold the keys of the event, such as `value`, `limit` and `unit`, when they apply.
+The client SHALL publish one JSON object to `<base>/event/<event id>` for each raise and each clear of an Alarm or Warning that it sees while it runs, with QoS 1 and no retain flag. The object SHALL have `event`, `source`, `severity` (`alarm` or `warning`), `state` (`raised` or `cleared`), `time` (microseconds since the Unix epoch) and `details`.
 
 #### Scenario: Raise
 - **WHEN** the pump-stop Alarm of `loop_1` rises
@@ -130,11 +130,22 @@ The client SHALL publish one JSON object to `<base>/event/<event id>` for each r
 
 #### Scenario: Clear
 - **WHEN** that Alarm closes
-- **THEN** the topic gets an object with `state` `cleared`
+- **THEN** the topic gets an object with `state` `cleared` and the `source` and `details` of the raise
 
 #### Scenario: Event id with a dot
 - **WHEN** the event `leakshield.leak-alarm` rises
 - **THEN** the topic is `nicecooling/event/leakshield.leak-alarm`
+
+### Requirement: Event message rules
+The client SHALL publish no event message for an Alarm that is active when the app starts or connects again. A clear message SHALL take its fields from the Alarm that the app stored at the raise.
+
+#### Scenario: Active at start
+- **WHEN** the pump-stop Alarm is active when the app starts
+- **THEN** the client publishes no event message for it
+
+#### Scenario: Clear fields
+- **WHEN** the pump-stop Alarm of `loop_1` rose with the `details` value 0 and closes
+- **THEN** the clear message has `source` `loop_1` and the same `details`
 
 ### Requirement: Response message topic
 The message of an MQTT message response SHALL use its own topic below the base topic, QoS 1 and no retain flag, as the graph-responses spec states. The app SHALL give the response its outcome when the broker acknowledges the message, when the queue drops it, or after 30 s without an answer.
@@ -190,3 +201,4 @@ The app SHALL show the broker settings on the Settings screen, in a group "Netwo
 #### Scenario: Failed
 - **WHEN** the broker refuses the login
 - **THEN** the screen shows "Failed" and the error text
+
