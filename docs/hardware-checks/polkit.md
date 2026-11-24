@@ -14,10 +14,10 @@ This procedure checks the polkit policy and rule of nicecoolingd with `pkcheck` 
 
 ## Command
 
-For each cell run, in the session of the cell: `pkcheck --action-id <action> --process $$ --allow-user-interaction=no; echo "exit=$?"`.
+For each cell run, in the session of the cell: `pkcheck --action-id <action> --process $$; echo "exit=$?"`. Without `--allow-user-interaction`, `pkcheck` asks for no password.
 
 - Exit 0 means YES (authorized without a password).
-- Exit 3 means the action needs authentication (`auth_admin_keep`). The text `Authorization requires authentication` also shows.
+- Exit 2 means the action needs authentication: stdout shows `polkit\56result=auth_admin_keep` (`polkit.result`).
 - Exit 1 means no.
 
 ## Matrix
