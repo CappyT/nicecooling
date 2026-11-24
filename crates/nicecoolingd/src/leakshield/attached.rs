@@ -20,11 +20,13 @@ use nicecooling_protocol::report1::Report1;
 use nicecooling_protocol::report2::Report2;
 use nicecooling_protocol::report3::Report3;
 use nicecooling_protocol::report5::Report5;
+use nicecooling_protocol::report8::Report8;
 use tokio::sync::{mpsc, watch};
 use tokio::task::JoinHandle;
 use tokio::time::Instant;
 
 use super::action::{self, Action};
+use super::assets::{AssetEdit, DisplayAssets};
 use super::backup::{BackupEntry, BackupSet, Backups, ImportError, Reason};
 use super::display;
 use super::events::{Event, decode_events};
@@ -607,6 +609,43 @@ impl Attached {
             )));
         }
         Ok(report5.bitmap())
+    }
+
+    /// The names, icons and logo of report 8, read from the device now.
+    pub fn get_display_assets(&self) -> Result<DisplayAssets> {
+        let bytes = blocking(|| self.io.read_report8()).map_err(device_error)?;
+        let report = Report8::decode(&bytes).map_err(|e| failed(e.to_string()))?;
+        Ok(DisplayAssets::of(&report))
+    }
+
+    /// Name `index` (0 to 39) of report 8: 0-19 device sensors, 20-34 page texts, 35-38 LED
+    /// controllers, 39 LED strip.
+    pub async fn set_display_name(&self, index: u8, text: &str) -> Result<()> {
+        self.write_asset(AssetEdit::Name {
+            index,
+            text: text.to_owned(),
+        })
+        .await
+    }
+
+    /// Icon `index` (0 to 15) of report 8. The image has 23 x 23 pixels.
+    pub async fn set_display_icon(&self, index: u8, image: Bitmap) -> Result<()> {
+        self.write_asset(AssetEdit::Icon { index, image }).await
+    }
+
+    /// The logo (start image) of report 8. The image has 128 x 64 pixels.
+    pub async fn set_display_logo(&self, image: Bitmap) -> Result<()> {
+        self.write_asset(AssetEdit::Logo(image)).await
+    }
+
+    async fn write_asset(&self, edit: AssetEdit) -> Result<()> {
+        edit.check().map_err(|e| Error::invalid(e.to_string()))?;
+        let report1 = self.fresh_report1()?;
+        self.worker
+            .submit(Job::Asset { report1, edit })
+            .await
+            .map_err(write_error)?;
+        Ok(())
     }
 
     /// Sets the Mode. The device stores it in report 3 some time later. The daemon then stores it

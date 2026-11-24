@@ -6,6 +6,7 @@ mod api;
 mod backup;
 mod clock;
 mod display;
+mod display_assets;
 mod display_preview;
 mod events;
 mod external;

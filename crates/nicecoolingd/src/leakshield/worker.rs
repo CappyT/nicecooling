@@ -11,6 +11,7 @@ use nicecooling_protocol::report3::Report3;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore, mpsc, oneshot, watch};
 use tokio::time::Instant;
 
+use super::assets::{AssetEdit, write_asset};
 use super::attached::Info;
 use super::backup::Backups;
 use super::external::LastKnown;
@@ -39,6 +40,11 @@ pub enum Job {
     },
     FactoryReset {
         report1: Report1,
+    },
+    /// One change of the display assets of report 8.
+    Asset {
+        report1: Report1,
+        edit: AssetEdit,
     },
     /// The write of a Profile request that the worker decided on (`ProfileRequest`).
     ProfileWrite {
@@ -229,6 +235,23 @@ fn execute(parts: &WorkerParts, job: Job) -> Result<Written, WriteError> {
                     })?,
             };
             write_fields(&env, &report1, &base, &edits, now_us())
+        }
+        Job::Asset { report1, edit } => {
+            let backup = write_asset(&env, &report1, &edit, now_us());
+            // The last known report 3 stays as it is, so the check of external changes holds.
+            backup.and_then(|backup| {
+                let report3 = match last.get() {
+                    Some(known) => known.clone(),
+                    None => parts
+                        .io
+                        .read_report3()
+                        .map_err(|error| WriteError::Device {
+                            error,
+                            backup: Some(backup.clone()),
+                        })?,
+                };
+                Ok(Written { backup, report3 })
+            })
         }
         Job::Restore { report1, backup } => restore(&env, &report1, &backup, now_us()),
         Job::FactoryReset { report1 } => factory_reset(&env, &report1, now_us()),

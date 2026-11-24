@@ -389,3 +389,25 @@ The daemon SHALL give the image that the device shows for a display page, as the
 #### Scenario: Read-only device
 - **WHEN** the firmware of the device is not in the registry
 - **THEN** the call fails and the daemon sends no command
+
+### Requirement: Display assets of report 8
+The daemon SHALL read the 40 names, the 16 icons and the logo of report 8 and SHALL give them to every user. It SHALL write one name (at most 23 bytes of Windows-1252 text), one icon (23 x 23 pixels, black and white) or the logo (128 x 64 pixels, black and white) on request, in the write class. It SHALL refuse a read-only device.
+
+#### Scenario: Name written
+- **WHEN** the user writes the text "Pump" as name 21
+- **THEN** report 8 on the device holds "Pump" as name 21 and the other names, the icons and the logo are as before
+
+#### Scenario: Value does not fit
+- **WHEN** the user writes a name of 24 bytes or an icon of 22 x 23 pixels
+- **THEN** the call fails and the daemon sends nothing to the device
+
+### Requirement: Write path of report 8
+A write of a display asset SHALL run in this order: the checks of the value, a backup of reports 3, 5 and 8, a read of report 8, one write of the whole report with a new CRC that changes only the bytes of the asset, a delay of 250 ms and a read-back. The write SHALL fail with an error that names the backup when the read-back differs from the written report.
+
+#### Scenario: Backup before the write
+- **WHEN** the user writes a name
+- **THEN** a backup that holds report 8 as it was before the write exists
+
+#### Scenario: Read-back differs
+- **WHEN** the device stores another byte than the written one
+- **THEN** the write fails with the backup id

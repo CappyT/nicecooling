@@ -219,6 +219,17 @@ Pages are numbered 0 to 9, as in report 3. A bitmap is `width` (q), `height` (q)
 - `Disconnected`: the device is not connected.
 - `PageNotShown`: report 5 names another page, or none. A page with no template (255) gives this error. The message holds the page that the device shows. Whether the device shows a page with bit 1 of `page_options` set is not measured.
 
+`Leakshield.GetDisplayAssets() -> (names as, icons a(qqay), logo (qqay))` (class `read`) reads report 8 from the device: the 40 names (0-19 device sensors, 20-34 page texts, 35-38 LED controllers, 39 LED strip), the 16 icons of 23 x 23 pixels and the logo of 128 x 64 pixels. A page selects its texts and icons by index with the fields `page_names` and `page_icons`. A name is the text without trailing spaces.
+
+`SetDisplayName(index y, text s)`, `SetDisplayIcon(index y, width q, height q, rows ay)` and `SetDisplayLogo(width q, height q, rows ay)` (class `write`) change one asset of report 8. Each call runs the write path of report 8:
+
+1. It reads report 1 and refuses a device that is read-only (`ReadOnly`). The assets have no verification state: a device that the registry covers takes them.
+2. It checks the value and sends nothing when the value does not fit: `InvalidArgument` for an index above 39 (name) or 15 (icon), a text with more than 23 bytes of Windows-1252, a character that Windows-1252 lacks, a control character, a bitmap with another size than 23 x 23 (icon) or 128 x 64 (logo), or a `rows` array with a wrong byte count.
+3. It takes a backup of reports 3, 5 and 8 (`ListBackups`), reads report 8, changes the one asset, writes the whole report with a new CRC, waits 250 ms and reads report 8 again. A read-back that differs from the written bytes fails with `VerifyFailed`. The message holds the backup id, and `RestoreBackup` restores report 3 only.
+4. It sends save-settings 4 s after the last write, as for report 3. A second write while one runs fails with `Busy`.
+
+The call returns after the read-back. A write that changes no byte writes nothing.
+
 ## Device response proposals
 
 `GetDeviceResponseProposals` returns one row for each Leakshield event that has a Device response: `leakshield.fill-level-low-warning`, `leakshield.fill-level-low-alarm`, `leakshield.leak-warning`, `leakshield.leak-alarm-small`, `leakshield.leak-alarm` and `leakshield.system-alarm`. A row is (event, current, proposed, overlap). `current` and `proposed` are `none`, `signal-short`, `signal-long` or `key-sequence`. `overlap` is empty or a warning id:

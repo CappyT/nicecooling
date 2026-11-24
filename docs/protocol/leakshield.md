@@ -375,11 +375,31 @@ Report 8 holds the display assets: 3091 bytes, the report ID, a 3088-byte struct
 
 | Offset | Size | Content |
 |---|---|---|
-| 1 | 40 x 24 | Names, zero-terminated text. 0-19: names of the device sensors. 20-34: page names. 35-38: LED controllers 1-4. 39: LED strip |
-| 961 | 1024 | Start image, 128 x 64 monochrome, same format as report 5 |
-| 1985 | 16 x 69 | Icons |
+| 1 | 40 x 24 | Names, zero-terminated text. 0-19: names of the device sensors. 20-34: page texts. 35-38: LED controllers 1-4. 39: LED strip |
+| 961 | 1024 | Start image (the logo), 128 x 64 pixels |
+| 1985 | 16 x 69 | Icons, 23 x 23 pixels |
 
-aquasuite writes report 8 as one feature write with a new CRC. The write starts no save-settings command.
+Names: Windows-1252 text in 24 bytes. aquasuite cuts a text at 23 bytes, so the 24th byte stays 0, and pads with 0. It reads a name as the text without trailing spaces and zeros. The daemon reads the text up to the first 0, and refuses control characters on a write. A page selects its texts by index into the 40 names (`page_names`), so a page can show any of them.
+
+Images: the start image and the icons use a column layout, which is not the layout of report 5. Each column has `ceil(height / 8)` bytes, and the columns follow one after the other. Bit `n` of byte `x x ceil(height / 8) + r` is the pixel at column `x` and line `8 x r + n`. A set bit is a lit pixel. The start image has 8 bytes per column. An icon has 3 bytes per column, and the 8th bit of the last byte is 0. aquasuite writes a picture as lit when its brightness is 0.5 or more. The fw1022 dump shows the logo of the device in this layout: 2262 of 8192 pixels lit.
+
+Write sequence (P7, the GUI of aquasuite):
+
+1. Change the asset in the copy of report 8 that aquasuite holds. It writes all 40 names, the image and the 16 icons again, so a change of one asset rewrites the whole report.
+2. One feature write of the whole report with a new CRC.
+3. A delay of 250 ms after the write. aquasuite sends no command in this sequence.
+4. 500 ms after the change, the Display page writes report 3 as it writes after any change, and the save-settings command follows that write 4 s later.
+
+The daemon patches one asset in the report that it reads from the device, so the other bytes stay as the device holds them. Then it follows steps 2 and 3, reads report 8 again and compares all bytes with the written ones. A difference is a `VerifyFailed` error. A backup of reports 3, 5 and 8 comes first, as before a report 3 write. The daemon sends save-settings 4 s after the last write, as it does for report 3.
+
+Not determined:
+
+- Whether the device keeps report 8 over a power cycle without the save-settings command. The library of aquasuite sends none after the write, but the Display page triggers one through the report 3 write of step 4. The daemon sends it to be safe.
+- Whether the device accepts a write of report 8 in every Mode and while the pump runs. aquasuite does not check.
+- Whether the read right after the write stalls as it does after a report 3 write. The daemon waits 250 ms and tries the read again on EPIPE, as for report 3.
+- How long a write of report 8 takes on the device. No measurement exists.
+
+A supervised check with the owner must cover these points before the daemon writes are trusted (`docs/hardware-checks/`).
 
 ## Feed message
 

@@ -14,6 +14,7 @@ use nicecooling_protocol::report5::{REPORT5_SIZE, Report5};
 use nicecooling_protocol::report8::{REPORT8_SIZE, Report8};
 
 pub mod action;
+pub mod assets;
 pub mod attached;
 pub mod backup;
 pub mod clock;
@@ -170,6 +171,11 @@ impl DeviceIo {
     /// `Report3` holds a valid CRC, so the device always gets one.
     pub fn write_report3(&self, report: &Report3) -> Result<(), DeviceError> {
         self.hid().set_feature(&report.encode())
+    }
+
+    /// `bytes` is a whole report 8 with its CRC, as `Report8::encode` makes it.
+    pub fn write_report8(&self, bytes: &[u8]) -> Result<(), DeviceError> {
+        self.hid().set_feature(bytes)
     }
 
     pub fn send_command(&self, command: Report2) -> Result<(), DeviceError> {

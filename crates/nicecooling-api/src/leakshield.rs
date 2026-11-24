@@ -46,6 +46,19 @@ pub trait Leakshield {
     /// with bit 7 as the leftmost pixel, 1 lit.
     fn get_display_preview(&self, page: u8) -> zbus::Result<(u16, u16, Vec<u8>)>;
 
+    /// The 40 names, the 16 icons and the logo of report 8. A bitmap is (width, height, rows).
+    #[allow(clippy::type_complexity)]
+    fn get_display_assets(
+        &self,
+    ) -> zbus::Result<(Vec<String>, Vec<(u16, u16, Vec<u8>)>, (u16, u16, Vec<u8>))>;
+    /// Name `index` (0 to 39) of report 8. At most 23 bytes of Windows-1252 text.
+    fn set_display_name(&self, index: u8, text: &str) -> zbus::Result<()>;
+    /// Icon `index` (0 to 15). The image has 23 x 23 pixels.
+    fn set_display_icon(&self, index: u8, width: u16, height: u16, rows: &[u8])
+    -> zbus::Result<()>;
+    /// The logo. The image has 128 x 64 pixels.
+    fn set_display_logo(&self, width: u16, height: u16, rows: &[u8]) -> zbus::Result<()>;
+
     /// (field id, risk class safety|low, value, writable, reason)
     fn get_fields(&self) -> zbus::Result<Vec<(String, String, OwnedValue, bool, String)>>;
     fn set_fields(&self, fields: HashMap<&str, Value<'_>>) -> zbus::Result<()>;

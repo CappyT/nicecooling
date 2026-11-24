@@ -208,10 +208,13 @@ pub fn take_backup(
 const READ_BACK_RETRY: Duration = Duration::from_millis(50);
 const READ_BACK_ATTEMPTS: u32 = 20;
 
-fn read_back(io: &DeviceIo) -> Result<Report3, DeviceError> {
+/// Runs `read` again while the device answers with EPIPE, up to 20 times, 50 ms apart.
+pub(super) fn retry_stalled<T>(
+    mut read: impl FnMut() -> Result<T, DeviceError>,
+) -> Result<T, DeviceError> {
     let mut attempts = 1;
     loop {
-        match io.read_report3() {
+        match read() {
             Err(DeviceError::Io(e))
                 if e.kind() == io::ErrorKind::BrokenPipe && attempts < READ_BACK_ATTEMPTS =>
             {
@@ -221,6 +224,10 @@ fn read_back(io: &DeviceIo) -> Result<Report3, DeviceError> {
             other => return other,
         }
     }
+}
+
+fn read_back(io: &DeviceIo) -> Result<Report3, DeviceError> {
+    retry_stalled(|| io.read_report3())
 }
 
 /// Writes `report3` and reads it back. The read-back must match outside the volatile mask.

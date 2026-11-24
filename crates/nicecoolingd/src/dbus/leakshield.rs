@@ -6,6 +6,7 @@ use std::sync::Arc;
 
 use nicecooling_api::errors::Result;
 use nicecooling_api::ids::{self, Kind};
+use nicecooling_protocol::bitmap::Bitmap;
 use tokio::sync::mpsc;
 use zbus::message::Header;
 use zbus::object_server::SignalEmitter;
@@ -44,6 +45,12 @@ impl Leakshield {
             .authorize(connection, header, "Leakshield", method, mode)
             .await
     }
+}
+
+/// A bitmap as (width, height, rows) of the D-Bus API.
+fn bitmap_parts(bitmap: &Bitmap) -> (u16, u16, Vec<u8>) {
+    let (width, height) = bitmap.size();
+    (width, height, bitmap.to_rows())
 }
 
 /// A detail of an event stays a `d` (`docs/api.md`, Leakshield events).
@@ -401,9 +408,64 @@ impl Leakshield {
     /// `show_page`, which changes no stored setting, so it needs no authorization.
     #[zbus(out_args("width", "height", "rows"))]
     async fn get_display_preview(&self, page: u8) -> Result<(u16, u16, Vec<u8>)> {
-        let bitmap = self.device.get_display_preview(page)?;
-        let (width, height) = bitmap.size();
-        Ok((width, height, bitmap.to_rows()))
+        Ok(bitmap_parts(&self.device.get_display_preview(page)?))
+    }
+
+    /// The 40 names, the 16 icons (23 x 23) and the logo (128 x 64) of report 8. A bitmap is
+    /// (width, height, rows) as in `GetDisplayPreview`. The call reads the device.
+    #[zbus(out_args("names", "icons", "logo"))]
+    async fn get_display_assets(
+        &self,
+    ) -> Result<(Vec<String>, Vec<(u16, u16, Vec<u8>)>, (u16, u16, Vec<u8>))> {
+        let assets = self.device.get_display_assets()?;
+        Ok((
+            assets.names,
+            assets.icons.iter().map(bitmap_parts).collect(),
+            bitmap_parts(&assets.logo),
+        ))
+    }
+
+    async fn set_display_name(
+        &self,
+        #[zbus(connection)] connection: &Connection,
+        #[zbus(header)] header: Header<'_>,
+        index: u8,
+        text: &str,
+    ) -> Result<()> {
+        self.authorize(connection, &header, "SetDisplayName", None)
+            .await?;
+        self.device.set_display_name(index, text).await
+    }
+
+    async fn set_display_icon(
+        &self,
+        #[zbus(connection)] connection: &Connection,
+        #[zbus(header)] header: Header<'_>,
+        index: u8,
+        width: u16,
+        height: u16,
+        rows: Vec<u8>,
+    ) -> Result<()> {
+        self.authorize(connection, &header, "SetDisplayIcon", None)
+            .await?;
+        let image = Bitmap::from_rows(width, height, &rows)
+            .map_err(|e| nicecooling_api::Error::invalid(e.to_string()))?;
+        self.device.set_display_icon(index, image).await
+    }
+
+    async fn set_display_logo(
+        &self,
+        #[zbus(connection)] connection: &Connection,
+        #[zbus(header)] header: Header<'_>,
+        width: u16,
+        height: u16,
+        rows: Vec<u8>,
+    ) -> Result<()> {
+        self.authorize(connection, &header, "SetDisplayLogo", None)
+            .await?;
+        let image = Bitmap::from_rows(width, height, &rows)
+            .map_err(|e| nicecooling_api::Error::invalid(e.to_string()))?;
+        self.device.set_display_logo(image).await
     }
 
     #[zbus(out_args("backups"))]

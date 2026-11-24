@@ -361,6 +361,39 @@
       <arg name="height" type="q" direction="out"/>
       <arg name="rows" type="ay" direction="out"/>
     </method>
+    <!-- The display assets of report 8, read from the device: 40 names (0-19 device sensors, 20-34 page texts, 35-38 LED controllers,
+         39 LED strip), 16 icons of 23 x 23 pixels and the logo of 128 x 64 pixels. A bitmap is (width, height, rows) as in
+         GetDisplayPreview. -->
+    <method name="GetDisplayAssets">
+      <annotation name="io.github.cappyt.NiceCooling1.Authorization" value="read"/>
+      <arg name="names" type="as" direction="out"/>
+      <arg name="icons" type="a(qqay)" direction="out"/>
+      <arg name="logo" type="(qqay)" direction="out"/>
+    </method>
+    <!-- Writes one asset of report 8: a backup first, then report 8 with the new CRC, 250 ms later a read-back that must equal the
+         written report, and save_settings 4 s after the last write. Fails with InvalidArgument for an index out of range, a text
+         with a character that Windows-1252 lacks, a control character or more than 23 bytes, and a bitmap of another size or with
+         a wrong byte count. Other errors: ReadOnly, VerifyFailed (the message holds the backup id), Busy, Disconnected. -->
+    <method name="SetDisplayName">
+      <annotation name="io.github.cappyt.NiceCooling1.Authorization" value="write"/>
+      <arg name="index" type="y" direction="in"/>
+      <arg name="text" type="s" direction="in"/>
+    </method>
+    <!-- index 0 to 15, 23 x 23 pixels -->
+    <method name="SetDisplayIcon">
+      <annotation name="io.github.cappyt.NiceCooling1.Authorization" value="write"/>
+      <arg name="index" type="y" direction="in"/>
+      <arg name="width" type="q" direction="in"/>
+      <arg name="height" type="q" direction="in"/>
+      <arg name="rows" type="ay" direction="in"/>
+    </method>
+    <!-- 128 x 64 pixels -->
+    <method name="SetDisplayLogo">
+      <annotation name="io.github.cappyt.NiceCooling1.Authorization" value="write"/>
+      <arg name="width" type="q" direction="in"/>
+      <arg name="height" type="q" direction="in"/>
+      <arg name="rows" type="ay" direction="in"/>
+    </method>
     <!-- (backup id, time us, sha256 hex, firmware, reason first|before-write|manual|import) -->
     <method name="ListBackups">
       <annotation name="io.github.cappyt.NiceCooling1.Authorization" value="read"/>
