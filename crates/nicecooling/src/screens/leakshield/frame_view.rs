@@ -240,6 +240,26 @@ impl ScreenView {
                     self.send(command);
                 }
             }
+        } else if let Some(rest) = name
+            .strip_prefix("software-scale:")
+            .map(|rest| (rest, false))
+            .or_else(|| {
+                name.strip_prefix("software-offset:")
+                    .map(|rest| (rest, true))
+            })
+            && commits
+        {
+            let (slot, offset) = rest;
+            if let (Ok(slot), Some(number)) = (slot.parse::<u16>(), parse_number(value)) {
+                let id = self.current_leakshield(cx);
+                let state = self.state(cx);
+                let command = crate::screens::leakshield::sensors::set_scale(
+                    &state, &id, slot, offset, number,
+                );
+                if let Some(command) = command {
+                    self.send(command);
+                }
+            }
         } else if name == "test-pressure" && changes {
             self.leakshield.overview.test_pressure = Some(value.to_owned());
         } else if name == "fields-search" && changes {

@@ -4,7 +4,7 @@
 use crate::command::Command;
 use crate::i18n::Locale;
 use crate::model::{AppState, SensorInfo};
-use crate::screens::format::optional_value;
+use crate::screens::format::{optional_value, plain};
 use crate::screens::leakshield::display::source_sensor;
 use crate::screens::leakshield::{Device, TabState, write_line};
 use crate::screens::{FeedbackLine, ScreenInput};
@@ -63,6 +63,43 @@ pub fn set_source(device: &str, slot: u16, sensor: &str) -> Command {
         slot,
         sensor: sensor.to_owned(),
     }
+}
+
+/// The scale and the offset of a slot. A slot that the daemon does not list has scale 1 and
+/// offset 0.
+pub fn scale_of(data: Option<&crate::model::LeakshieldData>, slot: u16) -> (f64, f64) {
+    data.and_then(|data| {
+        data.software_scales
+            .iter()
+            .find(|(number, _, _)| *number == slot)
+    })
+    .map_or((1.0, 0.0), |(_, scale, offset)| (*scale, *offset))
+}
+
+/// A new scale (`offset` false) or a new offset of a slot. `None` for a number that is not
+/// finite, and for the value that the slot has.
+pub fn set_scale(
+    state: &AppState,
+    device: &str,
+    slot: u16,
+    offset: bool,
+    value: f64,
+) -> Option<Command> {
+    let (scale, shift) = scale_of(state.snapshot.leakshield_data.get(device), slot);
+    let (new_scale, new_shift) = if offset {
+        (scale, value)
+    } else {
+        (value, shift)
+    };
+    if !value.is_finite() || (new_scale, new_shift) == (scale, shift) {
+        return None;
+    }
+    Some(Command::SetSoftwareSensorScale {
+        leakshield: device.to_owned(),
+        slot,
+        scale: new_scale,
+        offset: new_shift,
+    })
 }
 
 /// The display pages and the lighting controllers that use a Software sensor slot.
@@ -126,6 +163,9 @@ pub struct SoftwareRow {
     pub source: Option<String>,
     /// The name of the source, or "No source".
     pub source_text: String,
+    pub scale: String,
+    pub offset: String,
+    /// The value that the daemon sends: the source value times the scale plus the offset.
     pub value: String,
     pub unit: String,
     pub used_by: Vec<String>,
@@ -232,6 +272,8 @@ impl SensorsModel {
                 let value = source
                     .as_ref()
                     .and_then(|s| sample.and_then(|sample| sample.sensor_value(s)));
+                let (scale, offset) = scale_of(device.data, slot);
+                let sent = value.map(|value| value * scale + offset);
                 let warning = match (&source, value) {
                     (Some(_), None) => Some(locale.fmt(
                         "leakshield.sensors.no_value",
@@ -250,8 +292,10 @@ impl SensorsModel {
                         || locale.tr("leakshield.sensors.no_source"),
                         |sensor| sensor.name.clone(),
                     ),
+                    scale: plain(locale, scale),
+                    offset: plain(locale, offset),
                     value: if source.is_some() {
-                        optional_value(locale, value, info.map_or("", |s| s.unit.as_str()))
+                        optional_value(locale, sent, info.map_or("", |s| s.unit.as_str()))
                     } else {
                         "--".to_owned()
                     },
@@ -272,6 +316,15 @@ impl SensorsModel {
                     write_line: write_line(input, id, &format!("software-sensor:{slot}")),
                     choices: all
                         .iter()
+                        // The daemon lists the sensors that a slot takes. The source of the
+                        // slot stays in the list, also when the daemon no longer takes it.
+                        .filter(|sensor| {
+                            source.as_deref() == Some(sensor.id.as_str())
+                                || device
+                                    .data
+                                    .and_then(|data| data.software_sources.as_ref())
+                                    .is_none_or(|list| list.contains(&sensor.id))
+                        })
                         .map(|sensor| {
                             (
                                 sensor.id.clone(),
@@ -332,7 +385,7 @@ impl SensorsModel {
                 .collect(),
             device_rows,
             software_title: locale.tr("leakshield.sensors.software"),
-            software_columns: ["slot", "name", "source", "unit", "value"]
+            software_columns: ["slot", "name", "source", "unit", "scale", "offset", "value"]
                 .iter()
                 .map(|name| locale.tr(&format!("leakshield.sensors.column.{name}")))
                 .collect(),

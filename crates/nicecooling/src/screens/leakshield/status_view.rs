@@ -2,16 +2,18 @@
 
 use gpui::prelude::*;
 use gpui::{AnyElement, Context, FontWeight, SharedString, Window, div, px};
-use gpui_component::{h_flex, v_flex};
+use gpui_component::{Disableable as _, h_flex, v_flex};
 
 use crate::screen_view::ScreenView;
+use crate::screens::controls::act;
 use crate::screens::format::clock_minutes;
 use crate::screens::leakshield::charts::{Reference, TimeChart, bands, time_chart};
 use crate::screens::leakshield::parts::{header, loading_card};
 use crate::screens::leakshield::status::{StatusModel, Tile, export_to};
 use crate::screens::leakshield::{TabState, schematic};
 use crate::screens::ui::{
-    caption, card, card_header, cell, page, severity_icon, table_header, table_row, wide_cell,
+    Tip as _, caption, card, card_header, card_row, cell, modal, page, severity_icon, table_header,
+    table_row, wide_cell, write_line,
 };
 use crate::shell::Page;
 use crate::tokens::Palette;
@@ -218,8 +220,37 @@ impl ScreenView {
                 },
             )
         };
+        let reset = Self::small_button("ls-status-reset", model.events.reset.clone(), None)
+            .disabled(!model.events.reset_enabled)
+            .tip(model.events.reset_reason.clone().unwrap_or_default())
+            .on_click(act(&view, |this, _, _| {
+                this.leakshield.status.request_reset()
+            }));
         let mut events = card(p)
-            .child(card_header(model.events.title.clone(), p).child(export))
+            .child(
+                card_header(model.events.title.clone(), p)
+                    .child(reset)
+                    .child(
+                        div()
+                            .flex_none()
+                            .debug_selector(|| "status-export".to_owned())
+                            .child(export),
+                    ),
+            )
+            .children(
+                model
+                    .events
+                    .reset_reason
+                    .as_ref()
+                    .map(|text| card_row(p).child(caption(text.clone(), p))),
+            )
+            .children(
+                model
+                    .events
+                    .reset_line
+                    .as_ref()
+                    .map(|line| card_row(p).child(write_line(line, p))),
+            )
             .child(
                 table_header(&model.events.columns, &[Some(TIME_WIDTH), None, None], p)
                     .border_t_0(),
@@ -269,6 +300,30 @@ impl ScreenView {
             );
         }
         content = content.child(events);
-        content.into_any_element()
+        let mut root = div().relative().w_full().child(content);
+        if let Some(dialog) = &model.events.dialog {
+            let device = id.to_owned();
+            root = root.child(modal(
+                dialog.title.clone(),
+                dialog.text.clone(),
+                Vec::new(),
+                vec![
+                    Self::small_button("ls-status-reset-cancel", dialog.cancel.clone(), None)
+                        .on_click(act(&view, |this, _, _| {
+                            this.leakshield.status.cancel_reset()
+                        }))
+                        .into_any_element(),
+                    Self::small_button("ls-status-reset-confirm", dialog.confirm.clone(), None)
+                        .on_click(act(&view, move |this, _, _| {
+                            if let Some(command) = this.leakshield.status.confirm_reset(&device) {
+                                this.send(command);
+                            }
+                        }))
+                        .into_any_element(),
+                ],
+                p,
+            ));
+        }
+        root.into_any_element()
     }
 }

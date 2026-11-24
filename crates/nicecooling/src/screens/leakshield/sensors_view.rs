@@ -19,8 +19,9 @@ use crate::tokens::Palette;
 const NUMBER: f32 = 34.0;
 const VALUE: f32 = 110.0;
 const KIND: f32 = 120.0;
-const SLOT_NAME: f32 = 170.0;
-const UNIT: f32 = 60.0;
+const SLOT_NAME: f32 = 150.0;
+const UNIT: f32 = 50.0;
+const SCALE: f32 = 76.0;
 
 impl ScreenView {
     pub(crate) fn render_ls_sensors(
@@ -96,13 +97,21 @@ impl ScreenView {
             .child(
                 table_header(
                     &model.software_columns,
-                    &[Some(NUMBER), Some(SLOT_NAME), None, Some(UNIT), Some(VALUE)],
+                    &[
+                        Some(NUMBER),
+                        Some(SLOT_NAME),
+                        None,
+                        Some(UNIT),
+                        Some(SCALE),
+                        Some(SCALE),
+                        Some(VALUE),
+                    ],
                     p,
                 )
                 .border_t_0(),
             );
         for row in &model.software_rows {
-            software = software.child(self.software_row(row, &model.clear_label, p, cx));
+            software = software.child(self.software_row(row, &model.clear_label, p, window, cx));
         }
         content = content
             .child(device)
@@ -140,10 +149,29 @@ impl ScreenView {
         row: &SoftwareRow,
         clear_label: &str,
         p: &Palette,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let view = cx.entity();
         let slot = row.slot;
+        let mut scale_cells = Vec::new();
+        for (name, text) in [("scale", &row.scale), ("offset", &row.offset)] {
+            let input = self.input(
+                InputKey::Ls(format!("software-{name}:{slot}")),
+                text,
+                "",
+                window,
+                cx,
+            );
+            scale_cells.push(div().w(px(SCALE)).flex_none().child(Self::mode_input(
+                &input,
+                "",
+                row.enabled,
+                false,
+                true,
+                p,
+            )));
+        }
         let device = self.current_leakshield(cx);
         let pick: Pick = {
             let device = device.clone();
@@ -176,10 +204,12 @@ impl ScreenView {
             .child(name)
             .child(div().flex_1().min_w_0().child(select))
             .child(cell(UNIT).text_color(p.fg_dim).child(row.unit.clone()))
+            .children(scale_cells)
             .child(
                 h_flex()
                     .w(px(VALUE))
                     .flex_none()
+                    .debug_selector(move || format!("software-value-{slot}"))
                     .gap(px(6.))
                     .justify_end()
                     .font_weight(FontWeight::BOLD)
@@ -191,19 +221,24 @@ impl ScreenView {
         if row.source.is_some() {
             let device = device.clone();
             line = line.child(
-                Self::flat_button(
-                    SharedString::from(format!("ls-software-clear-{slot}")),
-                    clear_label.to_owned(),
-                )
-                .disabled(!row.enabled)
-                .on_click(act(&view, move |this, _, cx| {
-                    let state = this.state(cx);
-                    if let Some(command) =
-                        this.leakshield.sensors.request_clear(&state, &device, slot)
-                    {
-                        this.send(command);
-                    }
-                })),
+                div()
+                    .flex_none()
+                    .debug_selector(move || format!("software-clear-{slot}"))
+                    .child(
+                        Self::flat_button(
+                            SharedString::from(format!("ls-software-clear-{slot}")),
+                            clear_label.to_owned(),
+                        )
+                        .disabled(!row.enabled)
+                        .on_click(act(&view, move |this, _, cx| {
+                            let state = this.state(cx);
+                            if let Some(command) =
+                                this.leakshield.sensors.request_clear(&state, &device, slot)
+                            {
+                                this.send(command);
+                            }
+                        })),
+                    ),
             );
         }
         if let Some(text) = &row.warning {

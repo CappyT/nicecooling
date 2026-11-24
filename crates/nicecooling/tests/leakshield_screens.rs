@@ -686,10 +686,6 @@ fn leakshield_sensors_labels() {
             "--",
             "GPU temperature has no value. The Leakshield keeps the last value.",
             "Used by display page 3",
-            "Scale",
-            "Offset",
-            "Value sent",
-            "The source is in °C.",
         ],
     );
     assert!(missing.is_empty(), "labels without text: {missing:?}");
@@ -3113,13 +3109,22 @@ fn no_pump_runtime_button() {
             .iter()
             .all(|label| !label.to_lowercase().contains("runtime"))
     );
+    // The card "Device state" shows the pump runtime as a counter: it has no button. No other
+    // text of the tab names the pump runtime.
     let en_text = labels::load("en");
     assert!(
         en_text
             .iter()
-            .filter(|(key, _)| key.starts_with("leakshield.system"))
+            .filter(|(key, _)| key.starts_with("leakshield.system")
+                && !key.starts_with("leakshield.system.state."))
             .all(|(key, text)| !key.contains("runtime")
                 && !text.to_lowercase().contains("pump runtime"))
+    );
+    assert!(
+        en_text
+            .iter()
+            .filter(|(key, _)| key.starts_with("leakshield.system.state."))
+            .all(|(_, text)| !text.to_lowercase().contains("reset"))
     );
     // The Overview chart of the pump runtime is read-only: it has no button.
     let overview = overview(&state, &OverviewUi::default());
@@ -3143,7 +3148,7 @@ fn leakshield_system_labels() {
     // backup.
     let missing = labels::missing_labels(
         "leakshield-system.md",
-        &["Device description", "Date format", "Size"],
+        &["Device description", "Date format", "Size", "--"],
     );
     assert!(missing.is_empty(), "labels without text: {missing:?}");
     let italian = SystemModel::build(

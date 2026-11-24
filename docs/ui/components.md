@@ -81,11 +81,11 @@ Tabs: Overview, Settings, Sensors, Display, Lighting, Alarms, Status, System, Fi
   - Mode.
   - Summary: table of changes with notes and warnings; Apply.
 - Sensors: names of the 18 device sensors; the 12 Software sensors with data source picker, unit, scale and offset.
-- Display: grid of 10 pages with previews; template gallery dialog; per-page template settings (sensor pickers, icons, logo upload with conversion preview); show in standby and in normal operation toggles; display settings (brightness, brightness when inactive, display off, automatic page change and interval, rotate 180 degrees, invert, automatic invert, off in standby).
+- Display: grid of 10 pages with the images that the device draws; template gallery dialog with a schematic per template; per-page settings for the slots of the template (data sources, decimals, bar limits, texts with own texts, icons with icon import, logo import with conversion preview); show in standby and hide in normal operation toggles; display settings (brightness, brightness when inactive, display off, automatic page change and interval, rotate 180 degrees, invert, automatic invert, off in standby).
 - Lighting (RGBpx): LED timeline with 6 integrated LEDs and the external LEDs; up to 8 controllers as draggable and resizable color bars, vertical order is priority; effect picker dialog; effect parameters (colors, speed, sensor-driven parameters); duplicate and delete.
 - Alarms: leakage Warning threshold slider (volume change) with acoustic toggle; small and large leak Alarms; fill level Warning and Alarm thresholds; system Alarm. For each: the device output (signal short press, signal long press, key sequence, none) and the nicecooling alarm response (none, notify, poweroff with delay). Overlap warnings follow ADR-0007.
-- Status: schematic of the Leakshield (vacuum pump, valves, active parts highlighted, measured values); event list with time and details; export.
-- System: serial, firmware version, maintenance indicator percent, device description; factory reset; reset service counter next to the maintenance indicator; refill history table with a reset button; backup list with export, import and restore (restore locked); clock (device time, time zone, date and time format, sync now); standby behavior per USB state (display, alarm evaluation, lighting).
+- Status: schematic of the Leakshield (vacuum pump, valves, active parts highlighted, measured values); event list with time and details; export; reset of the event list.
+- System: serial, firmware version, maintenance indicator percent, device description; device state with the counters of the device; factory reset; reset service counter next to the maintenance indicator; refill history table with a reset button; backup list with export, import and restore (restore locked); clock (device time, time zone, date and time format, sync now); standby behavior per USB state (display, alarm evaluation, lighting).
 - Fields: every field with its verification state from the registry (code-defined, plausible read, Verification write passed) and risk class; explanation of why a field is read-only. The tab has no control that writes a verification value.
 
 ### Profiles
@@ -130,7 +130,7 @@ These have no gpui-component equivalent and need a design spec of their own:
 - Pressure gauge (current against minimum, target and maximum).
 - Pressure band diagram (what the Leakshield does below, in and above the control band).
 - LED timeline editor for RGBpx.
-- Display page preview and logo conversion preview.
+- Display page preview, template schematic and import preview.
 - Leakshield schematic.
 - Sensor picker (searchable, grouped by device, live values).
 - Process picker.

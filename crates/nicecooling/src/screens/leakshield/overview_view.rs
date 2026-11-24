@@ -244,6 +244,19 @@ impl ScreenView {
             .flex_wrap()
             .justify_end()
             .gap(px(6.));
+        if let Some(pause) = &mode.refill_pause {
+            let device = id.to_owned();
+            actions = actions.child(
+                Self::button("ls-refill-pause", pause.label.clone())
+                    .disabled(!pause.enabled)
+                    .tip(pause.reason.clone().unwrap_or_default())
+                    .on_click(act(&view, move |this, _, _| {
+                        this.send(crate::command::Command::ToggleRefillPause {
+                            leakshield: device.clone(),
+                        });
+                    })),
+            );
+        }
         if let Some(cancel) = &mode.cancel {
             let device = id.to_owned();
             actions = actions.child(Self::button("ls-action-cancel", cancel.clone()).on_click(
@@ -317,6 +330,12 @@ impl ScreenView {
             body = body.child(write_line(line, p));
         }
         if let Some(line) = &mode.action_line {
+            body = body.child(write_line(line, p));
+        }
+        if let Some(pause) = &mode.refill_pause {
+            body = body.child(caption(pause.text.clone(), p));
+        }
+        if let Some(line) = &mode.pause_line {
             body = body.child(write_line(line, p));
         }
         body = body.child(

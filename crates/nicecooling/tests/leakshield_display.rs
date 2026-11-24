@@ -11,6 +11,10 @@ use nicecooling::screens::leakshield::display::{
     Dialog, DialogModel, DisplayModel, DisplayUi, ImportTarget, LAYOUTS, NO_ASSET, NO_TEMPLATE,
     Screen, Slots, TEMPLATES, template_slots, text_target,
 };
+use nicecooling::screens::leakshield::overview::{OverviewModel, OverviewUi};
+use nicecooling::screens::leakshield::sensors::{SensorsModel, SensorsUi, set_scale};
+use nicecooling::screens::leakshield::status::{StatusModel, StatusUi};
+use nicecooling::screens::leakshield::system::{SystemModel, SystemUi, duration_text};
 use nicecooling::screens::{Feedback, ScreenInput, WriteOutcome};
 use support::bus::PrivateBus;
 use support::fake_daemon::{FakeDaemon, Options};
@@ -1078,6 +1082,11 @@ fn a_write_that_is_not_possible_disables_its_control_with_the_reason() {
         };
         assert!(!write.enabled && write.reason == some, "{reason}");
         assert!(ui.write_import(&screen_input, LEAKSHIELD).is_none());
+
+        // The reset of the event list is a command too.
+        let status = StatusModel::build(&screen_input, &StatusUi::default(), LEAKSHIELD);
+        assert!(!status.events.reset_enabled, "{reason}");
+        assert_eq!(status.events.reset_reason, some);
     }
 
     // A device that takes writes, with one field that is not a Verified field: only the
@@ -1118,6 +1127,264 @@ fn a_write_that_is_not_possible_disables_its_control_with_the_reason() {
     // The list then has the 40 names by number.
     assert_eq!(page.texts[0].choices.len(), 41);
     assert_eq!(page.texts[0].choices[20].1, "Name 21");
+}
+
+// ---------------------------------------------------------------------------------------------
+// The other tabs.
+
+#[test]
+fn the_sensors_tab_has_scale_offset_and_the_sources_of_the_daemon() {
+    let mut state = with_leakshield();
+    let feedback = Feedback::default();
+    let sensors = |state: &AppState| {
+        SensorsModel::build(&en(state, &feedback), &SensorsUi::default(), LEAKSHIELD)
+    };
+    let model = sensors(&state);
+    assert_eq!(
+        model.software_columns,
+        [
+            "Slot",
+            "Name",
+            "Data source",
+            "Unit",
+            "Scale",
+            "Offset",
+            "Value"
+        ]
+    );
+    // Slot 3 of the fixture sends the water temperature: 31.4 °C at scale 1 and offset 0.
+    let row = &model.software_rows[2];
+    assert_eq!((row.scale.as_str(), row.offset.as_str()), ("1", "0"));
+    assert_eq!(row.value, "31.4 °C");
+    let all = row.choices.len();
+
+    // The value that the daemon sends is the source value times the scale plus the offset.
+    let data = state.snapshot.leakshield_data.get_mut(LEAKSHIELD).unwrap();
+    data.software_scales = vec![(3, 2.0, -10.5)];
+    let model = sensors(&state);
+    let row = &model.software_rows[2];
+    assert_eq!((row.scale.as_str(), row.offset.as_str()), ("2", "-10.5"));
+    assert_eq!(row.value, "52.3 °C");
+    // A slot that the daemon does not list has scale 1 and offset 0.
+    assert_eq!(model.software_rows[0].scale, "1");
+
+    // A new scale keeps the offset, and a new offset keeps the scale.
+    assert_eq!(
+        set_scale(&state, LEAKSHIELD, 3, false, 0.5),
+        Some(Command::SetSoftwareSensorScale {
+            leakshield: LEAKSHIELD.into(),
+            slot: 3,
+            scale: 0.5,
+            offset: -10.5,
+        })
+    );
+    assert_eq!(
+        set_scale(&state, LEAKSHIELD, 3, true, 4.0),
+        Some(Command::SetSoftwareSensorScale {
+            leakshield: LEAKSHIELD.into(),
+            slot: 3,
+            scale: 2.0,
+            offset: 4.0,
+        })
+    );
+    // The same value and a number that is not finite send nothing.
+    assert_eq!(set_scale(&state, LEAKSHIELD, 3, false, 2.0), None);
+    assert_eq!(set_scale(&state, LEAKSHIELD, 3, true, f64::INFINITY), None);
+    let command = set_scale(&state, LEAKSHIELD, 5, false, 3.0).unwrap();
+    assert_eq!(
+        command.feedback_key().as_deref(),
+        Some(format!("ls:{LEAKSHIELD}:software-sensor:5").as_str())
+    );
+
+    // The picker lists the sensors that the daemon takes. The source of a slot stays in the
+    // list, also when the daemon no longer takes it.
+    let source = row.source.clone().expect("the source of slot 3");
+    let other = state
+        .snapshot
+        .sensors
+        .keys()
+        .find(|id| **id != source)
+        .cloned()
+        .unwrap();
+    let data = state.snapshot.leakshield_data.get_mut(LEAKSHIELD).unwrap();
+    data.software_sources = Some(vec![other.clone()]);
+    let model = sensors(&state);
+    assert!(all > 2);
+    let ids = |slot: usize| -> Vec<String> {
+        model.software_rows[slot]
+            .choices
+            .iter()
+            .map(|c| c.0.clone())
+            .collect()
+    };
+    assert_eq!(ids(0), std::slice::from_ref(&other));
+    let mut with_own = ids(2);
+    with_own.sort();
+    let mut expected = vec![other, source];
+    expected.sort();
+    assert_eq!(with_own, expected);
+}
+
+#[test]
+fn the_system_tab_has_the_device_state_card() {
+    let mut state = with_leakshield();
+    let feedback = Feedback::default();
+    let system = |state: &AppState, locale: Locale| {
+        SystemModel::build(
+            &input(state, &feedback, locale),
+            &SystemUi::default(),
+            LEAKSHIELD,
+        )
+    };
+    let card = system(&state, EN).state_card;
+    assert_eq!(card.title, "Device state");
+    let names: Vec<&str> = card.rows.iter().map(|row| row.0.as_str()).collect();
+    assert_eq!(
+        names,
+        [
+            "Maintenance indicator",
+            "Vacuum pump runtime",
+            "Vacuum pump runtime in short cycles",
+            "Vacuum pump revolutions",
+            "Fill valve cycles",
+            "Vent valve cycles",
+            "Operating time",
+            "Power-ups"
+        ]
+    );
+    // The counters of the fixture: 11431 s is 3 h 10 min, 21 s is 0 min 21 s.
+    let values: Vec<&str> = card.rows.iter().skip(1).map(|row| row.1.as_str()).collect();
+    assert_eq!(
+        values,
+        [
+            "3 h 10 min",
+            "0 min 21 s",
+            "1\u{a0}234\u{a0}567",
+            "12",
+            "345",
+            "274 h 20 min",
+            "42"
+        ]
+    );
+    assert!(card.note.is_none() && !card.dim);
+    // The maintenance value is the one of the Device card.
+    assert_eq!(card.rows[0].1, system(&state, EN).device.maintenance_text);
+    assert_eq!(duration_text(EN, 3_600_000), "1\u{a0}000 h 0 min");
+    assert_eq!(duration_text(EN, 59), "0 min 59 s");
+    assert_eq!(system(&state, IT).state_card.title, "Stato del dispositivo");
+
+    // A daemon that gives no counters: "--" and the reason.
+    state
+        .snapshot
+        .leakshield_data
+        .get_mut(LEAKSHIELD)
+        .unwrap()
+        .counters = None;
+    let card = system(&state, EN).state_card;
+    assert!(card.rows.iter().skip(1).all(|row| row.1 == "--"));
+    assert_eq!(card.note.as_deref(), Some("The daemon gave no counters."));
+    // A Leakshield that does not answer: the values are dim and the note is the banner.
+    let card = system(&device_away(), EN).state_card;
+    assert!(card.dim && card.note.is_none());
+}
+
+#[test]
+fn the_status_tab_resets_the_event_list_after_a_question() {
+    let state = with_leakshield();
+    let feedback = Feedback::default();
+    let mut ui = StatusUi::default();
+    let status = |ui: &StatusUi| StatusModel::build(&en(&state, &feedback), ui, LEAKSHIELD).events;
+    let events = status(&ui);
+    assert_eq!(events.reset, "Reset");
+    assert!(events.reset_enabled && events.reset_reason.is_none() && events.dialog.is_none());
+    // The click asks first.
+    ui.request_reset();
+    let dialog = status(&ui).dialog.expect("the question");
+    assert_eq!(dialog.title, "Delete the event list?");
+    assert_eq!(
+        dialog.text,
+        "The Leakshield deletes every event of its list. This cannot be undone. Export the list first when you need it."
+    );
+    assert_eq!(
+        (dialog.cancel.as_str(), dialog.confirm.as_str()),
+        ("Cancel", "Delete events")
+    );
+    // "Cancel" sends nothing.
+    ui.cancel_reset();
+    assert!(status(&ui).dialog.is_none());
+    assert_eq!(ui.confirm_reset(LEAKSHIELD), None);
+    // The answer sends the command once.
+    ui.request_reset();
+    let command = ui.confirm_reset(LEAKSHIELD).expect("a command");
+    assert_eq!(
+        command,
+        Command::ResetEventLog {
+            leakshield: LEAKSHIELD.into()
+        }
+    );
+    assert!(!ui.ask_reset && ui.confirm_reset(LEAKSHIELD).is_none());
+    assert_eq!(
+        command.leakshield(),
+        Some(LEAKSHIELD),
+        "the app reads the list again"
+    );
+    // The result shows in the card.
+    let mut refused = Feedback::default();
+    refused.set(
+        command.feedback_key().unwrap(),
+        WriteOutcome::Refused {
+            error: "NotSupported".into(),
+        },
+    );
+    let events = StatusModel::build(&en(&state, &refused), &ui, LEAKSHIELD).events;
+    let line = events.reset_line.expect("the result");
+    assert!(line.failure);
+    assert_eq!(line.text, "This firmware has no such command.");
+}
+
+#[test]
+fn the_overview_has_pause_or_resume_while_a_refill_runs() {
+    let mut state = with_leakshield();
+    let feedback = Feedback::default();
+    let overview = |state: &AppState| {
+        OverviewModel::build(&en(state, &feedback), &OverviewUi::default(), LEAKSHIELD).mode
+    };
+    // No Refill: no button.
+    assert!(overview(&state).refill_pause.is_none());
+    state.snapshot.leakshields[0].running_action = "test".into();
+    assert!(overview(&state).refill_pause.is_none());
+    // The Refill runs: one button for both, because the device toggles and the daemon does not
+    // say which state the Refill is in.
+    state.snapshot.leakshields[0].running_action = "refill".into();
+    let mode = overview(&state);
+    let pause = mode.refill_pause.expect("the button");
+    assert_eq!(pause.label, "Pause or resume");
+    assert_eq!(
+        pause.text,
+        "The Leakshield pauses a running Refill and resumes a paused one."
+    );
+    assert!(pause.enabled && pause.reason.is_none());
+    assert!(mode.cancel.is_some(), "Cancel stays next to it");
+    let command = Command::ToggleRefillPause {
+        leakshield: LEAKSHIELD.into(),
+    };
+    assert_eq!(
+        command.feedback_key().as_deref(),
+        Some(format!("ls:{LEAKSHIELD}:refill-pause").as_str())
+    );
+    // A read-only device takes no command: the button shows with the reason.
+    let mut unknown = unknown_firmware();
+    unknown.snapshot.leakshields[0].running_action = "refill".into();
+    let pause = overview(&unknown).refill_pause.expect("the button");
+    assert!(!pause.enabled);
+    assert_eq!(
+        pause.reason.as_deref(),
+        Some("Read-only: unknown firmware.")
+    );
+    // A Leakshield that does not answer has no action bar for the Refill.
+    let mut away = device_away();
+    away.snapshot.leakshields[0].running_action = "refill".into();
+    assert!(overview(&away).refill_pause.is_none());
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1362,6 +1629,25 @@ async fn a_read_only_device_and_a_daemon_without_the_methods_have_their_state() 
         Some("This daemon cannot read the display. Update nicecoolingd.")
     );
     assert!(!has_call(&daemon, "GetDisplayPreview"));
+    // Without a source list every sensor is a source, as before.
+    let sensors = SensorsModel::build(
+        &en(&harness.state, &feedback),
+        &SensorsUi::default(),
+        LEAKSHIELD,
+    );
+    assert_eq!(
+        sensors.software_rows[0].choices.len(),
+        harness.state.snapshot.sensors.len()
+    );
+    let system = SystemModel::build(
+        &en(&harness.state, &feedback),
+        &SystemUi::default(),
+        LEAKSHIELD,
+    );
+    assert_eq!(
+        system.state_card.note.as_deref(),
+        Some("The daemon gave no counters.")
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -1500,6 +1786,60 @@ async fn the_new_commands_reach_the_fake_daemon_with_their_arguments() {
             .get(&(LEAKSHIELD.to_owned(), 4)),
         Some(&PagePreview::Failed("PageNotShown".into()))
     );
+
+    // The scale and the offset of a Software sensor slot.
+    let command = set_scale(&harness.state, LEAKSHIELD, 3, false, 2.5).expect("a command");
+    assert_eq!(run(&mut harness, &command).await, applied);
+    assert!(has_call(
+        &daemon,
+        "SetSoftwareSensorScale(3,2.5,0) interactive=true"
+    ));
+    let command = set_scale(&harness.state, LEAKSHIELD, 3, true, -4.0).expect("a command");
+    assert_eq!(run(&mut harness, &command).await, applied);
+    assert!(has_call(
+        &daemon,
+        "SetSoftwareSensorScale(3,2.5,-4) interactive=true"
+    ));
+    let data = &harness.state.snapshot.leakshield_data[LEAKSHIELD];
+    assert_eq!(data.software_scales[2], (3, 2.5, -4.0));
+    let outside = Command::SetSoftwareSensorScale {
+        leakshield: LEAKSHIELD.into(),
+        slot: 13,
+        scale: 1.0,
+        offset: 0.0,
+    };
+    assert_eq!(
+        run(&mut harness, &outside).await,
+        WriteOutcome::Refused {
+            error: "InvalidArgument".into()
+        }
+    );
+
+    // The event list reset: the list is empty after it.
+    assert!(
+        !harness.state.snapshot.leakshield_data[LEAKSHIELD]
+            .events
+            .is_empty()
+    );
+    let mut status = StatusUi::default();
+    status.request_reset();
+    let command = status.confirm_reset(LEAKSHIELD).expect("a command");
+    assert_eq!(run(&mut harness, &command).await, applied);
+    assert!(has_call(&daemon, "ResetEventLog() interactive=true"));
+    assert!(
+        harness.state.snapshot.leakshield_data[LEAKSHIELD]
+            .events
+            .is_empty()
+    );
+    let model = StatusModel::build(&en(&harness.state, &feedback), &status, LEAKSHIELD);
+    assert!(model.events.rows.is_empty() && model.events.empty.is_some());
+
+    // The Refill pause.
+    let command = Command::ToggleRefillPause {
+        leakshield: LEAKSHIELD.into(),
+    };
+    assert_eq!(run(&mut harness, &command).await, applied);
+    assert!(has_call(&daemon, "ToggleRefillPause() interactive=true"));
 
     // polkit denies a write: the name stays.
     daemon.deny_writes(true);
@@ -1934,5 +2274,68 @@ mod layout {
         assert!(!gallery, "Enter in an input opens no gallery");
         assert_eq!(page, 0, "the arrow keys stay in the input");
         cx.update(|cx| cx.quit());
+    }
+
+    /// The Sensors, System, Status and Overview tabs with their new controls.
+    #[gpui::test]
+    fn the_other_tabs_fit_at_both_sizes_in_both_languages(cx: &mut TestAppContext) {
+        for (language, size) in CASES {
+            let tag = format!("{language:?} {size:?}");
+            let rig = open(cx, language, size, Tab::Sensors);
+            draw(&rig, cx);
+            let page = bounds(&rig, cx, "screen-page".into()).expect("the page");
+            let row_end = page.right() - px(24. + 18.);
+            assert!(page.size.width <= px(size.0 - SIDEBAR + 0.5), "{tag}");
+            for slot in 1..=12 {
+                let value = bounds(&rig, cx, format!("software-value-{slot}"))
+                    .unwrap_or_else(|| panic!("{tag}: no value of slot {slot}"));
+                assert!(
+                    value.right() <= row_end + px(0.5),
+                    "{tag}: the value of slot {slot} ends at {:?}, the row at {row_end:?}",
+                    value.right()
+                );
+            }
+            // Slot 3 has a source: its "Clear" is the last control of the row.
+            let clear = bounds(&rig, cx, "software-clear-3".into()).expect("Clear of slot 3");
+            assert!(
+                clear.right() <= row_end + px(0.5),
+                "{tag}: {clear:?} ends after {row_end:?}"
+            );
+
+            rig.window
+                .update(cx, |view, _, cx| {
+                    view.show_leakshield_tab(LEAKSHIELD, Tab::System, cx)
+                })
+                .unwrap();
+            draw(&rig, cx);
+            let value = bounds(&rig, cx, "device-state-value".into()).expect("a counter");
+            assert!(value.right() <= row_end + px(0.5), "{tag}: {value:?}");
+            assert!(
+                value.left() >= page.left() + px(24. + 18. + 200.),
+                "{tag}: {value:?}"
+            );
+
+            rig.window
+                .update(cx, |view, _, cx| {
+                    view.show_leakshield_tab(LEAKSHIELD, Tab::Status, cx)
+                })
+                .unwrap();
+            draw(&rig, cx);
+            let export = bounds(&rig, cx, "status-export".into()).expect("Export");
+            assert!(
+                export.right() <= page.right() - px(24. + 12.) + px(0.5),
+                "{tag}: {export:?}"
+            );
+            rig.window
+                .update(cx, |view, _, cx| {
+                    view.leakshield_ui().status.request_reset();
+                    cx.notify();
+                })
+                .unwrap();
+            draw(&rig, cx);
+            let dialog = bounds(&rig, cx, "modal-dialog".into()).expect("the question");
+            assert!(dialog.bottom() <= px(size.1), "{tag}: {dialog:?}");
+            cx.update(|cx| cx.quit());
+        }
     }
 }

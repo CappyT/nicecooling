@@ -16,7 +16,7 @@ Every Leakshield page has the same frame: the header bar with the device label a
    - The Refill instruction row: it says that Refill can also start on the device.
 3. Row of two cards: "Pressure" (area chart with 1 h, 24 h and 7 d, the target as a dashed line, minimum and maximum as dotted lines) and "Pump runtime per day" (bar chart of the last 14 local days with the pump durations of the refills that the daemon keeps added per day, at most 1000 s per day, and a dashed line at the warning limit of the device).
 
-While an Action runs, the Action view replaces item 3, and the Action bar shows only "Cancel".
+While an Action runs, the Action view replaces item 3, and the Action bar shows only "Cancel". While a Refill runs, the bar also has "Pause or resume" at the left of "Cancel".
 
 ## Action views
 
@@ -43,6 +43,7 @@ While an Action runs, the Action view replaces item 3, and the Action bar shows 
 | Action runs | Action view and "Cancel" |
 | Mode RELEASE | Warning banner: "Mode RELEASE: the Loop has no leak protection." |
 | Pump runs (Refill) | The click on "Refill" opens the warning "Start Refill?". The instruction row always shows |
+| Refill runs | "Pause or resume" and "Cancel". With an unknown firmware "Pause or resume" is disabled, with the reason as its tooltip |
 
 ## Interactions
 
@@ -50,6 +51,7 @@ While an Action runs, the Action view replaces item 3, and the Action bar shows 
 - A Mode change is a Leakshield write: the write status shows under the selector.
 - "Test" opens the setup. "Measure fill level" asks first: "During the measurement the Loop has no leak protection. Do not start it when the Loop can leak." Buttons: "Cancel", "Measure".
 - "Refill" starts the Refill at once while every Pump channel of the Loop reads 0 rpm. When a Pump channel reads above 0 rpm or has no tach value, the click opens the warning "Start Refill?". The user decides: "Start Refill" sends the Refill.
+- "Pause or resume" sends `ToggleRefillPause`: the Leakshield pauses a running Refill and resumes a paused one. The daemon does not say which of the two states the Refill is in, so the button has one name. Its write status shows under the caption.
 - The chart range buttons change both the chart and its scale.
 
 ## Copy
@@ -59,6 +61,7 @@ While an Action runs, the Action view replaces item 3, and the Action bar shows 
 | Mode captions | "SHIELD: full protection by negative pressure, and leak detection." / "MONITOR: low negative pressure, leak detection only." / "RELEASE: the Leakshield is off and the pressure equalizes." |
 | Action hint | "An Action is temporary: when it ends, the Leakshield goes back to its Mode." |
 | Refill row | "Refill can also start on the device:" Link: "Show the steps" |
+| Refill pause | "The Leakshield pauses a running Refill and resumes a paused one." |
 | Refill warning | Title "Start Refill?". Text "The pump runs. The Leakshield manual asks for the pump off during Refill." Buttons "Cancel", "Start Refill" |
 | Refill steps | "1. Put the PC in standby." / "2. Hold the Leakshield button for more than 1 s and select FILL." / "3. Put the fill hose in the coolant. The Leakshield sucks the coolant in." / "4. Select EXIT. The Leakshield goes back to its Mode." |
 | Measure banner | "The fill level measurement runs. The Loop has no leak protection until it ends." |

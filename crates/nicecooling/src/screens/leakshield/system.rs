@@ -151,6 +151,50 @@ pub struct DeviceCard {
     pub counter_unsupported: Option<String>,
 }
 
+/// The card "Device state": the maintenance value and the counters of the device.
+#[derive(Clone, Debug, PartialEq)]
+pub struct StateCard {
+    pub title: String,
+    /// The name and the value of each row. A value that the app does not have is "--".
+    pub rows: Vec<(String, String)>,
+    /// Why the counters have no value.
+    pub note: Option<String>,
+    pub dim: bool,
+}
+
+/// The counters of `GetCounters`, in the order of the card: the key and whether it is a time.
+const COUNTERS: [(&str, bool); 7] = [
+    ("pump_runtime_s", true),
+    ("pump_short_cycle_runtime_s", true),
+    ("pump_revolution_count", false),
+    ("fill_valve_cycles", false),
+    ("release_valve_cycles", false),
+    ("total_runtime_s", true),
+    ("power_up_count", false),
+];
+
+/// A count of seconds as "3 h 10 min", or "10 min 31 s" below one hour.
+pub fn duration_text(locale: Locale, seconds: u64) -> String {
+    let (hours, minutes) = (seconds / 3600, seconds % 3600 / 60);
+    if hours > 0 {
+        locale.fmt(
+            "leakshield.system.state.hours",
+            &[
+                ("h", &locale.decimal(hours as f64, 0)),
+                ("m", &minutes.to_string()),
+            ],
+        )
+    } else {
+        locale.fmt(
+            "leakshield.system.state.minutes",
+            &[
+                ("m", &minutes.to_string()),
+                ("s", &(seconds % 60).to_string()),
+            ],
+        )
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct ClockCard {
     pub title: String,
@@ -254,6 +298,7 @@ pub struct AskDialog {
 pub struct SystemModel {
     pub state: TabState,
     pub device: DeviceCard,
+    pub state_card: StateCard,
     pub clock: ClockCard,
     pub standby: StandbyCard,
     pub backups: BackupsCard,
@@ -348,6 +393,30 @@ impl SystemModel {
             counter_line: write_line(input, id, "service-counter")
                 .filter(|_| counter_unsupported.is_none()),
             counter_unsupported,
+        };
+
+        let counters = device.data.and_then(|data| data.counters.as_ref());
+        let mut state_rows = vec![(
+            locale.tr("leakshield.system.maintenance"),
+            device_card.maintenance_text.clone(),
+        )];
+        state_rows.extend(COUNTERS.iter().map(|(key, is_time)| {
+            let value = counters.and_then(|counters| counters.get(*key)).copied();
+            (
+                locale.tr(&format!("leakshield.system.state.{key}")),
+                match value {
+                    Some(seconds) if *is_time => duration_text(locale, seconds),
+                    Some(count) => locale.decimal(count as f64, 0),
+                    None => "--".to_owned(),
+                },
+            )
+        }));
+        let state_card = StateCard {
+            title: locale.tr("leakshield.system.state.title"),
+            rows: state_rows,
+            note: (ready && counters.is_none())
+                .then(|| locale.tr("leakshield.system.state.no_counters")),
+            dim: !ready,
         };
 
         let offset_s = device.data.map_or(0, |data| data.clock_offset_s);
@@ -507,6 +576,7 @@ impl SystemModel {
         Self {
             state,
             device: device_card,
+            state_card,
             clock: clock_card,
             standby: standby_card,
             backups: backups_card,

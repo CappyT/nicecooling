@@ -1,4 +1,4 @@
-//! The window of the System tab: six cards.
+//! The window of the System tab: seven cards.
 
 use std::rc::Rc;
 
@@ -120,6 +120,28 @@ impl ScreenView {
             card_device = card_device.child(card_row(p).child(write_line(line, p)));
         }
         content = content.child(card_device);
+
+        // Device state.
+        let state_card = &model.state_card;
+        let mut card_state = card(p).child(card_header(state_card.title.clone(), p));
+        for (name, value) in &state_card.rows {
+            card_state = card_state.child(
+                card_row(p)
+                    .child(div().flex_1().min_w_0().child(name.clone()))
+                    .child(
+                        div()
+                            .flex_none()
+                            .font_weight(FontWeight::BOLD)
+                            .text_color(if state_card.dim { p.fg_dim } else { p.fg })
+                            .debug_selector(|| "device-state-value".to_owned())
+                            .child(value.clone()),
+                    ),
+            );
+        }
+        if let Some(text) = &state_card.note {
+            card_state = card_state.child(card_row(p).child(caption(text.clone(), p)));
+        }
+        content = content.child(card_state);
 
         // Clock.
         let clock = &model.clock;

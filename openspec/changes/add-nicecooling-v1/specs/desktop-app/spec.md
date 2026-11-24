@@ -214,6 +214,43 @@ The app SHALL convert the picture to lit and dark pixels: a pixel is lit when it
 - **WHEN** the user picks a white PNG file of 256 x 256 pixels as the logo
 - **THEN** the result has a lit square of 64 x 64 pixels in the middle, and the dialog says that the file was scaled
 
+### Requirement: Software sensor scale and sources in the app
+The Sensors tab of a Leakshield SHALL show a scale and an offset for each Software sensor slot (`GetSoftwareSensorScales`) and SHALL write a change of one of them with `SetSoftwareSensorScale`, keeping the other. It SHALL show the value that the daemon sends: the source value times the scale plus the offset. The data source select SHALL list the sensors of `GetSoftwareSensorSources`, plus the source that the slot has. With a daemon that gives no list, it SHALL list every sensor.
+
+#### Scenario: New scale
+- **WHEN** slot 3 has scale 2 and offset -10.5 and the user types the scale 0.5
+- **THEN** the app calls `SetSoftwareSensorScale` with slot 3, scale 0.5 and offset -10.5
+
+#### Scenario: Sources of the daemon
+- **WHEN** the daemon lists one sensor as a source
+- **THEN** the select of an empty slot has that sensor only
+
+### Requirement: Device state card
+The System tab of a Leakshield SHALL show a card "Device state" with the maintenance value and the counters of `GetCounters`: the pump runtime, the pump runtime in short cycles, the pump revolutions, the fill valve cycles, the release valve cycles, the operating time and the power-ups. A time SHALL show in hours and minutes, or in minutes and seconds below one hour. The card SHALL have no control. With a daemon that gives no counters, each counter SHALL show "--" and the card SHALL say why.
+
+#### Scenario: Counters of the device
+- **WHEN** `GetCounters` gives a pump runtime of 11431 s
+- **THEN** the row of the pump runtime shows "3 h 10 min"
+
+#### Scenario: No counters
+- **WHEN** the daemon has no `GetCounters`
+- **THEN** each counter shows "--" and the card says that the daemon gave no counters
+
+### Requirement: Event list reset and Refill pause in the app
+The Status tab of a Leakshield SHALL have a "Reset" control of the event list. It SHALL ask before it sends `ResetEventLog`, and SHALL read the event list again after the call. The Overview tab SHALL show, while a Refill runs, one control "Pause or resume" that sends `ToggleRefillPause`. Both controls SHALL be disabled, with the reason, for a read-only device, and "Reset" also while the daemon or the Leakshield does not answer.
+
+#### Scenario: Reset after the question
+- **WHEN** the user presses "Reset" and then "Delete events"
+- **THEN** the app calls `ResetEventLog` once and shows the empty event list
+
+#### Scenario: Question cancelled
+- **WHEN** the user presses "Reset" and then "Cancel"
+- **THEN** the app sends no call
+
+#### Scenario: Refill runs
+- **WHEN** the running Action is the Refill
+- **THEN** the action bar has "Pause or resume" and "Cancel"
+
 ### Requirement: Controls of a write that is not possible
 The app SHALL warn and SHALL NOT refuse a choice of the user that the device accepts. A control whose write is not possible (a read-only device, a daemon or a Leakshield that does not answer, a field that is not a Verified field) SHALL be disabled and SHALL give the reason next to it or as its tooltip.
 

@@ -391,6 +391,17 @@ pub struct ActionButton {
     pub enabled: bool,
 }
 
+/// "Pause or resume" of a running Refill. The device toggles between the two, and the daemon
+/// does not say which of them the Refill is in: so the button has one name.
+#[derive(Clone, Debug, PartialEq)]
+pub struct PauseButton {
+    pub label: String,
+    pub text: String,
+    pub enabled: bool,
+    /// Why the button is disabled.
+    pub reason: Option<String>,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct RefillRow {
     pub text: String,
@@ -415,6 +426,9 @@ pub struct ModeCard {
     pub actions: Vec<ActionButton>,
     /// While an Action runs, the bar shows only this button.
     pub cancel: Option<String>,
+    /// While a Refill runs: the button that pauses it or resumes it.
+    pub refill_pause: Option<PauseButton>,
+    pub pause_line: Option<FeedbackLine>,
     pub action_line: Option<FeedbackLine>,
     pub refill: RefillRow,
     /// "Mode RELEASE: the Loop has no leak protection."
@@ -765,6 +779,18 @@ impl OverviewModel {
                 })
                 .collect(),
             cancel: (running && ready).then(|| locale.tr("leakshield.cancel")),
+            refill_pause: (action == "refill" && ready).then(|| {
+                let reason = info
+                    .filter(|info| !info.read_only_reason.is_empty())
+                    .map(|info| device.reason_text(&info.read_only_reason));
+                PauseButton {
+                    label: locale.tr("leakshield.overview.refill_pause"),
+                    text: locale.tr("leakshield.overview.refill_pause_text"),
+                    enabled: reason.is_none(),
+                    reason,
+                }
+            }),
+            pause_line: write_line(input, id, "refill-pause").filter(|_| action == "refill"),
             action_line: write_line(input, id, "action"),
             refill: {
                 let action = locale.tr("leakshield.action.refill");

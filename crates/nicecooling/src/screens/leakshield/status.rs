@@ -3,13 +3,14 @@
 
 use std::collections::BTreeMap;
 
+use crate::command::Command;
 use crate::i18n::{Locale, event_key};
 use crate::model::{DeviceEvent, LeakshieldInfo, PressureLimits, Severity};
-use crate::screens::ScreenInput;
 use crate::screens::alarms::event_severity;
 use crate::screens::format::{compact, date_time_seconds, optional_value};
 use crate::screens::leakshield::overview::{limits_of, status_key, status_text};
-use crate::screens::leakshield::{Device, TabState, change_text, severity_of};
+use crate::screens::leakshield::{Device, TabState, change_text, severity_of, write_line};
+use crate::screens::{FeedbackLine, ScreenInput};
 
 /// The height of the chart between the tiles and the schematic, in px.
 pub const CHART_HEIGHT: (f32, f32) = (84.0, 240.0);
@@ -55,6 +56,8 @@ impl Tile {
 pub struct StatusUi {
     pub selected: Tile,
     pub chart_height: f32,
+    /// The question "Delete the event list?" is open.
+    pub ask_reset: bool,
 }
 
 impl Default for StatusUi {
@@ -62,11 +65,28 @@ impl Default for StatusUi {
         Self {
             selected: Tile::Status,
             chart_height: CHART_HEIGHT.0,
+            ask_reset: false,
         }
     }
 }
 
 impl StatusUi {
+    /// "Reset" of the event list: the question comes first.
+    pub fn request_reset(&mut self) {
+        self.ask_reset = true;
+    }
+
+    pub fn cancel_reset(&mut self) {
+        self.ask_reset = false;
+    }
+
+    /// The answer "Delete events": the command that clears the event list of the device.
+    pub fn confirm_reset(&mut self, device: &str) -> Option<Command> {
+        std::mem::take(&mut self.ask_reset).then(|| Command::ResetEventLog {
+            leakshield: device.to_owned(),
+        })
+    }
+
     /// Left and Right move the selection between the tiles.
     pub fn step(&mut self, delta: isize) {
         let index = Tile::ALL
@@ -138,6 +158,21 @@ pub struct EventsCard {
     pub rows: Vec<EventLine>,
     pub empty: Option<String>,
     pub export: String,
+    pub reset: String,
+    pub reset_enabled: bool,
+    /// Why "Reset" is disabled.
+    pub reset_reason: Option<String>,
+    pub reset_line: Option<FeedbackLine>,
+    pub dialog: Option<ResetDialog>,
+}
+
+/// The question before the event list is deleted.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ResetDialog {
+    pub title: String,
+    pub text: String,
+    pub cancel: String,
+    pub confirm: String,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -370,6 +405,19 @@ impl StatusModel {
         let empty = events
             .is_empty()
             .then(|| locale.tr("leakshield.status.no_events"));
+        // The reset is a command: a device that is away or read-only takes none.
+        let reset_reason = if !ready {
+            Some(locale.tr(if device.link == crate::model::Link::Online {
+                "leakshield.offline"
+            } else {
+                "leakshield.status.reset_offline"
+            }))
+        } else {
+            device
+                .info
+                .filter(|info| !info.read_only_reason.is_empty())
+                .map(|info| device.reason_text(&info.read_only_reason))
+        };
 
         Self {
             state,
@@ -397,6 +445,16 @@ impl StatusModel {
                 rows: events,
                 empty,
                 export: locale.tr("leakshield.status.export"),
+                reset: locale.tr("leakshield.status.reset"),
+                reset_enabled: reset_reason.is_none(),
+                reset_reason,
+                reset_line: write_line(input, id, "event-log"),
+                dialog: ui.ask_reset.then(|| ResetDialog {
+                    title: locale.tr("leakshield.status.reset_title"),
+                    text: locale.tr("leakshield.status.reset_text"),
+                    cancel: locale.tr("leakshield.cancel"),
+                    confirm: locale.tr("leakshield.status.reset_confirm"),
+                }),
             },
             status_key: key,
             unknown_firmware: device.unknown_firmware(),

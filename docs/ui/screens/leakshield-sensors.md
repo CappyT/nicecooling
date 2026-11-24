@@ -9,7 +9,7 @@ The tab names the 18 device sensors and fills the 12 Software sensors.
 Two cards.
 
 1. "Device sensors": a table with 18 rows. Columns: number, "Name" (inline input), "Value", "Type". Types: "Local" (measured by the Leakshield: pressure, fill level, volume change, pressure change) and "From the Feed" (pump speed, flow). The first six rows are in the order of the device: Pressure, Fill level, Volume change, Pressure change, Pump speed, Flow.
-2. "Software sensors": a table with 12 rows. Columns: slot number, "Name", "Data source" (sensor picker), "Unit" (select), "Scale" and "Offset" (number inputs), "Value sent".
+2. "Software sensors": a table with 12 rows. Columns: slot number, "Name", "Data source" (select), "Unit" (the unit of the source), "Scale" and "Offset" (number inputs), "Value" (the value that the daemon sends).
 
 A caption under the second card: "A Software sensor carries a value from the PC to the Leakshield, for display pages and lighting. The Leakshield has the values only while nicecooling runs."
 
@@ -21,16 +21,17 @@ A caption under the second card: "A Software sensor carries a value from the PC 
 | Loading | Table frames with grey bars |
 | Device offline | Offline banner. Inputs are disabled. Values are dim |
 | Read-only | A name field that is not a Verified field has the dashed outline and the padlock, with the reason in its tooltip |
-| Source without value | "Value sent" shows "--" and the Warning icon. Tooltip: "GPU temperature has no value. The Leakshield keeps the last value." |
+| Source without value | "Value" shows "--" and the Warning icon. Tooltip: "GPU temperature has no value. The Leakshield keeps the last value." |
 | Slot in use | A slot that a display page or a lighting effect uses shows "Used by display page 3" in the row. Clearing its source asks for confirmation |
-| Unit mismatch | The unit of the slot differs from the unit of the source: Warning icon on the unit. Tooltip: "The source is in °C." |
 | Alarm | Not used |
 
 ## Interactions
 
 - A name saves when the input loses focus or on Enter. It is a Leakshield write with write status in the row.
-- The sensor picker lists every sensor of nicecooling, also the Derived sensors.
-- "Value sent" is the source value times the scale plus the offset.
+- The data source select lists the sensors that the daemon gives with `GetSoftwareSensorSources`: those whose unit the Leakshield knows. The source of a slot stays in its list, also when the daemon no longer lists it. A daemon that gives no list leaves every sensor in the select.
+- "Scale" and "Offset" start at 1 and 0. Each one writes when its input loses the focus or on Enter, with `SetSoftwareSensorScale`. A change of one keeps the other. The write status is in the row.
+- "Value" is the source value times the scale plus the offset, in the unit of the source.
+- The slot keeps its scale and its offset when its source changes or is cleared.
 - A row menu has "Clear" for a Software sensor.
 
 ## Copy
@@ -38,5 +39,5 @@ A caption under the second card: "A Software sensor carries a value from the PC 
 | Place | Text |
 |---|---|
 | Columns, device | "Name", "Value", "Type" |
-| Columns, software | "Name", "Data source", "Unit", "Scale", "Offset", "Value sent" |
+| Columns, software | "Name", "Data source", "Unit", "Scale", "Offset", "Value" |
 | Clear confirmation | "Clear Software sensor 3? Display page 3 uses it and then shows no value." Buttons: "Cancel", "Clear" |

@@ -4,14 +4,15 @@ No comp. Rows follow `../comps/leakshield-wizard.html`. Buttons follow the Mode 
 
 ## Layout
 
-Six cards.
+Seven cards.
 
 1. "Device": rows "Serial" (mono), "Firmware version" (with the tag "Known" or the warning tag "Unknown"), "Maintenance indicator" (a progress bar and percent, and the button "Reset service counter" at the end of the row), "Device description" (input).
-2. "Clock": "Device time" (live), "Time zone" (select), "Date format" and "Time format" (selects), button "Set from the PC".
-3. "Standby behavior": three switches, each one a bit of `standby_conditions`: "Standby when the USB bus is suspended" (bit 1), "Standby without a USB connection" (bit 0) and "Disable alarm actions during standby" (bit 3, set is on). The Alarms tab has the third switch too.
-4. "Backups": a table with "Time", "Reason" ("Before a write", "Manual", "Imported") and "Size", newest first. Row buttons: "Export", "Restore". Header buttons: "Back up now", "Import".
-5. "Refill history": a table with "Time", "Duration" and "Volume", one row for each of the 7 entries of the device, newest first. Header button: "Reset refill history".
-6. "Reset": "Reset to factory settings" (destructive button).
+2. "Device state": one row for each value, the name at the left and the value at the right. The rows: "Maintenance indicator" (percent), "Vacuum pump runtime", "Vacuum pump runtime in short cycles", "Vacuum pump revolutions", "Fill valve cycles", "Vent valve cycles", "Operating time" and "Power-ups". The counters come from `GetCounters`. A time shows as hours and minutes, or as minutes and seconds below one hour. The card has no button.
+3. "Clock": "Device time" (live), "Time zone" (select), "Date format" and "Time format" (selects), button "Set from the PC".
+4. "Standby behavior": three switches, each one a bit of `standby_conditions`: "Standby when the USB bus is suspended" (bit 1), "Standby without a USB connection" (bit 0) and "Disable alarm actions during standby" (bit 3, set is on). The Alarms tab has the third switch too.
+5. "Backups": a table with "Time", "Reason" ("Before a write", "Manual", "Imported") and "Size", newest first. Row buttons: "Export", "Restore". Header buttons: "Back up now", "Import".
+6. "Refill history": a table with "Time", "Duration" and "Volume", one row for each of the 7 entries of the device, newest first. Header button: "Reset refill history".
+7. "Reset": "Reset to factory settings" (destructive button).
 
 ## States
 
@@ -19,7 +20,8 @@ Six cards.
 |---|---|
 | Empty | No backup yet: "No backup yet. nicecooling saves one before each write." No refill yet: "The refill history is empty." |
 | Loading | Row frames with grey bars |
-| Device offline | Offline banner. Backups stay listed, and "Export" works. Other controls are disabled |
+| Device offline | Offline banner. Backups stay listed, and "Export" works. Other controls are disabled. The values of "Device state" are dim |
+| No counters | The daemon gave no counters: each counter shows "--", and the card has the line "The daemon gave no counters." |
 | Unknown firmware | Firmware row: warning tag "Unknown" and the text "nicecooling has no field layout for this firmware. Every field is read-only." No firmware update function exists: "To update the firmware, use aquasuite on Windows." |
 | Maintenance indicator at 0 % | Warning row: "The vacuum pump and the valves need maintenance by Aqua Computer." |
 | Clock not set | Warning in the Clock card: "The Leakshield has no battery for its clock. After a power loss, set the time again." |
