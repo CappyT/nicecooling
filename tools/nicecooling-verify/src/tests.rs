@@ -113,7 +113,7 @@ impl Rig {
     async fn run_into(
         &self,
         opts: &Options,
-        replug: &mut SimReplug,
+        replug: &mut dyn Replug,
         out: &mut dyn Write,
     ) -> Result<Vec<(String, Verdict)>, Error> {
         let connection = self.bus.connect().await;
@@ -469,6 +469,42 @@ async fn replug_without_a_power_cycle_aborts_and_restores() {
     }
     assert_eq!(rig.sim.report3(), rig.original);
     assert!(!out.contains("verification_state ="), "{out}");
+}
+
+/// The operator presses Enter without a replug: the device never left the bus.
+struct NoReplug;
+
+impl Replug for NoReplug {
+    fn replug(&mut self, _say: &mut dyn Write) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+#[tokio::test]
+async fn enter_without_a_replug_aborts_on_the_old_handle() {
+    let rig = Rig::new();
+    let mut tripwire = Tripwire::default();
+    let result = rig
+        .run_into(
+            &rig.options("pump_max_speed", 4801),
+            &mut NoReplug,
+            &mut tripwire,
+        )
+        .await;
+    let out = tripwire.text();
+    match &result {
+        Err(Error::Aborted {
+            cause, restored, ..
+        }) => {
+            assert!(cause.contains("did not restart"), "{cause}");
+            assert!(restored, "{out}");
+        }
+        other => panic!("{other:?}\n{out}"),
+    }
+    // The bulk interface of the first open stays claimed, so a second open would get EBUSY on
+    // the real device.
+    assert_eq!(rig.usb.opened().len(), 1, "{out}");
+    assert_eq!(rig.sim.report3(), rig.original);
 }
 
 const GROUP: [&str; 3] = [

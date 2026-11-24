@@ -32,7 +32,13 @@ const USAGE: &str = "usage: nicecooling-verify --field <field id> --value <raw v
 
 /// The code does not define the values of these fields, so no test value is safe (owner decision,
 /// gate 2.14). They stay read-only.
-const NO_SAFE_TEST_VALUE: [&str; 2] = ["signal_output_config", "alarm_start_delay"];
+/// `device_profile` is not here for a lack of a value: a write of N stores report 3 into slot N of
+/// the device, so a test value overwrites a stored Profile (owner decision).
+const NO_SAFE_TEST_VALUE: [&str; 3] = [
+    "signal_output_config",
+    "alarm_start_delay",
+    "device_profile",
+];
 
 /// How long the tool waits for the device to come back after the replug.
 const REOPEN_TIMEOUT: Duration = Duration::from_secs(30);
@@ -560,16 +566,28 @@ impl Check<'_> {
         self.replug
             .replug(self.say)
             .map_err(|e| Stop::Error(format!("replug prompt: {e}")))?;
+        let no_restart = || {
+            Stop::Error(
+                "power_up_count did not change: the device did not restart, so the persistence \
+                 check would prove nothing"
+                    .to_owned(),
+            )
+        };
+        // A device that did not restart still answers on the old handle. Its bulk interface stays
+        // claimed there, so a reopen would fail with EBUSY.
+        if self
+            .io
+            .read_report1()
+            .is_ok_and(|report1| report1.power_up_count == power_ups)
+        {
+            return Err(no_restart());
+        }
         let (io, report1) = open_by_serial(self.bus, self.serial, self.opts.reopen_timeout)
             .map_err(|e| Stop::Error(e.to_string()))?;
         self.io = io;
         self.report1 = report1;
         if self.report1.power_up_count == power_ups {
-            return Err(Stop::Error(
-                "power_up_count did not change: the device did not restart, so the persistence \
-                 check would prove nothing"
-                    .to_owned(),
-            ));
+            return Err(no_restart());
         }
         let report = self.read_report3()?;
         let verdicts = self.judge(
