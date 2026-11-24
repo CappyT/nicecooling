@@ -223,7 +223,8 @@ impl ShellView {
                 .hover(rgb(0xF6F5F4).into())
                 .active(rgb(0xDEDDDA).into());
             row = row.child(if alarm {
-                button.custom(on_alarm)
+                // The custom variant draws its color as a tint: the white fill is set here.
+                button.custom(on_alarm).bg(gpui::white())
             } else {
                 button
             });
