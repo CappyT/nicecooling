@@ -75,6 +75,7 @@ cargo build --release --offline --locked %{?_smp_mflags} -p nicecoolingd -p nice
 install -D -s -m 0755 target/release/nicecooling %{buildroot}%{_bindir}/nicecooling
 install -D -s -m 0755 target/release/nicecoolingd %{buildroot}%{_libexecdir}/nicecoolingd
 install -D -m 0644 packaging/nicecoolingd.service %{buildroot}%{_unitdir}/nicecoolingd.service
+install -D -m 0644 packaging/80-nicecooling.preset %{buildroot}%{_presetdir}/80-nicecooling.preset
 install -D -m 0644 packaging/poweroff.target.d/50-nicecooling.conf \
     %{buildroot}%{_unitdir}/poweroff.target.d/50-nicecooling.conf
 install -D -m 0644 packaging/dbus/io.github.cappyt.NiceCooling1.conf \
@@ -112,6 +113,7 @@ install -d -m 0700 %{buildroot}%{_sharedstatedir}/nicecooling
 %{_bindir}/nicecooling
 %{_libexecdir}/nicecoolingd
 %{_unitdir}/nicecoolingd.service
+%{_presetdir}/80-nicecooling.preset
 %dir %{_unitdir}/poweroff.target.d
 %{_unitdir}/poweroff.target.d/50-nicecooling.conf
 %{_datadir}/dbus-1/system.d/io.github.cappyt.NiceCooling1.conf

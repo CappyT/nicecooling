@@ -1,0 +1,2 @@
+# The daemon holds the fan control and the leak protection: it starts at boot.
+enable nicecoolingd.service
