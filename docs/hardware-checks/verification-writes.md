@@ -20,6 +20,23 @@ Every check starts from this state. A field section adds its own conditions.
 
 Record each result in the section of the field as `Result: <date>, firmware 1022, pass|fail, <note>`.
 
+## Groups
+
+The tool verifies a group of fields with one replug: `nicecooling-verify --confirm-serial 20417-31072 --field <id> --value <raw> [--field <id> --value <raw> ...]`. Each field gets its own write and its own read-back check. The group shares the save-settings, the replug and the restore. A field that does not hold its test value fails alone. A byte that no written field explains fails the whole group. On the reference Board the replug is a cable pull: the hub does not switch port power, so a port disable does not restart the device.
+
+A group holds fields with the same safe loop state:
+
+| Group | Fields | Safe loop state |
+|---|---|---|
+| reservoir | `fill_level_calibration`, `reservoir_model`, `reservoir_air_volume_full`, `reservoir_air_volume_empty`, `reservoir_total_volume`, `standby_conditions` | Fill level stable for 5 min. The PC does not suspend. |
+| pump | `pump_model`, `pump_flags`, `pump_max_speed`, `pump_max_pressure`, `pump_start_speed`, `pump_start_flow` | The pump runs at its normal duty. No Action runs. |
+| clock | `clock_flags`, `clock_timezone`, `shield_flags`, `vacuum_timer_start_hour`, `vacuum_timer_start_minute`, `vacuum_timer_end_hour`, `vacuum_timer_end_minute` | No time-controlled vacuum window starts within 15 min. The test values of the group give the window 08:01-10:02: `vacuum_timer_start_hour` goes one step down. |
+| alarms | `alarm_enable`, `alarm_buzzer`, the three thresholds, the 18 response fields, `refill_duration_warning` | `alarm_bits` and `alarm_bits_latched` read 0. |
+| pressure | `loop_height`, `test_pressure`, `deaeration_pressure`, `refill_pressure`, the four `shield_pressure_*` and the four `monitor_pressure_*` fields | Pressure stable within 2 mbar of the setpoint for 5 min. |
+| mode | `default_mode` | Runs last: the replug powers the device up in the Mode of the test value. Set the Mode back after the restore. |
+
+Item 3 of the base safe state asks for Mode SHIELD. A replug powers the device up in `default_mode`, which is RELEASE on the reference device, and the daemon stays stopped during the check. So the checks run in RELEASE (owner decision): write `Mode RELEASE` in each Result.
+
 ## Fields
 
 ### signal_output_config
