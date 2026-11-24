@@ -4,7 +4,7 @@ use std::rc::Rc;
 
 use gpui::prelude::*;
 use gpui::{AnyElement, Context, Div, FontWeight, SharedString, Window, div, px};
-use gpui_component::button::{Button, ButtonVariants as _};
+use gpui_component::button::ButtonVariants as _;
 use gpui_component::tooltip::Tooltip;
 use gpui_component::{h_flex, v_flex};
 
