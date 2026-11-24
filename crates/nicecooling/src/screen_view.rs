@@ -500,7 +500,13 @@ impl Render for ScreenView {
                     .min_h_0()
                     .overflow_y_scroll()
                     .debug_selector(|| "screen-scroll".to_owned())
-                    .child(content),
+                    .child(
+                        div()
+                            .w_full()
+                            .flex_none()
+                            .debug_selector(|| "screen-page".to_owned())
+                            .child(content),
+                    ),
             )
     }
 }

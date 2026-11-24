@@ -86,10 +86,10 @@ fn normal_start_opens_one_window_and_draws_it(cx: &mut TestAppContext) {
     );
 }
 
-/// A page starts under the header bar and ends at the status bar, short or long: the content
-/// scrolls in that area and never rises over the header.
+/// Review: every page, at the minimum window size and at 1280x800, starts under the header
+/// bar and ends at the status bar. A page that is longer than that area scrolls in it.
 #[gpui::test]
-fn every_page_starts_under_the_header_and_scrolls(cx: &mut TestAppContext) {
+fn review_every_page_starts_under_the_header(cx: &mut TestAppContext) {
     let (model, rig) = start(cx, StartMode::Normal);
     let state = support::fixtures::with_leakshield();
     rig.events
@@ -97,14 +97,19 @@ fn every_page_starts_under_the_header_and_scrolls(cx: &mut TestAppContext) {
         .unwrap();
     cx.run_until_parked();
     let handle = cx.windows()[0];
-    for page in [
+    let pages = [
         Page::Overview,
         Page::Loops,
+        Page::Channels,
         Page::Sensors,
+        Page::Profiles,
         Page::Alarms,
+        Page::History,
         Page::Settings,
+        Page::FirstRun,
         Page::Leakshield(LEAKSHIELD.to_owned()),
-    ] {
+    ];
+    let show = |cx: &mut TestAppContext, page: &Page| {
         cx.update(|cx| {
             model.update(cx, |app, cx| {
                 app.page = page.clone();
@@ -112,41 +117,72 @@ fn every_page_starts_under_the_header_and_scrolls(cx: &mut TestAppContext) {
             });
         });
         cx.run_until_parked();
+    };
+    for size in [(1100., 700.), (1280., 800.)] {
+        cx.simulate_window_resize(handle, gpui::size(gpui::px(size.0), gpui::px(size.1)));
+        for page in &pages {
+            show(cx, page);
+            let mut visual = VisualTestContext::from_window(handle, cx);
+            visual.update(|window, cx| window.draw(cx).clear(cx));
+            let mut bounds = |name: &'static str| {
+                visual
+                    .debug_bounds(name)
+                    .unwrap_or_else(|| panic!("{page:?}: no element {name}"))
+            };
+            let (header, content) = (bounds("shell-header"), bounds("shell-content"));
+            let (status, scroll) = (bounds("shell-status"), bounds("screen-scroll"));
+            assert_eq!(content.top(), header.bottom(), "{page:?} {size:?}: top");
+            assert_eq!(content.bottom(), status.top(), "{page:?} {size:?}: bottom");
+            assert!(scroll.top() >= content.top(), "{page:?} {size:?}");
+            assert_eq!(scroll.bottom(), content.bottom(), "{page:?} {size:?}");
+            assert_eq!(header.size.height, gpui::px(46.), "{page:?}: header height");
+            assert_eq!(status.size.height, gpui::px(28.), "{page:?}: status height");
+            // The page starts at the top of the scroll area: nothing centers it.
+            assert_eq!(
+                bounds("screen-page").top(),
+                scroll.top(),
+                "{page:?} {size:?}"
+            );
+            // The tab strip of a Leakshield stays under the header: only the tab scrolls.
+            if matches!(page, Page::Leakshield(_)) {
+                let tabs = bounds("leakshield-tabs");
+                assert_eq!(tabs.top(), content.top(), "top of the tab strip");
+                assert_eq!(scroll.top(), tabs.bottom(), "top of the tab");
+            }
+        }
+    }
+
+    // A page that is longer than its area moves with the wheel.
+    cx.simulate_window_resize(handle, gpui::size(gpui::px(1100.), gpui::px(700.)));
+    let mut scrolled = Vec::new();
+    for page in &pages {
+        show(cx, page);
         let mut visual = VisualTestContext::from_window(handle, cx);
         visual.update(|window, cx| window.draw(cx).clear(cx));
-        let mut bounds = |name: &'static str| {
-            visual
-                .debug_bounds(name)
-                .unwrap_or_else(|| panic!("{page:?}: no element {name}"))
-        };
-        let (header, content) = (bounds("shell-header"), bounds("shell-content"));
-        let (status, scroll) = (bounds("shell-status"), bounds("screen-scroll"));
-        // The tab strip of a Leakshield stays under the header: only the tab scrolls.
-        if matches!(page, Page::Leakshield(_)) {
-            let tabs = bounds("leakshield-tabs");
-            assert_eq!(tabs.top(), content.top(), "top of the tab strip");
-            assert_eq!(scroll.top(), tabs.bottom(), "top of the tab");
+        let scroll = visual.debug_bounds("screen-scroll").expect("scroll area");
+        let before = visual.debug_bounds("screen-page").expect("page");
+        if before.size.height <= scroll.size.height {
+            continue;
         }
+        visual.simulate_event(gpui::ScrollEvent {
+            position: scroll.center(),
+            delta: gpui::ScrollDelta::Pixels(gpui::point(gpui::px(0.), gpui::px(-40.))),
+            ..Default::default()
+        });
+        visual.run_until_parked();
+        visual.update(|window, cx| window.draw(cx).clear(cx));
+        let after = visual.debug_bounds("screen-page").expect("page");
         assert_eq!(
-            content.top(),
-            header.bottom(),
-            "{page:?}: top of the content"
+            after.top(),
+            before.top() - gpui::px(40.),
+            "{page:?}: the page scrolls"
         );
-        assert_eq!(
-            content.bottom(),
-            status.top(),
-            "{page:?}: end of the content"
-        );
-        assert!(
-            scroll.top() >= content.top(),
-            "{page:?}: top of the scroll area"
-        );
-        assert_eq!(
-            scroll.bottom(),
-            content.bottom(),
-            "{page:?}: end of the scroll area"
-        );
+        scrolled.push(page.clone());
     }
+    assert!(
+        scrolled.contains(&Page::Loops) && scrolled.contains(&Page::Settings),
+        "long pages: {scrolled:?}"
+    );
 }
 
 #[gpui::test]
