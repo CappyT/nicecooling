@@ -622,7 +622,8 @@ fn the_alarm_time_stays_in_the_pressure_plot(cx: &mut TestAppContext) {
             let age = (now_us - leak_raised_us) as f32 / 1_000_000.0;
             plot.left() + plot.size.width * (1.0 - age / 600.0)
         };
-        // The line moves to the left with the time.
+        // The line moves to the left with the time. The view puts the label 8 px from the line
+        // and snaps to half pixels, so each bound has 1 px of slack.
         let (rightmost, leftmost) = (line_at(before_us), line_at(after_us));
         let slack = gpui::px(1.);
         if at_left {
@@ -631,7 +632,7 @@ fn the_alarm_time_stays_in_the_pressure_plot(cx: &mut TestAppContext) {
                 "{age_s} s: {label:?}, line {rightmost:?}"
             );
             assert!(
-                label.right() >= leftmost - gpui::px(8.),
+                label.right() >= leftmost - gpui::px(8.) - slack,
                 "{age_s} s: {label:?}, line {leftmost:?}"
             );
         } else {
@@ -640,7 +641,7 @@ fn the_alarm_time_stays_in_the_pressure_plot(cx: &mut TestAppContext) {
                 "{age_s} s: {label:?}, line {leftmost:?}"
             );
             assert!(
-                label.left() <= rightmost + gpui::px(8.),
+                label.left() <= rightmost + gpui::px(8.) + slack,
                 "{age_s} s: {label:?}, line {rightmost:?}"
             );
         }
