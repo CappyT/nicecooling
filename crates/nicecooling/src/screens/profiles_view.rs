@@ -5,16 +5,16 @@ use std::rc::Rc;
 
 use gpui::prelude::*;
 use gpui::{
-    AnyElement, Context, Entity, FontWeight, KeyDownEvent, Render, SharedString, Window, div, px,
+    AnyElement, Context, Div, Entity, FontWeight, KeyDownEvent, Render, SharedString, Window,
+    deferred, div, px, relative,
 };
-use gpui_component::button::{Button, ButtonVariants as _};
+use gpui_component::button::ButtonVariants as _;
 use gpui_component::checkbox::Checkbox;
-use gpui_component::input::Input;
 use gpui_component::switch::Switch;
-use gpui_component::{Disableable as _, Sizable as _, h_flex, v_flex};
+use gpui_component::{Disableable as _, h_flex, v_flex};
 
 use crate::app_settings::HINT_IMMEDIATE_SWITCHING;
-use crate::icons::{NcIcon, icon, text_icon};
+use crate::icons::{NcIcon, icon};
 use crate::model::Rule;
 use crate::screen_view::{InputKey, ScreenView, skeleton};
 use crate::screens::controls::{Pick, act};
@@ -24,7 +24,8 @@ use crate::screens::profiles::{
     ProfileDetail, ProfilesModel, ProfilesState, RuleEditorModel, RuleKind, minutes_text,
 };
 use crate::screens::ui::{
-    TagKind, caption, card, card_header, card_row, modal, notice_row, page, tag, write_line,
+    TagKind, caption, card, card_header, card_row, heading, label, modal, notice_row, page,
+    popover, tag, with_popover, write_line,
 };
 use crate::shell::Page;
 use crate::tokens::Palette;
@@ -48,6 +49,37 @@ impl Render for GroupGhost {
             .text_color(gpui::white())
             .child(self.0.clone())
     }
+}
+
+/// A row of a tight list: 30 px, with a line above it.
+fn tight_row(p: &Palette) -> Div {
+    h_flex()
+        .w_full()
+        .min_h(px(30.))
+        .px(px(18.))
+        .py(px(3.))
+        .gap(px(12.))
+        .border_t_1()
+        .border_color(p.border)
+}
+
+/// The icon of a rule, by its condition.
+fn rule_icon(rule: &Rule) -> NcIcon {
+    match rule {
+        Rule::Sensor { .. } => NcIcon::Gauge,
+        Rule::Process { .. } => NcIcon::App,
+        Rule::Time { .. } | Rule::Interval { .. } => NcIcon::Clock,
+    }
+}
+
+/// A field of the group editor: the label as a caption above the control.
+fn editor_field(text: String, width: f32, control: AnyElement, p: &Palette) -> Div {
+    v_flex()
+        .w(px(width))
+        .max_w_full()
+        .gap(px(3.))
+        .child(caption(text, p))
+        .child(control)
 }
 
 impl ScreenView {
@@ -79,31 +111,24 @@ impl ScreenView {
         }
 
         // The list column.
-        let mut list = card(p).child(card_header(locale.tr("profiles.list.title"), p).child({
-            Button::new("profile-new")
-                .small()
-                .label(locale.tr("profiles.new"))
-                .disabled(!enabled)
-                .tooltip(tooltip.clone())
-                .on_click(act(&view, |this, _, cx| {
-                    let command = this.with_input(cx, |input| this.profiles.new_profile(input));
-                    this.send(command);
-                }))
-        }));
+        let mut list = card(p).child(
+            card_header(locale.tr("profiles.list.title"), p).child(
+                Self::small_button("profile-new", locale.tr("profiles.new"), Some(NcIcon::Plus))
+                    .disabled(!enabled)
+                    .tooltip(tooltip.clone())
+                    .on_click(act(&view, |this, _, cx| {
+                        let command = this.with_input(cx, |input| this.profiles.new_profile(input));
+                        this.send(command);
+                    })),
+            ),
+        );
         for (index, row) in model.rows.iter().enumerate() {
             let id = row.id.clone();
-            let mut line = h_flex()
+            let mut line = card_row(p)
                 .id(("profile-row", index))
-                .w_full()
-                .px(px(18.))
-                .py(px(8.))
-                .gap(px(8.))
-                .items_center()
-                .border_t_1()
-                .border_color(p.border)
                 .cursor_pointer()
-                .when(row.selected, |line| line.bg(p.selected))
-                .hover(|line| line.bg(p.hover))
+                .when(row.selected, |line| line.bg(p.accent_tint))
+                .when(!row.selected, |line| line.hover(|line| line.bg(p.hover)))
                 .on_click(act(&view, move |this, _, _| {
                     this.profiles.select(&id);
                     this.open_picker = None;
@@ -112,11 +137,14 @@ impl ScreenView {
                     v_flex()
                         .flex_1()
                         .min_w_0()
-                        .child(div().font_weight(FontWeight::BOLD).child(row.name.clone()))
-                        .child(caption(row.caption.clone(), p)),
+                        .child(heading(row.name.clone()).truncate())
+                        .child(
+                            caption(row.caption.clone(), p)
+                                .when(row.selected, |text| text.text_color(p.fg)),
+                        ),
                 );
             if row.release {
-                line = line.child(icon(NcIcon::Warn, p.warning));
+                line = line.child(div().flex_none().child(icon(NcIcon::Warn, p.warning)));
             }
             if row.active {
                 line = line.child(tag(locale.tr("profiles.tag.active"), TagKind::Accent, p));
@@ -207,8 +235,10 @@ impl ScreenView {
     ) -> AnyElement {
         let view = cx.entity();
         let confirm_button = {
-            let button = Button::new(SharedString::from(format!("{id}-confirm")))
-                .label(dialog.confirm.clone());
+            let button = Self::button(
+                SharedString::from(format!("{id}-confirm")),
+                dialog.confirm.clone(),
+            );
             let button = if danger {
                 button.danger()
             } else {
@@ -226,9 +256,11 @@ impl ScreenView {
                 }
             })
         };
-        let cancel_button = Button::new(SharedString::from(format!("{id}-cancel")))
-            .label(dialog.cancel.clone())
-            .on_click(act(&view, move |this, _, _| cancel(this)));
+        let cancel_button = Self::button(
+            SharedString::from(format!("{id}-cancel")),
+            dialog.cancel.clone(),
+        )
+        .on_click(act(&view, move |this, _, _| cancel(this)));
         modal(
             dialog.title.clone(),
             dialog.text.clone(),
@@ -262,12 +294,10 @@ impl ScreenView {
         for cells in &dialog.rows {
             table = table.child(row(cells, false));
         }
-        let cancel = Button::new("diff-cancel")
-            .label(dialog.cancel.clone())
+        let cancel = Self::button("diff-cancel", dialog.cancel.clone())
             .on_click(act(&view, |this, _, _| this.profiles.diff_dialog = None));
-        let confirm = Button::new("diff-confirm")
+        let confirm = Self::button("diff-confirm", dialog.confirm.clone())
             .primary()
-            .label(dialog.confirm.clone())
             .on_click(act(&view, |this, _, _| {
                 if let Some(command) = this.profiles.confirm_activation() {
                     this.send(command);
@@ -299,14 +329,12 @@ impl ScreenView {
                     })
                 }
             });
-        let cancel = Button::new("immediate-cancel")
-            .label(dialog.cancel.clone())
+        let cancel = Self::button("immediate-cancel", dialog.cancel.clone())
             .on_click(act(&view, |this, _, _| {
                 this.profiles.immediate_dialog = None
             }));
-        let confirm = Button::new("immediate-confirm")
+        let confirm = Self::button("immediate-confirm", dialog.confirm.clone())
             .primary()
-            .label(dialog.confirm.clone())
             .on_click(act(&view, |this, _, cx| {
                 if let Some((command, hide)) = this.profiles.confirm_immediate() {
                     if hide {
@@ -360,51 +388,61 @@ impl ScreenView {
             .settings
             .values
             .hint_dismissed(HINT_IMMEDIATE_SWITCHING);
+        let number = |text: String, state, unit: String| {
+            tight_row(p).child(label(text).flex_1()).child(
+                div()
+                    .w(px(86.))
+                    .flex_none()
+                    .child(Self::field_input(state, Some(unit.into()), true, p).disabled(!timing)),
+            )
+        };
         let mut card = card(p)
             .child(card_header(options.title.clone(), p))
-            .child(
-                card_row(p)
-                    .child(
-                        div()
-                            .flex_1()
-                            .child(locale.tr("profiles.options.rule_delay")),
-                    )
-                    .child(div().w(px(72.)).child(Input::new(&delay).disabled(!timing)))
-                    .child(caption(locale.tr("profiles.options.seconds"), p)),
-            )
-            .child(
-                card_row(p)
-                    .child(div().flex_1().child(locale.tr("profiles.options.dwell")))
-                    .child(div().w(px(72.)).child(Input::new(&dwell).disabled(!timing)))
-                    .child(caption(locale.tr("profiles.options.minutes"), p)),
-            );
+            .child(number(
+                locale.tr("profiles.options.rule_delay"),
+                &delay,
+                locale.tr("profiles.options.seconds"),
+            ))
+            .child(number(
+                locale.tr("profiles.options.dwell"),
+                &dwell,
+                locale.tr("profiles.options.minutes"),
+            ));
         if let Some(text) = &options.timing_caption {
-            card = card.child(card_row(p).child(caption(text.clone(), p)));
+            card = card.child(tight_row(p).child(caption(text.clone(), p)));
         }
         card = card.child(
-            card_row(p).child(
-                Switch::new("profile-immediate")
-                    .checked(options.immediate)
-                    .label(locale.tr("profiles.options.immediate"))
-                    .disabled(!enabled)
-                    .on_click({
-                        let view = view.clone();
-                        move |_, _, cx| {
-                            view.update(cx, |this, cx| {
-                                let state = this.state(cx);
-                                if let Some(command) =
-                                    this.profiles.toggle_immediate(&state, dismissed)
-                                {
-                                    this.send(command);
-                                }
-                                cx.notify();
-                            })
-                        }
-                    }),
-            ),
+            tight_row(p)
+                .min_h(px(52.))
+                .child(
+                    v_flex()
+                        .flex_1()
+                        .min_w_0()
+                        .child(locale.tr("profiles.options.immediate"))
+                        .child(caption(locale.tr("profiles.options.immediate_text"), p)),
+                )
+                .child(
+                    Switch::new("profile-immediate")
+                        .checked(options.immediate)
+                        .disabled(!enabled)
+                        .on_click({
+                            let view = view.clone();
+                            move |_, _, cx| {
+                                view.update(cx, |this, cx| {
+                                    let state = this.state(cx);
+                                    if let Some(command) =
+                                        this.profiles.toggle_immediate(&state, dismissed)
+                                    {
+                                        this.send(command);
+                                    }
+                                    cx.notify();
+                                })
+                            }
+                        }),
+                ),
         );
         for text in &options.help {
-            card = card.child(card_row(p).child(caption(text.clone(), p)));
+            card = card.child(tight_row(p).py(px(6.)).child(caption(text.clone(), p)));
         }
         if let Some(line) = &options.write_line {
             card = card.child(card_row(p).child(write_line(line, p)));
@@ -422,16 +460,67 @@ impl ScreenView {
     ) -> AnyElement {
         let locale = self.model.read(cx).locale;
         let view = cx.entity();
-        let mut header = card_header(detail.name.clone(), p);
-        if let Some(text) = &detail.tag {
-            header = header.child(tag(text.clone(), TagKind::Accent, p));
-        }
-        header = header
-            .child({
-                let revoke = detail.revoke;
-                Button::new("profile-activate")
-                    .small()
-                    .label(detail.activate_label.clone())
+        // The header: the name with the rename popover, the tag, the activation button and
+        // the menu with its popover.
+        let rename = self.profiles.rename.clone().map(|(_, name)| {
+            self.rename_popover(
+                InputKey::ProfileRename,
+                &name,
+                locale.tr("sensors.rename_placeholder"),
+                p,
+                window,
+                cx,
+            )
+        });
+        let menu = self.profiles.menu_open.then(|| {
+            let delete_tooltip = detail.delete_tooltip.clone().unwrap_or_default();
+            let item = |id: &'static str, text: String| {
+                Self::small_button(id, text, None)
+                    .ghost()
+                    .w_full()
+                    .justify_start()
+            };
+            popover(p)
+                .min_w(px(160.))
+                .p(px(4.))
+                .child(
+                    item("profile-duplicate", detail.duplicate_label.clone())
+                        .disabled(!enabled)
+                        .on_click(act(&view, |this, _, cx| {
+                            this.profiles.menu_open = false;
+                            let model = this.model.clone();
+                            let command =
+                                crate::screen_view::with_screen_input(&model, cx, |input| {
+                                    this.profiles.duplicate(input)
+                                });
+                            if let Some(command) = command {
+                                this.send(command);
+                            }
+                        })),
+                )
+                .child(
+                    item("profile-rename", detail.rename_label.clone())
+                        .disabled(!enabled)
+                        .on_click(act(&view, |this, _, cx| {
+                            this.profiles.menu_open = false;
+                            let state = this.state(cx);
+                            this.profiles.open_rename(&state);
+                        })),
+                )
+                .child(
+                    item("profile-delete", detail.delete_label.clone())
+                        .disabled(!detail.delete_enabled)
+                        .tooltip(delete_tooltip)
+                        .on_click(act(&view, |this, _, _| {
+                            this.profiles.menu_open = false;
+                            this.profiles.delete_dialog = true;
+                        })),
+                )
+        });
+        let activate = {
+            let revoke = detail.revoke;
+            let button =
+                Self::small_button("profile-activate", detail.activate_label.clone(), None)
                     .disabled(!enabled || !detail.activate_enabled)
                     .on_click(act(&view, move |this, _, cx| {
                         let state = this.state(cx);
@@ -443,78 +532,51 @@ impl ScreenView {
                         if let Some(command) = command {
                             this.send(command);
                         }
-                    }))
-            })
+                    }));
+            if revoke { button } else { button.primary() }
+        };
+        let header = h_flex()
+            .min_h(px(40.))
+            .pl(px(18.))
+            .pr(px(12.))
+            .py(px(6.))
+            .gap(px(9.))
+            .child(with_popover(
+                heading(detail.name.clone()).truncate(),
+                rename,
+            ))
+            .children(detail.tag.clone().map(|text| tag(text, TagKind::Accent, p)))
+            .child(div().flex_1())
+            .child(activate)
             .child(
-                Button::new("profile-menu")
-                    .small()
-                    .ghost()
-                    .icon(text_icon(NcIcon::Menu))
-                    .on_click(act(&view, |this, _, _| {
-                        this.profiles.menu_open = !this.profiles.menu_open;
+                div()
+                    .relative()
+                    .flex_none()
+                    .child(
+                        Self::icon_button("profile-menu", NcIcon::Menu).on_click(act(
+                            &view,
+                            |this, _, _| {
+                                this.profiles.menu_open = !this.profiles.menu_open;
+                            },
+                        )),
+                    )
+                    .children(menu.map(|menu| {
+                        deferred(
+                            div()
+                                .absolute()
+                                .top(relative(1.))
+                                .right_0()
+                                .pt(px(3.))
+                                .child(menu),
+                        )
+                        .with_priority(1)
                     })),
             );
-        let mut card = card(p).child(header);
-        if self.profiles.menu_open {
-            let delete_tooltip = detail.delete_tooltip.clone().unwrap_or_default();
-            card = card.child(
-                h_flex()
-                    .px(px(18.))
-                    .py(px(6.))
-                    .gap(px(8.))
-                    .border_t_1()
-                    .border_color(p.border)
-                    .child(
-                        Button::new("profile-duplicate")
-                            .small()
-                            .label(detail.duplicate_label.clone())
-                            .disabled(!enabled)
-                            .on_click(act(&view, |this, _, cx| {
-                                let model = this.model.clone();
-                                let command =
-                                    crate::screen_view::with_screen_input(&model, cx, |input| {
-                                        this.profiles.duplicate(input)
-                                    });
-                                if let Some(command) = command {
-                                    this.send(command);
-                                }
-                            })),
-                    )
-                    .child(
-                        Button::new("profile-rename")
-                            .small()
-                            .label(detail.rename_label.clone())
-                            .disabled(!enabled)
-                            .on_click(act(&view, |this, _, cx| {
-                                let state = this.state(cx);
-                                this.profiles.open_rename(&state);
-                            })),
-                    )
-                    .child(
-                        Button::new("profile-delete")
-                            .small()
-                            .danger()
-                            .label(detail.delete_label.clone())
-                            .disabled(!detail.delete_enabled)
-                            .tooltip(delete_tooltip)
-                            .on_click(act(&view, |this, _, _| {
-                                this.profiles.menu_open = false;
-                                this.profiles.delete_dialog = true;
-                            })),
-                    ),
-            );
+        // A tinted last row keeps the round corners of the card.
+        let mut card = card(p).overflow_hidden().child(header);
+        if let Some(text) = &detail.rule_group {
+            card = card.child(card_row(p).child(caption(text.clone(), p)));
         }
-        if let Some((_, name)) = self.profiles.rename.clone() {
-            card = card.child(self.rename_popover(
-                InputKey::ProfileRename,
-                &name,
-                locale.tr("sensors.rename_placeholder"),
-                p,
-                window,
-                cx,
-            ));
-        }
-        card = card.child(card_row(p).child(caption(detail.caption.clone(), p)));
         if let Some(line) = detail
             .activating
             .as_ref()
@@ -524,26 +586,45 @@ impl ScreenView {
         }
 
         // The two halves: Curves and Leakshield settings.
-        let mut curves = v_flex().flex_1().gap(px(6.)).child(
+        let half_title = |text: String, link: Option<AnyElement>| {
+            tight_row(p)
+                .child(heading(text).flex_1().truncate())
+                .children(link)
+        };
+        // The name keeps its width. A long value wraps in the rest of the row.
+        let value_row = |name: String, value: AnyElement| {
+            tight_row(p)
+                .child(label(name).flex_none().max_w(relative(0.5)))
+                .child(div().flex_1().min_w_0().flex().justify_end().child(value))
+        };
+        let dim = |text: String| {
             div()
-                .font_weight(FontWeight::BOLD)
-                .child(locale.tr("profiles.curves.title")),
-        );
+                .min_w_0()
+                .text_color(p.fg_dim)
+                .text_right()
+                .child(text)
+                .into_any_element()
+        };
+        let mut curves = v_flex()
+            .flex_1()
+            .min_w_0()
+            .border_r_1()
+            .border_color(p.border)
+            .child(half_title(
+                locale.tr("profiles.curves.title"),
+                Some(
+                    Self::link_button("profile-open-channels", locale.tr("profiles.open"), p)
+                        .on_click(act(&view, |this, _, cx| this.go(Page::Channels, cx)))
+                        .into_any_element(),
+                ),
+            ));
         if detail.curves.is_empty() {
-            curves = curves.child(caption(locale.tr("profiles.curves.none"), p));
+            curves =
+                curves.child(tight_row(p).child(caption(locale.tr("profiles.curves.none"), p)));
         }
         for row in &detail.curves {
-            curves = curves.child(
-                h_flex()
-                    .gap(px(8.))
-                    .child(div().flex_1().child(row.channel.clone()))
-                    .child(caption(row.summary.clone(), p)),
-            );
+            curves = curves.child(value_row(row.channel.clone(), dim(row.summary.clone())));
         }
-        curves = curves.child(
-            Self::link_button("profile-open-channels", locale.tr("profiles.open"), p)
-                .on_click(act(&view, |this, _, cx| this.go(Page::Channels, cx))),
-        );
 
         let slot = &detail.slot;
         let pick: Pick = Rc::new(|this, id, _, cx| {
@@ -556,7 +637,7 @@ impl ScreenView {
                 this.send(command);
             }
         });
-        let slot_select = self.select(
+        let slot_select = self.select_field(
             "profile-slot",
             &locale.fmt("profiles.slot.value", &[("slot", &slot.value.to_string())]),
             slot.options
@@ -570,81 +651,80 @@ impl ScreenView {
                 })
                 .collect(),
             slot.enabled,
-            "",
+            true,
+            p.track,
             pick,
             p,
             cx,
         );
-        let mut leakshield = v_flex()
-            .flex_1()
-            .gap(px(6.))
-            .child(
-                div()
-                    .font_weight(FontWeight::BOLD)
-                    .child(locale.tr("profiles.leakshield.title")),
-            )
-            .child(
-                h_flex()
-                    .gap(px(8.))
-                    .items_center()
-                    .child(div().w(px(120.)).child(locale.tr("profiles.slot.label")))
-                    .child(slot_select),
-            );
-        if let Some(text) = &slot.shared {
-            leakshield = leakshield.child(caption(text.clone(), p));
-        }
-        if let Some(line) = &slot.write_line {
-            leakshield = leakshield.child(write_line(line, p));
-        }
-        for (label, value) in &detail.leakshield_rows {
-            leakshield = leakshield.child(
-                h_flex()
-                    .gap(px(8.))
-                    .child(div().w(px(120.)).child(label.clone()))
-                    .child(caption(value.clone(), p)),
-            );
-        }
         let device = self
             .state(cx)
             .snapshot
             .leakshields
             .first()
             .map(|d| d.id.clone());
-        if let Some(device) = device {
-            leakshield = leakshield.child(
-                Self::link_button("profile-open-leakshield", locale.tr("profiles.open"), p)
-                    .on_click(act(&view, move |this, _, cx| {
-                        this.go(Page::Leakshield(device.clone()), cx);
-                    })),
+        let mut leakshield = v_flex()
+            .flex_1()
+            .min_w_0()
+            .child(half_title(
+                locale.tr("profiles.leakshield.title"),
+                device.map(|device| {
+                    Self::link_button("profile-open-leakshield", locale.tr("profiles.open"), p)
+                        .on_click(act(&view, move |this, _, cx| {
+                            this.go(Page::Leakshield(device.clone()), cx);
+                        }))
+                        .into_any_element()
+                }),
+            ))
+            .child(
+                tight_row(p)
+                    .py(px(6.))
+                    .child(
+                        v_flex()
+                            .flex_1()
+                            .min_w_0()
+                            .child(locale.tr("profiles.slot.label"))
+                            .children(slot.shared.clone().map(|text| caption(text, p))),
+                    )
+                    .child(div().w(px(110.)).flex_none().child(slot_select)),
             );
+        if let Some(line) = &slot.write_line {
+            leakshield = leakshield.child(tight_row(p).child(write_line(line, p)));
+        }
+        let mode = locale.tr("profiles.leakshield.mode");
+        for (name, value) in &detail.leakshield_rows {
+            let value = if *name == mode {
+                tag(value.clone(), TagKind::Neutral, p)
+                    .font_weight(FontWeight::BOLD)
+                    .into_any_element()
+            } else {
+                dim(value.clone())
+            };
+            leakshield = leakshield.child(value_row(name.clone(), value));
         }
         card = card.child(
-            h_flex()
-                .px(px(18.))
-                .py(px(12.))
-                .gap(px(24.))
-                .items_start()
-                .border_t_1()
-                .border_color(p.border)
+            div()
+                .flex()
+                .flex_row()
+                .w_full()
                 .child(curves)
                 .child(leakshield),
         );
-        if let Some(text) = &detail.rule_group {
-            card = card.child(card_row(p).child(caption(text.clone(), p)));
-        }
         for (index, notice) in detail.notices.iter().enumerate() {
             let mut row = notice_row(notice.text.clone(), notice.kind == NoticeKind::Warning, p);
             if let Some((label, commands)) = notice.button.clone() {
                 row = row.child(
-                    Button::new(("notice-button", index))
-                        .small()
-                        .label(label)
-                        .disabled(!enabled)
-                        .on_click(act(&view, move |this, _, _| {
-                            for command in commands.clone() {
-                                this.send(command);
-                            }
-                        })),
+                    Self::small_button(
+                        SharedString::from(format!("notice-button-{index}")),
+                        label,
+                        None,
+                    )
+                    .disabled(!enabled)
+                    .on_click(act(&view, move |this, _, _| {
+                        for command in commands.clone() {
+                            this.send(command);
+                        }
+                    })),
                 );
             }
             card = card.child(row);
@@ -652,15 +732,17 @@ impl ScreenView {
         for (index, offer) in detail.restore.iter().enumerate() {
             let mut row = card_row(p)
                 .bg(p.alarm_tint)
-                .child(div().flex_1().child(offer.text.clone()));
+                .child(div().flex_1().min_w_0().child(offer.text.clone()));
             if let Some(command) = offer.command.clone() {
                 row = row.child(
-                    Button::new(("profile-restore", index))
-                        .small()
-                        .danger()
-                        .label(offer.button.clone())
-                        .disabled(!enabled)
-                        .on_click(act(&view, move |this, _, _| this.send(command.clone()))),
+                    Self::small_button(
+                        SharedString::from(format!("profile-restore-{index}")),
+                        offer.button.clone(),
+                        None,
+                    )
+                    .danger()
+                    .disabled(!enabled)
+                    .on_click(act(&view, move |this, _, _| this.send(command.clone()))),
                 );
             }
             if let Some(line) = &offer.write_line {
@@ -682,34 +764,41 @@ impl ScreenView {
         let locale = self.model.read(cx).locale;
         let view = cx.entity();
         let groups = &model.groups;
-        let mut card = card(p).child(
+        let mut card = card(p).overflow_hidden().child(
             card_header(locale.tr("profiles.groups.title"), p).child(
-                Button::new("group-add")
-                    .small()
-                    .label(locale.tr("profiles.groups.add"))
-                    .disabled(!enabled)
-                    .on_click(act(&view, |this, _, cx| {
-                        let state = this.state(cx);
-                        this.profiles.add_group(&state);
-                    })),
+                Self::small_button(
+                    "group-add",
+                    locale.tr("profiles.groups.add"),
+                    Some(NcIcon::Plus),
+                )
+                .disabled(!enabled)
+                .on_click(act(&view, |this, _, cx| {
+                    let state = this.state(cx);
+                    this.profiles.add_group(&state);
+                })),
             ),
         );
         card = card.child(card_row(p).child(caption(groups.caption.clone(), p)));
         if let Some(text) = &groups.manual {
             card = card.child(
-                card_row(p).child(div().flex_1().child(text.clone())).child(
-                    Button::new("groups-revoke")
-                        .small()
-                        .label(locale.tr("profiles.revoke_short"))
+                card_row(p)
+                    .child(icon(NcIcon::Info, p.fg_dim))
+                    .child(div().flex_1().min_w_0().child(text.clone()))
+                    .child(
+                        Self::small_button(
+                            "groups-revoke",
+                            locale.tr("profiles.revoke_short"),
+                            None,
+                        )
                         .disabled(!enabled)
                         .on_click(act(&view, |this, _, _| {
                             this.send(crate::command::Command::ReturnToAutomatic);
                         })),
-                ),
+                    ),
             );
         }
         if let Some(text) = &groups.empty {
-            card = card.child(card_row(p).child(text.clone()));
+            card = card.child(card_row(p).child(div().flex_1().min_w_0().child(text.clone())));
         }
         let count = groups.groups.len();
         for row in &groups.groups {
@@ -776,26 +865,55 @@ impl ScreenView {
             label: SharedString::from(format!("{} {}", row.number, row.target)),
         };
         let focus = self.groups_focus.clone();
+        // One line for each rule: the icon of its condition and its sentence.
+        let kinds: Vec<NcIcon> = self
+            .state(cx)
+            .snapshot
+            .rule_groups
+            .get(index)
+            .map(|group| group.rules.iter().map(rule_icon).collect())
+            .unwrap_or_default();
         let mut rules = v_flex().flex_1().min_w_0().gap(px(2.));
-        for sentence in &row.rules {
-            rules = rules.child(div().child(sentence.clone()));
+        for (line, sentence) in row.rules.iter().enumerate() {
+            rules = rules.child(
+                h_flex()
+                    .gap(px(12.))
+                    .items_start()
+                    .children(
+                        kinds
+                            .get(line)
+                            .map(|kind| div().flex_none().pt(px(2.)).child(icon(*kind, p.fg))),
+                    )
+                    .child(div().flex_1().min_w_0().child(sentence.clone())),
+            );
         }
         if let Some(text) = &row.warning {
-            rules = rules.child(div().text_color(p.warning).child(text.clone()));
+            rules = rules.child(
+                h_flex()
+                    .gap(px(12.))
+                    .items_start()
+                    .child(
+                        div()
+                            .flex_none()
+                            .pt(px(2.))
+                            .child(icon(NcIcon::Warn, p.warning)),
+                    )
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .text_color(p.warning)
+                            .child(text.clone()),
+                    ),
+            );
         }
-        let mut line = h_flex()
+        let mut line = card_row(p)
             .id(("group-row", index))
-            .w_full()
-            .px(px(18.))
-            .py(px(8.))
-            .gap(px(10.))
-            .items_start()
-            .border_t_1()
-            .border_color(p.border)
+            .min_h(px(46.))
             .cursor_pointer()
-            .when(row.selected, |line| line.bg(p.selected))
+            .when(row.selected, |line| line.bg(p.accent_tint))
+            .when(!row.selected, |line| line.hover(|line| line.bg(p.hover)))
             .when(!row.enabled, |line| line.opacity(0.6))
-            .hover(|line| line.bg(p.hover))
             .on_click(act(&view, move |this, window, cx| {
                 let state = this.state(cx);
                 if this.profiles.editor.as_ref().and_then(|e| e.index) == Some(index) {
@@ -823,21 +941,18 @@ impl ScreenView {
                     });
                 }
             })
-            .child(icon(NcIcon::Grip, p.fg_dim))
+            .child(div().flex_none().child(icon(NcIcon::Grip, p.fg_dim)))
             .child(
                 div()
-                    .w(px(20.))
-                    .font_weight(FontWeight::BOLD)
+                    .w(px(18.))
+                    .flex_none()
+                    .text_right()
+                    .text_color(p.fg_dim)
                     .child(row.number.to_string()),
             )
             .child(rules)
-            .child(icon(NcIcon::Right, p.fg_dim))
-            .child(
-                div()
-                    .w(px(130.))
-                    .font_weight(FontWeight::BOLD)
-                    .child(row.target.clone()),
-            );
+            .child(div().flex_none().child(icon(NcIcon::Right, p.fg_dim)))
+            .child(heading(row.target.clone()).max_w(px(180.)).truncate());
         if let Some(text) = &row.tag {
             line = line.child(tag(text.clone(), TagKind::Accent, p));
         }
@@ -861,53 +976,74 @@ impl ScreenView {
             .iter()
             .find(|(_, _, selected)| *selected)
             .map_or_else(String::new, |(_, name, _)| name.clone());
-        let target = self.select(
+        let target = self.select_field(
             "group-target",
             &target_shown,
             editor.targets.clone(),
             enabled,
-            "",
+            false,
+            p.card,
             pick,
             p,
             cx,
         );
+        let rule_open = editor.rule_editor.is_some();
+        // The rules of the open group, for their icons.
+        let kinds: Vec<NcIcon> = self
+            .profiles
+            .editor
+            .as_ref()
+            .map(|open| open.group.rules.iter().map(rule_icon).collect())
+            .unwrap_or_default();
         let mut body = v_flex()
             .w_full()
             .px(px(18.))
-            .py(px(12.))
-            .gap(px(10.))
+            .pt(px(9.))
+            .pb(px(12.))
+            .gap(px(9.))
             .border_t_1()
             .border_color(p.border)
-            .bg(p.view)
+            .bg(p.hover)
             .child(
                 h_flex()
                     .gap(px(12.))
-                    .items_center()
-                    .child(div().child(locale.tr("profiles.editor.activate")))
-                    .child(target)
+                    .items_end()
+                    .child(editor_field(
+                        locale.tr("profiles.editor.activate"),
+                        260.,
+                        target,
+                        p,
+                    ))
                     .child(div().flex_1())
                     .child(
-                        Switch::new("group-enabled")
-                            .checked(editor.enabled)
-                            .label(locale.tr("profiles.editor.enabled"))
-                            .on_click({
-                                let view = view.clone();
-                                move |checked, _, cx| {
-                                    let checked = *checked;
-                                    view.update(cx, |this, cx| {
-                                        this.profiles.set_group_enabled(checked);
-                                        cx.notify();
-                                    })
-                                }
-                            }),
+                        h_flex().h(px(34.)).flex_none().child(
+                            Switch::new("group-enabled")
+                                .checked(editor.enabled)
+                                .label(locale.tr("profiles.editor.enabled"))
+                                .on_click({
+                                    let view = view.clone();
+                                    move |checked, _, cx| {
+                                        let checked = *checked;
+                                        view.update(cx, |this, cx| {
+                                            this.profiles.set_group_enabled(checked);
+                                            cx.notify();
+                                        })
+                                    }
+                                }),
+                        ),
                     ),
             );
         for (index, sentence) in editor.rules.iter().enumerate() {
             body = body.child(
                 h_flex()
-                    .gap(px(8.))
+                    .gap(px(9.))
                     .items_center()
-                    .child(div().flex_1().child(sentence.clone()))
+                    .children(
+                        kinds
+                            .get(index)
+                            .map(|kind| div().flex_none().child(icon(*kind, p.fg))),
+                    )
+                    .child(div().flex_1().min_w_0().child(sentence.clone()))
                     .child(
                         Self::flat_button(
                             SharedString::from(format!("rule-edit-{index}")),
@@ -931,55 +1067,66 @@ impl ScreenView {
         } else {
             body = body.child(
                 h_flex().child(
-                    Button::new("rule-add")
-                        .small()
-                        .label(locale.tr("profiles.editor.add_rule"))
-                        .disabled(!enabled)
-                        .on_click(act(&view, |this, _, cx| {
-                            let state = this.state(cx);
-                            this.profiles.add_rule(&state);
-                        })),
+                    Self::small_button(
+                        "rule-add",
+                        locale.tr("profiles.editor.add_rule"),
+                        Some(NcIcon::Plus),
+                    )
+                    .disabled(!enabled)
+                    .on_click(act(&view, |this, _, cx| {
+                        let state = this.state(cx);
+                        this.profiles.add_rule(&state);
+                    })),
                 ),
             );
         }
         if let Some(text) = &editor.warning {
-            body = body.child(notice_row(text.clone(), true, p));
+            body = body.child(
+                h_flex()
+                    .gap(px(9.))
+                    .items_start()
+                    .child(
+                        div()
+                            .flex_none()
+                            .pt(px(2.))
+                            .child(icon(NcIcon::Warn, p.warning)),
+                    )
+                    .child(div().flex_1().min_w_0().child(text.clone())),
+            );
         }
-        let delete = Button::new("group-delete")
-            .small()
-            .danger()
-            .label(locale.tr("profiles.editor.delete"))
-            .disabled(!enabled || !editor.can_delete)
+        let delete = Self::small_button(
+            "group-delete",
+            locale.tr("profiles.editor.delete"),
+            Some(NcIcon::Trash),
+        )
+        .ghost()
+        .disabled(!enabled || !editor.can_delete)
+        .on_click(act(&view, |this, _, cx| {
+            let state = this.state(cx);
+            if let Some(command) = this.profiles.delete_group(&state) {
+                this.send(command);
+            }
+        }));
+        // One suggested button: "Save rule" while a rule is open, "Save group" else.
+        let save = Self::small_button("group-save", locale.tr("profiles.editor.save"), None)
+            .disabled(!enabled)
             .on_click(act(&view, |this, _, cx| {
                 let state = this.state(cx);
-                if let Some(command) = this.profiles.delete_group(&state) {
+                if let Some(command) = this.profiles.save_group(&state) {
                     this.send(command);
                 }
             }));
         body = body.child(
             h_flex()
-                .gap(px(8.))
+                .gap(px(6.))
+                .flex_wrap()
                 .child(delete)
                 .child(div().flex_1())
                 .child(
-                    Button::new("group-cancel")
-                        .small()
-                        .label(locale.tr("profiles.cancel"))
+                    Self::small_button("group-cancel", locale.tr("profiles.cancel"), None)
                         .on_click(act(&view, |this, _, _| this.profiles.cancel_group())),
                 )
-                .child(
-                    Button::new("group-save")
-                        .small()
-                        .primary()
-                        .label(locale.tr("profiles.editor.save"))
-                        .disabled(!enabled)
-                        .on_click(act(&view, |this, _, cx| {
-                            let state = this.state(cx);
-                            if let Some(command) = this.profiles.save_group(&state) {
-                                this.send(command);
-                            }
-                        })),
-                ),
+                .child(if rule_open { save } else { save.primary() }),
         );
         body.into_any_element()
     }
@@ -1020,56 +1167,58 @@ impl ScreenView {
             )
         })
         .collect();
-        let kind_select = self.select(
+        let kind_select = self.select_field(
             "rule-kind",
             &locale.tr(&format!("profiles.kind.{}", rule.kind.id())),
             kinds,
             enabled,
-            "",
+            false,
+            p.card,
             kind_pick,
             p,
             cx,
         );
-        let mut column = v_flex()
-            .gap(px(8.))
-            .p(px(12.))
-            .rounded(px(9.))
-            .border_1()
+        // The fields of the condition, in one row that wraps.
+        let mut fields = h_flex()
+            .w_full()
+            .gap(px(9.))
+            .flex_wrap()
+            .items_end()
+            .child(editor_field(
+                locale.tr("profiles.editor.condition"),
+                200.,
+                kind_select,
+                p,
+            ));
+        for key in rule.keys.clone() {
+            fields = fields.child(self.rule_field(key, &rule.rule, &state, enabled, p, window, cx));
+        }
+        v_flex()
+            .gap(px(9.))
+            .pt(px(9.))
+            .border_t_1()
             .border_color(p.border)
+            .child(fields)
             .child(
                 h_flex()
-                    .gap(px(8.))
-                    .items_center()
+                    .gap(px(6.))
+                    .justify_end()
                     .child(
-                        div()
-                            .w(px(120.))
-                            .child(locale.tr("profiles.editor.condition")),
+                        Self::small_button("rule-cancel", locale.tr("profiles.cancel"), None)
+                            .on_click(act(&view, |this, _, _| this.profiles.cancel_rule())),
                     )
-                    .child(kind_select),
-            );
-        for key in rule.keys.clone() {
-            column = column.child(self.rule_field(key, &rule.rule, &state, enabled, p, window, cx));
-        }
-        column = column.child(
-            h_flex()
-                .gap(px(8.))
-                .justify_end()
-                .child(
-                    Button::new("rule-cancel")
-                        .small()
-                        .label(locale.tr("profiles.cancel"))
-                        .on_click(act(&view, |this, _, _| this.profiles.cancel_rule())),
-                )
-                .child(
-                    Button::new("rule-save")
-                        .small()
+                    .child(
+                        Self::small_button(
+                            "rule-save",
+                            locale.tr("profiles.editor.save_rule"),
+                            None,
+                        )
                         .primary()
-                        .label(locale.tr("profiles.editor.save_rule"))
                         .disabled(!rule.complete)
                         .on_click(act(&view, |this, _, _| this.profiles.save_rule())),
-                ),
-        );
-        column.into_any_element()
+                    ),
+            )
+            .into_any_element()
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -1085,15 +1234,20 @@ impl ScreenView {
     ) -> AnyElement {
         let locale = self.model.read(cx).locale;
         let view = cx.entity();
-        let label = div()
-            .w(px(120.))
-            .child(locale.tr(&format!("profiles.field.{key}")));
+        let title = locale.tr(&format!("profiles.field.{key}"));
+        let width = match key {
+            "sensor" | "names" => 260.,
+            "comparison" | "match" | "match_on" => 150.,
+            "days" => 330.,
+            _ => 110.,
+        };
         let text_input =
             |this: &mut Self, value: String, window: &mut Window, cx: &mut Context<Self>| {
                 let input = this.input(InputKey::RuleField(key), &value, "", window, cx);
-                div()
-                    .w(px(220.))
-                    .child(Input::new(&input).disabled(!enabled))
+                Self::field_input(&input, None, false, p)
+                    .bg(p.card)
+                    .border_color(p.card)
+                    .disabled(!enabled)
                     .into_any_element()
             };
         let control: AnyElement = match (key, rule) {
@@ -1114,7 +1268,17 @@ impl ScreenView {
                     .sensors
                     .get(sensor)
                     .map_or_else(|| locale.tr("loops.none"), |s| s.name.clone());
-                self.select("rule-sensor", &shown, choices, enabled, "", pick, p, cx)
+                self.select_field(
+                    "rule-sensor",
+                    &shown,
+                    choices,
+                    enabled,
+                    false,
+                    p.card,
+                    pick,
+                    p,
+                    cx,
+                )
             }
             ("comparison", Rule::Sensor { comparison, .. }) => {
                 let pick: Pick = Rc::new(|this, id, _, _| {
@@ -1132,12 +1296,13 @@ impl ScreenView {
                         )
                     })
                     .collect();
-                self.select(
+                self.select_field(
                     "rule-comparison",
                     &locale.tr(&format!("profiles.cmp_select.{comparison}")),
                     choices,
                     enabled,
-                    "",
+                    false,
+                    p.card,
                     pick,
                     p,
                     cx,
@@ -1171,12 +1336,13 @@ impl ScreenView {
                         )
                     })
                     .collect();
-                self.select(
+                self.select_field(
                     "rule-match",
                     &locale.tr(&format!("profiles.match.{match_kind}")),
                     choices,
                     enabled,
-                    "",
+                    false,
+                    p.card,
                     pick,
                     p,
                     cx,
@@ -1198,36 +1364,39 @@ impl ScreenView {
                         )
                     })
                     .collect();
-                self.select(
+                self.select_field(
                     "rule-match-on",
                     &locale.tr(&format!("profiles.match_on.{match_on}")),
                     choices,
                     enabled,
-                    "",
+                    false,
+                    p.card,
                     pick,
                     p,
                     cx,
                 )
             }
             ("days", Rule::Time { days, .. }) => {
-                let mut row = h_flex().gap(px(4.));
+                let mut row = h_flex().h(px(34.)).gap(px(3.));
                 for day in 1u8..=7 {
                     let on = days.contains(&day);
                     row = row.child(
-                        Button::new(SharedString::from(format!("rule-day-{day}")))
-                            .small()
-                            .when(on, |b| b.primary())
-                            .label(locale.tr(&format!("profiles.day.d{day}")))
-                            .on_click(act(&view, move |this, _, _| {
-                                if let Some(Rule::Time { days, .. }) = this.profiles.rule_draft() {
-                                    if let Some(at) = days.iter().position(|d| *d == day) {
-                                        days.remove(at);
-                                    } else {
-                                        days.push(day);
-                                        days.sort_unstable();
-                                    }
+                        Self::small_button(
+                            SharedString::from(format!("rule-day-{day}")),
+                            locale.tr(&format!("profiles.day.d{day}")),
+                            None,
+                        )
+                        .when(on, |b| b.primary())
+                        .on_click(act(&view, move |this, _, _| {
+                            if let Some(Rule::Time { days, .. }) = this.profiles.rule_draft() {
+                                if let Some(at) = days.iter().position(|d| *d == day) {
+                                    days.remove(at);
+                                } else {
+                                    days.push(day);
+                                    days.sort_unstable();
                                 }
-                            })),
+                            }
+                        })),
                     );
                 }
                 row.into_any_element()
@@ -1247,12 +1416,7 @@ impl ScreenView {
             }
             _ => div().into_any_element(),
         };
-        h_flex()
-            .gap(px(8.))
-            .items_start()
-            .child(label)
-            .child(control)
-            .into_any_element()
+        editor_field(title, width, control, p).into_any_element()
     }
 }
 

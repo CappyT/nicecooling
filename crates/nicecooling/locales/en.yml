@@ -482,6 +482,7 @@ profiles:
     rule_delay: Rule delay
     dwell: Profile dwell
     immediate: Immediate switching
+    immediate_text: No Rule delay, no Profile dwell
     seconds: s
     minutes: min
     not_used: Not used with Immediate switching

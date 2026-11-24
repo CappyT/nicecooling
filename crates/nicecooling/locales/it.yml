@@ -482,6 +482,7 @@ profiles:
     rule_delay: Ritardo regola
     dwell: Permanenza profilo
     immediate: Cambio immediato
+    immediate_text: Nessun Ritardo regola, nessuna Permanenza profilo
     seconds: s
     minutes: min
     not_used: Non usato con il Cambio immediato
