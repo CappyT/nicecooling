@@ -99,6 +99,7 @@ fn every_page_starts_under_the_header_and_scrolls(cx: &mut TestAppContext) {
         Page::Sensors,
         Page::Alarms,
         Page::Settings,
+        Page::Leakshield(LEAKSHIELD.to_owned()),
     ] {
         cx.update(|cx| {
             model.update(cx, |app, cx| {
@@ -116,6 +117,12 @@ fn every_page_starts_under_the_header_and_scrolls(cx: &mut TestAppContext) {
         };
         let (header, content) = (bounds("shell-header"), bounds("shell-content"));
         let (status, scroll) = (bounds("shell-status"), bounds("screen-scroll"));
+        // The tab strip of a Leakshield stays under the header: only the tab scrolls.
+        if matches!(page, Page::Leakshield(_)) {
+            let tabs = bounds("leakshield-tabs");
+            assert_eq!(tabs.top(), content.top(), "top of the tab strip");
+            assert_eq!(scroll.top(), tabs.bottom(), "top of the tab");
+        }
         assert_eq!(
             content.top(),
             header.bottom(),

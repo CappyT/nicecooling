@@ -29,7 +29,7 @@ pub struct ShellView {
     countdown_focus: FocusHandle,
     /// The Alarm that had the focus for its dialog: the focus moves once, when it opens.
     countdown_focused: Option<String>,
-    /// The screens of the pages Overview, Loops, Channels, Sensors and History.
+    /// The screen of every page.
     screens: Entity<ScreenView>,
 }
 
@@ -417,7 +417,6 @@ impl Render for ShellView {
             (app.shell(), app.page.clone(), app.locale)
         };
         let p = Palette::new(gpui_component::Theme::global(cx).is_dark());
-        let writes = shell.writes.clone();
 
         let mut banners = v_flex().flex_none();
         for (index, banner) in shell.banners.iter().enumerate() {
@@ -438,32 +437,18 @@ impl Render for ShellView {
                 .child(Spinner::new())
                 .child(locale.tr("status.connecting"))
                 .into_any_element()
-        } else if !matches!(page, Page::Leakshield(_)) {
-            self.screens.clone().into_any_element()
         } else {
-            // The other screens replace this placeholder. A screen reads `writes` to
-            // disable its write controls.
-            let title = match &page {
-                Page::Leakshield(id) => format!("{} {id}", locale.tr(page.title_key())),
-                other => locale.tr(other.title_key()),
-            };
-            v_flex()
-                .size_full()
-                .p(px(24.))
-                .gap(px(12.))
-                .child(
-                    div()
-                        .text_size(px(18.))
-                        .font_weight(gpui::FontWeight::BOLD)
-                        .child(title),
-                )
-                .children(
-                    writes
-                        .tooltip
-                        .clone()
-                        .map(|text| div().text_color(p.fg_dim).child(text)),
-                )
-                .into_any_element()
+            self.screens.clone().into_any_element()
+        };
+        // A device page shows the device label, with the serial under it.
+        let (title, subtitle) = match &page {
+            Page::Leakshield(id) => {
+                let frame = crate::screen_view::with_screen_input(&self.model, cx, |input| {
+                    crate::screens::leakshield::Frame::build(input, id, false)
+                });
+                (frame.title, Some(frame.subtitle))
+            }
+            other => (locale.tr(other.title_key()), None),
         };
 
         let countdown = crate::screen_view::with_screen_input(&self.model, cx, |input| {
@@ -527,11 +512,22 @@ impl Render for ShellView {
                                 .w_full()
                                 .items_center()
                                 .child(
-                                    div()
+                                    v_flex()
                                         .flex_1()
-                                        .text_center()
-                                        .font_weight(gpui::FontWeight::BOLD)
-                                        .child(locale.tr(page.title_key())),
+                                        .items_center()
+                                        .child(
+                                            div()
+                                                .font_weight(gpui::FontWeight::BOLD)
+                                                .line_height(px(18.))
+                                                .child(title),
+                                        )
+                                        .children(subtitle.map(|text| {
+                                            div()
+                                                .text_size(px(12.))
+                                                .line_height(px(14.))
+                                                .text_color(p.fg_dim)
+                                                .child(text)
+                                        })),
                                 )
                                 .child(menu_button),
                         ),

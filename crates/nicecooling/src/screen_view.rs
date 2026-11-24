@@ -472,6 +472,7 @@ impl Render for ScreenView {
             Page::Leakshield(_) => format!("screen-leakshield-{:?}", self.leakshield.tab),
             other => format!("screen-{}", other.title_key()),
         };
+        let mut strip = None;
         let content: AnyElement = match page {
             Page::Overview => self.render_overview(&p, window, cx),
             Page::Sensors => self.render_sensors(&p, window, cx),
@@ -482,15 +483,25 @@ impl Render for ScreenView {
             Page::Alarms => self.render_alarms(&p, window, cx),
             Page::Settings => self.render_settings(&p, window, cx),
             Page::FirstRun => self.render_first_run(&p, window, cx),
-            Page::Leakshield(id) => self.render_leakshield(&id, &p, window, cx),
+            Page::Leakshield(id) => {
+                let (tabs, content) = self.render_leakshield(&id, &p, window, cx);
+                strip = Some(tabs);
+                content
+            }
         };
         v_flex()
-            .id(SharedString::from(scroll_id))
             .size_full()
-            .overflow_y_scroll()
             .text_color(cx.theme().foreground)
-            .debug_selector(|| "screen-scroll".to_owned())
-            .child(content)
+            .children(strip)
+            .child(
+                v_flex()
+                    .id(SharedString::from(scroll_id))
+                    .flex_1()
+                    .min_h_0()
+                    .overflow_y_scroll()
+                    .debug_selector(|| "screen-scroll".to_owned())
+                    .child(content),
+            )
     }
 }
 

@@ -29,20 +29,30 @@ impl ScreenView {
         }
     }
 
+    /// The tab strip of the Leakshield page and the tab that shows. The strip does not scroll
+    /// with the tab. The header bar of the shell has the title and the serial.
     pub(crate) fn render_leakshield(
         &mut self,
         id: &str,
         p: &Palette,
         window: &mut Window,
         cx: &mut Context<Self>,
-    ) -> AnyElement {
+    ) -> (AnyElement, AnyElement) {
         let pending = !self.leakshield.settings.pending.is_empty();
         let frame = self.with_input(cx, |input| Frame::build(input, id, pending));
         self.record_traces(id, cx);
         let view = cx.entity();
         let tab = self.leakshield.tab;
 
-        let mut strip = h_flex().gap(px(4.)).px(px(24.)).pt(px(12.));
+        let mut strip = h_flex()
+            .flex_none()
+            .gap(px(3.))
+            .px(px(18.))
+            .overflow_hidden()
+            .debug_selector(|| "leakshield-tabs".to_owned())
+            .bg(p.headerbar)
+            .border_b_1()
+            .border_color(p.border);
         for (entry, label) in &frame.tabs {
             let entry = *entry;
             let view = view.clone();
@@ -50,16 +60,21 @@ impl ScreenView {
             strip = strip.child(
                 div()
                     .id(SharedString::from(format!("ls-tab-{entry:?}")))
-                    .h(px(32.))
+                    .h(px(38.))
+                    .flex_none()
                     .px(px(12.))
                     .flex()
                     .items_center()
-                    .rounded(px(8.))
-                    .cursor_pointer()
-                    .when(selected, |tab| {
-                        tab.bg(p.accent_tint)
-                            .text_color(p.accent)
-                            .font_weight(FontWeight::BOLD)
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .border_b_2()
+                    .map(|tab| {
+                        if selected {
+                            tab.text_color(p.fg).border_color(p.accent_bg)
+                        } else {
+                            tab.text_color(p.fg_dim)
+                                .border_color(gpui::transparent_black())
+                                .hover(|tab| tab.text_color(p.fg))
+                        }
                     })
                     .on_click(move |_, _, cx| {
                         view.update(cx, |this, cx| {
@@ -70,22 +85,6 @@ impl ScreenView {
                     .child(label.clone()),
             );
         }
-
-        let header = v_flex()
-            .px(px(24.))
-            .pt(px(12.))
-            .child(
-                div()
-                    .text_size(px(20.))
-                    .font_weight(FontWeight::BOLD)
-                    .child(frame.title.clone()),
-            )
-            .child(
-                div()
-                    .text_size(px(12.))
-                    .text_color(p.fg_dim)
-                    .child(frame.subtitle.clone()),
-            );
 
         let content = match tab {
             Tab::Overview => self.render_ls_overview(id, p, window, cx),
@@ -98,7 +97,7 @@ impl ScreenView {
             Tab::Sensors => self.render_ls_sensors(id, p, window, cx),
             Tab::Alarms => self.render_ls_alarms(id, p, window, cx),
         };
-        let mut root = v_flex().w_full().child(header).child(strip);
+        let mut root = v_flex().w_full();
         if let Some(text) = &frame.offline {
             root = root.child(
                 div()
@@ -107,7 +106,10 @@ impl ScreenView {
                     .child(card(p).child(notice_row(text.clone(), true, p))),
             );
         }
-        root.child(content).into_any_element()
+        (
+            strip.into_any_element(),
+            root.child(content).into_any_element(),
+        )
     }
 
     /// Keep the last 10 minutes of the live values for the charts.
