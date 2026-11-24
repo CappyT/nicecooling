@@ -42,6 +42,11 @@ The firmware version is report 1 bytes 13-14, big-endian u16. The registry is ke
 
 Interface 2 is a second HID interface with a 16-byte interrupt endpoint. This document does not cover it.
 
+Timing measured on the reference device on 2026-11-24 (fw 1022, usbmon and hidraw):
+
+- The device sends report 1 every 500 ms.
+- A feature read of report 3 sent less than 1 ms after a feature write of report 3 gets a control stall (EPIPE on hidraw). The device stores the written report. A read 5 s later succeeds.
+
 ## Report 1
 
 The device sends report 1 by itself. Offsets are absolute.
@@ -401,7 +406,7 @@ Observations on the reference device, outside the code:
 - fw1022 dump, after the firmware update in the Windows VM and with no Feed from Linux: sensor 4 reads 2500 rpm and sensor 5 reads 1300 (130.0 l/h). These are `pump_start_speed` (2500) and `pump_start_flow` (1300) of report 3. The kernel hwmon device `leakshield` showed the same values.
 - fw1019 dump, and the live kernel hwmon on 2026-11-23: sensors 4 and 5 have no value (32767), and `fan2_input` and `fan3_input` return ENODATA.
 
-Thus the device uses the start values of report 3 for some time without a Feed, but not always. The code names these fields "start" speed and flow. The condition and the duration are not known. Task 5.11 measures them.
+Measured on the reference device on 2026-11-24 (task 5.11, step 7, fw 1022, Mode RELEASE): after the last Feed, the device holds the fed sensor 4, sensor 5 and `pump_head_pressure` for about 300 s (304 to 306 s). Then all three read 32767 (no value), and `fan2_input` and `fan3_input` of the kernel return ENODATA. The pressure stays measured. The device used no start value in this run, so the start values of the fw1022 dump come from a power-up with no Feed, not from a Feed that stops.
 
 ## Open questions
 
