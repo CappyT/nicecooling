@@ -239,6 +239,10 @@ The field registry SHALL hold, for each field of a model and firmware version: r
 - **WHEN** a test loads the registry for firmware 1022 and decodes the fixtures in `tests/fixtures/leakshield/fw1022/`
 - **THEN** every field is in range and has a risk class and a verification state
 
+#### Scenario: Page fields that point at sensors and assets
+- **WHEN** a test decodes the fixtures and the stored images of the reference device
+- **THEN** `page_sources` (sensor index times 4, or 255), `page_names` (0 to 39, or 255), `page_icons` (0 to 15, or 255) and `page_values` (-32000 to 32000) are in range, and the registry holds them at `plausible-read`
+
 #### Scenario: Old fixtures
 - **WHEN** a test decodes the fixtures in `tests/fixtures/leakshield/fw1019/`
 - **THEN** the decode succeeds and every field is read-only
@@ -284,7 +288,7 @@ Before each write, the daemon SHALL save a backup of reports 3, 5 and 8, keyed b
 - **THEN** the first backup and the last 20 remain, and no backup duplicates another
 
 ### Requirement: Save settings after a write
-After the last report 3 write, the daemon SHALL send one output report 2 save-settings command 4 seconds later. The write worker SHALL own the 4 second timer, so that more writes inside 4 seconds give one save-settings command. A failed save-settings command SHALL emit `WriteFailed`.
+After the last report 3 or report 8 write, the daemon SHALL send one output report 2 save-settings command 4 seconds later. The write worker SHALL own the 4 second timer, so that more writes inside 4 seconds give one save-settings command. A failed save-settings command SHALL emit `WriteFailed`.
 
 #### Scenario: Three writes in 4 seconds
 - **WHEN** the daemon writes report 3 three times within 4 seconds

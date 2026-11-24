@@ -55,10 +55,10 @@ fn enum_fields_have_unique_kebab_case_names_in_the_order_of_their_values() {
     let registry = Registry::leakshield();
     let mut enums = 0;
     for field in &registry.field {
-        assert_eq!(
-            field.names.is_some(),
-            field.values.is_some(),
-            "{}: names exist exactly when values exist",
+        // A field with values and no names is a set of raw numbers, such as an index.
+        assert!(
+            field.names.is_none() || field.values.is_some(),
+            "{}: names need values",
             field.id
         );
         let (Some(names), Some(values)) = (&field.names, &field.values) else {

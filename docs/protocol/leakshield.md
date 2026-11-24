@@ -240,7 +240,7 @@ Measured on the reference device on 2026-11-24 (fw 1022):
 
 ## Report 3
 
-Report 3 holds the settings: 750 bytes, the report ID, the 747-byte struct and the CRC. Bytes 1-2 are the structure id. The table gives each field with its offset, type, repeat, scale, range, the default that aquasuite code sets, and the value in the fw1022 dump. A repeat `n x s` means n copies, s bytes apart. A second repeat is a nested copy inside each first copy. The range is in engineering units (raw value times scale). "Type only" means the code defines no range. A field with a list of codes also has a `names` list in the registry, with one lowercase kebab-case name for each code in the same order. The names are our own: the D-Bus API shows an enum field by its name.
+Report 3 holds the settings: 750 bytes, the report ID, the 747-byte struct and the CRC. Bytes 1-2 are the structure id. The table gives each field with its offset, type, repeat, scale, range, the default that aquasuite code sets, and the value in the fw1022 dump. A repeat `n x s` means n copies, s bytes apart. A second repeat is a nested copy inside each first copy. The range is in engineering units (raw value times scale). "Type only" means the code defines no range. A field with a list of codes also has a `names` list in the registry, with one lowercase kebab-case name for each code in the same order. The names are our own: the D-Bus API shows an enum field by its name. A field of indexes (`page_sources`, `page_names`, `page_icons`) has a list of allowed values and no names, so the D-Bus API shows its numbers.
 
 aquasuite reads the struct, changes the fields of the user, and writes back every other byte as read (P2). Its GUI keeps the shield and monitor setpoint at least 20 mbar above the lower limit and the upper limit at least 30 mbar above the setpoint. The fw1022 dump has a monitor upper range of 20.0 mbar, so the registry range of that field is the full span of the limits.
 
@@ -270,11 +270,11 @@ aquasuite reads the struct, changes the fields of the user, and writes back ever
 | `display_flags` | 72 | u8 |  |  | mask 0xF |  | 0 | Bit 0: rotate the display content by 180 degrees. Bit 1: display stays on in standby (clear: off after 10 minutes in standby). Bit 2: invert. Bit 3: automatic invert off. |
 | `page_template` | 73 | u8 | 10 x 46 |  | codes 0-13, 255 |  | [13, 2, 1, 3, 3, 1, ...] | Page layout: 0 logo, 1 chart, 2-6 values, 7 time, 8-10 bars, 11 value and bar, 12 value and time, 13 Leakshield state, 255 none. |
 | `page_options` | 74 | u8 | 10 x 46 |  | mask 0x3 |  | [3, 3, 3, 3, 3, 3, ...] | Bit 0: show the page in standby. Bit 1: hide the page in normal operation. |
-| `page_icons` | 75 | u8[4] | 10 x 46 |  | type only |  | [255, 255, 255, 255, 2, 255, ...] | Index into the icons of report 8, 255 none. |
-| `page_names` | 79 | u8[8] | 10 x 46 |  | type only |  | [255, 255, 255, 255, 255, 255, ...] | Index into the names of report 8, 255 none. |
-| `page_sources` | 87 | u8[8] | 10 x 46 |  | type only |  | [255, 255, 255, 255, 255, 255, ...] | Value source of each page slot: the sensor index times 4, 255 none. A value of 80 or more has no sensor. |
+| `page_icons` | 75 | u8[4] | 10 x 46 |  | values 0-15, 255 |  | [255, 255, 255, 255, 2, 255, ...] | Index into the 16 icons of report 8, 255 none. |
+| `page_names` | 79 | u8[8] | 10 x 46 |  | values 0-39, 255 |  | [255, 255, 255, 255, 255, 255, ...] | Index into the 40 names of report 8 (20-34 are the page texts), 255 none. |
+| `page_sources` | 87 | u8[8] | 10 x 46 |  | values 0-76 step 4, 255 |  | [255, 255, 255, 255, 255, 255, ...] | Value source of each page slot: the sensor index times 4, 255 none. A value of 80 or more has no sensor. |
 | `page_precisions` | 95 | u8[8] | 10 x 46 |  | 0 to 3 |  | [0, 0, 0, 0, 0, 0, ...] | Decimal places of each page slot, 0 to 3. |
-| `page_values` | 103 | i16[8] | 10 x 46 |  | type only |  | [0, 100, 0, 100, 0, 100, ...] | Template parameters of each page slot. |
+| `page_values` | 103 | i16[8] | 10 x 46 |  | -32000 to 32000 |  | [0, 100, 0, 100, 0, 100, ...] | Minimum and maximum of a bar or chart: one pair for each of the 4 sources, minimum first. The default is 0 and 100. |
 | `standby_conditions` | 533 | u8 |  |  | mask 0xB |  | 11 | Bit 0: standby without USB connection. Bit 1: standby on USB suspend. Bit 3: disable the alarm actions during standby (set: disabled). |
 | `alarm_start_delay` | 534 | u8 |  |  | type only |  | 5 | Alarm start timeout. aquasuite keeps the byte as read. Unit not defined in the code. |
 | `alarm_enable` | 535 | u16 |  |  | mask 0xF |  | 15 | Bit 0: fill level warning. Bit 1: fill level alarm. Bits 2-3: leak rate warning. |
@@ -342,6 +342,19 @@ aquasuite reads the struct, changes the fields of the user, and writes back ever
 | `monitor_pressure_max_range` | 745 | i16 |  | 0.1 | 0 to 450 mbar | 50.0 | 200 | Upper limit minus setpoint. |
 | `device_profile` | 747 | u8 |  |  | 1 to 4 |  | 1 | Number of the device profile: 1-4, one fixed slot each. aquasuite writes the slot number before it stores the report of a slot. Only a Profile activation sets it. |
 <!-- report3-table:end -->
+
+### Page fields at `plausible-read`
+
+`page_sources`, `page_names`, `page_icons` and `page_values` are at `plausible-read`, so the daemon writes them. The ranges follow the meaning that the code of aquasuite gives them. Checked on 18 report 3 images (the fw1022 and fw1019 fixtures and 16 images of the reference device, all with the same pages):
+
+| Field | Range | Values found |
+|---|---|---|
+| `page_sources` | sensor index x 4 for the sensors 0 to 19 (0, 4, ..., 76), or 255 | 0, 4, 8, 12, 16, 20, 255 |
+| `page_names` | index 0 to 39, or 255 | 0 to 5, 255 |
+| `page_icons` | index 0 to 15, or 255 | 1, 2, 7, 8, 9, 255 |
+| `page_values` | -32000 to 32000 | 0, 100 |
+
+All values are in range. The low 2 bits of a source byte are not defined: aquasuite always writes a multiple of 4, and the range refuses other bytes.
 
 ### Unit codes
 

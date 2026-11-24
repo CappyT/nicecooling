@@ -1,6 +1,5 @@
 use nicecooling_api::ids::Kind;
 use nicecooling_api::leakshield::LeakshieldProxy;
-use nicecooling_protocol::access::WriteRefusal;
 use nicecooling_protocol::display::{PAGES, Page, read_pages};
 use nicecooling_protocol::report3::Report3;
 use nicecooling_protocol::sim::Request;
@@ -63,18 +62,35 @@ fn write_page_fields_through_write_path() {
 }
 
 #[test]
-fn a_page_field_that_is_not_verified_is_refused() {
+fn page_sources_names_icons_and_values_are_written() {
+    let rig = DeviceRig::new("display-pointers");
+    let (report3, mut changed) = page(&rig, 1);
+    // Source 1 is the sensor 5 (index x 4), text 20 is a page text, icon 3, and a bar range.
+    changed.sources[1] = 20;
+    changed.names[1] = 20;
+    changed.icons[3] = 3;
+    changed.values[2] = -500;
+    changed.values[3] = 1500;
+
+    let edits = page_edits(&rig.registry, &report3, 1, &changed).unwrap();
+    let written = rig.write(&edits).unwrap();
+
+    let pages = read_pages(&rig.registry, &written.report3).unwrap();
+    assert_eq!(pages[1], changed);
+}
+
+#[test]
+fn a_page_source_that_is_not_a_sensor_index_times_4_is_refused() {
     let rig = DeviceRig::new("display-refused");
     let before = rig.sim.report3();
     let (report3, mut changed) = page(&rig, 1);
-    // `page_sources` is at `code-defined`: a read is plausible, a write is not allowed.
     changed.sources[1] = 5;
 
     let edits = page_edits(&rig.registry, &report3, 1, &changed).unwrap();
     let error = rig.write(&edits).unwrap_err();
 
     assert!(
-        matches!(&error, WriteError::Refused(WriteRefusal::NotVerified(id)) if id == "page_sources"),
+        matches!(&error, WriteError::OutOfRange { field } if field == "page_sources"),
         "{error:?}"
     );
     assert_eq!(rig.sim.report3(), before);
@@ -89,7 +105,7 @@ fn page_edits_reject_a_page_that_does_not_exist() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn asset_write_refused_as_read_only() {
+async fn the_assets_have_no_field_to_write() {
     let rig = Rig::start().await;
     let proxy = LeakshieldProxy::builder(&rig.client)
         .path(path(Kind::Leakshield, LEAKSHIELD))
@@ -103,12 +119,8 @@ async fn asset_write_refused_as_read_only() {
         proxy.set_fields([(id, Variant::from(vec![0_i64; len]))].into())
     };
 
-    // The icon and name indexes of the pages point into the assets: `code-defined`, so read-only.
-    for (id, len) in [("page_icons", 40), ("page_names", 80)] {
-        let error = set(id, len).await.unwrap_err();
-        assert_eq!(error_name(&error), format!("{ERR}.NotVerified"), "{id}");
-    }
-    // The assets themselves (names, start image, icons of report 8) have no field to write.
+    // The assets (names, start image, icons of report 8) have no field: `SetDisplayName`,
+    // `SetDisplayIcon` and `SetDisplayLogo` write them.
     for id in ["asset_names", "start_image", "asset_icons"] {
         let error = set(id, 1).await.unwrap_err();
         assert_eq!(error_name(&error), format!("{ERR}.NotFound"), "{id}");
@@ -153,8 +165,8 @@ async fn page_fields_through_get_and_set_fields() {
     let (read_back, _) = list(&rows, "page_template");
     assert_eq!(Vec::<String>::try_from(read_back).unwrap(), templates);
     assert_eq!(rig.sim.report3()[73 + 46 * 9], 7);
-    // `page_names` has one list of 8 bytes for each page: an integer list, and not writable.
+    // `page_names` has one list of 8 bytes for each page: an integer list.
     let (names, writable) = list(&rows, "page_names");
     assert_eq!(Vec::<i64>::try_from(names).unwrap().len(), PAGES * 8);
-    assert!(!writable);
+    assert!(writable);
 }

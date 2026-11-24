@@ -2,10 +2,13 @@
 
 Usage: python3 -I tools/re/gen-leakshield-registry.py <repo>
 The table replaces the text between the report3-table markers of the document.
+A field that the registry holds at `verified-write` or `failed` keeps that state: only a
+Verification write sets it, so the generator never lowers it.
 Offsets count from the report ID byte. Ranges are in engineering units (raw * scale).
 """
 import struct
 import sys
+import tomllib
 
 REPO = sys.argv[1]
 FIX = REPO + "/tests/fixtures/leakshield/fw1022/report3.bin"
@@ -15,6 +18,8 @@ def names(codes, *names):
     assert len(codes) == len(names), (codes, names)
     return list(zip(codes, names))
 L = lambda lo, hi: ("limit", lo, hi)
+# A set of raw values without names; `text` is the description of the set in the document table.
+V = lambda values, text: ("values", list(values), text)
 B = lambda m: ("bits", m)
 T = ("type",)
 LED_MODES = names([0, 1, 2, 3, 4, 5, 7, 8, 9, 10, 11, 12, 13, 14, 18, 19, 33],
@@ -77,11 +82,11 @@ f("display_flags", 72, "u8", B(0x0F), "low", "Bit 0: rotate the display content 
 P = dict(count=10, stride=46)
 f("page_template", 73, "u8", E(*TEMPLATES), "low", "Page layout: 0 logo, 1 chart, 2-6 values, 7 time, 8-10 bars, 11 value and bar, 12 value and time, 13 Leakshield state, 255 none.", **P)
 f("page_options", 74, "u8", B(0x03), "low", "Bit 0: show the page in standby. Bit 1: hide the page in normal operation.", **P)
-f("page_icons", 75, "u8[4]", T, "low", "Index into the icons of report 8, 255 none.", **P)
-f("page_names", 79, "u8[8]", T, "low", "Index into the names of report 8, 255 none.", **P)
-f("page_sources", 87, "u8[8]", T, "low", "Value source of each page slot: the sensor index times 4, 255 none. A value of 80 or more has no sensor.", **P)
+f("page_icons", 75, "u8[4]", V([*range(16), 255], "0-15, 255"), "low", "Index into the 16 icons of report 8, 255 none.", **P)
+f("page_names", 79, "u8[8]", V([*range(40), 255], "0-39, 255"), "low", "Index into the 40 names of report 8 (20-34 are the page texts), 255 none.", **P)
+f("page_sources", 87, "u8[8]", V([*range(0, 80, 4), 255], "0-76 step 4, 255"), "low", "Value source of each page slot: the sensor index times 4, 255 none. A value of 80 or more has no sensor.", **P)
 f("page_precisions", 95, "u8[8]", L(0, 3), "low", "Decimal places of each page slot, 0 to 3.", **P)
-f("page_values", 103, "i16[8]", T, "low", "Template parameters of each page slot.", **P)
+f("page_values", 103, "i16[8]", L(-32000, 32000), "low", "Minimum and maximum of a bar or chart: one pair for each of the 4 sources, minimum first. The default is 0 and 100.", **P)
 f("standby_conditions", 533, "u8", B(0x0B), "safety", "Bit 0: standby without USB connection. Bit 1: standby on USB suspend. Bit 3: disable the alarm actions during standby (set: disabled).")
 f("alarm_start_delay", 534, "u8", T, "safety", "Alarm start timeout. aquasuite keeps the byte as read. Unit not defined in the code.")
 f("alarm_enable", 535, "u16", B(0x0F), "safety", "Bit 0: fill level warning. Bit 1: fill level alarm. Bits 2-3: leak rate warning.")
@@ -148,7 +153,7 @@ def values(raw, e):
 
 def in_range(v, e):
     r = e["range"]
-    if r[0] == "enum":
+    if r[0] in ("enum", "values"):
         return v in r[1]
     if r[0] == "bits":
         return v & ~r[1] & 0xFFFF == 0
@@ -156,6 +161,14 @@ def in_range(v, e):
         x = v * e["scale"]
         return r[1] - 1e-9 <= x <= r[2] + 1e-9
     return True
+
+# States that only a Verification write sets. The generator keeps them.
+KEEP = ("verified-write", "failed")
+try:
+    with open(REPO + "/crates/nicecooling-protocol/registry/leakshield.toml", "rb") as old:
+        PREVIOUS = {f["id"]: f["verification_state"] for f in tomllib.load(old)["field"]}
+except FileNotFoundError:
+    PREVIOUS = {}
 
 raw = open(FIX, "rb").read()
 assert len(raw) == 750
@@ -168,6 +181,8 @@ for e in F:
         e["state"] = "plausible-read"
     else:
         e["state"] = "code-defined"
+    if PREVIOUS.get(e["id"]) in KEEP:
+        e["state"] = PREVIOUS[e["id"]]
     if e["range"][0] == "limit" and not ok:
         print("OUT OF RANGE", e["id"], vals, file=sys.stderr)
 
@@ -187,7 +202,7 @@ cmds = [("restart", 1, "1: restart into the bootloader, 0: plain restart (docs/r
         ("show_page", 4, "page id << 16 | duration in 0.1 s"),
         ("display_on", 9, "0"), ("display_off", 10, "0"), ("reset_alarm", 11, "0"), ("set_mode", 12, "Mode or Action code"),
         ("cancel_action", 12, "0: stops the running Action"),
-        ("reset_refill_history", 13, "0"), ("reset_event_log", 14, "0"), ("set_fill_mode", 15, "fill mode; values not defined in the code"),
+        ("reset_refill_history", 13, "0"), ("reset_event_log", 14, "0"), ("set_fill_mode", 15, "0: the Refill view of aquasuite sends it for its Pause and Resume button; other values are not defined in the code"),
         ("suppress_alarm", 16, "value / 25; aquasuite sends 90000 / 25 when the PC suspends"), ("usb_reset", 523, "0"), ("disable_low_volume_alarm", 14356, "65341"),
         ("reset_service_counter", 25000, "serial (report 1 bytes 3-6 as u32) XOR 0xFFFFFFFF"), ("test_mode", 25001, "129853 on, 958634 off"),
         ("set_clock", 37000, "seconds since 2009-01-01 00:00 UTC")]
@@ -215,6 +230,8 @@ for e in F:
     elif r[0] == "enum":
         lines.append('values = [' + ", ".join(map(str, r[1])) + ']')
         lines.append('names = [' + ", ".join(f'"{n}"' for n in r[2]) + ']')
+    elif r[0] == "values":
+        lines.append('values = [' + ", ".join(map(str, r[1])) + ']')
     elif r[0] == "bits":
         lines.append(f'bits = 0x{r[1]:04X}')
     if e["default"] is not None:
@@ -240,6 +257,8 @@ def rng(e):
                     a = v[i]
         txt = ", ".join(runs)
         return "codes " + (txt if len(runs) <= 8 else f"{v[0]}-{v[-1]}, {len(v)} codes (list in the registry)")
+    if r[0] == "values":
+        return "values " + r[2]
     if r[0] == "bits":
         return f"mask 0x{r[1]:X}"
     return "type only"

@@ -1,5 +1,6 @@
 //! The 10 display pages of report 3, read through the field registry. A page holds raw values:
-//! the names and icons are indexes into the display assets of report 8, which stay read-only.
+//! the names and icons are indexes into the display assets of report 8, which have their own
+//! write (`report8`).
 
 use crate::registry::Registry;
 use crate::report3::Report3;
