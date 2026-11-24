@@ -7,7 +7,7 @@ aquasuite lets the user build a sensor or an alarm action from a graph of nodes:
 ## What Changes
 
 - A **Graph** is a named set of nodes and connections that the daemon evaluates. A Graph ends in one sensor node or in one action node. One engine and one editor serve both uses.
-- The node kinds are the 48 kinds of aquasuite X.96: sources, constant, random, process, arithmetic, trigonometry, round, limiter, table, comparisons, logic, switch, memory, persistent storage, trigger, on delay, off delay, window filters, low pass, trend, signal generators, counter, comment, and the two end nodes.
+- The node kinds are all 49 kinds of aquasuite X.96, plus a source for the state of an Alarm event: sources, constant, random, process, arithmetic, trigonometry, round, limiter, table, comparisons, logic, switch, memory, persistent storage, trigger, on delay, off delay, window filters, low pass, trend, signal generators, counter, comment, and the two end nodes.
 - A source without a value gives no value. No value travels through the Graph: a sensor node then has no value, and an action node does not fire. This differs from aquasuite, which turns a missing input into 0 and a lost source into a fallback number. A Curve must see a lost Input, not a number that the software made up.
 - **BREAKING**: a Derived sensor becomes a Graph that ends in a sensor node. The daemon converts the stored Derived sensors (maximum, mean, difference) at the first start. The D-Bus methods of the Derived sensors go away.
 - An action node has a kind: desktop notification, sound, command, e-mail, MQTT message, poweroff, reboot, suspend. It has a hold time, an optional repeat interval and a minimum interval between two runs.

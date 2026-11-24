@@ -302,15 +302,15 @@ The daemon SHALL write one row for each run: time, Graph id, Graph name, kind an
 - **THEN** the editor shows those 3 rows
 
 ### Requirement: SMTP account
-The daemon SHALL hold one SMTP account: host, port, security (STARTTLS, TLS or none), user name, password and sender address. The ports SHALL default to 587, 465 and 25 for the three securities. The daemon SHALL check the server certificate in the secure modes. With the security none, the daemon SHALL send no user name and no password.
+The daemon SHALL hold one SMTP account: host, port, security (STARTTLS, TLS or none), user name, password and sender address. The ports SHALL default to 587, 465 and 25 for the three securities. The daemon SHALL check the server certificate in the secure modes. With the security none and a user name set, the daemon SHALL send the login in clear, and the app SHALL warn that the password crosses the network without encryption.
 
 #### Scenario: STARTTLS
 - **WHEN** the security is STARTTLS and the server certificate is not valid
 - **THEN** the send fails with the outcome `failed`
 
 #### Scenario: None with a password
-- **WHEN** the security is none and a password is set
-- **THEN** the daemon sends the message with no login
+- **WHEN** the security is none and a user name and a password are set
+- **THEN** the daemon logs in without encryption, and the settings of the app show the warning
 
 #### Scenario: Default port
 - **WHEN** the user picks TLS and leaves the port empty

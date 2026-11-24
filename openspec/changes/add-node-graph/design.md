@@ -9,7 +9,7 @@ aquasuite X.96 has one engine for two features: a graph of nodes that ends in a 
 Owner decisions that bind this design:
 
 - One Graph engine and one editor serve sensors and actions.
-- All 48 node kinds of aquasuite are in the first version.
+- All node kinds of aquasuite are in the first version. The decompiled list has 49 kinds; with the alarm event source of G3 the model has 50.
 - A source without a value gives no value, and no value travels through the Graph.
 - The app runs a command action in the user session. The daemon runs every other kind.
 - MQTT publishes the event messages and the sensor values.
@@ -33,6 +33,7 @@ Owner decisions that bind this design:
 - Hotkeys, input controls (button, slider, dial), web export to the vendor service.
 - Receiving values from MQTT.
 - A defense against another local user who writes a Graph (a Non-Goal of `add-nicecooling-v1`).
+- A refusal of a choice that is unsafe but valid: an SMTP login without encryption gets a warning and works.
 - A change of the alarm response table. The poweroff of an Alarm stays a fixed path that no Graph can remove.
 
 ## Decisions
@@ -166,7 +167,7 @@ New objects `Graph` under `io.github.cappyt.NiceCooling1` with read methods in t
 
 - **A Graph drives a pump or a fan through a Curve.** The no-value rule and the failure model of the Curve bound the damage of a broken Graph. A Graph that computes a wrong but valid number is the user's choice.
 - **An action with poweroff in a wrong Graph can shut the PC down in a loop.** The 10 s start delay, the countdown with cancel and the minimum interval limit this. aquasuite adds an automatic maintenance mode after three shutdowns in a row; the spec review must decide if nicecooling needs it.
-- **48 kinds are much code and many tests.** Each kind is a pure function with state, so the tests are tables of inputs and outputs.
+- **50 kinds are much code and many tests.** Each kind is a pure function with state, so the tests are tables of inputs and outputs.
 - **The copied editor code is 2800 lines of another author**, with one commit and no tests. The on-screen behavior is not checked yet: the first task is a spike that shows a Graph with drag, connect, pan and zoom in the app, in light and dark, before any other editor work.
 - **MQTT and SMTP add network clients to a root daemon.** Both use `rustls`, have time limits and never run in the tick.
 - **The removal of the Derived sensor API breaks the app screens that use it** in the same change; they move to the Graph editor.
