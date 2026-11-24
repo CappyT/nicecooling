@@ -303,6 +303,7 @@ impl ShellView {
             .gap(px(18.))
             .items_center()
             .flex_none()
+            .debug_selector(|| "shell-status".to_owned())
             .bg(p.headerbar)
             .border_t_1()
             .border_color(p.border)
@@ -517,31 +518,42 @@ impl Render for ShellView {
             .bg(p.window)
             .text_color(p.fg)
             .child(
-                TitleBar::new().child(
-                    h_flex()
-                        .w_full()
-                        .items_center()
-                        .child(
-                            div()
-                                .flex_1()
-                                .text_center()
-                                .font_weight(gpui::FontWeight::BOLD)
-                                .child(locale.tr(page.title_key())),
-                        )
-                        .child(menu_button),
-                ),
+                div()
+                    .flex_none()
+                    .debug_selector(|| "shell-header".to_owned())
+                    .child(
+                        TitleBar::new().child(
+                            h_flex()
+                                .w_full()
+                                .items_center()
+                                .child(
+                                    div()
+                                        .flex_1()
+                                        .text_center()
+                                        .font_weight(gpui::FontWeight::BOLD)
+                                        .child(locale.tr(page.title_key())),
+                                )
+                                .child(menu_button),
+                        ),
+                    ),
             )
             .child(
+                // `h_flex` centers its children on the cross axis. This row must stretch them:
+                // the content column takes the height of the row and starts under the header.
                 h_flex()
                     .flex_1()
                     .min_h_0()
+                    .items_stretch()
                     .child(self.render_sidebar(&shell, &page, &p, cx))
                     .child(
-                        v_flex()
-                            .flex_1()
-                            .min_w_0()
-                            .child(banners)
-                            .child(div().flex_1().overflow_hidden().child(content)),
+                        v_flex().flex_1().min_w_0().child(banners).child(
+                            div()
+                                .flex_1()
+                                .min_h_0()
+                                .overflow_hidden()
+                                .debug_selector(|| "shell-content".to_owned())
+                                .child(content),
+                        ),
                     ),
             )
             .child(self.render_status_bar(&shell, &p, cx))

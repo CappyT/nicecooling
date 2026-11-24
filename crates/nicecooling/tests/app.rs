@@ -82,6 +82,62 @@ fn normal_start_opens_one_window_and_draws_it(cx: &mut TestAppContext) {
     );
 }
 
+/// A page starts under the header bar and ends at the status bar, short or long: the content
+/// scrolls in that area and never rises over the header.
+#[gpui::test]
+fn every_page_starts_under_the_header_and_scrolls(cx: &mut TestAppContext) {
+    let (model, rig) = start(cx, StartMode::Normal);
+    let state = support::fixtures::with_leakshield();
+    rig.events
+        .send(DaemonEvent::Snapshot(Box::new(state.snapshot.clone())))
+        .unwrap();
+    cx.run_until_parked();
+    let handle = cx.windows()[0];
+    for page in [
+        Page::Overview,
+        Page::Loops,
+        Page::Sensors,
+        Page::Alarms,
+        Page::Settings,
+    ] {
+        cx.update(|cx| {
+            model.update(cx, |app, cx| {
+                app.page = page.clone();
+                cx.notify();
+            });
+        });
+        cx.run_until_parked();
+        let mut visual = VisualTestContext::from_window(handle, cx);
+        visual.update(|window, cx| window.draw(cx).clear(cx));
+        let mut bounds = |name: &'static str| {
+            visual
+                .debug_bounds(name)
+                .unwrap_or_else(|| panic!("{page:?}: no element {name}"))
+        };
+        let (header, content) = (bounds("shell-header"), bounds("shell-content"));
+        let (status, scroll) = (bounds("shell-status"), bounds("screen-scroll"));
+        assert_eq!(
+            content.top(),
+            header.bottom(),
+            "{page:?}: top of the content"
+        );
+        assert_eq!(
+            content.bottom(),
+            status.top(),
+            "{page:?}: end of the content"
+        );
+        assert!(
+            scroll.top() >= content.top(),
+            "{page:?}: top of the scroll area"
+        );
+        assert_eq!(
+            scroll.bottom(),
+            content.bottom(),
+            "{page:?}: end of the scroll area"
+        );
+    }
+}
+
 #[gpui::test]
 fn an_alarm_opens_the_window_by_itself(cx: &mut TestAppContext) {
     let (model, rig) = start(cx, StartMode::Background);

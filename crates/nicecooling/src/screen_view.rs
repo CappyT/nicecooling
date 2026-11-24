@@ -7,7 +7,8 @@ use std::rc::Rc;
 
 use gpui::prelude::*;
 use gpui::{
-    AnyElement, App, Bounds, Context, Entity, Focusable as _, Pixels, Render, Window, div, px,
+    AnyElement, App, Bounds, Context, Entity, Focusable as _, Pixels, Render, SharedString, Window,
+    div, px,
 };
 use gpui_component::input::{InputEvent, InputState};
 use gpui_component::slider::{SliderEvent, SliderState};
@@ -466,6 +467,11 @@ impl Render for ScreenView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let page = self.model.read(cx).page.clone();
         let p = Self::palette(cx);
+        // Each page, and each tab of a Leakshield, keeps its own scroll position.
+        let scroll_id = match &page {
+            Page::Leakshield(_) => format!("screen-leakshield-{:?}", self.leakshield.tab),
+            other => format!("screen-{}", other.title_key()),
+        };
         let content: AnyElement = match page {
             Page::Overview => self.render_overview(&p, window, cx),
             Page::Sensors => self.render_sensors(&p, window, cx),
@@ -479,10 +485,11 @@ impl Render for ScreenView {
             Page::Leakshield(id) => self.render_leakshield(&id, &p, window, cx),
         };
         v_flex()
-            .id("screen")
+            .id(SharedString::from(scroll_id))
             .size_full()
             .overflow_y_scroll()
             .text_color(cx.theme().foreground)
+            .debug_selector(|| "screen-scroll".to_owned())
             .child(content)
     }
 }
