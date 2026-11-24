@@ -5,9 +5,8 @@ use std::rc::Rc;
 use gpui::prelude::*;
 use gpui::{AnyElement, Context, Div, FocusHandle, FontWeight, SharedString, Window, div, px};
 use gpui_component::button::{Button, ButtonVariants as _};
-use gpui_component::input::Input;
 use gpui_component::tooltip::Tooltip;
-use gpui_component::{Sizable as _, h_flex, v_flex};
+use gpui_component::{h_flex, v_flex};
 
 use crate::command::Command;
 use crate::icons::{NcIcon, icon};
@@ -18,8 +17,8 @@ use crate::screens::alarms::{
 };
 use crate::screens::controls::{Pick, act};
 use crate::screens::ui::{
-    caption, card, card_header, card_row, cell, label, modal, page, severity_icon, table_header,
-    wide_cell, wrap_cell, write_line,
+    caption, card, card_header, card_row, cell, heading, label, modal, page, severity_icon,
+    table_header, wrap_cell, write_line,
 };
 use crate::tokens::Palette;
 
@@ -106,17 +105,21 @@ impl ScreenView {
                 )
             })
             .collect();
-        let filter = self.select(
+        let filter = self.select_field(
             "history-filter",
             &history.filter_label,
             filter_choices,
             true,
-            "",
+            true,
+            p.track,
             filter_pick,
             p,
             cx,
         );
-        let mut history_card = card(p).child(card_header(history.title.clone(), p).child(filter));
+        let mut history_card = card(p).child(
+            card_header(history.title.clone(), p)
+                .child(div().w(px(140.)).flex_none().child(filter)),
+        );
         if let Some(text) = &history.empty {
             history_card = history_card.child(card_row(p).child(text.clone()));
         } else {
@@ -147,8 +150,9 @@ impl ScreenView {
         let line = h_flex()
             .id(("alarm-active", index))
             .w_full()
+            .min_h(px(36.))
             .px(px(18.))
-            .py(px(8.))
+            .py(px(6.))
             .gap(px(12.))
             .items_center()
             .border_t_1()
@@ -168,7 +172,7 @@ impl ScreenView {
                         h_flex()
                             .gap(px(6.))
                             .child(severity_icon(row.severity, p))
-                            .child(label(row.event.clone()).font_weight(FontWeight::BOLD)),
+                            .child(event_name(row.event.clone())),
                     ),
             )
             .child(cell(ACTIVE[1]).child(row.source.clone()))
@@ -196,11 +200,13 @@ impl ScreenView {
                         .flex_none()
                         .debug_selector(|| "active-cancel".to_owned())
                         .child(
-                            Button::new(SharedString::from(format!("alarm-cancel-{index}")))
-                                .small()
-                                .danger()
-                                .label(row.cancel_label.clone())
-                                .on_click(act(&view, move |this, _, _| this.send(command.clone()))),
+                            Self::small_button(
+                                SharedString::from(format!("alarm-cancel-{index}")),
+                                row.cancel_label.clone(),
+                                None,
+                            )
+                            .primary()
+                            .on_click(act(&view, move |this, _, _| this.send(command.clone()))),
                         ),
                 );
             }
@@ -224,11 +230,11 @@ impl ScreenView {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let mut column = v_flex().w_full().child(
-            card_row(p).bg(p.selected).child(
-                div()
-                    .font_weight(FontWeight::BOLD)
-                    .child(group.title.clone()),
-            ),
+            card_row(p)
+                .min_h(px(30.))
+                .py(px(3.))
+                .bg(p.hover)
+                .child(heading(group.title.clone()).truncate()),
         );
         for row in &group.rows {
             column = column.child(self.response_row(row, &group.title, enabled, p, window, cx));
@@ -265,7 +271,7 @@ impl ScreenView {
             .find(|o| o.selected)
             .map(|o| o.label.clone())
             .unwrap_or_default();
-        let select = self.select(
+        let select = self.select_field(
             &format!("response-{}", row.key),
             &shown,
             row.options
@@ -273,7 +279,8 @@ impl ScreenView {
                 .map(|o| (o.response.id().to_owned(), o.label.clone(), o.selected))
                 .collect(),
             enabled,
-            "",
+            true,
+            p.track,
             pick,
             p,
             cx,
@@ -286,6 +293,8 @@ impl ScreenView {
             cx,
         );
         let line = card_row(p)
+            .min_h(px(36.))
+            .py(px(3.))
             .child(
                 event_cell()
                     .debug_selector(|| "response-event-cell".to_owned())
@@ -293,23 +302,20 @@ impl ScreenView {
                         h_flex()
                             .gap(px(6.))
                             .child(severity_icon(row.severity, p))
-                            .child(label(row.title.clone()).debug_selector({
+                            .child(event_name(row.title.clone()).debug_selector({
                                 let key = row.key.clone();
                                 move || format!("response-title-{key}")
                             })),
                     ),
             )
-            .child(cell(SOURCE).child(group.to_owned()).debug_selector({
+            .child(wrap_cell(SOURCE).child(group.to_owned()).debug_selector({
                 let key = row.key.clone();
                 move || format!("response-source-{key}")
             }))
             .child(div().w(px(RESPONSE)).flex_none().child(select))
-            .child(
-                div()
-                    .w(px(DELAY))
-                    .flex_none()
-                    .child(Input::new(&delay).disabled(!row.delay_enabled)),
-            );
+            .child(div().w(px(DELAY)).flex_none().child(
+                Self::field_input(&delay, Some("s".into()), true, p).disabled(!row.delay_enabled),
+            ));
         // The notes of the row: the overlap mark and "Reset", then the write feedback under
         // them. The feedback wraps in the cell.
         let mut marks = h_flex().gap(px(6.));
@@ -363,8 +369,9 @@ impl ScreenView {
         h_flex()
             .id(("alarm-history", index))
             .w_full()
+            .min_h(px(36.))
             .px(px(18.))
-            .py(px(8.))
+            .py(px(6.))
             .gap(px(12.))
             .items_center()
             .border_t_1()
@@ -383,10 +390,10 @@ impl ScreenView {
                         h_flex()
                             .gap(px(6.))
                             .child(severity_icon(row.severity, p))
-                            .child(label(row.event.clone())),
+                            .child(event_name(row.event.clone())),
                     ),
             )
-            .child(cell(HISTORY[2]).child(row.source.clone()))
+            .child(wrap_cell(HISTORY[2]).child(row.source.clone()))
             .child(wrap_cell(HISTORY[3]).child(row.duration.clone()))
             .child(wrap_cell(HISTORY[4]).child(row.response.clone()))
             .into_any_element()
@@ -400,10 +407,12 @@ const EVENT_MIN: f32 = 160.;
 /// the Event cell is not used. At the minimum window a row is 796 px wide.
 const ACTIVE: [f32; 5] = [0., 150., 70., 150., 170.];
 const HISTORY: [f32; 5] = [124., 0., 140., 100., 200.];
-const SOURCE: f32 = 170.;
-const RESPONSE: f32 = 190.;
+/// "Leakshield 20417-31072" and "Poweroff after a delay" show in full. At the minimum window
+/// the Event cell of this table is 200 px wide.
+const SOURCE: f32 = 176.;
+const RESPONSE: f32 = 196.;
 const DELAY: f32 = 72.;
-const NOTES: f32 = 140.;
+const NOTES: f32 = 104.;
 const RESPONSE_COLUMNS: [Option<f32>; 4] = [
     None,
     Some(SOURCE),
@@ -411,8 +420,14 @@ const RESPONSE_COLUMNS: [Option<f32>; 4] = [
     Some(DELAY + 12. + NOTES),
 ];
 
+/// The Event cell: a long name wraps to a second line, so it shows in full in Italian too.
 fn event_cell() -> Div {
-    wide_cell().min_w(px(EVENT_MIN))
+    div().flex_1().min_w(px(EVENT_MIN))
+}
+
+/// The name of an event next to its severity icon. It wraps in its cell.
+fn event_name(text: impl Into<SharedString>) -> Div {
+    div().flex_1().min_w_0().child(text.into())
 }
 
 /// The widths of a table header: the cell at `event` takes the rest of the row.
