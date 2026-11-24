@@ -105,6 +105,13 @@ impl ShellView {
         let focus = cx.focus_handle();
         window.focus(&focus, cx);
         cx.observe(&model, |_, _, cx| cx.notify()).detach();
+        // The desktop portal gives the system theme after the app starts, and the user can
+        // change it while the app runs.
+        gpui_component::Theme::sync_system_appearance(Some(window), cx);
+        cx.observe_window_appearance(window, |_, window, cx| {
+            gpui_component::Theme::sync_system_appearance(Some(window), cx);
+        })
+        .detach();
         let screens = cx.new(|cx| ScreenView::new(model.clone(), commands.clone(), cx));
         Self {
             model,
