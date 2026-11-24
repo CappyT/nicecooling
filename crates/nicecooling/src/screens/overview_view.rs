@@ -297,7 +297,12 @@ impl ScreenView {
         let now = (crate::app::now_us() / 1_000_000) as i64;
         let start = now - 600;
         let points = self.recent_points(&card_model.sensor, start, now, cx);
-        let limit = card_model.limit.as_ref().map(|(value, _)| *value);
+        // The daemon gives a Leakshield event no limit: the minimum is the dashed line then.
+        let limit_line = card_model
+            .limit
+            .clone()
+            .or_else(|| card_model.minimum_value.zip(card_model.minimum.clone()));
+        let limit = limit_line.as_ref().map(|(value, _)| *value);
         let raised = card_model
             .raised
             .as_ref()
@@ -382,20 +387,20 @@ impl ScreenView {
         if let (Some(target), Some(text)) = (card_model.target_value, &card_model.target) {
             plot = plot.child(label(y(target) - 18.0).left(px(4.)).child(text.clone()));
         }
-        if let Some((value, text)) = &card_model.limit {
+        if let Some((value, text)) = &limit_line {
             let text = match (&card_model.minimum, card_model.minimum_value) {
                 (Some(minimum), Some(low)) if low == *value => minimum,
                 _ => text,
             };
             plot = plot.child(label(y(*value) + 2.0).left(px(4.)).child(text.clone()));
         }
-        if let (Some(t), Some((_, text))) = (raised, &card_model.raised) {
-            plot = plot.child(
-                label(2.0)
-                    .right(relative(1.0 - fraction(t)))
-                    .mr(px(6.))
-                    .child(text.clone()),
-            );
+        if let Some((_, text)) = &card_model.raised {
+            let line = label(2.0).child(text.clone());
+            // An Alarm older than the 10 minutes keeps its time, at the top right.
+            plot = plot.child(match raised {
+                Some(t) => line.right(relative(1.0 - fraction(t))).mr(px(6.)),
+                None => line.right_0(),
+            });
         }
         let mut top = title_header(card_model.title.clone())
             .child(caption(card_model.subtitle.clone(), p).flex_1().truncate());
