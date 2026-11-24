@@ -4,24 +4,26 @@ use std::rc::Rc;
 
 use gpui::prelude::*;
 use gpui::{
-    AnyElement, Bounds, Context, FontWeight, KeyDownEvent, MouseButton, MouseDownEvent,
+    AnyElement, Bounds, Context, Div, FontWeight, KeyDownEvent, MouseButton, MouseDownEvent,
     MouseMoveEvent, MouseUpEvent, Pixels, SharedString, Window, canvas, div, px, relative, size,
 };
-use gpui_component::button::{Button, ButtonVariants as _};
-use gpui_component::input::Input;
+use gpui_component::button::ButtonVariants as _;
 use gpui_component::slider::Slider;
-use gpui_component::{Disableable as _, Selectable as _, Sizable as _, h_flex, v_flex};
+use gpui_component::tooltip::Tooltip;
+use gpui_component::{Disableable as _, h_flex, v_flex};
 
-use crate::icons::{NcIcon, icon, small_icon};
+use crate::icons::{NcIcon, icon};
 use crate::model::Severity;
 use crate::screen_view::{Drag, InputKey, ScreenView, skeleton};
 use crate::screens::channels::{
     ChannelDetail, ChannelRow, ChannelsModel, ChannelsState, CurveDetail, CurvePlot,
 };
+use crate::screens::controls::act;
 use crate::screens::format::plain;
 use crate::screens::sensors_view::PickRow;
 use crate::screens::ui::{
-    TagKind, caption, card, card_header, card_row, page, severity_icon, tag, write_line,
+    TagKind, caption, card, card_row, heading, modal, page, seg, seg_item, select_trigger,
+    severity_icon, tag, with_popover, write_line,
 };
 use crate::tokens::Palette;
 use crate::widgets::paint::{at, hatch, polyline};
@@ -31,9 +33,24 @@ type Pick = Rc<dyn Fn(&mut ScreenView, String, &mut Window, &mut Context<ScreenV
 /// The margins of the plot inside its frame, for the axis labels.
 const LEFT: f32 = 44.0;
 const RIGHT: f32 = 16.0;
-const TOP: f32 = 14.0;
-const BOTTOM: f32 = 30.0;
+const TOP: f32 = 12.0;
+const BOTTOM: f32 = 32.0;
 pub const PLOT_HEIGHT: f32 = 292.0;
+/// The widths of the "rpm" and "Duty" cells of the list.
+const RPM: f32 = 44.0;
+const DUTY: f32 = 44.0;
+
+/// "Input 31.4 °C" with the value in bold. The text of the locale ends with the value.
+fn readout_text(text: &str, value: &str) -> Div {
+    let label = text.strip_suffix(value).unwrap_or(text).to_owned();
+    h_flex()
+        .flex_none()
+        .gap(px(4.))
+        .child(label.trim_end().to_owned())
+        .when(text.ends_with(value), |line| {
+            line.child(div().font_weight(FontWeight::BOLD).child(value.to_owned()))
+        })
+}
 
 impl ScreenView {
     pub(crate) fn render_channels(
@@ -95,43 +112,68 @@ impl ScreenView {
                     .w_full()
                     .px(px(18.))
                     .py(px(10.))
+                    .gap(px(12.))
                     .rounded(px(12.))
                     .bg(p.alarm_bg)
                     .text_color(p.alarm_fg)
                     .font_weight(FontWeight::BOLD)
-                    .child(text.clone()),
+                    .child(icon(NcIcon::Alarm, p.alarm_fg))
+                    .child(div().flex_1().min_w_0().child(text.clone())),
             );
         }
         let locale = self.model.read(cx).locale;
-        let mut list = card(p).w(px(360.)).flex_none().child(
-            h_flex()
-                .h(px(36.))
-                .px(px(18.))
-                .gap(px(12.))
-                .items_center()
-                .text_size(px(12.))
-                .font_weight(FontWeight::BOLD)
-                .text_color(p.fg_dim)
-                .child(div().flex_1().child(locale.tr("channels.columns.channel")))
-                .child(
-                    div()
-                        .w(px(70.))
-                        .text_right()
-                        .child(locale.tr("channels.columns.rpm")),
-                )
-                .child(
-                    div()
-                        .w(px(50.))
-                        .text_right()
-                        .child(locale.tr("channels.columns.duty")),
-                ),
-        );
+        let mut list = card(p)
+            .child(
+                h_flex()
+                    .min_h(px(40.))
+                    .pl(px(18.))
+                    .pr(px(12.))
+                    .py(px(6.))
+                    .gap(px(9.))
+                    .child(heading(model.title.clone()).flex_none())
+                    .child(caption(model.board.clone(), p).flex_1().truncate()),
+            )
+            .child(
+                h_flex()
+                    .px(px(18.))
+                    .py(px(6.))
+                    .gap(px(12.))
+                    .text_size(px(12.))
+                    .line_height(px(16.))
+                    .font_weight(FontWeight::BOLD)
+                    .text_color(p.fg_dim)
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .truncate()
+                            .child(locale.tr("channels.columns.channel")),
+                    )
+                    .child(
+                        div()
+                            .w(px(RPM))
+                            .flex_none()
+                            .text_right()
+                            .child(locale.tr("channels.columns.rpm")),
+                    )
+                    .child(
+                        div()
+                            .w(px(DUTY))
+                            .flex_none()
+                            .text_right()
+                            .child(locale.tr("channels.columns.duty")),
+                    ),
+            );
         for (index, row) in model.rows.iter().enumerate() {
             list = list.child(self.channel_row(index, row, p, cx));
         }
         // Up and Down move the selection in the list.
         let rows = model.rows.clone();
-        let mut list = div().id("channels-list").flex_none().child(list);
+        let mut list = div()
+            .id("channels-list")
+            .w(px(360.))
+            .flex_none()
+            .child(list);
         if let Some(focus) = self.channels_focus.clone() {
             let keys = view.clone();
             list = list.track_focus(&focus).on_key_down(move |event, _, cx| {
@@ -162,7 +204,43 @@ impl ScreenView {
                         .map(|detail| self.channel_detail(detail, p, window, cx)),
                 ),
         );
-        div().relative().w_full().child(content).into_any_element()
+        let mut root = div().relative().w_full().child(content);
+        if let Some(dialog) = model
+            .detail
+            .as_ref()
+            .and_then(|d| d.release_dialog.as_ref())
+        {
+            let (cancel, confirm) = (view.clone(), view.clone());
+            root = root.child(modal(
+                dialog.title.clone(),
+                dialog.text.clone(),
+                Vec::new(),
+                vec![
+                    Self::button("release-cancel", dialog.cancel.clone())
+                        .on_click(move |_, _, cx| {
+                            cancel.update(cx, |this, cx| {
+                                this.channels.cancel_release();
+                                cx.notify();
+                            })
+                        })
+                        .into_any_element(),
+                    Self::button("release-confirm", dialog.confirm.clone())
+                        .primary()
+                        .on_click(move |_, _, cx| {
+                            confirm.update(cx, |this, cx| {
+                                let state = this.state(cx);
+                                if let Some(command) = this.channels.confirm_release(&state) {
+                                    this.send(command);
+                                }
+                                cx.notify();
+                            })
+                        })
+                        .into_any_element(),
+                ],
+                p,
+            ));
+        }
+        root.into_any_element()
     }
 
     fn channel_row(
@@ -175,55 +253,42 @@ impl ScreenView {
         let view = cx.entity();
         let id = row.id.clone();
         let focus = self.channels_focus.clone();
-        let mut name = v_flex().flex_1().min_w_0().child(
-            h_flex()
-                .gap(px(6.))
-                .items_center()
-                .child(
-                    div()
-                        .truncate()
-                        .font_weight(FontWeight::BOLD)
-                        .child(row.name.clone()),
-                )
-                .children(
-                    row.pump_tag
-                        .clone()
-                        .map(|text| tag(text, TagKind::Accent, p)),
-                ),
-        );
-        name = name.child(
-            h_flex()
-                .gap(px(4.))
-                .text_size(px(12.))
-                .text_color(p.fg_dim)
-                .children(
-                    row.line2_warning
-                        .then(|| severity_icon(Severity::Warning, p)),
-                )
-                .child(row.line2.clone()),
-        );
-        let rpm = match &row.no_signal {
-            Some(text) => h_flex()
-                .w(px(70.))
-                .justify_end()
-                .gap(px(3.))
-                .text_size(px(11.))
-                .text_color(p.offline)
-                .child(small_icon(NcIcon::Off, p.offline))
-                .child(text.clone()),
-            None => div().w(px(70.)).text_right().child(row.rpm.clone()),
+        // The first line: the state icon, the name and the tag. A long name wraps.
+        let mut first = h_flex().flex_wrap().gap_x(px(6.)).items_center();
+        if row.line2_warning {
+            first = first.child(severity_icon(Severity::Warning, p));
+        } else if row.no_signal.is_some() {
+            first = first.child(div().flex_none().child(icon(NcIcon::Off, p.offline)));
+        }
+        first = first
+            .child(div().min_w_0().child(row.name.clone()))
+            .children(
+                row.pump_tag
+                    .clone()
+                    .map(|text| tag(text, TagKind::Accent, p)),
+            );
+        // The second line: the control, and the state of the speed signal.
+        let second = match &row.no_signal {
+            Some(text) => format!("{}, {text}", row.line2),
+            None => row.line2.clone(),
         };
+        let name = v_flex().flex_1().min_w_0().child(first).child(
+            caption(second, p)
+                .when(row.selected, |line| line.text_color(p.fg))
+                .when(row.line2_warning, |line| line.text_color(p.warning)),
+        );
         h_flex()
             .id(("channel-row", index))
             .min_h(px(48.))
             .px(px(18.))
-            .py(px(4.))
+            .py(px(6.))
             .gap(px(12.))
             .items_center()
             .border_t_1()
             .border_color(p.border)
             .cursor_pointer()
             .when(row.selected, |line| line.bg(p.accent_tint))
+            .when(!row.selected, |line| line.hover(|line| line.bg(p.hover)))
             .on_click(move |_, window, cx| {
                 let id = id.clone();
                 if let Some(focus) = &focus {
@@ -236,12 +301,19 @@ impl ScreenView {
                 })
             })
             .child(name)
-            .child(rpm)
             .child(
                 div()
-                    .w(px(50.))
+                    .w(px(RPM))
+                    .flex_none()
                     .text_right()
-                    .font_weight(FontWeight::BOLD)
+                    .when(row.no_signal.is_some(), |cell| cell.text_color(p.fg_dim))
+                    .child(row.rpm.clone()),
+            )
+            .child(
+                div()
+                    .w(px(DUTY))
+                    .flex_none()
+                    .text_right()
                     .child(row.duty.clone()),
             )
             .into_any_element()
@@ -259,71 +331,78 @@ impl ScreenView {
         let enabled = detail.editable;
         let reason = detail.disabled_reason.clone().unwrap_or_default();
 
-        let header = card_header(detail.name.clone(), p)
-            .children(
-                detail
-                    .pump_tag
-                    .clone()
-                    .map(|text| tag(text, TagKind::Accent, p)),
-            )
-            .child({
-                let view = view.clone();
-                Button::new("channel-rename")
-                    .small()
-                    .ghost()
-                    .label(locale.tr("channels.rename"))
-                    .disabled(!enabled)
-                    .tooltip(reason.clone())
-                    .on_click(move |_, _, cx| {
-                        view.update(cx, |this, cx| {
-                            let state = this.state(cx);
-                            this.channels.open_rename(&state);
-                            cx.notify();
-                        })
-                    })
-            });
-        let mut body = v_flex().w_full().child(header);
-        if let Some((_, name)) = self.channels.rename.clone() {
-            body = body.child(self.rename_popover(
+        // The header: the name, the rename button with its popover, the tag.
+        let rename_popover = self.channels.rename.clone().map(|(_, name)| {
+            self.rename_popover(
                 InputKey::ChannelRename,
                 &name,
                 locale.tr("sensors.rename_placeholder"),
                 p,
                 window,
                 cx,
-            ));
-        }
-
-        // Control: a button group.
-        let mut group = h_flex().gap(px(6.));
-        for button in &detail.controls {
-            let view = view.clone();
-            let control = button.control;
-            group = group.child(
-                Button::new(SharedString::from(format!("control-{}", control.id())))
-                    .label(button.label.clone())
-                    .selected(button.active)
-                    .disabled(!enabled)
-                    .tooltip(reason.clone())
-                    .on_click(move |_, _, cx| {
-                        view.update(cx, |this, cx| {
-                            let state = this.state(cx);
-                            if let Some(command) = this.channels.request_control(&state, control) {
-                                this.send(command);
-                            }
-                            cx.notify();
-                        })
-                    }),
+            )
+        });
+        let rename = Self::icon_button("channel-rename", NcIcon::Pencil)
+            .disabled(!enabled)
+            .tooltip(if reason.is_empty() {
+                locale.tr("channels.rename")
+            } else {
+                reason.clone()
+            })
+            .on_click(act(&view, |this, _, cx| {
+                if this.channels.rename.take().is_none() {
+                    let state = this.state(cx);
+                    this.channels.open_rename(&state);
+                }
+            }));
+        let header = h_flex()
+            .min_h(px(40.))
+            .pl(px(18.))
+            .pr(px(12.))
+            .py(px(6.))
+            .gap(px(9.))
+            .child(heading(detail.name.clone()))
+            .child(with_popover(rename, rename_popover).flex_none())
+            .children(
+                detail
+                    .pump_tag
+                    .clone()
+                    .map(|text| tag(text, TagKind::Accent, p)),
             );
+
+        // Control: a segmented control.
+        let mut group = seg(p);
+        for button in &detail.controls {
+            let control = button.control;
+            let item = seg_item(
+                SharedString::from(format!("control-{}", control.id())),
+                button.label.clone(),
+                button.active,
+                enabled,
+                p,
+            );
+            group = group.child(if enabled {
+                item.on_click(act(&view, move |this, _, cx| {
+                    let state = this.state(cx);
+                    if let Some(command) = this.channels.request_control(&state, control) {
+                        this.send(command);
+                    }
+                }))
+            } else {
+                let reason = reason.clone();
+                item.when(!reason.is_empty(), |item| {
+                    item.tooltip(move |window, cx| Tooltip::new(reason.clone()).build(window, cx))
+                })
+            });
         }
-        body = body.child(
-            card_row(p)
-                .child(
-                    div()
-                        .w(px(120.))
-                        .font_weight(FontWeight::BOLD)
-                        .child(locale.tr("channels.control.label")),
-                )
+        let mut body = v_flex().w_full().child(header).child(
+            h_flex()
+                .px(px(18.))
+                .pb(px(12.))
+                .gap(px(12.))
+                .items_center()
+                .flex_wrap()
+                .child(caption(locale.tr("channels.control.label"), p).flex_none())
                 .child(group),
         );
 
@@ -332,72 +411,94 @@ impl ScreenView {
                 card_row(p)
                     .bg(p.warning_tint)
                     .child(severity_icon(Severity::Warning, p))
-                    .child(div().text_color(p.fg).child(text.clone())),
-            );
-        }
-        if let Some(curve) = &detail.curve {
-            body = body.child(self.curve_section(detail, curve, p, window, cx));
-        }
-        if let Some(fixed) = &detail.fixed {
-            let slider = self.slider(
-                &format!("fixed:{}", detail.id),
-                fixed.duty as f32,
-                window,
-                cx,
-            );
-            body = body.child(
-                card_row(p)
-                    .child(
-                        div()
-                            .w(px(120.))
-                            .font_weight(FontWeight::BOLD)
-                            .child(locale.tr("channels.field.fixed")),
-                    )
                     .child(
                         div()
                             .flex_1()
-                            .child(Slider::new(&slider).disabled(!enabled)),
-                    )
-                    .child(
-                        div()
-                            .w(px(60.))
-                            .text_right()
-                            .font_weight(FontWeight::BOLD)
-                            .child(crate::screens::loops::floor_text(locale, fixed.duty)),
+                            .min_w_0()
+                            .text_color(p.fg)
+                            .child(text.clone()),
                     ),
             );
-            if let Some(text) = &fixed.floor_text {
-                body = body.child(card_row(p).child(caption(text.clone(), p)));
-            }
-            if let Some(text) = &fixed.error {
-                body = body.child(
-                    card_row(p)
-                        .child(severity_icon(Severity::Warning, p))
-                        .child(text.clone()),
-                );
-            }
         }
-        if let Some(text) = &detail.hardware_text {
-            body = body.child(card_row(p).child(text.clone()));
-        }
-        if let Some(line) = &detail.write_line {
+        // The write feedback: at the right of the readout row of a Curve, else in its own row.
+        let feedback = detail.write_line.as_ref().map(|line| {
             let retry = line.retry.clone();
-            body = body.child(card_row(p).child(write_line(line, p)).children(retry.map(
-                |label| {
-                    let view = view.clone();
-                    Button::new("channel-retry")
-                        .small()
-                        .label(label)
-                        .on_click(move |_, _, cx| {
-                            view.update(cx, |this, cx| {
-                                if let Some(command) = this.channels.last_command.clone() {
-                                    this.send(command);
-                                }
-                                cx.notify();
-                            })
-                        })
-                },
-            )));
+            h_flex()
+                .min_w_0()
+                .gap(px(9.))
+                .items_center()
+                .child(write_line(line, p))
+                .children(retry.map(|label| {
+                    Self::small_button("channel-retry", label, None).on_click(act(
+                        &view,
+                        |this, _, _| {
+                            if let Some(command) = this.channels.last_command.clone() {
+                                this.send(command);
+                            }
+                        },
+                    ))
+                }))
+        });
+        if let Some(curve) = &detail.curve {
+            body = body.child(self.curve_section(detail, curve, feedback, p, window, cx));
+        } else {
+            if let Some(fixed) = &detail.fixed {
+                let slider = self.slider(
+                    &format!("fixed:{}", detail.id),
+                    fixed.duty as f32,
+                    window,
+                    cx,
+                );
+                let number = self.input(
+                    InputKey::FixedDuty(detail.id.clone()),
+                    &plain(locale, fixed.duty),
+                    "",
+                    window,
+                    cx,
+                );
+                body = body.child(
+                    h_flex()
+                        .px(px(18.))
+                        .pb(px(12.))
+                        .gap(px(12.))
+                        .items_center()
+                        .child(caption(locale.tr("channels.field.fixed"), p).flex_none())
+                        .child(
+                            div()
+                                .flex_1()
+                                .min_w_0()
+                                .child(Slider::new(&slider).disabled(!enabled)),
+                        )
+                        .child(
+                            div().w(px(86.)).flex_none().child(
+                                Self::field_input(&number, Some("%".into()), false, p)
+                                    .disabled(!enabled),
+                            ),
+                        ),
+                );
+                if let Some(text) = &fixed.floor_text {
+                    body = body.child(
+                        div()
+                            .px(px(18.))
+                            .pb(px(12.))
+                            .child(caption(text.clone(), p)),
+                    );
+                }
+                if let Some(text) = &fixed.error {
+                    body = body.child(
+                        card_row(p)
+                            .bg(p.warning_tint)
+                            .child(severity_icon(Severity::Warning, p))
+                            .child(div().flex_1().min_w_0().child(text.clone())),
+                    );
+                }
+            }
+            if let Some(text) = &detail.hardware_text {
+                body = body.child(div().px(px(18.)).pb(px(12.)).child(text.clone()));
+            }
+            if let Some(feedback) = feedback {
+                body = body.child(div().px(px(18.)).pb(px(12.)).child(feedback));
+            }
         }
 
         // BIOS snapshot: a collapsed row.
@@ -406,98 +507,64 @@ impl ScreenView {
             card_row(p)
                 .id("bios-row")
                 .cursor_pointer()
-                .on_click({
-                    let view = view.clone();
-                    move |_, _, cx| {
-                        view.update(cx, |this, cx| {
-                            this.channels.bios_open = !this.channels.bios_open;
-                            cx.notify();
-                        })
-                    }
-                })
-                .child(icon(if open { NcIcon::Down } else { NcIcon::Right }, p.fg))
+                .hover(|row| row.bg(p.hover))
+                .on_click(act(&view, |this, _, _| {
+                    this.channels.bios_open = !this.channels.bios_open;
+                }))
+                .child(icon(
+                    if open { NcIcon::Down } else { NcIcon::Right },
+                    p.fg_dim,
+                ))
                 .child(
-                    div()
-                        .font_weight(FontWeight::BOLD)
-                        .child(detail.bios.title.clone()),
+                    v_flex()
+                        .flex_1()
+                        .min_w_0()
+                        .child(heading(detail.bios.title.clone()))
+                        .child(caption(detail.bios.text.clone(), p)),
+                )
+                .children(
+                    detail
+                        .bios
+                        .saved
+                        .clone()
+                        .map(|saved| caption(saved, p).flex_none()),
                 ),
         );
         if open {
-            body = body.child(card_row(p).child(caption(detail.bios.text.clone(), p)));
-            if let Some(saved) = &detail.bios.saved {
-                body = body.child(card_row(p).child(caption(saved.clone(), p)));
-            }
             if let Some((temperature, duty)) = &detail.bios.columns {
                 body = body.child(
-                    card_row(p)
+                    h_flex()
+                        .px(px(18.))
+                        .py(px(6.))
+                        .gap(px(12.))
+                        .border_t_1()
+                        .border_color(p.border)
                         .text_size(px(12.))
+                        .line_height(px(16.))
                         .font_weight(FontWeight::BOLD)
                         .text_color(p.fg_dim)
-                        .child(div().flex_1().child(temperature.clone()))
+                        .child(div().w(px(120.)).child(temperature.clone()))
                         .child(div().flex_1().child(duty.clone())),
                 );
             }
             for (temperature, duty) in &detail.bios.rows {
                 body = body.child(
                     card_row(p)
-                        .child(div().flex_1().child(temperature.clone()))
+                        .min_h(px(36.))
+                        .py(px(0.))
+                        .child(div().w(px(120.)).child(temperature.clone()))
                         .child(div().flex_1().child(duty.clone())),
                 );
             }
         }
-
-        let mut column = card(p).flex_1().min_w_0().child(body);
-        if let Some(dialog) = &detail.release_dialog {
-            let (cancel, confirm) = (view.clone(), view.clone());
-            column = column.child(
-                card_row(p)
-                    .bg(p.warning_tint)
-                    .child(
-                        v_flex()
-                            .flex_1()
-                            .text_color(p.fg)
-                            .child(
-                                div()
-                                    .font_weight(FontWeight::BOLD)
-                                    .child(dialog.title.clone()),
-                            )
-                            .child(dialog.text.clone()),
-                    )
-                    .child(
-                        Button::new("release-cancel")
-                            .small()
-                            .label(dialog.cancel.clone())
-                            .on_click(move |_, _, cx| {
-                                cancel.update(cx, |this, cx| {
-                                    this.channels.cancel_release();
-                                    cx.notify();
-                                })
-                            }),
-                    )
-                    .child(
-                        Button::new("release-confirm")
-                            .small()
-                            .danger()
-                            .label(dialog.confirm.clone())
-                            .on_click(move |_, _, cx| {
-                                confirm.update(cx, |this, cx| {
-                                    let state = this.state(cx);
-                                    if let Some(command) = this.channels.confirm_release(&state) {
-                                        this.send(command);
-                                    }
-                                    cx.notify();
-                                })
-                            }),
-                    ),
-            );
-        }
-        column.into_any_element()
+        card(p).flex_1().min_w_0().child(body).into_any_element()
     }
 
     fn curve_section(
         &mut self,
         detail: &ChannelDetail,
         curve: &CurveDetail,
+        feedback: Option<Div>,
         p: &Palette,
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -522,74 +589,8 @@ impl ScreenView {
             window,
             cx,
         );
-        let input_open = self.open_picker.as_deref() == Some("curve-input");
-        let fields = h_flex()
-            .w_full()
-            .gap(px(12.))
-            .items_end()
-            .child(
-                v_flex()
-                    .flex_1()
-                    .gap(px(4.))
-                    .child(caption(curve.input.label.clone(), p))
-                    .child({
-                        let view = view.clone();
-                        Button::new("curve-input")
-                            .small()
-                            .label(format!("{}  {}", curve.input.name, curve.input.value))
-                            .disabled(!enabled)
-                            .on_click(move |_, _, cx| {
-                                view.update(cx, |this, cx| {
-                                    this.open_picker =
-                                        if this.open_picker.as_deref() == Some("curve-input") {
-                                            None
-                                        } else {
-                                            Some("curve-input".to_owned())
-                                        };
-                                    cx.notify();
-                                })
-                            })
-                    }),
-            )
-            .child(
-                v_flex()
-                    .w(px(150.))
-                    .gap(px(4.))
-                    .child(caption(curve.smoothing_label.clone(), p))
-                    .child(
-                        h_flex()
-                            .gap(px(6.))
-                            .items_center()
-                            .child(
-                                div()
-                                    .w(px(60.))
-                                    .child(Input::new(&smoothing).disabled(!enabled)),
-                            )
-                            .child(caption(curve.smoothing_unit.clone(), p)),
-                    ),
-            )
-            .child(
-                v_flex()
-                    .w(px(150.))
-                    .gap(px(4.))
-                    .child(caption(curve.step_label.clone(), p))
-                    .child(
-                        h_flex()
-                            .gap(px(6.))
-                            .items_center()
-                            .child(div().w(px(60.)).child(Input::new(&step).disabled(!enabled)))
-                            .child(caption(curve.step_unit.clone(), p)),
-                    ),
-            );
-        let mut section = v_flex()
-            .w_full()
-            .gap(px(8.))
-            .px(px(18.))
-            .py(px(12.))
-            .border_t_1()
-            .border_color(p.border)
-            .child(fields);
-        if input_open {
+        let input_open = enabled && self.open_picker.as_deref() == Some("curve-input");
+        let picker = input_open.then(|| {
             let selected = Some(curve.input.sensor.clone());
             let rows: Vec<PickRow> = self
                 .picker_rows(selected, None, cx)
@@ -604,26 +605,128 @@ impl ScreenView {
                 this.open_picker = None;
                 cx.notify();
             });
-            section = section.child(self.picker_list("curve-input", rows, pick, p, window, cx));
-        }
-        section = section
-            .child(self.curve_plot(&curve.plot, p, window, cx))
+            self.picker_list("curve-input", rows, pick, p, window, cx)
+        });
+        let input_select = select_trigger(
+            "curve-input",
+            curve.input.name.clone(),
+            Some(curve.input.value.clone().into()),
+            false,
+            enabled,
+            p.track,
+        )
+        .when(enabled, |trigger| {
+            trigger.on_click(act(&view, |this, _, _| {
+                this.open_picker = if this.open_picker.as_deref() == Some("curve-input") {
+                    None
+                } else {
+                    Some("curve-input".to_owned())
+                };
+            }))
+        });
+        // The label wraps: an Italian label is longer than its field at the minimum window.
+        let field = |label: String, control: AnyElement, grow: f32| {
+            let mut column = v_flex()
+                .flex_1()
+                .min_w(px(if grow > 1. { 0. } else { 118. }))
+                .gap(px(3.))
+                .child(caption(label, p))
+                .child(control);
+            column.style().flex_grow = Some(grow);
+            column
+        };
+        let help = |id: &'static str, text: String, column: Div| {
+            column
+                .id(id)
+                .tooltip(move |window, cx| Tooltip::new(text.clone()).build(window, cx))
+        };
+        let fields = h_flex()
+            .w_full()
+            .px(px(18.))
+            .pb(px(12.))
+            .gap(px(12.))
+            .items_end()
+            .child(field(
+                curve.input.label.clone(),
+                with_popover(input_select, picker).into_any_element(),
+                2.,
+            ))
+            .child(help(
+                "curve-smoothing",
+                curve.smoothing_help.clone(),
+                field(
+                    curve.smoothing_label.clone(),
+                    Self::field_input(
+                        &smoothing,
+                        Some(curve.smoothing_unit.clone().into()),
+                        false,
+                        p,
+                    )
+                    .disabled(!enabled)
+                    .into_any_element(),
+                    1.,
+                ),
+            ))
+            .child(help(
+                "curve-step",
+                curve.step_help.clone(),
+                field(
+                    curve.step_label.clone(),
+                    Self::field_input(&step, Some(curve.step_unit.clone().into()), false, p)
+                        .disabled(!enabled)
+                        .into_any_element(),
+                    1.,
+                ),
+            ));
+
+        let readout = &curve.readout;
+        let mut section = v_flex()
+            .w_full()
+            .child(fields)
+            .child(
+                div()
+                    .px(px(18.))
+                    .pb(px(12.))
+                    .child(self.curve_plot(&curve.plot, p, window, cx)),
+            )
             .child(
                 h_flex()
-                    .gap(px(18.))
-                    .text_size(px(13.))
-                    .child(curve.readout.input.clone())
-                    .child(curve.readout.smoothing.clone())
-                    .child(curve.readout.curve.clone())
+                    .px(px(18.))
+                    .pt(px(6.))
+                    .pb(px(12.))
+                    .gap_x(px(18.))
+                    .gap_y(px(6.))
+                    .flex_wrap()
+                    .items_center()
                     .child(
-                        div()
-                            .font_weight(FontWeight::BOLD)
-                            .child(curve.readout.duty.clone()),
-                    ),
+                        h_flex()
+                            .flex_none()
+                            .gap(px(4.))
+                            .child(readout_text(&readout.input, &readout.values[0]))
+                            .child(div().text_color(p.fg_dim).child(readout.smoothing.clone())),
+                    )
+                    .child(readout_text(&readout.curve, &readout.values[1]))
+                    .child(readout_text(&readout.duty, &readout.values[2]))
+                    .child(div().flex_1())
+                    .children(feedback),
             );
 
         // The points as number inputs: the plot and the inputs edit the same data.
-        let mut points = v_flex().gap(px(4.));
+        let mut points = h_flex()
+            .px(px(18.))
+            .pb(px(12.))
+            .gap_x(px(2.))
+            .gap_y(px(6.))
+            .flex_wrap()
+            .items_center()
+            .child(
+                v_flex()
+                    .w(px(50.))
+                    .flex_none()
+                    .gap(px(15.))
+                    .child(caption(locale.tr("channels.point_input"), p).truncate())
+                    .child(caption(locale.tr("channels.point_duty"), p).truncate()),
+            );
         for (index, (x, y)) in curve.points.iter().enumerate() {
             let xs = self.input(
                 InputKey::CurvePoint(channel.clone(), index, 0),
@@ -639,61 +742,62 @@ impl ScreenView {
                 window,
                 cx,
             );
-            let selected = curve.plot.selected == index;
+            // The inputs of the selected point have a 2 px accent outline.
+            let outline = if curve.plot.selected == index {
+                p.accent
+            } else {
+                gpui::transparent_black()
+            };
+            let cell = |state, unit: SharedString| {
+                div()
+                    .w(px(78.))
+                    .flex_none()
+                    .rounded(px(9.))
+                    .border_2()
+                    .border_color(outline)
+                    .child(Self::field_input(state, Some(unit), true, p).disabled(!enabled))
+            };
             points = points.child(
-                h_flex()
-                    .gap(px(8.))
-                    .items_center()
-                    .when(selected, |row| row.bg(p.accent_tint))
-                    .rounded(px(6.))
-                    .child(
-                        div()
-                            .w(px(24.))
-                            .text_color(p.fg_dim)
-                            .child(format!("{}", index + 1)),
-                    )
-                    .child(div().w(px(80.)).child(Input::new(&xs).disabled(!enabled)))
-                    .child(caption(locale.tr("channels.point_input"), p))
-                    .child(div().w(px(80.)).child(Input::new(&ys).disabled(!enabled)))
-                    .child(caption(locale.tr("channels.point_duty"), p)),
+                v_flex()
+                    .flex_none()
+                    .child(cell(&xs, curve.input_unit.clone().into()))
+                    .child(cell(&ys, "%".into())),
             );
         }
         section = section.child(points).child(
             h_flex()
-                .gap(px(8.))
+                .px(px(18.))
+                .pb(px(12.))
+                .gap(px(6.))
+                .child(
+                    Self::small_button(
+                        "point-add",
+                        locale.tr("channels.add_point"),
+                        Some(NcIcon::Plus),
+                    )
+                    .disabled(!enabled || !curve.can_add)
+                    .on_click(act(&view, |this, _, cx| {
+                        let state = this.state(cx);
+                        if let Some(command) = this.channels.add_point(&state, None) {
+                            this.send(command);
+                        }
+                    })),
+                )
                 .child({
-                    let view = view.clone();
-                    Button::new("point-add")
-                        .small()
-                        .label(locale.tr("channels.add_point"))
-                        .disabled(!enabled || !curve.can_add)
-                        .on_click(move |_, _, cx| {
-                            view.update(cx, |this, cx| {
-                                let state = this.state(cx);
-                                if let Some(command) = this.channels.add_point(&state, None) {
-                                    this.send(command);
-                                }
-                                cx.notify();
-                            })
-                        })
-                })
-                .child({
-                    let view = view.clone();
                     let selected = curve.plot.selected;
-                    Button::new("point-remove")
-                        .small()
-                        .label(locale.tr("channels.remove_point"))
-                        .disabled(!enabled || !curve.can_remove)
-                        .on_click(move |_, _, cx| {
-                            view.update(cx, |this, cx| {
-                                let state = this.state(cx);
-                                if let Some(command) = this.channels.remove_point(&state, selected)
-                                {
-                                    this.send(command);
-                                }
-                                cx.notify();
-                            })
-                        })
+                    Self::small_button(
+                        "point-remove",
+                        locale.tr("channels.remove_point"),
+                        Some(NcIcon::Trash),
+                    )
+                    .ghost()
+                    .disabled(!enabled || !curve.can_remove)
+                    .on_click(act(&view, move |this, _, cx| {
+                        let state = this.state(cx);
+                        if let Some(command) = this.channels.remove_point(&state, selected) {
+                            this.send(command);
+                        }
+                    }))
                 }),
         );
         section.into_any_element()
@@ -711,7 +815,14 @@ impl ScreenView {
         let scale = plot.scale;
         let frac_x = move |x: f64| (((x - scale.x_min) / scale.span()) as f32).clamp(0.0, 1.0);
         let frac_y = |y: f64| 1.0 - (y / 100.0) as f32;
-        let (line, grid, fg, dash, floor_color) = (p.series[0], p.border, p.fg, p.fg_dim, p.fg_dim);
+        let (line, grid, axis, fg, dash, card_color) = (
+            p.series[0],
+            p.border,
+            p.border_strong,
+            p.fg,
+            p.fg_dim,
+            p.card,
+        );
         let points = plot.points.clone();
         let floor = plot.floor.as_ref().map(|f| f.0);
         let operating = plot.operating.as_ref().map(|o| (o.x, o.y));
@@ -730,19 +841,21 @@ impl ScreenView {
                 // The grid is the snap grid: every 5 units on x, every 20 % on y.
                 let mut x = (x_min / 5.0).ceil() * 5.0;
                 while x <= x_max {
-                    polyline(
-                        window,
-                        &[
-                            at(bounds.origin, px_x(x), 0.0),
-                            at(bounds.origin, px_x(x), h),
-                        ],
-                        1.0,
-                        grid,
-                        None,
-                    );
+                    if x > x_min {
+                        polyline(
+                            window,
+                            &[
+                                at(bounds.origin, px_x(x), 0.0),
+                                at(bounds.origin, px_x(x), h),
+                            ],
+                            1.0,
+                            grid,
+                            None,
+                        );
+                    }
                     x += 5.0;
                 }
-                for step in 0..=5 {
+                for step in 0..5 {
                     let y = h * step as f32 / 5.0;
                     polyline(
                         window,
@@ -757,18 +870,30 @@ impl ScreenView {
                         at(bounds.origin, 0.0, px_y(floor)),
                         size(px(w), px(h - px_y(floor))),
                     );
-                    hatch(window, zone, 8.0, floor_color.opacity(0.35));
+                    hatch(window, zone, 7.0, dash.opacity(0.3));
                     polyline(
                         window,
                         &[
                             at(bounds.origin, 0.0, px_y(floor)),
                             at(bounds.origin, w, px_y(floor)),
                         ],
-                        1.5,
+                        1.0,
                         dash,
-                        Some((6.0, 4.0)),
+                        Some((5.0, 4.0)),
                     );
                 }
+                // The axes: the left and the bottom edge.
+                polyline(
+                    window,
+                    &[
+                        at(bounds.origin, 0.0, 0.0),
+                        at(bounds.origin, 0.0, h),
+                        at(bounds.origin, w, h),
+                    ],
+                    1.0,
+                    axis,
+                    None,
+                );
                 // The Curve is horizontal before the first point and after the last.
                 if let (Some(first), Some(last)) = (points.first(), points.last()) {
                     let mut trace = vec![at(bounds.origin, 0.0, px_y(first.1))];
@@ -788,8 +913,8 @@ impl ScreenView {
                             at(bounds.origin, px_x(x), h),
                         ],
                         1.0,
-                        dash,
-                        Some((4.0, 3.0)),
+                        fg,
+                        Some((3.0, 3.0)),
                     );
                     polyline(
                         window,
@@ -798,13 +923,20 @@ impl ScreenView {
                             at(bounds.origin, px_x(x), px_y(y)),
                         ],
                         1.0,
-                        dash,
-                        Some((4.0, 3.0)),
+                        fg,
+                        Some((3.0, 3.0)),
                     );
                     crate::widgets::paint::disc(
                         window,
                         at(bounds.origin, px_x(x), px_y(y)),
-                        6.0,
+                        7.0,
+                        card_color,
+                        None,
+                    );
+                    crate::widgets::paint::disc(
+                        window,
+                        at(bounds.origin, px_x(x), px_y(y)),
+                        5.0,
                         fg,
                         None,
                     );
@@ -828,18 +960,19 @@ impl ScreenView {
             .relative()
             .w_full()
             .h(px(PLOT_HEIGHT))
-            .rounded(px(6.))
-            .bg(p.view)
-            .text_size(px(11.))
+            .text_size(px(12.))
+            .line_height(px(16.))
             .text_color(p.fg_dim);
         for step in 0..=5 {
             let duty = 100 - step * 20;
             frame = frame.child(
                 div()
                     .absolute()
-                    .left(px(4.))
+                    .left(px(0.))
+                    .w(px(LEFT - 6.0))
+                    .text_right()
                     .top(px(
-                        TOP - 7.0 + (PLOT_HEIGHT - TOP - BOTTOM) * step as f32 / 5.0
+                        TOP - 8.0 + (PLOT_HEIGHT - TOP - BOTTOM) * step as f32 / 5.0
                     ))
                     .child(format!("{duty}")),
             );
@@ -851,69 +984,96 @@ impl ScreenView {
                     .absolute()
                     .left(px(LEFT))
                     .right(px(RIGHT))
-                    .bottom(px(BOTTOM - 16.0))
+                    .bottom(px(BOTTOM - 4.0))
                     .child(
                         div()
                             .absolute()
                             .left(relative(frac_x(x)))
-                            .ml(px(-8.))
+                            .ml(px(-20.))
+                            .w(px(40.))
+                            .text_center()
                             .child(format!("{x:.0}")),
                     ),
             );
             x += 10.0;
         }
-        frame = frame
-            .child(
-                div()
-                    .absolute()
-                    .left(px(4.))
-                    .top(px(0.))
-                    .child(plot.y_title.clone()),
-            )
-            .child(
-                div()
-                    .absolute()
-                    .right(px(RIGHT))
-                    .bottom(px(2.))
-                    .child(plot.x_title.clone()),
-            );
+        frame = frame.child(
+            div()
+                .absolute()
+                .right(px(RIGHT))
+                .bottom(px(0.))
+                .child(plot.x_title.clone()),
+        );
+        area = area.child(
+            div()
+                .absolute()
+                .left(px(6.))
+                .top(px(2.))
+                .child(plot.y_title.clone()),
+        );
         if let Some(floor) = &plot.floor {
-            frame = frame.child(
+            area = area.child(
                 div()
                     .absolute()
-                    .left(px(LEFT + 6.0))
-                    .bottom(px(BOTTOM + 4.0))
+                    .right(px(6.))
+                    .top(relative(frac_y(floor.0)))
+                    .mt(px(5.))
+                    .px(px(4.))
+                    .py(px(2.))
+                    .rounded(px(4.))
+                    .bg(p.card)
                     .child(floor.1.clone()),
             );
         }
         if let Some(operating) = &plot.operating {
-            frame = frame.child(
-                div()
-                    .absolute()
-                    .right(px(RIGHT + 6.0))
-                    .top(px(TOP + 4.0))
-                    .font_weight(FontWeight::BOLD)
-                    .text_color(p.fg)
-                    .child(operating.label.clone()),
-            );
+            // The label sits at the right of the point and above it, or at the other side
+            // near the right or the top edge of the plot.
+            let (fx, fy) = (frac_x(operating.x), frac_y(operating.y));
+            let label = div()
+                .absolute()
+                .px(px(8.))
+                .py(px(3.))
+                .rounded(px(6.))
+                .bg(p.fg)
+                .text_color(p.card)
+                .font_weight(FontWeight::BOLD)
+                .whitespace_nowrap()
+                .child(operating.label.clone());
+            let label = if fx > 0.6 {
+                label.right(relative(1.0 - fx)).mr(px(10.))
+            } else {
+                label.left(relative(fx)).ml(px(10.))
+            };
+            area = area.child(if fy < 0.15 {
+                label.top(relative(fy)).mt(px(8.))
+            } else {
+                label.top(relative(fy)).mt(px(-28.))
+            });
         }
 
-        // Handles: a circle of radius 6 on each point.
+        // Handles: a circle of radius 6 on each point. The selected one has a halo.
         for (index, (x, y)) in plot.points.iter().enumerate() {
             let selected = plot.selected == index;
+            let dot = div()
+                .size(px(14.))
+                .rounded_full()
+                .border_2()
+                .when(selected, |dot| dot.bg(p.series[0]).border_color(p.card))
+                .when(!selected, |dot| dot.bg(p.card).border_color(p.series[0]));
             let handle = div()
                 .id(("curve-handle", index))
                 .absolute()
                 .left(relative(frac_x(*x)))
                 .top(relative(frac_y(*y)))
-                .ml(px(-6.))
-                .mt(px(-6.))
-                .size(px(12.))
+                .ml(px(-11.))
+                .mt(px(-11.))
+                .size(px(22.))
                 .rounded_full()
-                .border_2()
-                .border_color(p.series[0])
-                .when(selected, |h| h.bg(p.series[0]))
-                .when(!selected, |h| h.bg(p.card))
+                .flex()
+                .items_center()
+                .justify_center()
+                .when(selected, |h| h.bg(p.accent_tint))
+                .child(dot)
                 .when(plot.handles, |h| {
                     h.cursor_pointer().on_mouse_down(MouseButton::Left, {
                         let view = view.clone();
@@ -938,7 +1098,9 @@ impl ScreenView {
                         }
                     })
                 });
-            area = area.child(handle);
+            if plot.handles {
+                area = area.child(handle);
+            }
         }
 
         if plot.handles {

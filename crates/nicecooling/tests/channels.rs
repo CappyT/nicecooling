@@ -55,10 +55,7 @@ fn channels_states() {
     let pump = &ready.rows[1];
     assert_eq!(pump.line2, "Curve on Water temperature");
     assert_eq!(pump.pump_tag.as_deref(), Some("Pump channel"));
-    assert_eq!(
-        (pump.rpm.as_str(), pump.duty.as_str()),
-        ("2840 rpm", "62 %")
-    );
+    assert_eq!((pump.rpm.as_str(), pump.duty.as_str()), ("2840", "62 %"));
     assert!(pump.no_signal.is_none());
     // Without a selection the first Channel opens: "Chassis Fan 1" has the Hardware curve.
     let detail = ready.detail.as_ref().unwrap();
@@ -707,7 +704,7 @@ async fn fan_sensor_from_property() {
         .fan_sensor = Some("asusec_fan1".into());
     let rows = model(&state, &ChannelsUi::default()).rows;
     let pump = rows.iter().find(|row| row.id == "nct6798_pwm6").unwrap();
-    assert_eq!(pump.rpm, "671 rpm");
+    assert_eq!(pump.rpm, "671");
     state
         .snapshot
         .channels

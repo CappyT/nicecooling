@@ -17,7 +17,7 @@ use crate::screens::sensors::{
     DerivedEditor, DerivedEditorModel, FUNCTIONS, SensorRow, SensorSection, SensorsModel,
     SensorsState,
 };
-use crate::screens::ui::{caption, card, page, severity_icon};
+use crate::screens::ui::{caption, card, page, popover, severity_icon};
 use crate::tokens::Palette;
 use crate::widgets::paint::{at, polyline};
 
@@ -503,16 +503,10 @@ impl ScreenView {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let input = self.input(key, value, &placeholder, window, cx);
-        h_flex()
-            .mx(px(18.))
-            .mb(px(8.))
-            .p(px(8.))
+        popover(p)
             .w(px(280.))
-            .rounded(px(12.))
-            .bg(p.card)
-            .border_1()
-            .border_color(p.border)
-            .child(div().w_full().child(Input::new(&input)))
+            .p(px(6.))
+            .child(Self::field_input(&input, None, false, p))
             .into_any_element()
     }
 

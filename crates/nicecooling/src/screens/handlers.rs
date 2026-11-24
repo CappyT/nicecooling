@@ -138,6 +138,19 @@ impl ScreenView {
                     self.send(command);
                 }
             }
+            InputKey::FixedDuty(channel) if commits => {
+                let state = self.state(cx);
+                let current = state.snapshot.channels.get(channel).map(|c| c.fixed_duty);
+                if let Some(duty) = parse(&value).filter(|duty| Some(duty.round()) != current) {
+                    let model = self.model.clone();
+                    let command = with_screen_input(&model, cx, |input| {
+                        self.channels.set_fixed_duty(input, duty)
+                    });
+                    if let Some(command) = command {
+                        self.send(command);
+                    }
+                }
+            }
             InputKey::CalibrationCell(loop_id, row, _) if commits => {
                 let rpm = self.number_of(&InputKey::CalibrationCell(loop_id.clone(), *row, 0), cx);
                 let flow = self.number_of(&InputKey::CalibrationCell(loop_id.clone(), *row, 1), cx);

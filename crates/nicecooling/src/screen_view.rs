@@ -41,6 +41,8 @@ pub enum InputKey {
     LoopRename,
     HistorySearch,
     PickerSearch(String),
+    /// The Fixed Duty of a Channel.
+    FixedDuty(String),
     /// `(channel, point, 0 for the Input, 1 for the Duty)`.
     CurvePoint(String, usize, usize),
     CalibrationCell(String, usize, usize),

@@ -333,6 +333,7 @@ pub struct ChannelRow {
     /// The triangle: the Input of the Curve is lost.
     pub line2_warning: bool,
     pub pump_tag: Option<String>,
+    /// The speed without its unit: the column title has it.
     pub rpm: String,
     /// "no speed signal", with the dashed-circle icon.
     pub no_signal: Option<String>,
@@ -392,11 +393,15 @@ pub struct Readout {
     pub smoothing: String,
     pub curve: String,
     pub duty: String,
+    /// The values of `input`, `curve` and `duty`: the view shows them in bold.
+    pub values: [String; 3],
 }
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct CurveDetail {
     pub input: InputField,
+    /// "°C": the unit of the Input, for the point inputs.
+    pub input_unit: String,
     pub smoothing_label: String,
     pub smoothing_unit: String,
     pub smoothing_s: f64,
@@ -465,6 +470,9 @@ pub struct ChannelDetail {
 #[derive(Clone, Debug, PartialEq)]
 pub struct ChannelsModel {
     pub state: ChannelsState,
+    /// The title of the list card, and the Board as its caption.
+    pub title: String,
+    pub board: String,
     pub empty_text: String,
     pub empty_link: String,
     pub rows: Vec<ChannelRow>,
@@ -501,6 +509,12 @@ impl ChannelsModel {
         };
         Self {
             state: ui_state,
+            title: locale.tr("nav.channels"),
+            board: state
+                .snapshot
+                .board
+                .as_ref()
+                .map_or_else(String::new, |board| board.model.clone()),
             empty_text: locale.tr("channels.empty.text"),
             empty_link: locale.tr("channels.empty.link"),
             rows,
@@ -556,7 +570,7 @@ fn row_of(
         line2,
         line2_warning: warning,
         pump_tag: channel.is_pump.then(|| locale.tr("channels.pump_tag")),
-        rpm: optional_value(locale, rpm, "rpm"),
+        rpm: rpm.map_or_else(|| "--".to_owned(), |v| number(locale, v, "rpm")),
         no_signal: rpm.is_none().then(|| locale.tr("channels.no_signal")),
         duty: optional_value(locale, duty, "%"),
         selected: current == Some(&channel.id),
@@ -736,6 +750,11 @@ fn curve_detail(
         })
         .collect();
     let unit_label = crate::screens::format::unit_text(unit);
+    let readout_values = [
+        optional_value(locale, readout.map(|(input, _)| input), unit),
+        optional_value(locale, readout.map(|(_, target)| target), "%"),
+        optional_value(locale, duty_now, "%"),
+    ];
     let plot = CurvePlot {
         accessible: locale.fmt(
             "channels.plot.accessible",
@@ -789,29 +808,16 @@ fn curve_detail(
             "channels.help.step",
             &[("value", &number(locale, step, "%"))],
         ),
+        input_unit: unit_label.to_owned(),
         readout: Readout {
-            input: locale.fmt(
-                "channels.readout.input",
-                &[(
-                    "value",
-                    &optional_value(locale, readout.map(|(input, _)| input), unit),
-                )],
-            ),
+            values: readout_values.clone(),
+            input: locale.fmt("channels.readout.input", &[("value", &readout_values[0])]),
             smoothing: locale.fmt(
                 "channels.readout.smoothing",
                 &[("value", &number(locale, smoothing, "%"))],
             ),
-            curve: locale.fmt(
-                "channels.readout.curve",
-                &[(
-                    "value",
-                    &optional_value(locale, readout.map(|(_, target)| target), "%"),
-                )],
-            ),
-            duty: locale.fmt(
-                "channels.readout.duty",
-                &[("value", &optional_value(locale, duty_now, "%"))],
-            ),
+            curve: locale.fmt("channels.readout.curve", &[("value", &readout_values[1])]),
+            duty: locale.fmt("channels.readout.duty", &[("value", &readout_values[2])]),
         },
         can_add: points.len() < MAX_POINTS,
         can_remove: points.len() > MIN_POINTS,
@@ -848,6 +854,7 @@ fn bios_panel(input: &ScreenInput<'_>, ui: &ChannelsUi, channel: &ChannelInfo) -
                 )
             })
             .collect(),
-        open: ui.bios_open,
+        // With the Hardware curve the snapshot is what the Channel runs: it always shows.
+        open: ui.bios_open || channel.control == Control::Hardware,
     }
 }
