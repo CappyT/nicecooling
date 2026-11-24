@@ -321,6 +321,7 @@ impl ScreenView {
             (OFF_IN_STANDBY, &settings.standby),
         ] {
             let text = match flag {
+                INVERT => settings.invert_text.as_deref(),
                 AUTO_INVERT => Some(settings.auto_invert_text.as_str()),
                 OFF_IN_STANDBY => Some(settings.standby_text.as_str()),
                 _ => None,

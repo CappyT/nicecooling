@@ -1981,6 +1981,45 @@ fn off_in_standby_is_on_while_bit_1_of_the_display_flags_is_clear() {
 }
 
 #[test]
+fn invert_waits_for_the_automatic_invert_to_be_off() {
+    let flags_state =
+        |flags: f64| tweak(|state| set_field(state, "display_flags", FieldValue::Number(flags)));
+    // Bit 3 clear: the automatic invert is on and "Invert" is disabled, with its caption.
+    let on = display(&flags_state(0.0), &DisplayUi::default()).settings;
+    assert!(on.auto_invert.on && on.auto_invert.writable);
+    assert!(!on.invert.writable);
+    assert_eq!(
+        on.invert_text.as_deref(),
+        Some("Turn automatic invert off to set it by hand.")
+    );
+    // Bit 3 set: the automatic invert is off, "Invert" is writable and shows bit 2.
+    let off = display(&flags_state(8.0), &DisplayUi::default()).settings;
+    assert!(!off.auto_invert.on && off.invert.writable && off.invert_text.is_none());
+    assert!(!off.invert.on);
+    assert!(
+        display(&flags_state(12.0), &DisplayUi::default())
+            .settings
+            .invert
+            .on
+    );
+    // A device that is not writable disables both.
+    let mut locked = flags_state(8.0);
+    set_writable(&mut locked, "display_flags", false);
+    let settings = display(&locked, &DisplayUi::default()).settings;
+    assert!(!settings.invert.writable && !settings.auto_invert.writable);
+    // Italian.
+    let italian = DisplayModel::build(
+        &input(&flags_state(0.0), &Feedback::default(), IT),
+        &DisplayUi::default(),
+        LEAKSHIELD,
+    );
+    assert_eq!(
+        italian.settings.invert_text.as_deref(),
+        Some("Disattiva l'inversione automatica per impostarla a mano.")
+    );
+}
+
+#[test]
 fn leakshield_display_labels() {
     // The daemon has no logo upload, no separate switch for the display off when inactive (the brightness "Off" does it) and no sensor in a page icon.
     let missing = labels::missing_labels(

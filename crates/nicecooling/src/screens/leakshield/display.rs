@@ -372,6 +372,8 @@ pub struct SettingsCard {
     pub interval_writable: bool,
     pub rotate: Switch,
     pub invert: Switch,
+    /// Why "Invert" is disabled: the automatic invert is on.
+    pub invert_text: Option<String>,
     pub auto_invert: Switch,
     pub auto_invert_text: String,
     pub standby: Switch,
@@ -637,7 +639,13 @@ impl DisplayModel {
             interval: interval.map_or_else(String::new, |v| plain(locale, v)),
             interval_writable: auto_page && device.access("display_page_time").writable,
             rotate: flag("leakshield.display.rotate", ROTATE.is_on(flags)),
-            invert: flag("leakshield.display.invert", INVERT.is_on(flags)),
+            invert: Switch {
+                writable: flag_access.writable && !AUTO_INVERT.is_on(flags),
+                ..flag("leakshield.display.invert", INVERT.is_on(flags))
+            },
+            invert_text: AUTO_INVERT
+                .is_on(flags)
+                .then(|| locale.tr("leakshield.display.invert_text")),
             auto_invert: flag("leakshield.display.auto_invert", AUTO_INVERT.is_on(flags)),
             auto_invert_text: locale.tr("leakshield.display.auto_invert_text"),
             standby: flag(

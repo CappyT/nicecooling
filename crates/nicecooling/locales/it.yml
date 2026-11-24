@@ -1065,6 +1065,7 @@ leakshield:
     interval_text: "Da 1 a 29 s."
     rotate: "Ruota di 180 gradi"
     invert: "Inverti"
+    invert_text: "Disattiva l'inversione automatica per impostarla a mano."
     auto_invert: "Inversione automatica"
     auto_invert_text: "Il display si inverte per metà del tempo. Questo rallenta l'usura dei pixel OLED."
     off_standby: "Spento in standby"
