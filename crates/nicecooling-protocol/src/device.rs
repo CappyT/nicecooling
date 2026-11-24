@@ -43,8 +43,9 @@ impl std::error::Error for DeviceError {}
 /// HID interface. Every method takes `&self`, so one thread can block in `read_input` while
 /// another one sets a feature report.
 pub trait HidTransport: Send + Sync {
-    /// Waits for the next input report that the device sends and returns it with its report ID.
-    /// The daemon reads report 1 with this call and never asks for it with an ioctl.
+    /// Returns the newest input report that the device sent, with its report ID. It waits up to
+    /// `timeout` when no report is queued. The daemon reads report 1 with this call and never asks
+    /// for it with an ioctl.
     fn read_input(&self, timeout: Duration) -> Result<Vec<u8>, DeviceError>;
 
     /// Feature read. `len` is the report size with its report ID byte. The answer starts with

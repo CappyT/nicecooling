@@ -16,6 +16,9 @@ use rustix::ioctl::{Ioctl, IoctlOutput, Opcode};
 /// Interface 1 of the Leakshield is the HID interface (`docs/protocol/leakshield.md`).
 pub const HID_INTERFACE: u8 = 1;
 
+/// `HIDRAW_BUFFER_SIZE` of the kernel: the input reports that hidraw queues for each reader.
+const HIDRAW_QUEUE: usize = 64;
+
 const HIDIOC_GROUP: u32 = b'H' as u32;
 const HIDIOCSFEATURE: u32 = 0x06;
 const HIDIOCGFEATURE: u32 = 0x07;
@@ -101,8 +104,8 @@ impl Hidraw {
     }
 }
 
-impl HidTransport for Hidraw {
-    fn read_input(&self, timeout: Duration) -> Result<Vec<u8>, DeviceError> {
+impl Hidraw {
+    fn read_one(&self, timeout: Duration) -> Result<Vec<u8>, DeviceError> {
         let timeout = Timespec {
             tv_sec: timeout.as_secs() as _,
             tv_nsec: timeout.subsec_nanos() as _,
@@ -125,6 +128,23 @@ impl HidTransport for Hidraw {
         })?;
         buf.truncate(n);
         Ok(buf)
+    }
+}
+
+impl HidTransport for Hidraw {
+    /// Returns the newest queued input report. hidraw queues up to 64 reports for each reader and
+    /// drops new ones while the queue is full. The Leakshield sends report 1 every 500 ms, so a
+    /// reader that reads one report each second gets reports up to 32 s old.
+    fn read_input(&self, timeout: Duration) -> Result<Vec<u8>, DeviceError> {
+        let mut report = self.read_one(timeout)?;
+        for _ in 0..HIDRAW_QUEUE {
+            match self.read_one(Duration::ZERO) {
+                Ok(newer) => report = newer,
+                Err(DeviceError::Timeout) => break,
+                Err(e) => return Err(e),
+            }
+        }
+        Ok(report)
     }
 
     fn get_feature(&self, id: u8, len: usize) -> Result<Vec<u8>, DeviceError> {
@@ -160,6 +180,24 @@ impl HidTransport for Hidraw {
 mod tests {
     use super::*;
     use std::fs;
+
+    #[test]
+    fn read_input_returns_the_newest_queued_report() {
+        let (device, reader) = std::os::unix::net::UnixDatagram::pair().unwrap();
+        let hid = Hidraw {
+            fd: OwnedFd::from(reader),
+        };
+        for n in 1..=3u8 {
+            device.send(&[1, n]).unwrap();
+        }
+        assert_eq!(hid.read_input(Duration::from_secs(1)).unwrap(), [1, 3]);
+        assert!(matches!(
+            hid.read_input(Duration::from_millis(10)),
+            Err(DeviceError::Timeout)
+        ));
+        device.send(&[1, 4]).unwrap();
+        assert_eq!(hid.read_input(Duration::from_secs(1)).unwrap(), [1, 4]);
+    }
 
     #[test]
     fn feature_opcodes_follow_the_kernel_macros() {
