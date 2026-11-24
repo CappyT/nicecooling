@@ -92,6 +92,10 @@ The daemon SHALL also publish, for each Leakshield, the sensors `volume_change`,
 - **WHEN** report 1 is the fw1022 dump
 - **THEN** `pump_head_pressure` reads 101.2 mbar, `supply_voltage` 4.69 V, `air_volume` 108 ml, `water_volume` 162 ml, `feed_rpm` 2500 rpm and `flow` 130 L/h, and `volume_change`, `pressure_change` and `leak_indicator` have no value
 
+#### Scenario: Leak rates of an event entry
+- **WHEN** an event entry of report 1 holds a pressure leak rate of -2 and a volume leak rate of 3
+- **THEN** `GetEvents` returns -0.2 and 0.3 for them
+
 #### Scenario: Counters
 - **WHEN** a client calls `GetCounters` and report 1 holds a pump runtime of 11431 s
 - **THEN** `pump_runtime_s` is 11431

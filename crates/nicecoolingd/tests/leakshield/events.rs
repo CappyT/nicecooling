@@ -82,7 +82,10 @@ fn decode_events_of_simulated_device() {
     assert!(!keys(0).contains(&"pressure") && !keys(0).contains(&"value_1"));
     let mode = &events[1].details;
     assert!(mode.contains(&("pressure", 300.5)));
-    assert!(mode.contains(&("pressure_leak_rate", -2.0)));
+    // An event entry holds the leak rates in 0.1 steps.
+    let detail = |key: &str| mode.iter().find(|d| d.0 == key).map(|d| d.1).unwrap();
+    assert!((detail("pressure_leak_rate") + 0.2).abs() < 1e-9);
+    assert!((detail("volume_leak_rate") - 0.3).abs() < 1e-9);
     assert!(mode.contains(&("procedure_state", 4.0)));
     assert!(!mode.iter().any(|(key, _)| *key == "value_1"));
 }

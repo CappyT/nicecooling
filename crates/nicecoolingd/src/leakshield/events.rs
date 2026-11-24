@@ -86,8 +86,8 @@ fn decode(entry: &EventEntry) -> Event {
         ("mode", entry.mode, 1.0),
         ("procedure_state", entry.procedure_state, 1.0),
         ("pressure", entry.pressure, 0.1),
-        ("pressure_leak_rate", entry.pressure_leak_rate, 1.0),
-        ("volume_leak_rate", entry.volume_leak_rate, 1.0),
+        ("pressure_leak_rate", entry.pressure_leak_rate, 0.1),
+        ("volume_leak_rate", entry.volume_leak_rate, 0.1),
         ("value_1", entry.value_1, 1.0),
         ("value_2", entry.value_2, 1.0),
     ];

@@ -158,7 +158,7 @@ The fw1022 dump holds "no value" for the volume change, the pressure change and 
 
 ### Event list
 
-The event list has 15 entries of 20 bytes at offset 465: time u32 (`device_clock` format), entry id u8, event code u8, Mode i16, procedure state i16, pressure i16 (0.1 mbar), pressure leak rate i16, volume leak rate i16, value 1 i16, value 2 i16. Event code 255 marks an empty entry. The event codes (P3):
+The event list has 15 entries of 20 bytes at offset 465: time u32 (`device_clock` format), entry id u8, event code u8, Mode i16, procedure state i16, pressure i16 (0.1 mbar), pressure leak rate i16 (0.1), volume leak rate i16 (0.1), value 1 i16, value 2 i16. The live volume change at offset 307 has no such factor. Event code 255 marks an empty entry. The event codes (P3):
 
 | Code | Event | Code | Event |
 |---|---|---|---|
