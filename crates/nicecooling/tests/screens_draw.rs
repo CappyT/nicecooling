@@ -579,3 +579,48 @@ fn the_lighting_buttons_are_the_shared_icon_button(cx: &mut TestAppContext) {
         "the Lighting tab draws a raw gpui-component button"
     );
 }
+
+/// The "Alarm raised" label of the pressure card stays in the plot. It is at the left of the
+/// Alarm line, and at its right when the line is near the left edge of the 10 minutes.
+#[gpui::test]
+fn the_alarm_time_stays_in_the_pressure_plot(cx: &mut TestAppContext) {
+    let (model, rig) = start(cx, Language::English);
+    let state = full();
+    for (age_s, at_left) in [(60u64, true), (300, true), (540, false), (590, false)] {
+        let mut snapshot = state.snapshot.clone();
+        let mut leak = alarm(
+            "a1",
+            "leakshield.leak-alarm",
+            LEAKSHIELD,
+            Response::Notify,
+            0,
+        );
+        leak.raised_us = app::now_us() - age_s * 1_000_000;
+        snapshot.alarms = vec![leak];
+        rig.events
+            .send(DaemonEvent::Snapshot(Box::new(snapshot)))
+            .unwrap();
+        cx.run_until_parked();
+        show(cx, &model, Page::Overview);
+        let handle = cx.windows()[0];
+        let mut visual = VisualTestContext::from_window(handle, cx);
+        visual.update(|window, cx| window.draw(cx).clear(cx));
+        let plot = visual.debug_bounds("pressure-plot").expect("the plot");
+        let label = visual.debug_bounds("pressure-raised").expect("the label");
+        assert!(label.size.width > gpui::px(40.), "{age_s} s: {label:?}");
+        assert!(
+            label.left() >= plot.left() && label.right() <= plot.right(),
+            "{age_s} s: the label {label:?} leaves the plot {plot:?}"
+        );
+        assert!(label.top() >= plot.top() && label.bottom() <= plot.bottom());
+        // The Alarm line, to 2 px: the clock moves between the snapshot and the frame.
+        let line = plot.left() + plot.size.width * (1.0 - age_s as f32 / 600.0);
+        if at_left {
+            assert!(label.right() <= line, "{age_s} s: {label:?}, line {line:?}");
+            assert!(label.right() >= line - gpui::px(8.), "{age_s} s: {label:?}");
+        } else {
+            assert!(label.left() >= line, "{age_s} s: {label:?}, line {line:?}");
+            assert!(label.left() <= line + gpui::px(8.), "{age_s} s: {label:?}");
+        }
+    }
+}

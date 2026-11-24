@@ -2,7 +2,7 @@
 
 use gpui::prelude::*;
 use gpui::{
-    AnyElement, Bounds, Context, FontWeight, SharedString, Window, canvas, div, px, relative,
+    AnyElement, AvailableSpace, Bounds, Context, FontWeight, SharedString, Window, canvas, div, px,
 };
 use gpui_component::button::Button;
 use gpui_component::{h_flex, v_flex};
@@ -368,6 +368,7 @@ impl ScreenView {
             .relative()
             .w_full()
             .h(px(PLOT))
+            .debug_selector(|| "pressure-plot".to_owned())
             .text_size(px(12.))
             .line_height(px(16.))
             .text_color(p.fg_dim)
@@ -395,11 +396,31 @@ impl ScreenView {
             plot = plot.child(label(y(*value) + 2.0).left(px(4.)).child(text.clone()));
         }
         if let Some((_, text)) = &card_model.raised {
-            let line = label(2.0).child(text.clone());
-            // An Alarm older than the 10 minutes keeps its time, at the top right.
             plot = plot.child(match raised {
-                Some(t) => line.right(relative(1.0 - fraction(t))).mr(px(6.)),
-                None => line.right_0(),
+                Some(t) => {
+                    // The place of the label needs its width, so the plot lays it out itself.
+                    let text = text.clone();
+                    canvas(
+                        move |bounds: Bounds<gpui::Pixels>, window, cx| {
+                            let mut line = div()
+                                .debug_selector(|| "pressure-raised".to_owned())
+                                .child(text)
+                                .into_any_element();
+                            let size = line.layout_as_root(AvailableSpace::min_size(), window, cx);
+                            let width = f32::from(bounds.size.width);
+                            let left =
+                                raised_label_left(fraction(t) * width, size.width.into(), width);
+                            line.prepaint_at(at(bounds.origin, left, 2.0), window, cx);
+                            line
+                        },
+                        |_, mut line, window, cx| line.paint(window, cx),
+                    )
+                    .absolute()
+                    .size_full()
+                    .into_any_element()
+                }
+                // An Alarm older than the 10 minutes keeps its time, at the top right.
+                None => label(2.0).right_0().child(text.clone()).into_any_element(),
             });
         }
         let mut top = title_header(card_model.title.clone())
@@ -439,6 +460,19 @@ impl ScreenView {
             })
             .unwrap_or_default()
     }
+}
+
+/// Where the label of the Alarm line starts in a plot of `width` px. The label is at the left
+/// of the line, as the comp shows it. An Alarm near the left edge has no room there: its
+/// label is at the right of the line.
+fn raised_label_left(line: f32, label: f32, width: f32) -> f32 {
+    const GAP: f32 = 6.0;
+    let left = if line - GAP - label >= 0.0 {
+        line - GAP - label
+    } else {
+        line + GAP
+    };
+    left.min(width - label).max(0.0)
 }
 
 /// A row of 30 px: the name of the sensor and its value. A sensor without a value is dim.
