@@ -9,7 +9,7 @@ use gpui_component::input::Input;
 use gpui_component::switch::Switch;
 use gpui_component::{Disableable as _, Sizable as _, h_flex, v_flex};
 
-use crate::icons::{NcIcon, icon};
+use crate::icons::{NcIcon, icon, text_icon};
 use crate::model::Severity;
 use crate::screen_view::{InputKey, ScreenView, skeleton};
 use crate::screens::controls::{Pick, act};
@@ -116,7 +116,7 @@ impl ScreenView {
                 footer = footer.child(
                     Button::new("ls-wizard-back")
                         .small()
-                        .icon(icon(NcIcon::Left, p.fg))
+                        .icon(text_icon(NcIcon::Left))
                         .label(label.clone())
                         .on_click(act(&view, move |this, _, _| {
                             this.leakshield.settings.go(step)
@@ -130,7 +130,7 @@ impl ScreenView {
                         .small()
                         .primary()
                         .label(label.clone())
-                        .child(icon(NcIcon::Right, p.alarm_fg))
+                        .child(text_icon(NcIcon::Right))
                         .on_click(act(&view, move |this, _, _| {
                             this.leakshield.settings.go(step)
                         })),

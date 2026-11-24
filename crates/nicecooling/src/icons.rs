@@ -76,7 +76,13 @@ impl IconNamed for NcIcon {
 
 /// An icon of 16 px in `color`.
 pub fn icon(name: NcIcon, color: Hsla) -> Icon {
-    Icon::new(name).with_size(px(16.)).text_color(color)
+    text_icon(name).text_color(color)
+}
+
+/// An icon of 16 px in the color of the text around it. In a button it takes the color of
+/// the label, so a disabled button dims both.
+pub fn text_icon(name: NcIcon) -> Icon {
+    Icon::new(name).with_size(px(16.))
 }
 
 /// An icon of 12 px in `color`, for a caption or a tag.

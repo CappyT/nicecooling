@@ -12,7 +12,7 @@ use tokio::sync::mpsc::UnboundedSender;
 
 use crate::app::AppModel;
 use crate::command::Command;
-use crate::icons::{NcIcon, icon};
+use crate::icons::{NcIcon, icon, text_icon};
 use crate::model::{Link, Severity};
 use crate::screen_view::ScreenView;
 use crate::shell::{Banner, BannerAction, BannerStyle, NavBadge, NavEntry, Page, ShellModel};
@@ -571,7 +571,7 @@ impl Render for ShellView {
             .ghost()
             .size(px(28.))
             .rounded(px(7.))
-            .icon(icon(NcIcon::Menu, p.fg))
+            .icon(text_icon(NcIcon::Menu))
             .tooltip(locale.tr("menu.primary"))
             .on_click(self.toggle(|this| &mut this.menu_open, cx));
         let _ = window;

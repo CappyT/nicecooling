@@ -32,6 +32,7 @@ pub struct Palette {
     pub border_strong: Hsla,
     pub track: Hsla,
     pub accent_bg: Hsla,
+    pub accent_fg: Hsla,
     pub alarm_tint: Hsla,
     pub warning_bg: Hsla,
     pub success: Hsla,
@@ -72,6 +73,7 @@ impl Palette {
             border_strong: pick(0xB8B8C0, 0x6A6A72),
             track: pick(0xE4E4E8, 0x444449),
             accent_bg: rgb(0x1C71D8).into(),
+            accent_fg: rgb(0xFFFFFF).into(),
             alarm_tint: pick(0xFBE4E5, 0x4A2226),
             warning_bg: rgb(0xE5A50A).into(),
             success: pick(0x1B8553, 0x78E9AB),
@@ -147,13 +149,13 @@ fn theme_config(dark: bool, font: Option<SharedString>, mono: Option<SharedStrin
     colors.popover = Some(hex(p.card));
     colors.popover_foreground = Some(hex(p.fg));
     colors.primary = Some(hex(p.accent_bg));
-    colors.primary_foreground = Some(hex(p.alarm_fg));
+    colors.primary_foreground = Some(hex(p.accent_fg));
     colors.button = Some(hex(p.selected));
     colors.button_hover = Some(hex(p.border_strong));
     colors.button_active = Some(hex(p.border_strong));
     colors.button_foreground = Some(hex(p.fg));
     colors.button_primary = Some(hex(p.accent_bg));
-    colors.button_primary_foreground = Some(hex(p.alarm_fg));
+    colors.button_primary_foreground = Some(hex(p.accent_fg));
     colors.secondary = Some(hex(p.selected));
     colors.secondary_hover = Some(hex(p.hover));
     colors.secondary_active = Some(hex(p.selected));

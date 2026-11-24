@@ -14,7 +14,7 @@ use gpui_component::switch::Switch;
 use gpui_component::{Disableable as _, Sizable as _, h_flex, v_flex};
 
 use crate::app_settings::HINT_IMMEDIATE_SWITCHING;
-use crate::icons::{NcIcon, icon};
+use crate::icons::{NcIcon, icon, text_icon};
 use crate::model::Rule;
 use crate::screen_view::{InputKey, ScreenView, skeleton};
 use crate::screens::controls::{Pick, act};
@@ -449,7 +449,7 @@ impl ScreenView {
                 Button::new("profile-menu")
                     .small()
                     .ghost()
-                    .icon(icon(NcIcon::Menu, p.fg))
+                    .icon(text_icon(NcIcon::Menu))
                     .on_click(act(&view, |this, _, _| {
                         this.profiles.menu_open = !this.profiles.menu_open;
                     })),

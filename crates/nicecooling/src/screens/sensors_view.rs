@@ -10,7 +10,7 @@ use gpui_component::switch::Switch;
 use gpui_component::{Disableable as _, Selectable as _, Sizable as _, h_flex, v_flex};
 
 use crate::command::Command;
-use crate::icons::{NcIcon, icon, small_icon};
+use crate::icons::{NcIcon, icon, small_icon, text_icon};
 use crate::model::Severity;
 use crate::screen_view::{InputKey, ScreenView, skeleton};
 use crate::screens::sensors::{
@@ -601,7 +601,7 @@ impl ScreenView {
                     Button::new(SharedString::from(format!("source-remove-{slot}")))
                         .ghost()
                         .small()
-                        .icon(icon(NcIcon::X, p.fg))
+                        .icon(text_icon(NcIcon::X))
                         .on_click(move |_, _, cx| {
                             view.update(cx, |this, cx| {
                                 if let Some(editor) = this.sensors.editor.as_mut() {

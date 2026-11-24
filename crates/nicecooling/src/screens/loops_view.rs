@@ -9,7 +9,7 @@ use gpui_component::input::Input;
 use gpui_component::slider::Slider;
 use gpui_component::{Disableable as _, Sizable as _, h_flex, v_flex};
 
-use crate::icons::{NcIcon, icon};
+use crate::icons::{NcIcon, text_icon};
 use crate::model::Severity;
 use crate::screen_view::{InputKey, ScreenView, skeleton, with_screen_input};
 use crate::screens::format::plain;
@@ -562,7 +562,7 @@ impl ScreenView {
                         Button::new(SharedString::from(format!("cal-remove-{index}")))
                             .ghost()
                             .small()
-                            .icon(icon(NcIcon::X, p.fg))
+                            .icon(text_icon(NcIcon::X))
                             .disabled(!enabled)
                             .on_click(move |_, _, cx| {
                                 let loop_id = loop_id.clone();
