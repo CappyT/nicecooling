@@ -162,12 +162,7 @@ pub fn select_trigger(
         .when(enabled, |trigger| trigger.cursor_pointer())
         .when(!enabled, |trigger| trigger.opacity(0.5))
         .child(div().flex_1().min_w_0().truncate().child(text.into()))
-        .children(value.map(|value| {
-            div()
-                .flex_none()
-                .font_weight(FontWeight::BOLD)
-                .child(value)
-        }))
+        .children(value.map(|value| div().flex_none().font_weight(FontWeight::BOLD).child(value)))
         .child(Icon::new(NcIcon::Down).with_size(px(16.)).flex_none())
 }
 
