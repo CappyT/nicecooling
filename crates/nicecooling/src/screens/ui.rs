@@ -24,6 +24,17 @@ pub enum TagKind {
 
 /// A 22 px pill with 12 px text.
 pub fn tag(text: impl Into<SharedString>, kind: TagKind, p: &Palette) -> Div {
+    tag_frame(kind, p).0.child(text.into())
+}
+
+/// A tag with a 12 px icon before its text.
+pub fn icon_tag(name: NcIcon, text: impl Into<SharedString>, kind: TagKind, p: &Palette) -> Div {
+    let (frame, ink) = tag_frame(kind, p);
+    frame.child(small_icon(name, ink)).child(text.into())
+}
+
+/// The pill of a tag without its content, and the color of its text.
+fn tag_frame(kind: TagKind, p: &Palette) -> (Div, Hsla) {
     let clear = gpui::transparent_black();
     let (fill, ink) = match kind {
         TagKind::Neutral => (p.selected, p.fg),
@@ -33,7 +44,7 @@ pub fn tag(text: impl Into<SharedString>, kind: TagKind, p: &Palette) -> Div {
         TagKind::Offline => (clear, p.offline),
         TagKind::Success => (clear, p.success),
     };
-    div()
+    let frame = div()
         .h(px(22.))
         .flex_none()
         .px(px(9.))
@@ -50,8 +61,8 @@ pub fn tag(text: impl Into<SharedString>, kind: TagKind, p: &Palette) -> Div {
         })
         .when(kind == TagKind::Success, |tag| {
             tag.border_1().border_color(p.success)
-        })
-        .child(text.into())
+        });
+    (frame, ink)
 }
 
 /// 12 px text in `fg-dim`. In a row it takes the width that is left and wraps there.
