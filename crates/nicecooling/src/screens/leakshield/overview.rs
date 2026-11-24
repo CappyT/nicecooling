@@ -5,8 +5,9 @@ use nicecooling_core::loops::tach_sensor;
 use crate::command::Command;
 use crate::i18n::Locale;
 use crate::model::{AppState, PressureLimits, Severity};
-use crate::screens::format::{clock, optional_value, plain, value_text};
-use crate::screens::leakshield::{Device, TabState, severity_of, write_line};
+use crate::screens::format::{clock_minutes, number, optional_value, plain, value_text};
+use crate::screens::leakshield::charts::GaugeLabels;
+use crate::screens::leakshield::{Device, TabState, change_text, severity_of, write_line};
 use crate::screens::ui::TagKind;
 use crate::screens::{FeedbackLine, ScreenInput, WriteOutcome};
 
@@ -36,8 +37,8 @@ impl TestSource {
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum ChartRange {
-    #[default]
     Hour,
+    #[default]
     Day,
     Week,
 }
@@ -73,6 +74,19 @@ pub enum Confirm {
     RefillSteps,
 }
 
+/// The pressure of one range of the chart, as the history database has it.
+#[derive(Clone, Debug, Default)]
+pub struct PressureHistory {
+    /// The Leakshield and the range of `runs`.
+    pub key: Option<(String, ChartRange)>,
+    /// The Unix second of the last read, 0 before the first one.
+    pub loaded_at: i64,
+    /// A read runs.
+    pub pending: bool,
+    /// The runs of `(seconds, mbar)`.
+    pub runs: crate::screens::leakshield::charts::Runs,
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct OverviewUi {
     pub confirm: Option<Confirm>,
@@ -83,6 +97,7 @@ pub struct OverviewUi {
     /// The pressure that the user took as the reference of a Test.
     pub reference: Option<f64>,
     pub range: ChartRange,
+    pub history: PressureHistory,
 }
 
 fn rank(mode: &str) -> u8 {
@@ -233,8 +248,14 @@ pub enum GaugeState {
 #[derive(Clone, Debug, PartialEq)]
 pub struct PressureCard {
     pub title: String,
+    /// "negative pressure in the Loop".
+    pub caption: String,
     pub value: Option<f64>,
     pub value_text: String,
+    /// The value without its unit, or "--".
+    pub number: String,
+    pub unit: String,
+    pub labels: GaugeLabels,
     pub limits: Option<PressureLimits>,
     pub gauge: GaugeState,
     pub tag: String,
@@ -248,6 +269,10 @@ pub struct PressureCard {
 pub struct StatusRow {
     pub label: String,
     pub value: String,
+    /// A measured value is bold. The Feed is what the PC sent: regular weight.
+    pub bold: bool,
+    /// The time or the age of the value, after it.
+    pub caption: Option<String>,
     pub severity: Option<Severity>,
 }
 
@@ -348,7 +373,14 @@ pub struct Dialog {
 pub struct ChartsCard {
     pub pressure_title: String,
     pub ranges: Vec<(ChartRange, String, bool)>,
+    /// "Dotted: minimum 250 and maximum 350 mbar".
+    pub pressure_note: Option<String>,
+    /// The label of the right end of the time axis.
+    pub now: String,
+    pub pressure_empty: String,
     pub runtime_title: String,
+    /// "vacuum pump".
+    pub runtime_caption: String,
     pub runtime_empty: String,
     pub runtime_limit: String,
 }
@@ -439,8 +471,24 @@ impl OverviewModel {
         };
         let pressure_card = PressureCard {
             title: locale.tr("leakshield.overview.pressure"),
+            caption: locale.tr("leakshield.overview.pressure_caption"),
             value: pressure,
             value_text: optional_value(locale, pressure, "mbar"),
+            number: pressure.map_or_else(|| "--".to_owned(), |v| number(locale, v, "mbar")),
+            unit: "mbar".to_owned(),
+            labels: limits.map_or_else(GaugeLabels::default, |l| {
+                let label = |name: &str, value: f64| {
+                    locale.fmt(
+                        &format!("leakshield.overview.{name}"),
+                        &[("value", &plain(locale, value))],
+                    )
+                };
+                GaugeLabels {
+                    minimum: label("minimum", l.min),
+                    maximum: label("maximum", l.max),
+                    target: label("target", l.target),
+                }
+            }),
             limits,
             gauge,
             tag,
@@ -481,7 +529,9 @@ impl OverviewModel {
             None if !ready => (locale.tr("leakshield.overview.no_value"), TagKind::Offline),
             None => (
                 status_text(locale, key),
-                if matches!(key, "protecting" | "monitoring") {
+                if key == "protecting" {
+                    TagKind::Success
+                } else if key == "monitoring" {
                     TagKind::Accent
                 } else {
                     TagKind::Neutral
@@ -495,10 +545,21 @@ impl OverviewModel {
                 .map(|a| a.severity)
                 .max()
         };
-        let time = sample.map_or_else(String::new, |s| clock(s.time_us));
-        let age = sample.map(|s| input.now_us.saturating_sub(s.time_us) / 1_000_000);
+        let measured = sample.filter(|_| ready).map(|s| {
+            locale.fmt(
+                "leakshield.overview.measured",
+                &[("time", &clock_minutes(s.time_us))],
+            )
+        });
+        // The last good Feed send: its values and its age.
+        let feed = info
+            .map(|i| i.last_feed)
+            .filter(|feed| ready && feed.time_us > 0);
         let value_of = |name: &str, unit: &str| {
             optional_value(locale, device.sensor(input, name).filter(|_| ready), unit)
+        };
+        let change_of = |name: &str, unit: &str| {
+            change_text(locale, device.sensor(input, name).filter(|_| ready), unit)
         };
         let status = StatusCard {
             title: locale.tr("leakshield.overview.status"),
@@ -506,29 +567,46 @@ impl OverviewModel {
             tag_kind: status_kind,
             rows: vec![
                 StatusRow {
-                    label: locale.fmt("leakshield.overview.fill_level", &[("time", &time)]),
+                    label: locale.tr("leakshield.overview.fill_level"),
                     value: value_of("fill_level", "%"),
+                    bold: true,
+                    caption: measured,
                     severity: row_severity("fill-level"),
                 },
                 StatusRow {
                     label: locale.tr("leakshield.overview.volume_change"),
-                    value: value_of("volume_change", "ml/h"),
+                    value: change_of("volume_change", "ml/h"),
+                    bold: true,
+                    caption: None,
                     severity: row_severity("leak"),
                 },
                 StatusRow {
                     label: locale.tr("leakshield.overview.pressure_change"),
-                    value: value_of("pressure_change", "mbar/min"),
+                    value: change_of("pressure_change", "mbar/min"),
+                    bold: true,
+                    caption: None,
                     severity: None,
                 },
                 StatusRow {
                     label: locale.tr("leakshield.overview.feed"),
-                    value: match age {
-                        Some(age) if ready => locale.fmt(
+                    value: feed.map_or_else(
+                        || "--".to_owned(),
+                        |feed| {
+                            format!(
+                                "{}, {}",
+                                value_text(locale, feed.feed_pump, "rpm"),
+                                value_text(locale, feed.flow_lph, "l/h")
+                            )
+                        },
+                    ),
+                    bold: false,
+                    caption: feed.map(|feed| {
+                        let age = input.now_us.saturating_sub(feed.time_us) / 1_000_000;
+                        locale.fmt(
                             "leakshield.overview.feed_age",
                             &[("seconds", &age.to_string())],
-                        ),
-                        _ => "--".to_owned(),
-                    },
+                        )
+                    }),
                     severity: None,
                 },
             ],
@@ -707,7 +785,19 @@ impl OverviewModel {
                     .iter()
                     .map(|r| (*r, locale.tr(r.key()), *r == ui.range))
                     .collect(),
+                pressure_note: limits.map(|l| {
+                    locale.fmt(
+                        "leakshield.overview.dotted",
+                        &[
+                            ("min", &plain(locale, l.min)),
+                            ("max", &plain(locale, l.max)),
+                        ],
+                    )
+                }),
+                now: locale.tr("leakshield.overview.now"),
+                pressure_empty: locale.tr("leakshield.overview.pressure_empty"),
                 runtime_title: locale.tr("leakshield.overview.runtime"),
+                runtime_caption: locale.tr("leakshield.overview.runtime_caption"),
                 runtime_empty: locale.tr("leakshield.overview.runtime_empty"),
                 runtime_limit: locale.tr("leakshield.overview.runtime_limit"),
             },

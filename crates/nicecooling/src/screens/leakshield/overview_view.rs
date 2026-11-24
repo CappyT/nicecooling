@@ -1,23 +1,37 @@
 //! The window of the Overview tab: the gauge, the status, the Mode and the Actions.
 
+use chrono::{Local, TimeZone as _};
 use gpui::prelude::*;
 use gpui::{AnyElement, Context, FontWeight, SharedString, Window, div, px};
 use gpui_component::button::{Button, ButtonVariants as _};
 use gpui_component::input::Input;
 use gpui_component::progress::Progress;
-use gpui_component::{Disableable as _, Sizable as _, h_flex, v_flex};
+use gpui_component::tooltip::Tooltip;
+use gpui_component::{Disableable as _, h_flex, v_flex};
 
-use crate::screen_view::{InputKey, ScreenView, skeleton};
+use crate::app::now_us;
+use crate::history::HistoryDb;
+use crate::history::query::{downsample, load_series};
+use crate::icons::{NcIcon, icon, small_icon};
+use crate::screen_view::{InputKey, ScreenView};
 use crate::screens::controls::act;
 use crate::screens::leakshield::TabState;
-use crate::screens::leakshield::charts::{gauge, line_chart};
+use crate::screens::leakshield::charts::{
+    Reference, Runs, TimeChart, gauge, runtime_chart, time_chart,
+};
 use crate::screens::leakshield::overview::{
-    ActionView, Confirm, GaugeState, ModeCard, OverviewModel, TestSource,
+    ActionView, ChartRange, Confirm, GaugeState, ModeCard, OverviewModel, TestSource,
+};
+use crate::screens::leakshield::parts::{
+    button, header, loading_card, segment, segmented, small_button, state_tag,
 };
 use crate::screens::ui::{
-    caption, card, card_header, card_row, modal, notice_row, page, severity_icon, tag, write_line,
+    caption, card, card_header, card_row, modal, notice_row, page, severity_icon, write_line,
 };
 use crate::tokens::Palette;
+
+/// The most points that the pressure chart draws for one run.
+const CHART_POINTS: usize = 600;
 
 impl ScreenView {
     pub(crate) fn render_ls_overview(
@@ -34,79 +48,113 @@ impl ScreenView {
         let mut content = page();
         if model.state == TabState::Loading {
             return content
-                .child(
-                    card(p)
-                        .p(px(18.))
-                        .gap(px(12.))
-                        .child(div().child(model.loading_text.clone()))
-                        .child(skeleton(p, 320.)),
-                )
+                .child(loading_card(model.loading_text.clone(), p))
                 .into_any_element();
         }
         let dim = model.state != TabState::Ready;
         let pressure = &model.pressure;
+        let out_of_range = matches!(pressure.gauge, GaugeState::Below | GaugeState::Above);
         let value_color = if pressure.alarm {
             p.alarm
+        } else if out_of_range {
+            p.warning
         } else if dim {
             p.fg_dim
         } else {
             p.fg
         };
+        let tooltip = pressure.tooltip.clone();
         let pressure_card = card(p)
-            .child(card_header(pressure.title.clone(), p).child(tag(
-                pressure.tag.clone(),
-                pressure.tag_kind,
-                p,
-            )))
+            .flex_1()
+            .flex_grow(1.5)
+            .child(
+                header(pressure.title.clone(), pressure.caption.clone(), p).child(state_tag(
+                    pressure.tag.clone(),
+                    pressure.tag_kind,
+                    p,
+                )),
+            )
             .child(
                 v_flex()
-                    .p(px(18.))
-                    .gap(px(8.))
+                    .id("ls-gauge")
+                    .px(px(18.))
+                    .pb(px(12.))
+                    .when(!tooltip.is_empty(), |body| {
+                        body.tooltip(move |window, cx| {
+                            Tooltip::new(tooltip.clone()).build(window, cx)
+                        })
+                    })
                     .child(
-                        div()
-                            .text_size(px(30.))
-                            .font_weight(FontWeight::BOLD)
-                            .text_color(value_color)
-                            .child(pressure.value_text.clone()),
+                        h_flex()
+                            .items_baseline()
+                            .gap(px(6.))
+                            .child(
+                                div()
+                                    .text_size(px(28.))
+                                    .line_height(px(32.))
+                                    .font_weight(FontWeight::EXTRA_BOLD)
+                                    .text_color(value_color)
+                                    .child(pressure.number.clone()),
+                            )
+                            .child(div().text_color(p.fg_dim).child(pressure.unit.clone())),
                     )
                     .child(gauge(
                         pressure
                             .value
                             .filter(|_| pressure.gauge != GaugeState::Offline),
                         pressure.limits,
-                        pressure.alarm,
+                        value_color,
+                        pressure.labels.clone(),
                         p,
-                    ))
-                    .child(caption(pressure.tooltip.clone(), p)),
+                    )),
             );
-        let mut status_card = card(p).child(card_header(model.status.title.clone(), p).child(tag(
-            model.status.tag.clone(),
-            model.status.tag_kind,
-            p,
-        )));
+        let mut status_card =
+            card(p)
+                .flex_1()
+                .child(card_header(model.status.title.clone(), p).child(state_tag(
+                    model.status.tag.clone(),
+                    model.status.tag_kind,
+                    p,
+                )));
         for row in &model.status.rows {
             status_card = status_card.child(
-                card_row(p)
+                h_flex()
+                    .w_full()
+                    .min_h(px(30.))
+                    .px(px(18.))
+                    .py(px(3.))
+                    .gap(px(12.))
+                    .border_t_1()
+                    .border_color(p.border)
                     .text_color(if dim { p.fg_dim } else { p.fg })
                     .child(
                         h_flex()
                             .flex_1()
+                            .min_w_0()
                             .gap(px(6.))
                             .when_some(row.severity, |label, severity| {
                                 label.child(severity_icon(severity, p))
                             })
-                            .child(row.label.clone()),
+                            .child(div().min_w_0().truncate().child(row.label.clone())),
                     )
-                    .child(div().font_weight(FontWeight::BOLD).child(row.value.clone())),
+                    .child(
+                        div()
+                            .flex_none()
+                            .when(row.bold, |value| value.font_weight(FontWeight::BOLD))
+                            .child(row.value.clone()),
+                    )
+                    .when_some(row.caption.clone(), |line, text| {
+                        line.child(caption(text, p).flex_none())
+                    }),
             );
         }
         content = content.child(
             h_flex()
                 .w_full()
                 .gap(px(12.))
-                .items_start()
-                .child(div().flex_1().child(pressure_card))
-                .child(div().flex_1().child(status_card)),
+                .items_stretch()
+                .child(pressure_card)
+                .child(status_card),
         );
         if let Some(text) = &model.mode.release_banner {
             content = content.child(card(p).child(notice_row(text.clone(), true, p)));
@@ -123,9 +171,7 @@ impl ScreenView {
             let (cancel, confirm) = (view.clone(), view.clone());
             let id = id.to_owned();
             let mut buttons = vec![
-                Button::new("ls-dialog-cancel")
-                    .small()
-                    .label(dialog.cancel.clone())
+                small_button("ls-dialog-cancel", dialog.cancel.clone())
                     .on_click(act(&cancel, |this, _, _| {
                         this.leakshield.overview.cancel_dialog()
                     }))
@@ -133,9 +179,7 @@ impl ScreenView {
             ];
             if let Some(label) = &dialog.confirm {
                 buttons.push(
-                    Button::new("ls-dialog-confirm")
-                        .small()
-                        .label(label.clone())
+                    small_button("ls-dialog-confirm", label.clone())
                         .on_click(act(&confirm, move |this, _, _| {
                             if let Some(command) = this.leakshield.overview.confirm(&id) {
                                 this.send(command);
@@ -168,13 +212,18 @@ impl ScreenView {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let view = cx.entity();
-        let mut buttons = h_flex().gap(px(6.));
-        for button in &mode.buttons {
-            let (device, name) = (id.to_owned(), button.mode.clone());
-            let mut ui_button = Button::new(SharedString::from(format!("ls-mode-{}", button.mode)))
-                .label(button.label.clone())
-                .disabled(!button.enabled)
-                .on_click(act(&view, move |this, _, cx| {
+        let mut selector = segmented(p);
+        for choice in &mode.buttons {
+            let (device, name) = (id.to_owned(), choice.mode.clone());
+            let mut item = segment(
+                SharedString::from(format!("ls-mode-{}", choice.mode)),
+                choice.label.clone(),
+                choice.selected,
+                choice.enabled,
+                p,
+            );
+            if choice.enabled {
+                item = item.on_click(act(&view, move |this, _, cx| {
                     let state = this.state(cx);
                     if let Some(command) = this
                         .leakshield
@@ -184,80 +233,105 @@ impl ScreenView {
                         this.send(command);
                     }
                 }));
-            if button.selected {
-                ui_button = ui_button.primary();
             }
-            if let Some(tooltip) = &mode.tooltip {
-                ui_button = ui_button.tooltip(tooltip.clone());
+            if let Some(tooltip) = mode.tooltip.clone() {
+                item =
+                    item.tooltip(move |window, cx| Tooltip::new(tooltip.clone()).build(window, cx));
             }
-            buttons = buttons.child(ui_button);
+            selector = selector.child(item);
         }
-        let mut actions = h_flex().gap(px(6.));
+        let mut actions = h_flex()
+            .flex_1()
+            .min_w_0()
+            .flex_wrap()
+            .justify_end()
+            .gap(px(6.));
         if let Some(cancel) = &mode.cancel {
             let device = id.to_owned();
-            actions = actions.child(
-                Button::new("ls-action-cancel")
-                    .label(cancel.clone())
-                    .on_click(act(&view, move |this, _, _| {
-                        this.send(crate::command::Command::CancelLeakshieldAction {
-                            leakshield: device.clone(),
-                        });
-                    })),
-            );
+            actions = actions.child(button("ls-action-cancel", cancel.clone()).on_click(act(
+                &view,
+                move |this, _, _| {
+                    this.send(crate::command::Command::CancelLeakshieldAction {
+                        leakshield: device.clone(),
+                    });
+                },
+            )));
         } else {
             for action in &mode.actions {
                 let (device, name) = (id.to_owned(), action.action.clone());
-                let mut button =
-                    Button::new(SharedString::from(format!("ls-action-{}", action.action)))
-                        .label(action.label.clone())
-                        .disabled(!action.enabled)
-                        .on_click(act(&view, move |this, _, cx| {
-                            let state = this.state(cx);
-                            if let Some(command) = this
-                                .leakshield
-                                .overview
-                                .request_action(&state, &device, &name)
-                            {
-                                this.send(command);
-                            }
-                        }));
+                let mut item = button(
+                    SharedString::from(format!("ls-action-{}", action.action)),
+                    action.label.clone(),
+                )
+                .disabled(!action.enabled)
+                .on_click(act(&view, move |this, _, cx| {
+                    let state = this.state(cx);
+                    if let Some(command) = this
+                        .leakshield
+                        .overview
+                        .request_action(&state, &device, &name)
+                    {
+                        this.send(command);
+                    }
+                }));
                 if let Some(tooltip) = &mode.tooltip {
-                    button = button.tooltip(tooltip.clone());
+                    item = item.tooltip(tooltip.clone());
                 }
-                actions = actions.child(button);
+                actions = actions.child(item);
             }
         }
-        let mut card = card(p)
-            .child(card_header(mode.title.clone(), p))
+        // One caption: the meaning of the Mode, then the hint about Actions.
+        let text = [mode.caption.as_str(), mode.action_hint.as_str()]
+            .into_iter()
+            .filter(|text| !text.is_empty())
+            .collect::<Vec<_>>()
+            .join(" ");
+        let mut body = v_flex()
+            .px(px(18.))
+            .pb(px(14.))
+            .gap(px(6.))
             .child(
-                card_row(p)
-                    .child(buttons)
-                    .child(div().flex_1())
+                h_flex()
+                    .w_full()
+                    .gap_x(px(24.))
+                    .gap_y(px(6.))
+                    .child(selector)
                     .child(actions),
             )
-            .child(card_row(p).child(caption(mode.caption.clone(), p)))
-            .child(card_row(p).child(caption(mode.action_hint.clone(), p)));
+            .child(caption(text, p));
         if let Some((text, link)) = &mode.read_only {
-            card = card.child(
-                notice_row(text.clone(), false, p).child(
-                    Self::link_button("ls-open-fields-mode", link.clone(), p)
-                        .on_click(act(&view, |this, _, _| {
-                            this.leakshield.open_fields(Some("default_mode"))
-                        })),
-                ),
+            body = body.child(
+                h_flex()
+                    .gap(px(6.))
+                    .child(small_icon(NcIcon::Lock, p.fg_dim))
+                    .child(caption(text.clone(), p))
+                    .child(
+                        Self::link_button("ls-open-fields-mode", link.clone(), p)
+                            .text_size(px(12.))
+                            .on_click(act(&view, |this, _, _| {
+                                this.leakshield.open_fields(Some("default_mode"))
+                            })),
+                    ),
             );
         }
         if let Some(text) = &mode.denied {
-            card = card.child(card_row(p).text_color(p.alarm).child(text.clone()));
+            body = body.child(div().text_color(p.alarm).child(text.clone()));
         } else if let Some(line) = &mode.write_line {
-            card = card.child(card_row(p).child(write_line(line, p)));
+            body = body.child(write_line(line, p));
         }
         if let Some(line) = &mode.action_line {
-            card = card.child(card_row(p).child(write_line(line, p)));
+            body = body.child(write_line(line, p));
         }
-        card = card.child(
-            card_row(p)
-                .child(div().flex_1().child(mode.refill.text.clone()))
+        body = body.child(
+            h_flex()
+                .w_full()
+                .px(px(12.))
+                .py(px(8.))
+                .gap(px(9.))
+                .rounded(px(9.))
+                .bg(p.hover)
+                .child(icon(NcIcon::Info, p.fg))
+                .child(div().flex_1().min_w_0().child(mode.refill.text.clone()))
                 .child(
                     Self::link_button("ls-refill-steps", mode.refill.link.clone(), p).on_click(
                         act(&view, |this, _, _| {
@@ -266,7 +340,67 @@ impl ScreenView {
                     ),
                 ),
         );
-        card.into_any_element()
+        card(p)
+            .child(card_header(mode.title.clone(), p))
+            .child(body)
+            .into_any_element()
+    }
+
+    /// The pressure of the selected range, from the history database: the runs of
+    /// `(seconds, mbar)` and the first and the last second of the range. The read runs in
+    /// the background. The chart keeps its last runs until the new ones are there.
+    fn pressure_history(&mut self, id: &str, cx: &mut Context<Self>) -> (Runs, (i64, i64)) {
+        let range = self.leakshield.overview.range;
+        let now = (now_us() / 1_000_000) as i64;
+        let from = now - range.seconds();
+        let key = (id.to_owned(), range);
+        let path = self.model.read(cx).history_path.clone();
+        let history = &mut self.leakshield.overview.history;
+        if history.key.as_ref() != Some(&key) {
+            history.key = Some(key.clone());
+            history.runs.clear();
+            history.loaded_at = 0;
+        }
+        // One hour has a sample per second. The longer ranges have one value per minute.
+        let period = if range == ChartRange::Hour { 5 } else { 60 };
+        if let Some(path) = path
+            && !history.pending
+            && now - history.loaded_at >= period
+        {
+            history.pending = true;
+            let sensor = format!("{id}_pressure");
+            let task = cx.background_executor().spawn(async move {
+                let db = HistoryDb::open(&path).ok()?;
+                let series = load_series(&db, &sensor, from, now, now).ok()?;
+                Some(
+                    series
+                        .segments
+                        .iter()
+                        .map(|run| {
+                            downsample(run, CHART_POINTS)
+                                .iter()
+                                .map(|point| (point.t as f64, point.mean))
+                                .collect::<Vec<_>>()
+                        })
+                        .collect::<Vec<_>>(),
+                )
+            });
+            cx.spawn(async move |this, cx| {
+                let runs = task.await;
+                let _ = this.update(cx, |this, cx| {
+                    let history = &mut this.leakshield.overview.history;
+                    history.pending = false;
+                    // The user may have picked another range in the meantime.
+                    if history.key.as_ref() == Some(&key) {
+                        history.loaded_at = now;
+                        history.runs = runs.unwrap_or_default();
+                        cx.notify();
+                    }
+                });
+            })
+            .detach();
+        }
+        (self.leakshield.overview.history.runs.clone(), (from, now))
     }
 
     fn charts_row(
@@ -277,62 +411,84 @@ impl ScreenView {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let view = cx.entity();
-        let points: Vec<(f64, f64)> = self
-            .leakshield
-            .traces
-            .get(id)
-            .map(|t| {
-                t.pressure
-                    .points
-                    .iter()
-                    .map(|(t, v)| (*t as f64, *v))
-                    .collect()
-            })
-            .unwrap_or_default();
-        let mut lines = Vec::new();
+        let (runs, (from, now)) = self.pressure_history(id, cx);
+        let mut references = Vec::new();
         if let Some(limits) = model.pressure.limits {
-            lines.push((limits.target, p.accent));
-            lines.push((limits.min, p.fg_dim));
-            lines.push((limits.max, p.fg_dim));
+            for value in [limits.min, limits.max] {
+                references.push(Reference {
+                    value,
+                    color: p.border_strong,
+                    dash: (2.0, 3.0),
+                    label: None,
+                });
+            }
+            references.push(Reference {
+                value: limits.target,
+                color: p.accent,
+                dash: (5.0, 4.0),
+                label: None,
+            });
         }
-        let mut ranges = h_flex().gap(px(4.));
+        let range = self.leakshield.overview.range;
+        let mut x_labels = vec![(from as f64, time_label(from, range, true))];
+        x_labels.extend(
+            round_times(from, now, range)
+                .into_iter()
+                .map(|time| (time as f64, time_label(time, range, false))),
+        );
+        x_labels.push((now as f64, model.charts.now.clone()));
+        let mut ranges = segmented(p);
         for (range, label, selected) in &model.charts.ranges {
             let range = *range;
-            let mut button = Button::new(SharedString::from(format!("ls-range-{range:?}")))
-                .small()
-                .label(label.clone())
+            ranges = ranges.child(
+                segment(
+                    SharedString::from(format!("ls-range-{range:?}")),
+                    label.clone(),
+                    *selected,
+                    true,
+                    p,
+                )
                 .on_click(act(&view, move |this, _, _| {
                     this.leakshield.overview.range = range;
-                }));
-            if *selected {
-                button = button.primary();
-            }
-            ranges = ranges.child(button);
+                })),
+            );
         }
         let pressure = card(p)
+            .flex_1()
             .child(card_header(model.charts.pressure_title.clone(), p).child(ranges))
-            .child(div().p(px(18.)).child(line_chart(
-                points,
-                lines,
-                p.accent,
-                Some(p.accent_tint),
-                116.,
+            .child(div().px(px(18.)).pb(px(12.)).child(time_chart(
+                TimeChart {
+                    runs,
+                    domain: Some((from as f64, now as f64)),
+                    references,
+                    area: true,
+                    x_labels,
+                    y_labels: true,
+                    note: model.charts.pressure_note.clone(),
+                    empty: Some(model.charts.pressure_empty.clone()),
+                    height: 170.,
+                },
+                p.series[0],
+                p,
             )));
         let runtime = card(p)
-            .child(card_header(model.charts.runtime_title.clone(), p))
-            .child(
-                v_flex()
-                    .p(px(18.))
-                    .gap(px(6.))
-                    .child(caption(model.charts.runtime_empty.clone(), p))
-                    .child(caption(model.charts.runtime_limit.clone(), p)),
-            );
+            .flex_1()
+            .child(header(
+                model.charts.runtime_title.clone(),
+                model.charts.runtime_caption.clone(),
+                p,
+            ))
+            .child(div().px(px(18.)).pb(px(12.)).child(runtime_chart(
+                model.charts.runtime_limit.clone(),
+                Some(model.charts.runtime_empty.clone()),
+                p,
+            )));
         h_flex()
             .w_full()
             .gap(px(12.))
-            .items_start()
-            .child(div().flex_1().child(pressure))
-            .child(div().flex_1().child(runtime))
+            .items_stretch()
+            .child(pressure)
+            .child(runtime)
             .into_any_element()
     }
 
@@ -449,12 +605,13 @@ impl ScreenView {
                     .child(source_label.clone());
                 for (kind, label, selected) in sources {
                     let kind = *kind;
-                    let mut button = Button::new(SharedString::from(format!("ls-source-{kind:?}")))
-                        .small()
-                        .label(label.clone())
-                        .on_click(act(&view, move |this, _, _| {
-                            this.leakshield.overview.source = kind;
-                        }));
+                    let mut button = small_button(
+                        SharedString::from(format!("ls-source-{kind:?}")),
+                        label.clone(),
+                    )
+                    .on_click(act(&view, move |this, _, _| {
+                        this.leakshield.overview.source = kind;
+                    }));
                     if *selected {
                         button = button.primary();
                     }
@@ -472,38 +629,37 @@ impl ScreenView {
                             .child(choices)
                             .child(div().flex_1())
                             .child(
-                                Button::new("ls-test-reference")
-                                    .small()
-                                    .label(reference.clone())
-                                    .on_click(act(&view, move |this, _, _| {
+                                small_button("ls-test-reference", reference.clone()).on_click(act(
+                                    &view,
+                                    move |this, _, _| {
                                         this.leakshield.overview.reference = current;
-                                    })),
+                                    },
+                                )),
                             )
-                            .child(
-                                Button::new("ls-test-zoom")
-                                    .small()
-                                    .label(reset_zoom.clone()),
-                            )
+                            .child(small_button("ls-test-zoom", reset_zoom.clone()))
                             .child({
                                 let device = device.clone();
-                                Button::new("ls-test-cancel-run")
-                                    .small()
-                                    .label(cancel.clone())
-                                    .on_click(act(&view, move |this, _, _| {
+                                small_button("ls-test-cancel-run", cancel.clone()).on_click(act(
+                                    &view,
+                                    move |this, _, _| {
                                         this.send(
                                             crate::command::Command::CancelLeakshieldAction {
                                                 leakshield: device.clone(),
                                             },
                                         );
-                                    }))
+                                    },
+                                ))
                             }),
                     )
-                    .child(div().p(px(18.)).child(line_chart(
-                        points,
-                        Vec::new(),
-                        p.accent,
-                        None,
-                        140.,
+                    .child(div().px(px(18.)).pb(px(12.)).child(time_chart(
+                        TimeChart {
+                            runs: vec![points],
+                            y_labels: true,
+                            height: 170.,
+                            ..Default::default()
+                        },
+                        p.series[0],
+                        p,
                     )))
                     .into_any_element()
             }
@@ -544,4 +700,37 @@ impl ScreenView {
                 .into_any_element(),
         }
     }
+}
+
+/// The label of a time of the pressure chart: the clock for one hour and one day, the date
+/// for seven days. The first label of seven days has both.
+fn time_label(seconds: i64, range: ChartRange, first: bool) -> String {
+    let pattern = match (range, first) {
+        (ChartRange::Week, true) => "%m-%d %H:%M",
+        (ChartRange::Week, false) => "%m-%d",
+        _ => "%H:%M",
+    };
+    Local
+        .timestamp_opt(seconds, 0)
+        .single()
+        .map_or_else(String::new, |time| time.format(pattern).to_string())
+}
+
+/// The round local times between `from` and `to`: every 20 minutes of one hour, every
+/// 6 hours of one day, every 2 days of seven days.
+fn round_times(from: i64, to: i64, range: ChartRange) -> Vec<i64> {
+    let step = match range {
+        ChartRange::Hour => 1_200,
+        ChartRange::Day => 21_600,
+        ChartRange::Week => 172_800,
+    };
+    let offset = Local
+        .timestamp_opt(from, 0)
+        .single()
+        .map_or(0, |time| i64::from(time.offset().local_minus_utc()));
+    let first = (from + offset).div_euclid(step) * step + step - offset;
+    (0..)
+        .map(|index| first + index * step)
+        .take_while(|time| *time < to)
+        .collect()
 }

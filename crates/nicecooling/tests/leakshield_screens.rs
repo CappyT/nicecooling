@@ -137,11 +137,22 @@ fn leakshield_overview_states() {
         .iter()
         .map(|r| (r.label.as_str(), r.value.as_str()))
         .collect();
-    assert!(rows[0].0.starts_with("Fill level at "));
-    assert_eq!(rows[0].1, "68 %");
-    assert_eq!(rows[1], ("Volume change", "2 ml/h"));
+    assert_eq!(rows[0], ("Fill level", "68 %"));
+    assert!(
+        model.status.rows[0]
+            .caption
+            .as_deref()
+            .is_some_and(|text| text.starts_with("measured "))
+    );
+    assert_eq!(rows[1], ("Volume change", "+2 ml/h"));
     assert_eq!(rows[2], ("Pressure change", "-0.4 mbar/min"));
-    assert_eq!(rows[3], ("Feed", "Sent 0 s ago"));
+    assert_eq!(rows[3], ("Feed", "2840 rpm, 115 L/h"));
+    assert!(
+        model.status.rows[3]
+            .caption
+            .as_deref()
+            .is_some_and(|text| text.ends_with(" s ago"))
+    );
     let modes: Vec<_> = model
         .mode
         .buttons
@@ -1962,8 +1973,8 @@ fn leakshield_status_states() {
         tiles,
         [
             ("Status", "Protecting"),
-            ("Pressure", "298 mbar"),
-            ("Volume change", "2 ml/h"),
+            ("Pressure, target 300", "298 mbar"),
+            ("Volume change", "+2 ml/h"),
             ("Pressure change", "-0.4 mbar/min")
         ]
     );
@@ -1994,7 +2005,10 @@ fn leakshield_status_states() {
         "active parts are filled and labelled"
     );
     assert_eq!(model.schematic.bubbles[0].value, "298 mbar");
-    assert_eq!(model.schematic.bubbles[0].caption, "target 300");
+    assert_eq!(
+        model.schematic.bubbles[0].caption,
+        "target 300, -0.4 mbar/min"
+    );
 
     // The pump runs: the vacuum pump and the pump valve are active.
     let mut building = state.clone();
@@ -3698,4 +3712,22 @@ fn refill_warns_with_only_a_stale_sample() {
     // After a reconnect the old sample can say 0 rpm while the pump runs now: no fresh value warns.
     assert!(ui.request_action(&state, LEAKSHIELD, "refill").is_none());
     assert_eq!(ui.confirm, Some(Confirm::Refill));
+}
+
+#[test]
+fn chart_axis_and_signed_changes() {
+    use nicecooling::screens::leakshield::change_text;
+    use nicecooling::screens::leakshield::charts::value_axis;
+    // The value axis starts at a round value under the data and has about three steps.
+    assert_eq!(value_axis(212.0, 350.0), (200.0, 50.0, 3));
+    assert_eq!(value_axis(-8.0, 465.0), (-200.0, 200.0, 4));
+    // One value still gives an axis with a height.
+    assert_eq!(value_axis(300.0, 300.0), (299.0, 1.0, 2));
+
+    // A change shows its sign. A value that rounds to zero has none.
+    let locale = nicecooling::i18n::EN;
+    assert_eq!(change_text(locale, Some(0.4), "mbar/min"), "+0.4 mbar/min");
+    assert_eq!(change_text(locale, Some(-2.0), "ml/h"), "-2 ml/h");
+    assert_eq!(change_text(locale, Some(0.04), "ml/h"), "0 ml/h");
+    assert_eq!(change_text(locale, None, "ml/h"), "--");
 }

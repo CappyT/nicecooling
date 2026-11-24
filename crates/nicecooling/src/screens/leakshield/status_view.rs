@@ -4,14 +4,20 @@ use gpui::prelude::*;
 use gpui::{AnyElement, Context, FontWeight, SharedString, Window, div, px};
 use gpui_component::{h_flex, v_flex};
 
-use crate::screen_view::{ScreenView, skeleton};
-use crate::screens::leakshield::TabState;
-use crate::screens::leakshield::charts::{bands, line_chart};
-use crate::screens::leakshield::sensors_view::header_row;
+use crate::screen_view::ScreenView;
+use crate::screens::format::clock_minutes;
+use crate::screens::leakshield::charts::{Reference, TimeChart, bands, time_chart};
+use crate::screens::leakshield::parts::{header, loading_card, small_button};
 use crate::screens::leakshield::status::{StatusModel, Tile, export_to};
-use crate::screens::ui::{caption, card, card_header, card_row, page, severity_icon};
+use crate::screens::leakshield::{TabState, schematic};
+use crate::screens::ui::{
+    caption, card, card_header, cell, page, severity_icon, table_header, wide_cell,
+};
 use crate::shell::Page;
 use crate::tokens::Palette;
+
+/// The width of the "Time" column of the events.
+const TIME_WIDTH: f32 = 160.0;
 
 impl ScreenView {
     pub(crate) fn render_ls_status(
@@ -28,60 +34,70 @@ impl ScreenView {
         let mut content = page();
         if model.state == TabState::Loading {
             return content
-                .child(
-                    card(p)
-                        .p(px(18.))
-                        .gap(px(12.))
-                        .child(div().child(model.loading_text.clone()))
-                        .child(skeleton(p, 320.)),
-                )
+                .child(loading_card(model.loading_text.clone(), p))
                 .into_any_element();
         }
         let dim = model.state != TabState::Ready;
 
         // The tiles, and the chart of the selected one.
-        let mut tiles = h_flex().gap(px(8.)).p(px(12.));
+        let mut tiles = h_flex().w_full().gap(px(6.)).px(px(12.)).pb(px(6.));
         for tile in &model.tiles {
             let kind = tile.tile;
             let view = view.clone();
-            let mut body = v_flex()
-                .id(SharedString::from(format!("ls-tile-{kind:?}")))
-                .flex_1()
-                .p(px(10.))
-                .rounded(px(9.))
-                .border_1()
-                .border_color(p.border)
-                .cursor_pointer()
-                .when(tile.selected, |t| {
-                    t.bg(p.accent_tint).border_color(p.accent)
-                })
-                .on_click(move |_, _, cx| {
-                    view.update(cx, |this, cx| {
-                        this.leakshield.status.selected = kind;
-                        cx.notify();
-                    });
-                })
-                .child(
-                    h_flex()
-                        .gap(px(6.))
-                        .text_size(px(12.))
-                        .text_color(p.fg_dim)
-                        .when_some(tile.severity, |label, severity| {
-                            label.child(severity_icon(severity, p))
-                        })
-                        .child(tile.label.clone()),
-                )
-                .child(
-                    div()
-                        .text_size(px(20.))
-                        .font_weight(FontWeight::BOLD)
-                        .text_color(if dim { p.fg_dim } else { p.fg })
-                        .child(tile.value.clone()),
-                );
-            if tile.selected {
-                body = body.border_2();
-            }
-            tiles = tiles.child(body);
+            let radio = div().size(px(16.)).flex_none().rounded_full().map(|radio| {
+                if tile.selected {
+                    radio.border(px(5.)).border_color(p.accent_bg)
+                } else {
+                    radio.border(px(1.5)).border_color(p.border_strong)
+                }
+            });
+            tiles = tiles.child(
+                h_flex()
+                    .id(SharedString::from(format!("ls-tile-{kind:?}")))
+                    .flex_1()
+                    .min_w_0()
+                    .gap(px(9.))
+                    .px(px(9.))
+                    .py(px(6.))
+                    .rounded(px(9.))
+                    .cursor_pointer()
+                    .when(tile.selected, |t| t.bg(p.accent_tint))
+                    .when(!tile.selected, |t| t.hover(|t| t.bg(p.hover)))
+                    .on_click(move |_, _, cx| {
+                        view.update(cx, |this, cx| {
+                            this.leakshield.status.selected = kind;
+                            cx.notify();
+                        });
+                    })
+                    .child(radio)
+                    .child(
+                        v_flex()
+                            .flex_1()
+                            .min_w_0()
+                            .child(
+                                div()
+                                    .truncate()
+                                    .text_size(px(16.))
+                                    .line_height(px(22.))
+                                    .font_weight(FontWeight::BOLD)
+                                    .text_color(if dim { p.fg_dim } else { p.fg })
+                                    .child(tile.value.clone()),
+                            )
+                            .child(
+                                h_flex()
+                                    .gap(px(4.))
+                                    .when_some(tile.severity, |label, severity| {
+                                        label.child(severity_icon(severity, p))
+                                    })
+                                    .child(
+                                        caption(tile.label.clone(), p)
+                                            .truncate()
+                                            // Never `fg-dim` on a tint.
+                                            .when(tile.selected, |c| c.text_color(p.fg)),
+                                    ),
+                            ),
+                    ),
+            );
         }
         let traces = self.leakshield.traces.get(id);
         let chart: AnyElement = match model.selected {
@@ -108,7 +124,7 @@ impl ScreenView {
                 bands(items, end, model.chart_height)
             }
             tile => {
-                let points = traces
+                let points: Vec<(f64, f64)> = traces
                     .map(|t| match tile {
                         Tile::Pressure => &t.pressure,
                         Tile::VolumeChange => &t.volume_change,
@@ -116,76 +132,58 @@ impl ScreenView {
                     })
                     .map(|trace| trace.points.iter().map(|(t, v)| (*t as f64, *v)).collect())
                     .unwrap_or_default();
-                line_chart(points, Vec::new(), p.accent, None, model.chart_height)
+                let references = match (tile, model.target) {
+                    (Tile::Pressure, Some(value)) => vec![Reference {
+                        value,
+                        color: p.accent,
+                        dash: (5.0, 4.0),
+                        label: model.target_label.clone(),
+                    }],
+                    _ => Vec::new(),
+                };
+                let x_labels = [points.first(), points.last()]
+                    .into_iter()
+                    .flatten()
+                    .map(|(time, _)| (*time, clock_minutes(*time as u64)))
+                    .collect();
+                time_chart(
+                    TimeChart {
+                        runs: vec![points],
+                        references,
+                        x_labels,
+                        height: model.chart_height,
+                        ..Default::default()
+                    },
+                    p.series[0],
+                    p,
+                )
             }
         };
         let operating = card(p)
-            .child(card_header(model.operating_title.clone(), p))
+            .child(header(
+                model.operating_title.clone(),
+                model.operating_caption.clone(),
+                p,
+            ))
             .child(tiles)
-            .child(div().px(px(18.)).pb(px(12.)).child(chart))
-            .child(card_row(p).child(caption(model.operating_caption.clone(), p)));
+            .child(div().px(px(18.)).pb(px(12.)).child(chart));
         content = content.child(operating);
 
         // The schematic.
-        let schematic = &model.schematic;
-        let mut parts = h_flex().gap(px(10.)).p(px(18.)).items_center();
-        for part in &schematic.parts {
-            parts = parts.child(
-                div()
-                    .px(px(10.))
-                    .py(px(8.))
-                    .rounded(px(8.))
-                    .border_1()
-                    .when(part.active, |b| b.bg(p.accent_tint).border_color(p.accent))
-                    .when(!part.active, |b| b.bg(p.part).border_color(p.border))
-                    .text_color(if schematic.dim { p.fg_dim } else { p.fg })
-                    .text_size(px(12.))
-                    .child(part.label.clone()),
-            );
-        }
-        let mut bubbles = h_flex().gap(px(12.)).px(px(18.)).pb(px(12.));
-        for bubble in &schematic.bubbles {
-            let color = match bubble.severity {
-                Some(crate::model::Severity::Alarm) => p.alarm,
-                Some(crate::model::Severity::Warning) => p.warning,
-                None => p.fg,
-            };
-            bubbles = bubbles.child(
-                v_flex()
-                    .gap(px(2.))
-                    .p(px(8.))
-                    .rounded(px(18.))
-                    .border_1()
-                    .border_color(if schematic.dim { p.offline } else { color })
-                    .when(schematic.dim, |b| b.border_dashed())
-                    .child(
-                        div()
-                            .text_size(px(11.))
-                            .text_color(p.fg_dim)
-                            .child(bubble.tag),
-                    )
-                    .child(div().font_weight(FontWeight::BOLD).text_color(color).child(
-                        if schematic.dim {
-                            "--".to_owned()
-                        } else {
-                            bubble.value.clone()
-                        },
-                    ))
-                    .child(caption(bubble.caption.clone(), p)),
-            );
-        }
         content = content.child(
             card(p)
-                .child(card_header(schematic.title.clone(), p))
-                .child(parts)
-                .child(bubbles)
-                .child(card_row(p).child(caption(schematic.caption.clone(), p))),
+                .child(header(
+                    model.schematic.title.clone(),
+                    model.schematic.caption.clone(),
+                    p,
+                ))
+                .child(schematic::element(&model.schematic, p)),
         );
 
         // The events.
         let export = {
             let (view, id) = (view.clone(), id.to_owned());
-            Self::flat_button("ls-status-export", model.events.export.clone()).on_click(
+            small_button("ls-status-export", model.events.export.clone()).on_click(
                 move |_, _, cx| {
                     let (view, id) = (view.clone(), id.clone());
                     let (info, events, locale) = view.read_with(cx, |this, cx| {
@@ -222,34 +220,58 @@ impl ScreenView {
         };
         let mut events = card(p)
             .child(card_header(model.events.title.clone(), p).child(export))
-            .child(header_row(&model.events.columns, &[170., 260., 0.], p));
+            .child(
+                table_header(&model.events.columns, &[Some(TIME_WIDTH), None, None], p)
+                    .border_t_0(),
+            );
         if let Some(text) = &model.events.empty {
-            events = events.child(card_row(p).child(text.clone()));
+            events = events.child(
+                div()
+                    .px(px(18.))
+                    .py(px(12.))
+                    .border_t_1()
+                    .border_color(p.border)
+                    .text_color(p.fg_dim)
+                    .child(text.clone()),
+            );
         }
-        for row in &model.events.rows {
+        for (index, row) in model.events.rows.iter().enumerate() {
             let view = view.clone();
             let opens = row.opens_alarms;
             events = events.child(
-                card_row(p)
-                    .id(SharedString::from(format!("ls-event-{}", row.time)))
+                h_flex()
+                    .id(SharedString::from(format!("ls-event-{index}")))
+                    .w_full()
+                    .min_h(px(36.))
+                    .px(px(18.))
+                    .gap(px(12.))
+                    .border_t_1()
+                    .border_color(p.border)
                     .text_color(if dim { p.fg_dim } else { p.fg })
-                    .when(opens, |line| line.cursor_pointer())
+                    .when(opens, |line| {
+                        line.cursor_pointer().hover(|line| line.bg(p.hover))
+                    })
                     .on_click(move |_, _, cx| {
                         if opens {
                             view.update(cx, |this, cx| this.go(Page::Alarms, cx));
                         }
                     })
-                    .child(div().w(px(170.)).child(row.time.clone()))
+                    .child(
+                        cell(TIME_WIDTH)
+                            .font_family("monospace")
+                            .child(row.time.clone()),
+                    )
                     .child(
                         h_flex()
-                            .w(px(260.))
+                            .flex_1()
+                            .min_w_0()
                             .gap(px(6.))
                             .when_some(row.severity, |label, severity| {
                                 label.child(severity_icon(severity, p))
                             })
-                            .child(row.title.clone()),
+                            .child(div().min_w_0().truncate().child(row.title.clone())),
                     )
-                    .child(div().flex_1().child(row.details.clone())),
+                    .child(wide_cell().text_color(p.fg_dim).child(row.details.clone())),
             );
         }
         content = content.child(events);

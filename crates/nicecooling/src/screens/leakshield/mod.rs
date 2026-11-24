@@ -13,6 +13,8 @@ pub mod lighting;
 pub mod lighting_view;
 pub mod overview;
 pub mod overview_view;
+pub mod parts;
+pub mod schematic;
 pub mod sensors;
 pub mod sensors_view;
 pub mod settings;
@@ -278,6 +280,18 @@ impl<'a> Device<'a> {
         let state = input.state;
         let sample = state.sensors.as_ref().or(state.last_sensors.as_ref())?;
         sample.sensor_value(&format!("{}_{name}", self.id))
+    }
+}
+
+/// A value that is a change, with its sign: "+0.4 ml/h", "-0.1 mbar/min". "--" without a value.
+pub fn change_text(locale: Locale, value: Option<f64>, unit: &str) -> String {
+    let text = crate::screens::format::optional_value(locale, value, unit);
+    match value {
+        // A value that rounds to zero has no sign.
+        Some(value) if value > 0.0 && text.contains(|c: char| ('1'..='9').contains(&c)) => {
+            format!("+{text}")
+        }
+        _ => text,
     }
 }
 

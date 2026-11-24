@@ -9,7 +9,7 @@ use crate::screens::ScreenInput;
 use crate::screens::alarms::event_severity;
 use crate::screens::format::{date_time_seconds, optional_value, plain};
 use crate::screens::leakshield::overview::{limits_of, status_key, status_text};
-use crate::screens::leakshield::{Device, TabState, severity_of};
+use crate::screens::leakshield::{Device, TabState, change_text, severity_of};
 
 /// The height of the chart between the tiles and the schematic, in px.
 pub const CHART_HEIGHT: (f32, f32) = (84.0, 240.0);
@@ -61,7 +61,7 @@ impl Default for StatusUi {
     fn default() -> Self {
         Self {
             selected: Tile::Status,
-            chart_height: 116.0,
+            chart_height: CHART_HEIGHT.0,
         }
     }
 }
@@ -85,6 +85,7 @@ impl StatusUi {
 #[derive(Clone, Debug, PartialEq)]
 pub struct TileModel {
     pub tile: Tile,
+    /// The caption under the value: the name, and the target for the pressure.
     pub label: String,
     pub value: String,
     pub selected: bool,
@@ -112,6 +113,10 @@ pub struct SchematicModel {
     pub caption: String,
     pub parts: Vec<PartModel>,
     pub bubbles: Vec<Bubble>,
+    /// The fill level in percent, for the level in the reservoir.
+    pub level: Option<f64>,
+    /// "Fill level", the caption of the LT bubble.
+    pub level_label: String,
     /// The schematic is dim: the Leakshield does not answer.
     pub dim: bool,
 }
@@ -143,6 +148,9 @@ pub struct StatusModel {
     pub operating_caption: String,
     pub tiles: Vec<TileModel>,
     pub chart_height: f32,
+    /// "Target 300 mbar", the label of the target line in the pressure chart.
+    pub target_label: Option<String>,
+    pub target: Option<f64>,
     pub selected: Tile,
     pub status_label: String,
     pub schematic: SchematicModel,
@@ -260,15 +268,30 @@ impl StatusModel {
                 .map(|a| a.severity)
                 .max()
         };
+        let change = |name: &str, unit: &str| {
+            change_text(locale, device.sensor(input, name).filter(|_| ready), unit)
+        };
+        let target_text = limits.map(|l| {
+            locale.fmt(
+                "leakshield.status.target",
+                &[("value", &plain(locale, l.target))],
+            )
+        });
         let tiles = Tile::ALL
             .iter()
             .map(|tile| TileModel {
                 tile: *tile,
-                label: locale.tr(tile.key()),
+                label: match (tile, &target_text) {
+                    (Tile::Pressure, Some(target)) => {
+                        format!("{}, {target}", locale.tr(tile.key()))
+                    }
+                    _ => locale.tr(tile.key()),
+                },
                 value: match tile.sensor() {
                     None if ready => status_text(locale, key),
                     None => "--".to_owned(),
-                    Some((name, unit)) => value(name, unit),
+                    Some((name, unit)) if *tile == Tile::Pressure => value(name, unit),
+                    Some((name, unit)) => change(name, unit),
                 },
                 selected: *tile == ui.selected,
                 severity: match tile {
@@ -288,21 +311,29 @@ impl StatusModel {
                 Bubble {
                     tag: "PT",
                     value: value("pressure", "mbar"),
-                    caption: limits.map_or_else(String::new, |l| {
-                        locale.fmt(
-                            "leakshield.status.target",
-                            &[("value", &plain(locale, l.target))],
-                        )
-                    }),
+                    caption: {
+                        let rate = device
+                            .sensor(input, "pressure_change")
+                            .filter(|_| ready)
+                            .map(|rate| change_text(locale, Some(rate), "mbar/min"));
+                        target_text
+                            .clone()
+                            .into_iter()
+                            .chain(rate)
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    },
                     severity: severity_of(&alarms),
                 },
                 Bubble {
                     tag: "LT",
                     value: fill,
-                    caption: value("volume_change", "ml/h"),
+                    caption: change("volume_change", "ml/h"),
                     severity: severity_for("fill-level"),
                 },
             ],
+            level: device.sensor(input, "fill_level").filter(|_| ready),
+            level_label: locale.tr("leakshield.overview.fill_level"),
             dim: !ready,
         };
 
@@ -335,6 +366,13 @@ impl StatusModel {
             operating_caption: locale.tr("leakshield.status.operating_caption"),
             tiles,
             chart_height: ui.chart_height,
+            target_label: limits.map(|l| {
+                locale.fmt(
+                    "leakshield.status.target_line",
+                    &[("value", &plain(locale, l.target))],
+                )
+            }),
+            target: limits.map(|l| l.target),
             selected: ui.selected,
             status_label: locale.tr("leakshield.status.tile.status"),
             schematic,
