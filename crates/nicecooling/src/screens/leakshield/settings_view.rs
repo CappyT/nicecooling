@@ -5,20 +5,21 @@ use std::rc::Rc;
 use gpui::prelude::*;
 use gpui::{AnyElement, Context, FontWeight, SharedString, Window, div, px};
 use gpui_component::button::{Button, ButtonVariants as _};
-use gpui_component::input::Input;
 use gpui_component::switch::Switch;
 use gpui_component::{Disableable as _, Sizable as _, h_flex, v_flex};
 
-use crate::icons::{NcIcon, icon, text_icon};
+use crate::icons::{NcIcon, icon, small_icon, text_icon};
 use crate::model::Severity;
-use crate::screen_view::{InputKey, ScreenView, skeleton};
+use crate::screen_view::{InputKey, ScreenView};
 use crate::screens::controls::{Pick, act};
 use crate::screens::leakshield::TabState;
-use crate::screens::leakshield::sensors_view::header_row;
+use crate::screens::leakshield::parts::{
+    button, field_badge, field_input, field_row, header, loading_card, radio_mark, small_button,
+};
 use crate::screens::leakshield::settings::{Control, Link, Row, SettingsModel, Summary};
 use crate::screens::ui::{
-    caption, card, card_header, card_row, locked, modal, notice_row, page, severity_icon,
-    write_line,
+    TagKind, caption, card, card_header, card_row, cell, locked, modal, notice_row, page,
+    severity_icon, table_header, tag, wide_cell, write_line,
 };
 use crate::shell::Page;
 use crate::tokens::Palette;
@@ -41,52 +42,69 @@ impl ScreenView {
         let mut content = page();
         if model.state == TabState::Loading {
             return content
-                .child(
-                    card(p)
-                        .p(px(18.))
-                        .gap(px(12.))
-                        .child(div().child(model.loading_text.clone()))
-                        .child(skeleton(p, 320.)),
-                )
+                .child(loading_card(model.loading_text.clone(), p))
                 .into_any_element();
         }
         let ready = model.state == TabState::Ready;
 
-        // The stepper.
-        let mut stepper = h_flex().gap(px(6.)).p(px(12.));
-        for item in &model.stepper {
+        // The stepper: a numbered mark and the name of each step, with a line between two
+        // steps. A step that does not fit goes to the next line.
+        let mut stepper = h_flex()
+            .w_full()
+            .flex_wrap()
+            .gap(px(6.))
+            .px(px(18.))
+            .py(px(12.));
+        for (index, item) in model.stepper.iter().enumerate() {
             let step = item.step;
             let view = view.clone();
+            if index > 0 {
+                stepper = stepper.child(div().flex_1().min_w(px(6.)).h(px(1.)).bg(p.border));
+            }
+            let mark = div()
+                .size(px(22.))
+                .flex_none()
+                .rounded_full()
+                .flex()
+                .items_center()
+                .justify_center()
+                .text_size(px(12.))
+                .font_weight(FontWeight::BOLD)
+                .map(|mark| {
+                    if item.current {
+                        mark.bg(p.accent_bg)
+                            .text_color(p.accent_fg)
+                            .child((index + 1).to_string())
+                    } else if item.done {
+                        mark.bg(p.accent_tint)
+                            .child(small_icon(NcIcon::Check, p.accent))
+                    } else {
+                        mark.bg(p.track).child((index + 1).to_string())
+                    }
+                });
             stepper = stepper.child(
-                div()
+                h_flex()
                     .id(SharedString::from(format!("ls-step-{step:?}")))
-                    .px(px(10.))
-                    .h(px(30.))
-                    .flex()
-                    .items_center()
-                    .gap(px(4.))
-                    .rounded(px(8.))
+                    .flex_none()
+                    .gap(px(6.))
                     .cursor_pointer()
-                    .when(item.current, |s| {
-                        s.bg(p.accent_tint)
-                            .text_color(p.accent)
-                            .font_weight(FontWeight::BOLD)
-                    })
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(if item.current { p.fg } else { p.fg_dim })
+                    .hover(|step| step.text_color(p.fg))
                     .on_click(move |_, _, cx| {
                         view.update(cx, |this, cx| {
                             this.leakshield.settings.go(step);
                             cx.notify();
                         });
                     })
-                    .when(item.done, |s| s.child(icon(NcIcon::Check, p.success)))
+                    .child(mark)
                     .child(item.label.clone()),
             );
         }
         content = content.child(card(p).child(stepper));
 
         // The step card.
-        let mut step_card = card(p)
-            .child(card_header(model.title.clone(), p).child(caption(model.counter.clone(), p)));
+        let mut step_card = card(p).child(header(model.title.clone(), model.counter.clone(), p));
         if model.unknown_firmware {
             step_card = step_card.child(notice_row(
                 self.model.read(cx).locale.tr("leakshield.fields.unknown"),
@@ -101,11 +119,16 @@ impl ScreenView {
             step_card = step_card.child(self.summary_card(id, summary, ready, p, cx));
         }
         let footer = {
-            let mut footer = h_flex().w_full().px(px(18.)).py(px(10.)).gap(px(8.));
+            let mut footer = h_flex()
+                .w_full()
+                .px(px(18.))
+                .py(px(12.))
+                .gap(px(6.))
+                .border_t_1()
+                .border_color(p.border);
             footer = footer.child(
-                Button::new("ls-wizard-cancel")
-                    .small()
-                    .label(model.cancel.clone())
+                button("ls-wizard-cancel", model.cancel.clone())
+                    .ghost()
                     .on_click(act(&view, |this, _, _| {
                         this.leakshield.settings.request_discard()
                     })),
@@ -114,10 +137,8 @@ impl ScreenView {
             if let Some((step, label)) = &model.back {
                 let step = *step;
                 footer = footer.child(
-                    Button::new("ls-wizard-back")
-                        .small()
+                    button("ls-wizard-back", label.clone())
                         .icon(text_icon(NcIcon::Left))
-                        .label(label.clone())
                         .on_click(act(&view, move |this, _, _| {
                             this.leakshield.settings.go(step)
                         })),
@@ -126,10 +147,8 @@ impl ScreenView {
             if let Some((step, label)) = &model.next {
                 let step = *step;
                 footer = footer.child(
-                    Button::new("ls-wizard-next")
-                        .small()
+                    button("ls-wizard-next", label.clone())
                         .primary()
-                        .label(label.clone())
                         .child(text_icon(NcIcon::Right))
                         .on_click(act(&view, move |this, _, _| {
                             this.leakshield.settings.go(step)
@@ -141,15 +160,67 @@ impl ScreenView {
         step_card = step_card.child(footer);
         content = content.child(step_card);
 
-        // The pending changes.
-        let mut pending = card(p).child(card_header(model.pending_title.clone(), p));
+        // The pending changes: the name, then the old value struck through and the new one.
+        let mut pending_header = card_header(model.pending_title.clone(), p);
+        if !model.pending.is_empty() {
+            pending_header = h_flex()
+                .min_h(px(40.))
+                .px(px(18.))
+                .py(px(6.))
+                .gap(px(9.))
+                .child(
+                    div()
+                        .font_weight(FontWeight::BOLD)
+                        .child(model.pending_title.clone()),
+                )
+                .child(tag(model.pending.len().to_string(), TagKind::Accent, p));
+        }
+        let mut pending = card(p).child(pending_header);
+        let line = || {
+            v_flex()
+                .w_full()
+                .px(px(18.))
+                .py(px(9.))
+                .gap(px(2.))
+                .border_t_1()
+                .border_color(p.border)
+        };
         if let Some(text) = &model.no_changes {
-            pending = pending.child(card_row(p).child(text.clone()));
+            pending = pending.child(line().text_color(p.fg_dim).child(text.clone()));
         }
-        for line in &model.pending {
-            pending = pending.child(card_row(p).child(line.clone()));
+        for change in &model.pending {
+            pending = pending.child(
+                line()
+                    .child(
+                        div()
+                            .font_weight(FontWeight::BOLD)
+                            .child(change.name.clone()),
+                    )
+                    .child(
+                        h_flex()
+                            .gap(px(4.))
+                            .child(
+                                div()
+                                    .line_through()
+                                    .text_color(p.fg_dim)
+                                    .child(change.old.clone()),
+                            )
+                            .child("->")
+                            .child(change.new.clone()),
+                    ),
+            );
         }
-        pending = pending.child(card_row(p).child(caption(model.pending_note.clone(), p)));
+        let mut steps = v_flex().gap(px(3.)).pl(px(6.));
+        for (index, step) in model.pending_steps.iter().enumerate() {
+            steps = steps.child(caption(format!("{}. {step}", index + 1), p));
+        }
+        pending = pending.child(
+            line()
+                .gap(px(9.))
+                .pb(px(12.))
+                .child(caption(model.pending_note.clone(), p))
+                .child(steps),
+        );
         content = content.child(pending);
 
         let mut root = div().id("ls-settings").relative().w_full().child(content);
@@ -176,9 +247,7 @@ impl ScreenView {
                 String::new(),
                 Vec::new(),
                 vec![
-                    Button::new("ls-discard-keep")
-                        .small()
-                        .label(keep.clone())
+                    small_button("ls-discard-keep", keep.clone())
                         .on_click(act(&keep_view, |this, _, _| {
                             this.leakshield.settings.keep_editing()
                         }))
@@ -238,15 +307,17 @@ impl ScreenView {
                     window,
                     cx,
                 );
-                let mut field = h_flex().gap(px(6.)).items_center().child(
-                    div()
-                        .w(px(110.))
-                        .child(Input::new(&input).disabled(!enabled)),
-                );
-                if !unit.is_empty() {
-                    field = field.child(div().text_color(p.fg_dim).child(unit.clone()));
-                }
-                field.into_any_element()
+                field_input(
+                    &input,
+                    unit,
+                    enabled,
+                    row.error.is_some(),
+                    124.,
+                    p,
+                    window,
+                    cx,
+                )
+                .into_any_element()
             }
             Control::Time { text } => {
                 let input = self.input(
@@ -256,14 +327,13 @@ impl ScreenView {
                     window,
                     cx,
                 );
-                div()
-                    .w(px(110.))
-                    .child(Input::new(&input).disabled(!enabled))
+                field_input(&input, "", enabled, row.error.is_some(), 78., p, window, cx)
                     .into_any_element()
             }
             Control::Switch(on) => {
                 let (view, device, key) = (view.clone(), device.clone(), key.clone());
                 Switch::new(SharedString::from(format!("ls-setting-{key}")))
+                    .large()
                     .checked(*on)
                     .disabled(!enabled)
                     .on_click(move |on, _, cx| {
@@ -273,60 +343,56 @@ impl ScreenView {
                     })
                     .into_any_element()
             }
-            Control::Info(text) => div().max_w(px(420.)).child(text.clone()).into_any_element(),
-            Control::Radio(options) => {
-                let mut column = v_flex().gap(px(4.));
-                for (mode, text, selected) in options {
-                    let (view, device, key, mode) =
-                        (view.clone(), device.clone(), key.clone(), mode.clone());
-                    let mut button = Button::new(SharedString::from(format!("ls-radio-{mode}")))
-                        .small()
-                        .label(text.clone())
-                        .disabled(!enabled)
-                        .on_click(move |_, _, cx| {
-                            let (device, key, mode) = (device.clone(), key.clone(), mode.clone());
-                            view.update(cx, |this, cx| {
-                                this.settings_edit(&device, &key, &mode, cx)
-                            });
-                        });
-                    if *selected {
-                        button = button.primary();
-                    }
-                    column = column.child(button);
-                }
-                column.into_any_element()
-            }
+            Control::Info(text) => div()
+                .max_w(px(420.))
+                .min_w_0()
+                .text_color(p.fg_dim)
+                .child(text.clone())
+                .into_any_element(),
+            // The Modes are radio rows under the name of the setting.
+            Control::Radio(_) => div().into_any_element(),
         };
-        let mut title = v_flex().flex_1().child(
+        let mut title = v_flex().flex_1().min_w_0().gap(px(3.)).child(
             h_flex()
-                .gap(px(8.))
-                .child(div().font_weight(FontWeight::BOLD).child(row.label.clone()))
+                .gap(px(6.))
+                .child(
+                    div()
+                        .min_w_0()
+                        .font_weight(FontWeight::BOLD)
+                        .child(row.label.clone()),
+                )
                 .when(!row.badge.is_empty(), |t| {
-                    t.child(
-                        div()
-                            .text_size(px(12.))
-                            .text_color(if row.writable { p.success } else { p.fg_dim })
-                            .map(|badge| {
-                                if row.writable {
-                                    badge.child(row.badge.clone())
-                                } else {
-                                    badge.child(locked(row.badge.clone(), p))
-                                }
-                            }),
-                    )
+                    t.child(field_badge(row.badge.clone(), row.writable, p))
                 }),
         );
         if let Some(text) = &row.caption {
             title = title.child(caption(text.clone(), p));
         }
         if let Some(reason) = &row.reason {
-            title = title.child(caption(reason.clone(), p));
+            let mut line = h_flex()
+                .flex_wrap()
+                .gap(px(4.))
+                .child(caption(reason.clone(), p));
+            if let Some((label, Link::Fields(field))) = &row.link {
+                let field = field.clone();
+                line = line.child(
+                    Self::link_button(
+                        SharedString::from(format!("ls-link-{}", row.key)),
+                        label.clone(),
+                        p,
+                    )
+                    .text_size(px(12.))
+                    .on_click(act(&view, move |this, _, _| {
+                        this.leakshield.open_fields(Some(&field))
+                    })),
+                );
+            }
+            title = title.child(line);
         }
         if let Some(error) = &row.error {
-            title = title.child(div().text_color(p.alarm).child(error.clone()));
+            title = title.child(caption(error.clone(), p).text_color(p.alarm));
         }
-        let mut line = card_row(p)
-            .items_start()
+        let mut line = field_row(p)
             .when(row.dim, |l| l.opacity(0.5))
             .when(row.changed, |l| l.bg(p.accent_tint))
             .child(title)
@@ -334,9 +400,7 @@ impl ScreenView {
         if let Some(label) = &row.use_current {
             let (device, key) = (device.clone(), row.key.clone());
             line = line.child(
-                Button::new(SharedString::from(format!("ls-use-{key}")))
-                    .small()
-                    .label(label.clone())
+                small_button(SharedString::from(format!("ls-use-{key}")), label.clone())
                     .disabled(!enabled)
                     .on_click(act(&view, move |this, _, cx| {
                         let mut ui = std::mem::take(&mut this.leakshield.settings);
@@ -345,7 +409,12 @@ impl ScreenView {
                     })),
             );
         }
-        if let Some((label, target)) = &row.link {
+        // The link to the Fields tab is after the reason. Without a reason it is in the row.
+        if let Some((label, target)) = row
+            .link
+            .as_ref()
+            .filter(|(_, target)| row.reason.is_none() || !matches!(target, Link::Fields(_)))
+        {
             let target = target.clone();
             line = line.child(
                 Self::link_button(
@@ -359,7 +428,43 @@ impl ScreenView {
                 })),
             );
         }
-        line.into_any_element()
+        let Control::Radio(options) = &row.control else {
+            return line.into_any_element();
+        };
+        let mut column = v_flex().w_full().child(line);
+        for (mode, text, selected) in options {
+            let (view, device, key, mode) =
+                (view.clone(), device.clone(), row.key.clone(), mode.clone());
+            column = column.child(
+                h_flex()
+                    .id(SharedString::from(format!("ls-radio-{mode}")))
+                    .w_full()
+                    .min_h(px(40.))
+                    .px(px(18.))
+                    .py(px(6.))
+                    .gap(px(12.))
+                    .border_t_1()
+                    .border_color(p.border)
+                    .when(*selected, |option| option.bg(p.accent_tint))
+                    .when(enabled, |option| {
+                        option
+                            .cursor_pointer()
+                            .when(!*selected, |option| option.hover(|o| o.bg(p.hover)))
+                            .on_click(move |_, _, cx| {
+                                let (device, key, mode) =
+                                    (device.clone(), key.clone(), mode.clone());
+                                view.update(cx, |this, cx| {
+                                    this.settings_edit(&device, &key, &mode, cx);
+                                    cx.notify();
+                                });
+                            })
+                    })
+                    .when(!enabled, |option| option.opacity(0.5))
+                    .child(radio_mark(*selected, p))
+                    .child(div().flex_1().min_w_0().child(text.clone())),
+            );
+        }
+        column.into_any_element()
     }
 
     fn summary_card(
@@ -386,12 +491,12 @@ impl ScreenView {
             column = column.child(card_row(p).child(text.clone()));
         } else {
             let locale = self.model.read(cx).locale;
-            column = column.child(header_row(
+            column = column.child(table_header(
                 &["setting", "now", "new", "note"]
                     .iter()
                     .map(|name| locale.tr(&format!("leakshield.settings.column.{name}")))
                     .collect::<Vec<_>>(),
-                &[0., 160., 160., 220.],
+                &[None, Some(140.), Some(140.), Some(200.)],
                 p,
             ));
         }
@@ -403,16 +508,17 @@ impl ScreenView {
             };
             column = column.child(
                 card_row(p)
-                    .child(div().flex_1().child(name))
-                    .child(div().w(px(160.)).child(row.now.clone()))
+                    .min_h(px(36.))
+                    .py(px(3.))
+                    .child(wide_cell().child(name))
+                    .child(cell(140.).text_color(p.fg_dim).child(row.now.clone()))
                     .child(
-                        div()
-                            .w(px(160.))
+                        cell(140.)
                             .font_weight(FontWeight::BOLD)
                             .child(row.new.clone()),
                     )
                     .child(
-                        div().w(px(220.)).child(
+                        div().w(px(200.)).flex_none().min_w_0().child(
                             row.note
                                 .clone()
                                 .or_else(|| row.status.clone())
@@ -443,9 +549,7 @@ impl ScreenView {
                 );
             }
             row = row.child(
-                Button::new("ls-wizard-keep")
-                    .small()
-                    .label(failed.keep.clone())
+                small_button("ls-wizard-keep", failed.keep.clone())
                     .on_click(act(&view, |this, _, _| {
                         this.leakshield.settings.kept = true
                     })),
@@ -455,9 +559,8 @@ impl ScreenView {
         let device = id.to_owned();
         column = column.child(
             card_row(p).child(div().flex_1()).child(
-                Button::new("ls-wizard-apply")
+                button("ls-wizard-apply", summary.apply.clone())
                     .primary()
-                    .label(summary.apply.clone())
                     .disabled(!summary.apply_enabled)
                     .on_click(act(&view, move |this, _, cx| {
                         let mut ui = std::mem::take(&mut this.leakshield.settings);

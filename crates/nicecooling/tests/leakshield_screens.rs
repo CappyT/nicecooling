@@ -2585,7 +2585,14 @@ fn leakshield_settings_states() {
     ui.edit(&data, "reservoir_air_volume_full", "70");
     let model = settings(&state, &ui);
     assert!(model.rows[2].changed);
-    assert_eq!(model.pending, ["Reservoir air volume full: 65 ml -> 70 ml"]);
+    assert_eq!(
+        model
+            .pending
+            .iter()
+            .map(|c| (c.name.as_str(), c.old.as_str(), c.new.as_str()))
+            .collect::<Vec<_>>(),
+        [("Reservoir air volume full", "65 ml", "70 ml")]
+    );
     assert!(model.no_changes.is_none());
     // The same value as the device is no change.
     ui.edit(&data, "reservoir_air_volume_full", "65");

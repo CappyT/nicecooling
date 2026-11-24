@@ -448,6 +448,14 @@ pub struct FailedWrite {
     pub keep: String,
 }
 
+/// One pending change: the setting, its value on the device and its new value.
+#[derive(Clone, Debug, PartialEq)]
+pub struct PendingChange {
+    pub name: String,
+    pub old: String,
+    pub new: String,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct SettingsModel {
     pub state: TabState,
@@ -464,7 +472,9 @@ pub struct SettingsModel {
     pub discard: Option<(String, String, String)>,
     pub pending_title: String,
     pub pending_note: String,
-    pub pending: Vec<String>,
+    /// The four steps of a write, as a numbered list under the note.
+    pub pending_steps: Vec<String>,
+    pub pending: Vec<PendingChange>,
     pub no_changes: Option<String>,
     pub unknown_firmware: bool,
     pub write_line: Option<FeedbackLine>,
@@ -526,21 +536,13 @@ impl SettingsModel {
             Step::ALL.get(index).map(|s| (*s, locale.tr(s.key())))
         };
         let changes = ui.pending.len();
-        let pending: Vec<String> = ui
+        let pending: Vec<PendingChange> = ui
             .pending
             .iter()
-            .map(|(field, value)| {
-                locale.fmt(
-                    "leakshield.settings.pending_row",
-                    &[
-                        ("name", &humanize(field)),
-                        (
-                            "old",
-                            &field_value_text(locale, field, data.field(field).map(|f| &f.value)),
-                        ),
-                        ("new", &field_value_text(locale, field, Some(value))),
-                    ],
-                )
+            .map(|(field, value)| PendingChange {
+                name: humanize(field),
+                old: field_value_text(locale, field, data.field(field).map(|f| &f.value)),
+                new: field_value_text(locale, field, Some(value)),
             })
             .collect();
         Self {
@@ -578,6 +580,9 @@ impl SettingsModel {
             }),
             pending_title: locale.tr("leakshield.settings.pending"),
             pending_note: locale.tr("leakshield.settings.pending_note"),
+            pending_steps: (1..=4)
+                .map(|n| locale.tr(&format!("leakshield.settings.pending_step.{n}")))
+                .collect(),
             no_changes: pending
                 .is_empty()
                 .then(|| locale.tr("leakshield.settings.no_change")),
