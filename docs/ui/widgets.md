@@ -15,7 +15,7 @@ Comps: `comps/overview.html`, `comps/overview-min.html`.
 
 Draws one Loop from the Loop model. It never draws a part that the model does not hold.
 
-| Part | Geometry (width W, height 168) |
+| Part | Geometry (width W, height 168, wide diagram) |
 |---|---|
 | Supply leg | Horizontal line at y 100, 3 px `water` |
 | Return leg | Horizontal line at y 150, joined to the supply leg by a 10 px corner at x W-24 |
@@ -33,7 +33,8 @@ Draws one Loop from the Loop model. It never draws a part that the model does no
 - Tags: PT pressure, ST pump speed, FT flow, TT water temperature, LT fill level.
 - A Loop without a Leakshield: no reservoir, no capsule, no PT bubble. The legs close at the left with a 10 px corner. The top left shows "No Leakshield" and "Pressure is not measured."
 - A Loop without a flow sensor or a water temperature sensor: that part and its bubble are absent. The other parts keep their place.
-- Narrow diagram: a part never gets closer to the part at its left than the value and the caption of that part need. The pump, the flow sensor and the water temperature then move to the right of their fractions, so no text reaches the next bubble. With a Leakshield the four values need about 570 px.
+- Wide diagram, 640 px and more: one row, 168 px high, as in the table. A part never gets closer to the part at its left than the value and the caption of that part need: the pump, the flow sensor and the water temperature then move to the right of their fractions.
+- Narrow diagram, under 640 px (the Loops screen at the minimum window is 528 px): two rows, 212 px high. The Leakshield capsule, the PT bubble and its text keep their place and have the first row for themselves. The water path, the reservoir, the parts, their bubbles and the "Blocks and radiators" box are 44 px lower, and the dashed line from the capsule to the reservoir is 44 px longer. The arrow of the return leg is under the arrow of the supply leg. A Loop without a Leakshield has "No Leakshield" and "Pressure is not measured." in the first row.
 - A bubble without a live value shows "--" without a unit, and its caption is the last value: "last 298 mbar". The reservoir then shows no fill level.
 - More than one Pump channel: one pump symbol, and the ST bubble shows the lowest speed. The caption says "2 pumps".
 - Bubble states: normal, Warning (amber fill, triangle icon before the caption), Alarm (red fill, white tag, octagon icon, value in `alarm`), offline (dashed outline, value "--").
