@@ -274,17 +274,12 @@ impl ScreenView {
             Control::Info(text) => div().max_w(px(420.)).child(text.clone()).into_any_element(),
             Control::Radio(options) => {
                 let mut column = v_flex().gap(px(4.));
-                for (mode, text, selected, padlock) in options {
+                for (mode, text, selected) in options {
                     let (view, device, key, mode) =
                         (view.clone(), device.clone(), key.clone(), mode.clone());
-                    let label = if *padlock {
-                        format!("\u{1F512} {text}")
-                    } else {
-                        text.clone()
-                    };
                     let mut button = Button::new(SharedString::from(format!("ls-radio-{mode}")))
                         .small()
-                        .label(label)
+                        .label(text.clone())
                         .disabled(!enabled)
                         .on_click(move |_, _, cx| {
                             let (device, key, mode) = (device.clone(), key.clone(), mode.clone());
@@ -437,7 +432,7 @@ impl ScreenView {
                     Button::new("ls-wizard-restore")
                         .small()
                         .danger()
-                        .label(format!("\u{1F512} {}", failed.restore))
+                        .label(failed.restore.clone())
                         .disabled(!ready)
                         .on_click(act(&view, move |this, _, _| this.send(command.clone()))),
                 );

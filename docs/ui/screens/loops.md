@@ -34,7 +34,6 @@ Detail column, from the top:
 | Feed stale | The age is in the Warning color after 5 s, and while `FeedState` is `failing` or `off`: "Last Feed 12 s ago" |
 | Flow out of range | The live marker of the Calibration table is in the dashed part. Text: "671 rpm is above the last point. The flow is an estimate." |
 | Alarm | A pump-stop Alarm shows as a red row at the top of the detail: "Pump stopped: Waterpump reads 0 rpm. Every Channel is at 100 %." |
-| Locked | Not used |
 
 ## Interactions
 

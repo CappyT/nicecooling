@@ -171,13 +171,8 @@ impl ScreenView {
         let mut buttons = h_flex().gap(px(6.));
         for button in &mode.buttons {
             let (device, name) = (id.to_owned(), button.mode.clone());
-            let label = if button.padlock {
-                format!("\u{1F512} {}", button.label)
-            } else {
-                button.label.clone()
-            };
             let mut ui_button = Button::new(SharedString::from(format!("ls-mode-{}", button.mode)))
-                .label(label)
+                .label(button.label.clone())
                 .disabled(!button.enabled)
                 .on_click(act(&view, move |this, _, cx| {
                     let state = this.state(cx);

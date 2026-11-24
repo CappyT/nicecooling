@@ -43,7 +43,6 @@ A dialog, 480 px wide:
 | Derived sensor with a missing source | "--" and the Warning icon. Caption: "Source without value: GPU temperature" |
 | Mixed units in the editor | "Save" is disabled. Text: "All sources must have the same unit." |
 | Alarm | A sensor that caused an active Alarm or Warning has the severity icon before its name |
-| Locked | Not used |
 
 ## Interactions
 

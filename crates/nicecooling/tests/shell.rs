@@ -291,11 +291,6 @@ fn app_shell_labels() {
             "Cancel poweroff",
             "Annulla lo spegnimento",
         ),
-        (
-            "tooltip.needs_admin",
-            "Needs the administrator password",
-            "Richiede la password di amministratore",
-        ),
     ];
     for (key, english, italian) in table {
         assert_eq!(en[key], english, "{key}");

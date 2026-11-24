@@ -53,7 +53,6 @@ Each button writes one setting through the normal write path, with write status 
 | Threshold order wrong | Fill level Alarm above the Warning: red outline. Text: "The Alarm threshold must be below the Warning threshold." |
 | Delay 0 | Warning under the row: "With 0 s you cannot cancel the poweroff." |
 | Event active | The row of an active event has its severity icon and the caption "Active since 21:46:51" |
-| Locked | Not used |
 
 ## Interactions
 

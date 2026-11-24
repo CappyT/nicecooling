@@ -33,7 +33,6 @@ A selected row opens a panel under it with the explanation: why the field is rea
 | Plausible read, Safety field | Read-only. Explanation: "A Safety field needs a Verification write before nicecooling writes it. The app does not run a Verification write: it is a supervised procedure. See the project documentation." |
 | Verification write passed | Writable. Explanation: "A Verification write passed on 2026-11-20 for firmware 1022." |
 | Contradicting read | Read-only, Warning icon. Explanation: "The value 913 is outside the range 0 to 450. The field layout can be wrong for this firmware." |
-| Locked | Not used: the tab has no control that writes |
 | Alarm | Not used |
 
 ## Interactions

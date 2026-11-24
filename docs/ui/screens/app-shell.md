@@ -53,7 +53,6 @@ The poweroff banner shows on every screen while a countdown runs. No screen can 
 | Daemon offline | Banner 2. Live values show in `fg-dim` with their age. Every control that writes is disabled, and its tooltip says "The daemon is offline." |
 | Daemon down | The service is in the failed state: systemd gave up its restarts. Banner 2 in its "Daemon down" form replaces the offline form: it has the solid Alarm field, because the state is as serious as an Alarm. "Active Alarms" lists "Daemon down", and the window opens by itself. "Show how to start it" opens a dialog with `systemctl status nicecoolingd` and `systemctl restart nicecoolingd`. A Leakshield still protects the Loop by itself |
 | Not authorized | A write that polkit refuses shows "Not authorized. Nothing changed." next to the control |
-| Locked | A control that needs the administrator password has the padlock in its button: setting RELEASE directly, restoring a backup, factory reset. The click opens the polkit dialog of the system |
 | Alarm | Banner 1, the Alarm count in the status bar and in the sidebar, the icon on the device entry. The window opens by itself and shows the Overview |
 | Window closed | The close button hides the window. The app stays in the tray |
 
@@ -83,4 +82,3 @@ Every write shows its steps next to the control that started it: see "Write stat
 | Daemon connected | Demone connesso |
 | No active Alarms | Nessun Allarme attivo |
 | Cancel poweroff | Annulla lo spegnimento |
-| Needs the administrator password | Richiede la password di amministratore |

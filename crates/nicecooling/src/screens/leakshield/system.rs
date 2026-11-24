@@ -127,8 +127,6 @@ pub fn parse_backup_file(text: &str) -> Option<BackupReports> {
 pub struct Button {
     pub label: String,
     pub enabled: bool,
-    /// The button asks for the administrator password.
-    pub padlock: bool,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -304,10 +302,9 @@ impl SystemModel {
         let ready = state == TabState::Ready;
         let unknown = device.unknown_firmware();
         let info = device.info;
-        let button = |key: &str, padlock: bool, enabled: bool| Button {
+        let button = |key: &str, enabled: bool| Button {
             label: locale.tr(key),
             enabled: enabled && ready,
-            padlock,
         };
         let restoring = matches!(
             input.feedback.get(&format!("restore:{id}")),
@@ -347,7 +344,7 @@ impl SystemModel {
                 .filter(|value| *value <= 0.0)
                 .map(|_| locale.tr("leakshield.system.maintenance_zero")),
             maintenance_caption: locale.tr("leakshield.system.maintenance_caption"),
-            reset_counter: button("leakshield.system.reset_counter", false, writes),
+            reset_counter: button("leakshield.system.reset_counter", writes),
             counter_line: write_line(input, id, "service-counter")
                 .filter(|_| counter_unsupported.is_none()),
             counter_unsupported,
@@ -379,7 +376,7 @@ impl SystemModel {
             ],
             zone_writable: device.access("clock_timezone").writable && writes,
             format_writable: device.access("clock_flags").writable && writes,
-            sync: button("leakshield.system.sync", false, writes),
+            sync: button("leakshield.system.sync", writes),
             warning: (device.data.is_some() && offset_s.abs() >= CLOCK_UNSET_S)
                 .then(|| locale.tr("leakshield.system.clock_unset")),
             sync_line: write_line(input, id, "clock"),
@@ -425,16 +422,15 @@ impl SystemModel {
                     export: Button {
                         label: locale.tr("leakshield.system.export"),
                         enabled: input.writes().enabled,
-                        padlock: false,
                     },
-                    restore: button("leakshield.system.restore", true, writes),
+                    restore: button("leakshield.system.restore", writes),
                 })
                 .collect(),
             empty: backups
                 .is_empty()
                 .then(|| locale.tr("leakshield.system.no_backups")),
-            back_up: button("leakshield.system.back_up", false, writes),
-            import: button("leakshield.system.import", false, writes),
+            back_up: button("leakshield.system.back_up", writes),
+            import: button("leakshield.system.import", writes),
             caption: locale.tr("leakshield.system.backups_caption"),
             write_line: write_line(input, id, "backups"),
             restoring: restore_pending,
@@ -454,14 +450,14 @@ impl SystemModel {
                 .map(|name| locale.tr(&format!("leakshield.system.column.{name}")))
                 .collect(),
             empty: locale.tr("leakshield.system.refill_empty"),
-            reset: button("leakshield.system.reset_history", false, writes),
+            reset: button("leakshield.system.reset_history", writes),
             line: write_line(input, id, "refill-history").filter(|_| refill_unsupported.is_none()),
             unsupported: refill_unsupported,
         };
 
         let reset = ResetCard {
             title: locale.tr("leakshield.system.reset"),
-            factory: button("leakshield.system.factory", true, writes),
+            factory: button("leakshield.system.factory", writes),
             write_line: write_line(input, id, "factory-reset"),
             denied: (denied(input, id, "factory-reset") || denied(input, id, "restore"))
                 .then(|| locale.tr("leakshield.system.denied")),

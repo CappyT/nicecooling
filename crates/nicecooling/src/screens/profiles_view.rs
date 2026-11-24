@@ -658,7 +658,7 @@ impl ScreenView {
                     Button::new(("profile-restore", index))
                         .small()
                         .danger()
-                        .label(format!("\u{1F512} {}", offer.button))
+                        .label(offer.button.clone())
                         .disabled(!enabled)
                         .on_click(act(&view, move |this, _, _| this.send(command.clone()))),
                 );

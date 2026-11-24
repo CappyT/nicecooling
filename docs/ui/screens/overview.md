@@ -33,7 +33,6 @@ From the top:
 | Alarm with poweroff | The same, plus the poweroff banner and the countdown dialog |
 | Action runs | The Mode tag is replaced by "Test running" |
 | Mode RELEASE | The Mode tag is a warning tag "RELEASE". The PT caption says "no protection" |
-| Locked | Not used: the Overview has no locked control |
 | Loop without Leakshield | The diagram has no reservoir and no PT bubble. Text: "No Leakshield" and "Pressure is not measured." |
 
 ## Interactions

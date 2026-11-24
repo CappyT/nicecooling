@@ -24,7 +24,6 @@ No comp. The screen is a settings form: one card per group, one row per setting,
 | Tray not visible | Hint row with the Warning icon: "The tray icon is not visible. On GNOME, turn on the AppIndicator extension." Link "How to turn it on" |
 | No Board file | "Board: ASRock X570 Taichi. No Board file: Channels and sensors have the names of the kernel." |
 | Language changed | The app changes at once, without a restart |
-| Locked | Not used |
 | Alarm | Not used |
 
 ## Interactions

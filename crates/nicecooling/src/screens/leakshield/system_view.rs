@@ -14,19 +14,11 @@ use crate::screen_view::{InputKey, ScreenView, skeleton};
 use crate::screens::controls::{Pick, act};
 use crate::screens::leakshield::TabState;
 use crate::screens::leakshield::sensors_view::header_row;
-use crate::screens::leakshield::system::{Ask, Button as Btn, SystemModel, direct_fields};
+use crate::screens::leakshield::system::{Ask, SystemModel, direct_fields};
 use crate::screens::ui::{
     TagKind, caption, card, card_header, card_row, modal, notice_row, page, tag, write_line,
 };
 use crate::tokens::Palette;
-
-fn label(button: &Btn) -> String {
-    if button.padlock {
-        format!("\u{1F512} {}", button.label)
-    } else {
-        button.label.clone()
-    }
-}
 
 impl ScreenView {
     pub(crate) fn render_ls_system(
@@ -89,7 +81,7 @@ impl ScreenView {
             let button = &device.reset_counter;
             Button::new("ls-reset-counter")
                 .small()
-                .label(label(button))
+                .label(button.label.clone())
                 .disabled(!button.enabled)
                 .on_click(act(&ask, |this, _, _| {
                     this.leakshield.system.request(Ask::ServiceCounter)
@@ -198,7 +190,7 @@ impl ScreenView {
             let device = id.to_owned();
             Button::new("ls-sync-clock")
                 .small()
-                .label(label(&clock.sync))
+                .label(clock.sync.label.clone())
                 .disabled(!clock.sync.enabled)
                 .on_click(act(&view, move |this, _, _| {
                     this.send(crate::command::Command::SyncLeakshieldClock {
@@ -295,7 +287,7 @@ impl ScreenView {
             let device = id.to_owned();
             Button::new("ls-back-up")
                 .small()
-                .label(label(&backups.back_up))
+                .label(backups.back_up.label.clone())
                 .disabled(!backups.back_up.enabled)
                 .on_click(act(&view, move |this, _, _| {
                     this.send(crate::command::Command::CreateBackup {
@@ -307,7 +299,7 @@ impl ScreenView {
             let device = id.to_owned();
             Button::new("ls-import")
                 .small()
-                .label(label(&backups.import))
+                .label(backups.import.label.clone())
                 .disabled(!backups.import.enabled)
                 .on_click(act(&view, move |this, _, cx| {
                     this.pick_backup_file(&device, cx);
@@ -328,7 +320,7 @@ impl ScreenView {
             let restore_id = backup.clone();
             let export = Button::new(SharedString::from(format!("ls-export-{}", row.id)))
                 .small()
-                .label(label(&row.export))
+                .label(row.export.label.clone())
                 .disabled(!row.export.enabled)
                 .on_click(act(&view, {
                     let device = device.clone();
@@ -337,7 +329,7 @@ impl ScreenView {
             let restore = Button::new(SharedString::from(format!("ls-restore-{}", row.id)))
                 .small()
                 .danger()
-                .label(label(&row.restore))
+                .label(row.restore.label.clone())
                 .disabled(!row.restore.enabled)
                 .on_click(act(&view, move |this, _, _| {
                     this.leakshield
@@ -408,7 +400,7 @@ impl ScreenView {
         let refill = &model.refill;
         let reset_history = Button::new("ls-reset-history")
             .small()
-            .label(label(&refill.reset))
+            .label(refill.reset.label.clone())
             .disabled(!refill.reset.enabled)
             .on_click(act(&view, |this, _, _| {
                 this.leakshield.system.request(Ask::RefillHistory)
@@ -432,7 +424,7 @@ impl ScreenView {
                 Button::new("ls-factory-reset")
                     .small()
                     .danger()
-                    .label(label(&reset.factory))
+                    .label(reset.factory.label.clone())
                     .disabled(!reset.factory.enabled)
                     .on_click(act(&view, |this, _, _| {
                         this.leakshield.system.request(Ask::FactoryReset)

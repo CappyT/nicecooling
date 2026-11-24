@@ -27,7 +27,6 @@ Chart rules:
 | Daemon offline | The chart still works: the history is in the app. The live edge stops, and the offline banner shows |
 | Database error | "The history database cannot be read." with the path and the button "Try again" |
 | Alarm | Markers in the chart. The poweroff banner shows above when a countdown runs |
-| Locked | Not used |
 
 ## Interactions
 

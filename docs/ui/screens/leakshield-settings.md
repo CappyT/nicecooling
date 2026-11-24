@@ -21,7 +21,7 @@ Each setting row has: the name, the verification badge, a caption, and the contr
 | Flow | "Flow source": read-only text "Flow sensor of Main loop: Water Flow, 115 L/h" with "Open Loop". Without a flow sensor: "None. The Leakshield uses the pump speed only." |
 | Pressure | "Adaptive pressure": switch. "Expert values": minimum, target, maximum in mbar, used only with adaptive pressure off. "Time-controlled vacuum generation": switch and two times |
 | Standby | "Default pump speed" (rpm) and "Default flow" (L/h), each with the button "Use the current value". "Reduced vacuum in standby": switch and a value in mbar |
-| Mode | The three Modes as radio rows with their captions. RELEASE has the padlock |
+| Mode | The three Modes as radio rows with their captions |
 | Summary | The diff table (see `../widgets.md`), notes and warnings above it, and the button "Apply 5 changes" |
 
 ## States
@@ -33,10 +33,10 @@ Each setting row has: the name, the verification badge, a caption, and the contr
 | Device offline | Offline banner. Controls are disabled. Pending changes stay |
 | Read-only field | Dashed field, padlock, "Read-only", and the reason: "Not a Verified field: this Safety field has no Verification write yet." with "Open Fields" |
 | Unknown firmware | Banner 3 of the shell. Every field is read-only. Per-field reasons are hidden |
-| Locked | RELEASE in the Mode step. Apply then opens the polkit dialog |
+| Not authorized | A user outside `wheel` gets the polkit dialog on Apply when the Mode step holds RELEASE |
 | Value out of range | The input has a red outline. Caption: "80 to 450 mbar." The next button stays active, and the Summary lists the error and disables "Apply" |
 | Applying | Each row of the diff table shows its write status. "Apply" becomes "Applying 2 of 5" |
-| Write failed | The row has the `alarm-tint` ground and the text "Write failed: the read-back does not match." The writes stop. Button "Restore the backup" with the padlock, and "Keep the current state" |
+| Write failed | The row has the `alarm-tint` ground and the text "Write failed: the read-back does not match." The writes stop. Button "Restore the backup", and "Keep the current state" |
 | Applied | Success row: "5 settings written and verified." The changes go into the active Profile |
 | Alarm | The poweroff banner shows above the wizard. The wizard stays open |
 

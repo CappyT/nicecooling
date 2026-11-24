@@ -32,7 +32,6 @@ A dialog, 640 px wide: a grid of previews with the template names, 4 per row. A 
 | Logo too large or wrong type | "Use a PNG, JPEG or BMP image." The conversion preview stays empty |
 | Uploading the logo | Write status with a progress bar: "Writing the logo, 60 %" |
 | Alarm | Not used. The device shows its own alarm page |
-| Locked | Not used |
 
 ## Interactions
 

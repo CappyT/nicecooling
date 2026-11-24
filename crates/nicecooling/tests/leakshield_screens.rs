@@ -146,14 +146,14 @@ fn leakshield_overview_states() {
         .mode
         .buttons
         .iter()
-        .map(|b| (b.label.as_str(), b.selected, b.padlock, b.enabled))
+        .map(|b| (b.label.as_str(), b.selected, b.enabled))
         .collect();
     assert_eq!(
         modes,
         [
-            ("SHIELD", true, false, true),
-            ("MONITOR", false, false, true),
-            ("RELEASE", false, true, true)
+            ("SHIELD", true, true),
+            ("MONITOR", false, true),
+            ("RELEASE", false, true)
         ]
     );
     assert_eq!(
@@ -2312,7 +2312,7 @@ fn leakshield_system_states() {
 }
 
 #[test]
-fn restore_and_factory_reset_show_padlock() {
+fn restore_and_factory_reset_have_no_padlock() {
     let state = with_leakshield();
     let feedback = Feedback::default();
     let model = system(&state, &SystemUi::default(), &feedback);
@@ -2321,9 +2321,9 @@ fn restore_and_factory_reset_show_padlock() {
             .backups
             .rows
             .iter()
-            .all(|r| r.restore.padlock && r.restore.enabled)
+            .all(|r| r.restore.enabled && r.restore.label == "Restore")
     );
-    assert!(model.reset.factory.padlock && model.reset.factory.enabled);
+    assert!(model.reset.factory.enabled);
     assert_eq!(model.reset.factory.label, "Reset to factory settings");
 
     // The restore asks first, with the time of the backup.
@@ -2400,12 +2400,11 @@ fn restore_and_factory_reset_show_padlock() {
 }
 
 #[test]
-fn reset_buttons_have_no_padlock() {
-    // They need the `write` authorization of any other change.
+fn reset_buttons_are_plain_buttons() {
     let state = with_leakshield();
     let model = system(&state, &SystemUi::default(), &Feedback::default());
-    assert!(!model.device.reset_counter.padlock && model.device.reset_counter.enabled);
-    assert!(!model.refill.reset.padlock && model.refill.reset.enabled);
+    assert!(model.device.reset_counter.enabled);
+    assert!(model.refill.reset.enabled);
     assert_eq!(model.device.reset_counter.label, "Reset service counter");
     assert_eq!(model.refill.reset.label, "Reset refill history");
 }
@@ -2685,7 +2684,7 @@ fn leakshield_settings_states() {
     );
     assert_eq!(ui.pending["pump_start_flow"], FieldValue::Number(115.0));
 
-    // The Mode step: three radio rows. RELEASE has the padlock.
+    // The Mode step: three radio rows.
     ui.go(Step::Mode);
     let Control::Radio(options) = settings(&state, &ui).rows[0].control.clone() else {
         panic!("radio rows");
@@ -2693,13 +2692,9 @@ fn leakshield_settings_states() {
     assert_eq!(
         options
             .iter()
-            .map(|o| (o.0.as_str(), o.2, o.3))
+            .map(|o| (o.0.as_str(), o.2))
             .collect::<Vec<_>>(),
-        [
-            ("shield", true, false),
-            ("monitor", false, false),
-            ("release", false, true)
-        ]
+        [("shield", true), ("monitor", false), ("release", false)]
     );
     assert!(options[1].1.starts_with("MONITOR: low negative pressure"));
 
@@ -2827,7 +2822,7 @@ fn leakshield_settings_summary_and_apply() {
         Some("4 settings written and verified.")
     );
 
-    // A failed write: the row, the restore with the padlock and "Keep the current state".
+    // A failed write: the row, the restore and "Keep the current state".
     let mut failed = state.clone();
     failed.write_failure = Some(nicecooling::model::WriteFailure {
         leakshield: LEAKSHIELD.into(),

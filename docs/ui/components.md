@@ -65,7 +65,7 @@ This inventory lists every screen, state and widget that the nicecooling desktop
 
 Tabs: Overview, Settings, Sensors, Display, Lighting, Alarms, Status, System, Fields.
 
-- Overview: pressure gauge with current, minimum, target and maximum; status; fill level percent; volume change ml/h; pressure change mbar/min; Mode selector (SHIELD, MONITOR, RELEASE; RELEASE locked); Action bar; pressure chart; pump runtime per day chart (tight systems stay under 15 s per day).
+- Overview: pressure gauge with current, minimum, target and maximum; status; fill level percent; volume change ml/h; pressure change mbar/min; Mode selector (SHIELD, MONITOR, RELEASE); Action bar; pressure chart; pump runtime per day chart (tight systems stay under 15 s per day).
 - Action views:
   - Test: pressure input 80 to 450 mbar; live chart with a selectable source (absolute pressure, difference to reference, pressure change); "Reference" button; zoom; Cancel.
   - Measure fill level: progress bar; warning that protection is off during the measurement.
@@ -84,7 +84,7 @@ Tabs: Overview, Settings, Sensors, Display, Lighting, Alarms, Status, System, Fi
 - Lighting (RGBpx): LED timeline with 6 integrated LEDs and the external LEDs; up to 8 controllers as draggable and resizable color bars, vertical order is priority; effect picker dialog; effect parameters (colors, speed, sensor-driven parameters); duplicate and delete.
 - Alarms: leakage Warning threshold slider (volume change) with acoustic toggle; small and large leak Alarms; fill level Warning and Alarm thresholds; system Alarm. For each: the device output (signal short press, signal long press, key sequence, none) and the nicecooling alarm response (none, notify, poweroff with delay). Overlap warnings follow ADR-0007.
 - Status: schematic of the Leakshield (vacuum pump, valves, active parts highlighted, measured values); event list with time and details; export.
-- System: serial, firmware version, maintenance indicator percent, device description; factory reset (locked); reset service counter next to the maintenance indicator; refill history table with a reset button; backup list with export, import and restore (restore locked); clock (device time, time zone, date and time format, sync now); standby behavior per USB state (display, alarm evaluation, lighting).
+- System: serial, firmware version, maintenance indicator percent, device description; factory reset; reset service counter next to the maintenance indicator; refill history table with a reset button; backup list with export, import and restore (restore locked); clock (device time, time zone, date and time format, sync now); standby behavior per USB state (display, alarm evaluation, lighting).
 - Fields: every field with its verification state from the registry (code-defined, plausible read, Verification write passed) and risk class; explanation of why a field is read-only. The tab has no control that writes a verification value.
 
 ### Profiles

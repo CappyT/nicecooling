@@ -33,7 +33,6 @@ With "Fixed Duty", items 3 to 6 are one slider with a number input. With "Hardwa
 | Pump channel | The hatched Pump floor zone in the plot. A fixed Duty below the floor is refused: "The Pump floor is 40 %." |
 | Pump-stop Alarm | Every row shows 100 %. A red row at the top: "Pump stopped. Every Channel is at 100 % until the pump runs for 10 s." The editor is read-only |
 | Write failed | Readout row: octagon and "Not applied: the daemon refused the Curve." with "Try again" |
-| Locked | Not used: a Curve change is a normal write |
 
 ## Interactions
 

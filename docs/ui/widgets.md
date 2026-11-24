@@ -155,7 +155,6 @@ Comp: `comps/countdown-dialog.html`.
 
 - The badge is an icon and a 12 px label next to the field name. It is not a button.
 - A read-only field has a dashed outline, no fill, and a caption with the reason and a link "Open Fields".
-- A locked control is a normal button with the padlock after its label. Its tooltip says "Needs the administrator password".
 - With an unknown firmware version every field has the read-only look, and one banner gives the reason. The per-field captions are then hidden.
 
 ## Write status
@@ -168,7 +167,7 @@ A composite, listed here because every screen that writes uses it.
 | Backup saved | Check, "Backup saved" |
 | Written | Check, "Written" |
 | Read-back verified | Check in `success`, "Verified 21:44:02" |
-| Failed | Octagon in `alarm`, "Write failed: 3 unexpected bytes changed" and a button "Restore the backup" with the padlock |
+| Failed | Octagon in `alarm`, "Write failed: 3 unexpected bytes changed" and a button "Restore the backup" |
 
 - A Board write (Curve, Pump floor) has one step: "Applied 21:44:02".
 - The status stays next to the control until the next change. A failure also shows as a `notification` that stays until the user closes it.

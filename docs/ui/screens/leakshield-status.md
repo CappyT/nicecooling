@@ -23,7 +23,6 @@ The tab shows what the Leakshield does now: its operating data, its internal par
 | Warning | The value that caused it has the triangle in its tile. The event list has a row with the triangle |
 | Alarm | The PT bubble is red. The event row has the octagon. The poweroff banner shows when the alarm response is poweroff |
 | Unknown firmware | The values that nicecooling can still decode show. The others show "--". Banner 3 |
-| Locked | Not used |
 
 ## Interactions
 

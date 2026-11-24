@@ -54,7 +54,6 @@ dialog:
     close: Chiudi
 tooltip:
   daemon_offline: Il demone è offline.
-  needs_admin: Richiede la password di amministratore
 menu:
   primary: Menu principale
   shortcuts: Scorciatoie da tastiera

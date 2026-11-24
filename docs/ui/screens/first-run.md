@@ -31,7 +31,6 @@ Footer of each step: "Skip setup" at the left, the back and next buttons at the 
 | Leakshield with known firmware | "Firmware 1022: known. 96 of 112 fields are Verified fields. 16 Safety fields are read-only until a Verification write passes." Button "Open Fields" |
 | Leakshield with unknown firmware | Warning: "Firmware 1042 is unknown. nicecooling shows the Leakshield and cannot change its settings." |
 | Loading | "Reading the Board" with a spinner in step 1 |
-| Locked | Not used |
 | Alarm | The poweroff banner and the dialog show above the flow |
 
 ## Interactions

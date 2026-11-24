@@ -376,8 +376,8 @@ pub enum Control {
     Switch(bool),
     /// A read-only line.
     Info(String),
-    /// The three Modes: identifier, text, selected, padlock.
-    Radio(Vec<(String, String, bool, bool)>),
+    /// The three Modes: identifier, text, selected.
+    Radio(Vec<(String, String, bool)>),
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -932,7 +932,6 @@ fn mode_rows(ctx: &RowCtx<'_>) -> Vec<Row> {
                 (*mode).to_owned(),
                 locale.tr(&format!("leakshield.overview.mode_caption.{mode}")),
                 *mode == current,
-                *mode == "release",
             )
         })
         .collect();

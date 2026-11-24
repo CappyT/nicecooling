@@ -1,6 +1,6 @@
 # Leakshield: System tab
 
-No comp. Rows follow `../comps/leakshield-wizard.html`. Locked buttons follow the Mode selector of `../comps/leakshield-overview.html`.
+No comp. Rows follow `../comps/leakshield-wizard.html`. Buttons follow the Mode selector of `../comps/leakshield-overview.html`.
 
 ## Layout
 
@@ -9,9 +9,9 @@ Six cards.
 1. "Device": rows "Serial" (mono), "Firmware version" (with the tag "Known" or the warning tag "Unknown"), "Maintenance indicator" (a progress bar and percent, and the button "Reset service counter" at the end of the row), "Device description" (input).
 2. "Clock": "Device time" (live), "Time zone" (select), "Date format" and "Time format" (selects), button "Set from the PC".
 3. "Standby behavior": a table with one row per USB state ("Active", "Suspended", "No USB host") and three switch columns: "Display", "Alarm evaluation", "Lighting".
-4. "Backups": a table with "Time", "Reason" ("Before a write", "Manual", "Imported") and "Size", newest first. Row buttons: "Export", "Restore" with the padlock. Header buttons: "Back up now", "Import".
+4. "Backups": a table with "Time", "Reason" ("Before a write", "Manual", "Imported") and "Size", newest first. Row buttons: "Export", "Restore". Header buttons: "Back up now", "Import".
 5. "Refill history": a table with "Time", "Duration" and "Volume", one row for each of the 7 entries of the device, newest first. Header button: "Reset refill history".
-6. "Reset": "Reset to factory settings" (destructive button with the padlock).
+6. "Reset": "Reset to factory settings" (destructive button).
 
 ## States
 
@@ -24,7 +24,7 @@ Six cards.
 | Maintenance indicator at 0 % | Warning row: "The vacuum pump and the valves need maintenance by Aqua Computer." |
 | Clock not set | Warning in the Clock card: "The Leakshield has no battery for its clock. After a power loss, set the time again." |
 | Alarm evaluation off in a state | Warning under the table: "With alarm evaluation off, the Leakshield does not detect a leak in that state." |
-| Locked | "Restore" and "Reset to factory settings" have the padlock and open the polkit dialog. After a denial: "Not authorized. Nothing changed." "Reset refill history" and "Reset service counter" have no padlock: they need the `write` authorization of any other change |
+| Not authorized | A user outside `wheel` gets the polkit dialog on "Restore" and "Reset to factory settings". After a denial: "Not authorized. Nothing changed." |
 | Reset not supported | The daemon replies `NotSupported`. Text under the button: "This firmware has no such command." |
 | Restoring | Write status with the four steps. Other writes are disabled until it ends |
 | Restore failed | "Restore failed: the read-back does not match the backup." Buttons "Try again" and "Close" |

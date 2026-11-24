@@ -34,7 +34,6 @@ See "Countdown dialog" in `../widgets.md`. It opens with the window when an Alar
 | Leakshield unreachable | Row with the octagon, source "Main loop: Leakshield", value "No data for 14 s". It closes when data arrive again |
 | Delay 0 | Warning under the row: "With 0 s you cannot cancel the poweroff." |
 | Overlap with a Device response | Warning icon in the row. Tooltip: "The Leakshield also reacts to this Alarm. See its Alarms tab." |
-| Locked | Not used |
 
 ## Interactions
 

@@ -30,7 +30,6 @@ A dialog, 560 px wide: a list of effects with a name and a one-line text. A sele
 | Sensor-driven without value | Warning icon on the parameter. The effect uses the "From" value |
 | Read-only | Unknown firmware: banner 3, no handles |
 | Alarm | See "LEDs used by the device" |
-| Locked | Not used |
 
 ## Interactions
 

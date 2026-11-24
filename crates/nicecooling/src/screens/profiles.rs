@@ -776,8 +776,6 @@ pub struct SlotSelect {
 pub struct RestoreOffer {
     pub text: String,
     pub button: String,
-    /// The restore needs the polkit action `critical`: the button has the padlock.
-    pub locked: bool,
     pub command: Option<Command>,
     pub write_line: Option<FeedbackLine>,
 }
@@ -1331,7 +1329,6 @@ fn detail_of(input: &ScreenInput<'_>, ui: &ProfilesUi, profile: &ProfileInfo) ->
             RestoreOffer {
                 text: format!("{prefix}{}", locale.tr("profiles.restore.text")),
                 button: locale.tr("profiles.restore.button"),
-                locked: true,
                 command: Some(Command::RestoreBackup {
                     leakshield: device.id.clone(),
                     backup: device.failed_write_backup.clone(),

@@ -54,7 +54,6 @@ dialog:
     close: Close
 tooltip:
   daemon_offline: The daemon is offline.
-  needs_admin: Needs the administrator password
 menu:
   primary: Main menu
   shortcuts: Keyboard shortcuts

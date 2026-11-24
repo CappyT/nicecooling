@@ -263,8 +263,6 @@ pub struct ModeButton {
     pub mode: String,
     pub label: String,
     pub selected: bool,
-    /// RELEASE needs the administrator password.
-    pub padlock: bool,
     pub enabled: bool,
 }
 
@@ -566,7 +564,6 @@ impl OverviewModel {
                     mode: (*m).to_owned(),
                     label: locale.tr(&format!("leakshield.mode.{m}")),
                     selected: mode == *m,
-                    padlock: *m == "release",
                     enabled: controls && !running,
                 })
                 .collect(),

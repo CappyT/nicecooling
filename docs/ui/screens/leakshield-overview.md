@@ -10,7 +10,7 @@ Every Leakshield page has the same frame: the header bar with the device label a
    - "Pressure": the pressure gauge (see `../widgets.md`) with the tag "In range".
    - "Status": a status tag ("Protecting"), then rows: "Fill level" with the time of the measurement, "Volume change" in ml/h, "Pressure change" in mbar/min, "Feed" with its age.
 2. Card "Mode and Actions".
-   - Mode selector: three toggle buttons, SHIELD, MONITOR and RELEASE. RELEASE has the padlock.
+   - Mode selector: three toggle buttons, SHIELD, MONITOR and RELEASE.
    - Action bar: "Test", "Measure fill level", "Deaerate", "Refill".
    - A caption with the meaning of the selected Mode.
    - The Refill instruction row: it says that Refill can also start on the device.
@@ -37,7 +37,7 @@ While an Action runs, the Action view replaces item 3, and the Action bar shows 
 | Leakshield unreachable | Offline banner "The Leakshield does not answer. Check its USB cable." The gauge has no marker. Mode and Actions are disabled. After 10 s without data nicecooling raises the Alarm "Leakshield unreachable" |
 | Unknown firmware | Banner 3 of the shell. Mode and Actions are disabled, tooltip: "Read-only: unknown firmware." |
 | Mode not verified | The Mode selector shows the Mode and is disabled. Caption: "Read-only: Mode is not a Verified field yet." with "Open Fields" |
-| Locked | RELEASE has the padlock. The click opens the polkit dialog only for a user outside `wheel`. After a denial: "Not authorized. The Mode did not change." |
+| Not authorized | A user outside `wheel` gets the polkit dialog on RELEASE. After a denial: "Not authorized. The Mode did not change." |
 | Warning | The status tag is a warning tag ("Leak Warning"). The row that caused it has the triangle |
 | Alarm | The status tag is the Alarm tag. The gauge marker and value are red. The poweroff banner shows when the alarm response is poweroff |
 | Action runs | Action view and "Cancel" |

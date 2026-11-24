@@ -25,7 +25,6 @@ A caption under the second card: "A Software sensor carries a value from the PC 
 | Slot in use | A slot that a display page or a lighting effect uses shows "Used by display page 3" in the row. Clearing its source asks for confirmation |
 | Unit mismatch | The unit of the slot differs from the unit of the source: Warning icon on the unit. Tooltip: "The source is in °C." |
 | Alarm | Not used |
-| Locked | Not used |
 
 ## Interactions
 

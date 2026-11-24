@@ -1040,7 +1040,6 @@ fn curves_applied_leakshield_failed_shows_restore_offer() {
         "The Curves are active. The Leakshield write failed."
     );
     assert_eq!(offer.button, "Restore the backup");
-    assert!(offer.locked, "the restore needs the administrator password");
     assert_eq!(
         offer.command,
         Some(Command::RestoreBackup {

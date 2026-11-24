@@ -261,14 +261,12 @@ Each state has four signals: icon shape, color, text label, and a place in the s
 | Alarm | filled octagon with "!" | `alarm-bg` + `alarm-fg` (solid), `alarm` (text) | "Alarm" plus its type | Red banner, bubble of the part, countdown dialog, sidebar entry of the device, status bar, tray icon |
 | Offline | dashed circle with a slash | `offline`, `offline-tint` | "Daemon offline", "Leakshield unreachable" or "No signal" | Banner, dashed bubble with "--", every write control disabled |
 | Daemon down | filled octagon with "!" | `alarm-bg` + `alarm-fg` (solid), `alarm` (text) | "Daemon down" and "nicecooling protection is off" | Red banner, entry in Active Alarms, status bar, tray icon in the Alarm state, every write control disabled |
-| Locked | padlock | `fg` | "Needs the administrator password" in the tooltip | Inside the control, before the click |
 | Read-only | padlock, dashed field outline | `fg-dim`, `border-strong` | "Read-only" plus the reason | Next to the field name; the reason is a caption under it |
 | Experimental | flask, dashed pill | `experimental`, `experimental-tint` | "Experimental" | Reserved. Experimental devices are not in version 1 |
 
 Rules:
 
 - **Order.** When several banners apply, the order from the top is: poweroff countdown, daemon down or offline, unknown firmware, Immediate switching on. A screen shows at most three banners. Others collapse into "2 more notices" on the last one.
-- **Locked is not read-only.** Locked means that the control works and polkit asks for the administrator password: setting RELEASE directly, restoring a backup, factory reset. Read-only means that nicecooling cannot write the field, and the caption says why.
 - **Verification state** of a Leakshield field is a badge, not a severity: see `widgets.md`, "Verification state badge".
 - **Write feedback** uses the same icons: check (`success`) for "Verified", octagon (`alarm`) for "Failed".
 
@@ -281,7 +279,6 @@ Rules:
 - Destructive: `alarm-bg` fill. Only for factory reset, delete and restore.
 - Flat: no fill. For secondary commands in a row.
 - On the Alarm banner: white fill, text `#A51D2D`.
-- A locked control has the padlock icon after its label.
 
 ### Tags
 
@@ -345,7 +342,6 @@ Four SVG files on a 16 px grid, one color (`#2E3436`). The desktop recolors a sy
 | Status bar | Composite: a GPUI flex row |
 | Global banners | Composite `Banner`: icon, text, optional `button` |
 | Write feedback | Composite `WriteStatus` (icon, text, `progress`) in the row, plus `notification` for the result |
-| Authorization lock | `button` with the padlock icon. The polkit dialog is the system dialog |
 | Tray icon and menu | StatusNotifierItem and its D-Bus menu. Not GPUI |
 | Desktop notifications | `org.freedesktop.Notifications`. Not GPUI. In-window results use `notification` |
 
@@ -370,7 +366,7 @@ Four SVG files on a 16 px grid, one color (`#2E3436`). The desktop recolors a sy
 | Leakshield: tabs | `tab` with an overflow `menu` |
 | Leakshield Overview: pressure gauge | `PressureGauge` (custom) |
 | Leakshield Overview: status values | Composite list rows, `tag` |
-| Leakshield Overview: Mode selector | Button group with three toggle `button`s; RELEASE has the padlock |
+| Leakshield Overview: Mode selector | Button group with three toggle `button`s |
 | Leakshield Overview: Action bar | `button`s |
 | Leakshield Overview: pressure chart, pump runtime chart | Area `chart`, bar `chart` |
 | Action view: Test | Number `input`, line `chart` with zoom on `plot`, `select` for the source, `button`s |
@@ -388,7 +384,7 @@ Four SVG files on a 16 px grid, one color (`#2E3436`). The desktop recolors a sy
 | Leakshield Alarms | `table` with `slider`, `switch` and `select` cells, `Banner` for overlap warnings |
 | Leakshield Status: schematic | `DeviceSchematic` (custom), same painter as `LoopDiagram` |
 | Leakshield Status: values, chart, events | Radio tiles, line `chart`, `table`, `button` |
-| Leakshield System | Composite list rows, `table` of backups, `select`, `button` (three locked) |
+| Leakshield System | Composite list rows, `table` of backups, `select`, `button` |
 | Leakshield Fields | `table`, `VerificationBadge` (custom) |
 | Profiles: list | List rows, `menu`, `dialog` for rename and delete |
 | Profiles: content | Composite list rows, `Banner` row for differences |
@@ -409,7 +405,7 @@ Four SVG files on a 16 px grid, one color (`#2E3436`). The desktop recolors a sy
 
 - **Do** use the glossary terms of `GLOSSARY.md` in every label, with their capitals: Loop, Channel, Duty, Curve, Input, Pump floor, Profile, Mode, Action, Warning, Alarm.
 - **Do** keep "Action" for the Leakshield procedures: Test, Measure fill level, Deaerate, Refill. The reaction that the user sets for a Warning or an Alarm is the "alarm response": none, notify, or poweroff after a delay. The reaction of the Leakshield itself to its alarms is the "Device response": signal output, key sequence, sound.
-- **Do** put the reason next to every disabled, locked or read-only control.
+- **Do** put the reason next to every disabled or read-only control.
 - **Do** show a value with its unit and its limit: "298 mbar, target 300".
 - **Do** draw in a diagram only what the Loop model holds. Parts that nicecooling does not measure are one dashed box.
 - **Do** keep the Alarm banner and "Cancel poweroff" visible on every screen while a countdown runs.
