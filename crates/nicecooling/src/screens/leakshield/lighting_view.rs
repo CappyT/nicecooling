@@ -4,10 +4,10 @@ use std::rc::Rc;
 
 use gpui::prelude::*;
 use gpui::{AnyElement, Context, FontWeight, SharedString, Window, div, hsla, px};
-use gpui_component::IconName;
 use gpui_component::button::{Button, ButtonVariants as _};
-use gpui_component::{Disableable as _, Sizable as _, h_flex, v_flex};
+use gpui_component::{Disableable as _, h_flex, v_flex};
 
+use crate::icons::NcIcon;
 use crate::screen_view::{InputKey, ScreenView, skeleton};
 use crate::screens::controls::{Pick, act};
 use crate::screens::leakshield::TabState;
@@ -357,16 +357,15 @@ impl ScreenView {
         );
         let mut buttons = h_flex().gap(px(4.));
         for (name, glyph, dx, dl) in [
-            ("ls-led-left", IconName::ChevronLeft, -1isize, 0isize),
-            ("ls-led-right", IconName::ChevronRight, 1, 0),
-            ("ls-led-shorter", IconName::Minus, 0, -1),
-            ("ls-led-longer", IconName::Plus, 0, 1),
+            ("ls-led-left", NcIcon::Left, -1isize, 0isize),
+            ("ls-led-right", NcIcon::Right, 1, 0),
+            ("ls-led-shorter", NcIcon::Minus, 0, -1),
+            ("ls-led-longer", NcIcon::Plus, 0, 1),
         ] {
             let device = id.to_owned();
             buttons = buttons.child(
-                Button::new(name)
-                    .small()
-                    .icon(glyph)
+                Self::icon_button(name, glyph)
+                    .debug_selector(move || name.to_owned())
                     .disabled(!enabled)
                     .on_click(act(&view, move |this, _, cx| {
                         let mut ui = std::mem::take(&mut this.leakshield.lighting);
@@ -379,14 +378,13 @@ impl ScreenView {
             );
         }
         for (name, glyph, delta) in [
-            ("ls-led-up", IconName::ChevronUp, -1isize),
-            ("ls-led-down", IconName::ChevronDown, 1),
+            ("ls-led-up", NcIcon::Up, -1isize),
+            ("ls-led-down", NcIcon::Down, 1),
         ] {
             let device = id.to_owned();
             buttons = buttons.child(
-                Button::new(name)
-                    .small()
-                    .icon(glyph)
+                Self::icon_button(name, glyph)
+                    .debug_selector(move || name.to_owned())
                     .disabled(!enabled)
                     .on_click(act(&view, move |this, _, cx| {
                         let mut ui = std::mem::take(&mut this.leakshield.lighting);

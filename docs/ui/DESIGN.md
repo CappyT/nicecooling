@@ -308,7 +308,7 @@ Sources and exports are in `icons/`. `icons/preview.html` shows them; `icons/pre
 
 ### Interface icons
 
-The icons of the sidebar, the severity states, the padlock and the chevrons are in `crates/nicecooling/assets/nc/`: one SVG per icon on a 16 px grid, stroke 1.5 px or filled. They have the shapes of the sprite in `comps/nc.js`. The app embeds them and draws each one in the color of its token.
+The icons of the sidebar, the severity states, the padlock and the chevrons are in `crates/nicecooling/assets/nc/`: one SVG per icon on a 16 px grid, stroke 1.5 px or filled. They have the shapes of the sprite in `comps/nc.js`. `minus` and `up` are not in the sprite: `minus` is `plus` without its vertical stroke, and `up` is `down` turned over. The app embeds them and draws each one in the color of its token.
 
 ### App icon
 

@@ -515,3 +515,67 @@ fn every_leakshield_tab_draws_in_each_state(cx: &mut TestAppContext) {
         cx.update(|cx| cx.quit());
     }
 }
+
+/// The move, length and priority buttons of a controller are the shared icon button with the
+/// icons of the app: 28 px square.
+#[gpui::test]
+fn the_lighting_buttons_are_the_shared_icon_button(cx: &mut TestAppContext) {
+    use gpui::AppContext as _;
+    use nicecooling::icons::{Assets, NcIcon};
+    use nicecooling::screen_view::ScreenView;
+    use nicecooling::screens::leakshield::Tab;
+    use support::fixtures::with_leakshield;
+
+    for icon in [NcIcon::Up, NcIcon::Minus] {
+        let path = gpui_component::IconNamed::path(icon);
+        let svg = gpui::AssetSource::load(&Assets, &path).expect("load");
+        let svg = String::from_utf8(svg.expect("an asset").into_owned()).expect("text");
+        assert!(svg.contains("viewBox=\"0 0 16 16\""), "{path}: {svg}");
+        assert!(svg.contains("stroke-width=\"1.5\""), "{path}: {svg}");
+    }
+
+    let (model, rig) = start(cx, Language::English);
+    let state = with_leakshield();
+    rig.events
+        .send(DaemonEvent::Snapshot(Box::new(state.snapshot.clone())))
+        .unwrap();
+    cx.run_until_parked();
+    let (commands, _inbox) = mpsc::unbounded_channel();
+    let window = cx.update(|cx| {
+        cx.open_window(gpui::WindowOptions::default(), |_, cx| {
+            cx.new(|cx| ScreenView::new(model.clone(), commands.clone(), cx))
+        })
+        .expect("a window")
+    });
+    window
+        .update(cx, |view, _, cx| {
+            view.show_leakshield_tab(LEAKSHIELD, Tab::Lighting, cx);
+            view.leakshield_ui().lighting.selected.insert(0);
+        })
+        .unwrap();
+    cx.run_until_parked();
+    let mut visual = VisualTestContext::from_window(window.into(), cx);
+    visual.update(|window, cx| window.draw(cx).clear(cx));
+    for name in [
+        "ls-led-left",
+        "ls-led-right",
+        "ls-led-shorter",
+        "ls-led-longer",
+        "ls-led-up",
+        "ls-led-down",
+    ] {
+        let button = visual
+            .debug_bounds(name)
+            .unwrap_or_else(|| panic!("no button {name}"));
+        assert_eq!(
+            button.size,
+            gpui::size(gpui::px(28.), gpui::px(28.)),
+            "{name}"
+        );
+    }
+    let source = include_str!("../src/screens/leakshield/lighting_view.rs");
+    assert!(
+        !source.contains("IconName") && !source.contains("Button::new("),
+        "the Lighting tab draws a raw gpui-component button"
+    );
+}
