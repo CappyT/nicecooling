@@ -30,7 +30,7 @@ A group holds fields with the same safe loop state:
 |---|---|---|
 | reservoir | `fill_level_calibration`, `reservoir_model`, `reservoir_air_volume_full`, `reservoir_air_volume_empty`, `reservoir_total_volume`, `standby_conditions` | Fill level stable for 5 min. The PC does not suspend. |
 | pump | `pump_model`, `pump_flags`, `pump_max_speed`, `pump_max_pressure`, `pump_start_speed`, `pump_start_flow` | The pump runs at its normal duty. No Action runs. |
-| clock | `clock_flags`, `clock_timezone`, `shield_flags`, `vacuum_timer_start_hour`, `vacuum_timer_start_minute`, `vacuum_timer_end_hour`, `vacuum_timer_end_minute` | No time-controlled vacuum window starts within 15 min. The test values of the group give the window 08:01-10:02: `vacuum_timer_start_hour` goes one step down. |
+| clock | `sensor_unit` (copy 0), `clock_flags`, `clock_timezone`, `shield_flags`, `vacuum_timer_start_hour`, `vacuum_timer_start_minute`, `vacuum_timer_end_hour`, `vacuum_timer_end_minute` | No time-controlled vacuum window starts within 15 min. The test values of the group give the window 08:01-10:02: `vacuum_timer_start_hour` goes one step down. |
 | alarms | `alarm_enable`, `alarm_buzzer`, the three thresholds, the 18 response fields, `refill_duration_warning` | `alarm_bits` and `alarm_bits_latched` read 0. |
 | pressure | `loop_height`, `test_pressure`, `deaeration_pressure`, `refill_pressure`, the four `shield_pressure_*` and the four `monitor_pressure_*` fields | Pressure stable within 2 mbar of the setpoint for 5 min. |
 | mode | `default_mode` | Runs last: the replug powers the device up in the Mode of the test value. Set the Mode back after the restore. |
@@ -131,6 +131,14 @@ Item 3 of the base safe state asks for Mode SHIELD. A replug powers the device u
 - Offset 21, i16. Value in the fw1022 dump: 1300.
 - Test value: the current value plus or minus one raw step (0.1 l/h).
 - Safe loop state: base. Pump runs at its normal duty. No Action runs.
+- Expected registry change: `code-defined` to `verified-write` on pass, `failed` on fail.
+- Result: open
+
+### sensor_unit
+
+- Offset 24, u8, 20 copies with stride 2: the unit that the device shows for each sensor. Value of copy 0 in the fw1022 dump: 0 (`none`).
+- Test value: the next allowed code after the current value of copy 0. The other 19 copies keep their values.
+- Safe loop state: base. The unit changes only the display of the device.
 - Expected registry change: `code-defined` to `verified-write` on pass, `failed` on fail.
 - Result: open
 
@@ -500,3 +508,10 @@ Item 3 of the base safe state asks for Mode SHIELD. A replug powers the device u
 - Safe loop state: base. Pressure stable within 2 mbar of the setpoint for 5 min. The written value keeps lower limit < setpoint < upper limit.
 - Expected registry change: `code-defined` to `verified-write` on pass, `failed` on fail.
 - Result: open
+
+### device_profile
+
+- Offset 747, u8, 1 to 4: the slot of the device profile.
+- Test value: none. A write of N stores the whole report 3 into slot N of the device, so a test value overwrites a stored Profile.
+- Safe loop state: base. The field has no Verification write and stays read-only (owner decision of 2026-11-24). The Profile activation writes it with a read-back (design D14), and `docs/hardware-checks/profile-switch.md` checks it. Expected registry change: none, the field stays `code-defined`.
+- Result: none, read-only
