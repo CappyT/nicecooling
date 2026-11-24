@@ -4,6 +4,7 @@
 use std::fs;
 use std::io;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
@@ -26,6 +27,9 @@ const STRUCTURE_ID: &str = "structure_number";
 pub struct LastKnown {
     path: PathBuf,
     value: Mutex<Option<Report3>>,
+    /// The Mode code that the daemon set and the device has not stored in `default_mode` yet, or
+    /// 0. Codes of a Mode are 1 to 3.
+    expected_mode: AtomicU8,
 }
 
 pub struct LastKnownGuard<'a> {
@@ -45,7 +49,19 @@ impl LastKnown {
         Self {
             path,
             value: Mutex::new(value),
+            expected_mode: AtomicU8::new(0),
         }
+    }
+
+    /// The daemon set a Mode: the device stores it in `default_mode` some time later. A poll that
+    /// sees this code there is not an external change. `None` ends the wait.
+    pub fn expect_mode(&self, code: Option<u8>) {
+        self.expected_mode
+            .store(code.unwrap_or(0), Ordering::Relaxed);
+    }
+
+    fn expected_mode(&self) -> Option<u8> {
+        Some(self.expected_mode.load(Ordering::Relaxed)).filter(|&code| code != 0)
     }
 
     pub fn lock(&self) -> LastKnownGuard<'_> {
@@ -114,6 +130,19 @@ impl ExternalDetector {
     pub fn poll(&self) -> Result<Option<Vec<String>>, DeviceError> {
         let mut last = self.last_known.lock();
         let current = self.io.read_report3()?;
+        // The device stores the Mode that the daemon set: that is the daemon's own change.
+        if let Some(code) = self.last_known.expected_mode()
+            && let Some(field) = self.registry.field("default_mode")
+            && let Some(known) = last.get()
+            && current.bytes_at(field.offset, 1) == [code]
+            && known.bytes_at(field.offset, 1) != [code]
+        {
+            let mut adopted = known.clone();
+            adopted.set_bytes(field.offset, &[code]);
+            if let Err(e) = last.set(adopted) {
+                eprintln!("nicecoolingd: last known report 3 not saved: {e}");
+            }
+        }
         let changed = match last.get() {
             None => None,
             Some(known) => {

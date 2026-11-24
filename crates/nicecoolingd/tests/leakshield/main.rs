@@ -15,6 +15,7 @@ mod field_types;
 mod hotplug;
 mod lighting;
 mod mode;
+mod mode_store;
 mod profile_spacing;
 mod profile_write;
 mod proposals;

@@ -114,6 +114,11 @@ impl Bootloader {
 struct State {
     /// The Mode that the device returns to when an Action ends (1 to 3).
     base_mode: Option<i16>,
+    /// A Mode that `set_mode` gave and the device has not stored in report 3 yet: the code, and
+    /// the reads of report 3 that are left before the device stores it.
+    pending_mode: Option<(u8, u32)>,
+    /// The reads of report 3 after `set_mode` before the device stores the Mode (`default_mode`).
+    mode_store_reads: u32,
     report1: Vec<u8>,
     report3: Vec<u8>,
     report5: Vec<u8>,
@@ -133,6 +138,11 @@ const COMMAND_FACTORY_DEFAULTS: u32 = 3;
 const COMMAND_RESET_ALARM: u32 = 11;
 const COMMAND_SET_MODE: u32 = 12;
 const COMMAND_SET_CLOCK: u32 = 37000;
+
+/// Report 3 offset of the field `default_mode`.
+const DEFAULT_MODE_OFFSET: usize = 724;
+/// `SimDevice::set_mode_store_reads` default.
+const MODE_STORE_READS: u32 = 3;
 
 impl State {
     fn edit_report1(&mut self, edit: impl FnOnce(&mut Report1)) {
@@ -186,6 +196,7 @@ impl State {
             (COMMAND_SET_MODE, 0) => self.finish_action(),
             (COMMAND_SET_MODE, code @ 1..=3) => {
                 self.base_mode = Some(code as i16);
+                self.pending_mode = Some((code as u8, self.mode_store_reads));
                 // A running Action keeps the report until it ends.
                 if !(4..=7).contains(&Report1::decode(&self.report1).map_or(0, |r| r.mode)) {
                     self.edit_report1(|r| r.mode = code as i16);
@@ -230,6 +241,8 @@ impl SimDevice {
     pub fn fw1022() -> Self {
         Self(Arc::new(Mutex::new(State {
             base_mode: None,
+            pending_mode: None,
+            mode_store_reads: MODE_STORE_READS,
             report1: REPORT1.to_vec(),
             report3: REPORT3.to_vec(),
             report5: REPORT5.to_vec(),
@@ -443,6 +456,13 @@ impl SimDevice {
         self.state().faults.disconnect_after_set_feature = true;
     }
 
+    /// After `set_mode` with a Mode (1 to 3), the device stores it in report 3 (`default_mode`) at
+    /// the `reads`-th read of report 3 that follows. The real device does it about 20 s later. An
+    /// Action code stores nothing. `u32::MAX` means never.
+    pub fn set_mode_store_reads(&self, reads: u32) {
+        self.state().mode_store_reads = reads;
+    }
+
     /// The device changes the byte at `offset` of report 3 on each feature read.
     pub fn make_volatile(&self, offset: usize) {
         self.state().faults.volatile_offset = Some(offset);
@@ -484,6 +504,20 @@ impl HidTransport for SimDevice {
         if state.faults.stalled_reads > 0 {
             state.faults.stalled_reads -= 1;
             return Err(DeviceError::Io(io::ErrorKind::BrokenPipe.into()));
+        }
+        if id == 3
+            && let Some((code, reads)) = state.pending_mode
+        {
+            state.pending_mode = if reads == u32::MAX {
+                Some((code, reads))
+            } else if reads > 1 {
+                Some((code, reads - 1))
+            } else {
+                let mut report = Report3::decode(&state.report3).expect("valid report 3");
+                report.set_bytes(DEFAULT_MODE_OFFSET, &[code]);
+                state.report3 = report.encode();
+                None
+            };
         }
         if let (3, Some(offset)) = (id, state.faults.volatile_offset) {
             let mut report = Report3::decode(&state.report3).expect("valid report 3");
@@ -613,6 +647,35 @@ mod tests {
         let all = chunks(&image());
         for i in indices {
             sim.set_feature(&all[i].frame()).unwrap();
+        }
+    }
+
+    #[test]
+    fn sim_stores_a_mode_in_report3_after_the_configured_reads() {
+        let sim = SimDevice::fw1022();
+        sim.set_mode_store_reads(2);
+        let before = sim.get_feature(3, REPORT3_SIZE).unwrap();
+        assert_ne!(before[DEFAULT_MODE_OFFSET], 1);
+
+        sim.write_output(&Report2::new(COMMAND_SET_MODE, 1).encode())
+            .unwrap();
+        let first = sim.get_feature(3, REPORT3_SIZE).unwrap();
+        let second = sim.get_feature(3, REPORT3_SIZE).unwrap();
+        assert_eq!(first[DEFAULT_MODE_OFFSET], before[DEFAULT_MODE_OFFSET]);
+        assert_eq!(second[DEFAULT_MODE_OFFSET], 1);
+        // The report keeps a valid CRC and changes only that byte.
+        let (old, new) = (
+            Report3::decode(&before).unwrap(),
+            Report3::decode(&second).unwrap(),
+        );
+        assert_eq!(new.differing_offsets(&old, &[]), [DEFAULT_MODE_OFFSET]);
+
+        // An Action code stores nothing.
+        sim.write_output(&Report2::new(COMMAND_SET_MODE, 6).encode())
+            .unwrap();
+        for _ in 0..5 {
+            let report = sim.get_feature(3, REPORT3_SIZE).unwrap();
+            assert_eq!(report[DEFAULT_MODE_OFFSET], 1);
         }
     }
 

@@ -105,6 +105,11 @@ pub struct Attached {
     events_rx: Mutex<Option<mpsc::UnboundedReceiver<DeviceEvent>>>,
     last_auto_clock: Mutex<Option<Instant>>,
     software: Arc<SoftwareSlots>,
+    /// The task that waits for the device to store the Mode that the last `SetMode` set.
+    mode_store: Mutex<Option<JoinHandle<()>>>,
+    /// The runtime of `open`. A D-Bus method runs on the executor of zbus, where `tokio::spawn`
+    /// has no runtime.
+    runtime: tokio::runtime::Handle,
 }
 
 impl fmt::Debug for Attached {
@@ -301,6 +306,8 @@ impl Attached {
             events_rx: Mutex::new(Some(events_rx)),
             last_auto_clock: Mutex::new(None),
             software: Arc::default(),
+            mode_store: Mutex::new(None),
+            runtime: tokio::runtime::Handle::current(),
         }))
     }
 
@@ -540,13 +547,31 @@ impl Attached {
         Ok(())
     }
 
-    pub fn set_mode(&self, mode: &str) -> Result<()> {
+    /// Sets the Mode. The device stores it in report 3 some time later. The daemon then stores it
+    /// in the slot that the device runs (`mode::follow_default_mode`).
+    pub fn set_mode(&self, mode: &str, slots: &SlotStore) -> Result<()> {
         let mode = Mode::parse(mode)
             .ok_or_else(|| Error::invalid(format!("{mode:?} is not shield, monitor or release")))?;
         self.send(
             mode::set_mode_command(&self.registry, mode.code()),
             COMMAND_DELAY,
-        )
+        )?;
+        let code = mode.code() as u8;
+        let store = mode::ModeStore {
+            io: self.io.clone(),
+            registry: Arc::clone(&self.registry),
+            last_known: Arc::clone(&self.last_known),
+            slots: slots.clone(),
+            leakshield: self.id(),
+        };
+        // A newer Mode replaces the wait for the older one.
+        let mut task = self.mode_store.lock().unwrap();
+        if let Some(older) = task.take() {
+            older.abort();
+        }
+        self.last_known.expect_mode(Some(code));
+        *task = Some(self.runtime.spawn(mode::follow_default_mode(store, code)));
+        Ok(())
     }
 
     /// `refill_blocked` tells whether a Pump channel of the Loop of this Leakshield runs. It is

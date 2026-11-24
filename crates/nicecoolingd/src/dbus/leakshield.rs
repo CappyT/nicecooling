@@ -219,7 +219,7 @@ impl Leakshield {
     ) -> Result<()> {
         self.authorize(connection, &header, "SetMode", Some(mode))
             .await?;
-        self.device.set_mode(mode)
+        self.device.set_mode(mode, &self.hub.slot_store())
     }
 
     async fn start_action(

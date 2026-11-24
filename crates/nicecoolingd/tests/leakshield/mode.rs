@@ -1,9 +1,16 @@
+use std::sync::Arc;
+
 use nicecooling_protocol::registry::Registry;
 use nicecooling_protocol::report2::Report2;
 use nicecoolingd::leakshield::attached::now_unix;
 use nicecoolingd::leakshield::mode::Mode;
+use nicecoolingd::state::{SlotStore, StateStore};
 
 use crate::Rig;
+
+fn slots(rig: &Rig) -> SlotStore {
+    SlotStore::new(Arc::new(StateStore::new(&rig.dir)))
+}
 
 /// `set_mode`: report 2 command 12.
 const SET_MODE: u32 = 12;
@@ -25,7 +32,7 @@ async fn each_mode() {
     let device = rig.attached();
 
     for mode in Mode::ALL {
-        device.set_mode(mode.as_str()).unwrap();
+        device.set_mode(mode.as_str(), &slots(&rig)).unwrap();
         assert_eq!(
             rig.sim.commands().pop(),
             Some(Report2::new(SET_MODE, mode.code()))
@@ -35,7 +42,7 @@ async fn each_mode() {
     }
     // Only the lowercase names are Modes.
     for text in ["Shield", "SHIELD", "", "test"] {
-        let error = device.set_mode(text).unwrap_err();
+        let error = device.set_mode(text, &slots(&rig)).unwrap_err();
         assert_eq!(
             error.dbus_name(),
             "io.github.cappyt.NiceCooling1.Error.InvalidArgument"
@@ -78,7 +85,7 @@ async fn return_to_mode_after_action() {
     let rig = Rig::new("action-return");
     quiet(&rig);
     let device = rig.attached();
-    device.set_mode("monitor").unwrap();
+    device.set_mode("monitor", &slots(&rig)).unwrap();
 
     device.start_action("test", never).unwrap();
     // The Mode stays known while the Action runs.
@@ -103,7 +110,7 @@ async fn running_action_property() {
     assert_eq!(device.info().running_action, "deaerate");
     assert_eq!(device.info().mode, "");
 
-    device.set_mode("shield").unwrap();
+    device.set_mode("shield", &slots(&rig)).unwrap();
     device.cancel_action().unwrap();
     assert_eq!(device.info().running_action, "");
     assert_eq!(device.info().mode, "shield");
@@ -147,7 +154,7 @@ async fn unknown_firmware_refuses_mode_and_action() {
     let device = rig.attached();
 
     for error in [
-        device.set_mode("monitor").unwrap_err(),
+        device.set_mode("monitor", &slots(&rig)).unwrap_err(),
         device.start_action("test", never).unwrap_err(),
         device.cancel_action().unwrap_err(),
         device.sync_clock().unwrap_err(),
