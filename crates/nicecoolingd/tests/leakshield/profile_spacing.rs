@@ -385,11 +385,11 @@ async fn a_slow_report1_read_does_not_delay_the_waiting_write() {
             .any(|read| *read > writes[0] && *read < writes[1]),
         "a read of report 1 came between the two writes"
     );
-    // The spacing counts from the start of the first write, which takes a backup before the
-    // report 3 write.
+    // The spacing counts from the end of the first write, so the device never gets the second
+    // one sooner than 1.5 s after the first, whatever the backup costs.
     let gap = writes[1] - writes[0];
     assert!(
-        gap >= Duration::from_millis(1300),
+        gap >= Duration::from_millis(1500),
         "the second write came {gap:?} after the first"
     );
 }

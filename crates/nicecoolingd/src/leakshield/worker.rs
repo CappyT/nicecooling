@@ -453,13 +453,15 @@ fn write_profile(
     save: &mut Option<(Instant, String)>,
     state: &mut ProfileState,
 ) {
-    state.spacing.wrote(Instant::now());
     let job = Job::ProfileWrite {
         report1: report1.clone(),
         report3: (*report3).clone(),
         verified,
     };
     let result = run_job(parts, job, save);
+    // The spacing counts from the end of the write: a slow backup before the report 3 write must
+    // not bring the next write closer than 1.5 s to the device.
+    state.spacing.wrote(Instant::now());
     match &result {
         Ok(_) => {
             note_failed_backup(parts, "");
