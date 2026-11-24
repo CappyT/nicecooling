@@ -2,176 +2,271 @@
 
 ## Context
 
-`add-nicecooling-v1` gives the daemon a value table, a control tick, Derived sensors with three fixed kinds, a Rule engine for Profiles and an alarm response table (none, notify, poweroff). The app is a GPUI program that reads and writes the daemon through D-Bus.
+This design belongs to the change of `proposal.md`. `GLOSSARY.md` defines the project terms. The specs of this change hold the numbers and the formulas: `specs/node-graph/spec.md`, `specs/graph-responses/spec.md` and `specs/mqtt-publishing/spec.md`. This document gives the decisions and their reasons.
 
-aquasuite X.96 has one engine for two features: a graph of nodes that ends in a sensor node ("virtual sensor") or in an action node ("output"). The feature study of 2026-11-24 documents its model, its 48 node kinds, its timing and its MQTT client. It is kept outside the repository; this design states every rule that the implementation needs.
+`add-nicecooling-v1` gives the project two processes (its D1). The root daemon `nicecoolingd` owns the hardware, the control tick, the Alarms and the alarm response. The desktop app runs in the user session, starts at login without a window, and owns the notifications and the history (ADR-0005).
 
-Owner decisions that bind this design:
+aquasuite X.96, the vendor program that nicecooling replaces, has one engine for two features: a graph of nodes that ends in a sensor or in an action. Its system service evaluates the graphs with system rights.
 
-- One Graph engine and one editor serve sensors and actions.
-- All node kinds of aquasuite are in the first version. The decompiled list has 49 kinds; with the alarm event source of G3 the model has 50.
-- A source without a value gives no value, and no value travels through the Graph.
-- The app runs a command action in the user session. The daemon runs every other kind.
-- MQTT publishes the event messages and the sensor values.
-- The action kinds are notification, sound, command, e-mail, MQTT message, poweroff, reboot and suspend.
-- The app warns and does not refuse a choice of the user. No action asks for a password.
-- Existing code is reused before new code is written.
+The owner decisions that bind this design are in issue #88:
+
+- One Graph engine and one editor serve sensors and responses.
+- All node kinds of aquasuite are in the first version, plus a node "has value".
+- A source without a value gives no value. No value goes to every node after it.
+- Graphs, their responses and the network clients run in the app. Nothing of this runs in the root daemon.
+- The app sends the number of a Graph sensor to the daemon, so a Curve can use it.
+- The Derived sensors of the daemon stay as they are.
+- Three poweroffs or reboots in a row that a Graph caused stop the Graph responses.
+- The app warns and does not refuse a valid choice of the user.
+- The change reuses existing code before it adds new code.
 
 ## Goals / Non-Goals
 
 **Goals:**
 
-- A user builds a sensor or an action from nodes, as in aquasuite, and sees the live value of each node.
-- A Graph sensor is a normal sensor: an Input of a Curve, a source of a Rule, a software sensor of a Leakshield, a series of the history, a source of another Graph.
-- A Curve never gets a number that the software made up for a missing source.
-- The daemon evaluates the Graphs without a user session.
+- A user builds a sensor or a response from nodes and sees the live value of each node.
+- A Graph sensor is usable where a measured sensor is: as the Input of a Curve, as the source of a Profile rule, as a Software sensor, in the history and in another Graph.
+- A Curve never gets a substitute value for a missing source.
+- The root daemon gets no user logic, no command runner and no network client.
+- A wrong Graph cannot stop the control tick.
 
 **Non-Goals:**
 
-- The aquasuite file formats. A Graph of aquasuite does not import.
-- The aquasuite rule "a missing input is 0" and its fallback value of a source node.
-- Hotkeys, input controls (button, slider, dial), web export to the vendor service.
-- Receiving values from MQTT.
-- A defense against another local user who writes a Graph (a Non-Goal of `add-nicecooling-v1`).
-- A refusal of a choice that is unsafe but valid: an SMTP login without encryption gets a warning and works.
-- A change of the alarm response table. The poweroff of an Alarm stays a fixed path that no Graph can remove.
+- Graphs that run without a user session. When the app does not run, a Graph sensor has no value and no Graph response runs. The alarm response of the daemon covers the case that needs no session.
+- The aquasuite file formats. The app does not import an aquasuite graph.
+- The aquasuite rules "a missing input is 0" and "a lost source gives a fallback number".
+- Hotkeys, input controls (button, slider, dial), the web export to the vendor service.
+- Values received from MQTT. Home Assistant discovery messages.
+- A defense against another local user (a Non-Goal of `add-nicecooling-v1`).
+- A refusal of a choice that is unsafe and valid: a login without encryption gets a warning and works.
+- A change of the alarm response table. No Graph can remove or delay the poweroff of an Alarm.
+
+## Terms
+
+`GLOSSARY.md` gets these entries with this change. The specs and the interface use them.
+
+| Term | Meaning |
+|---|---|
+| Graph | A named set of nodes and connections that the app evaluates once per second. |
+| Node, pin, connection | A node is one step of a Graph. It has input pins and at most one output pin. A connection joins an output pin to an input pin. |
+| End node | The node where a Graph ends: a sensor end node or a response end node. |
+| Graph sensor | The sensor that a Graph with a sensor end node gives. The app computes it and sends its value to the daemon. |
+| Graph response | What a Graph with a response end node does when its input becomes true: a notification, a command, a message, a power call. |
+| Response pause | The state in which no Graph response runs, after three power responses in a row. |
+
+The glossary keeps Action for a Leakshield procedure, and it already avoids "alarm action" and "device action" in favor of Alarm response and Device response. "Graph response" follows that pattern. The editor button that runs a draft is "Try", because "Test" is a Leakshield Action. The entry Input changes to "a measured sensor, a Derived sensor or a Graph sensor".
 
 ## Decisions
 
-### G1. Model
+### G1. The Graph engine is in the app (node-graph)
 
-A **Graph** has an id, a name, an enabled flag, a list of nodes and a list of connections. A **node** has an id, a kind, parameters and a canvas position. A node has input pins and one output pin, by kind. A **connection** joins one output pin to one input pin. An input pin has at most one connection. An output pin has any number.
+A new workspace crate `nicecooling-graph` holds the model, the node functions, the validator and the evaluator. It has no I/O. The app depends on it. The daemon does not.
 
-A Graph has exactly one end node: a sensor node or an action node. The daemon refuses a Graph with none or with two. This is a model rule, not a guard against the user: a Graph without an end has no meaning.
+The app evaluates every enabled Graph once per second in a service thread, next to the history writer and the notification service. It takes the source values from the sensor events of the daemon, which arrive once per second.
 
-Limits: 64 Graphs, 256 nodes per Graph, a name of 64 characters. aquasuite has no limit; these numbers bound the cost of one tick.
+Rejected: evaluation in the daemon, as aquasuite does. A root process would run logic, commands and network clients that a user wrote. The owner rejects this as a privilege escalation risk (issue #88, decision 5). It would also put 51 node kinds in front of the watchdog ping of the control tick.
 
-Alternative: keep the Derived sensor list and add functions. Rejected by the owner: the action use needs the Graph, and two models cost more than one.
+Rejected: an unprivileged helper service for the evaluation. It runs without a session, but it adds a third process, an IPC protocol and a second owner of notifications, against ADR-0005.
 
-### G2. Values and the no-value rule
+Cost of this decision: no Graph runs before the login or after the app stops. G4 and G9 state what happens then.
 
-A pin carries `Option<f64>`. A logic output is 1 or 0. A logic input is true above 0.
+### G2. Model (node-graph)
 
-- A source node gives no value while its sensor has no value.
-- A node whose **connected** input has no value gives no value and keeps its state. This holds for every kind: arithmetic, logic, switch, memory, delays, filters and generators.
-- An input pin **without a connection** takes the default of its kind: 0, except base e for the logarithm, exponent 2 for the power, enable 1 and period 10 s for the generators and the counter. A missing connection is a state of the drawing, not a missing measurement.
-- A division by 0, a logarithm or a root outside its domain, and a result that is not finite give no value.
-- A sensor end node with no value publishes no value. A Curve then has a lost Input and follows the failure model of `add-nicecooling-v1`.
-- An action end node with no value counts as false: the trigger time is forgotten.
+A Graph has an id, a name, an enabled flag, nodes and connections. A node has an id, a kind, an optional label, parameters and a canvas position. An input pin has at most one connection. An output pin has any number of connections.
 
-Alternative: hold the last value for a set time. Rejected by the owner.
+A Graph has exactly one end node, and an end node has no output pin. The validator refuses a Graph with no end node or with more than one, because such a Graph has no result.
 
-### G3. Node kinds
+Limits: 64 Graphs, 256 nodes per Graph, 200 000 window samples for all Graphs together, a name of 64 characters. aquasuite has no limits. The sample limit bounds the memory to about 5 MB and the cost of one evaluation. The spec gives the calculation.
 
-The kinds and their arithmetic are those of aquasuite X.96, with G2 in place of its missing-input rule and without the fallback value of the source node. The `node-graph` spec has one requirement per family with the exact formula of each kind:
+One validator in `nicecooling-graph` serves the editor and the load of the stored file.
 
-- Sources: sensor, alarm event state, constant, random, process.
-- Functions of two inputs: addition, subtraction, multiplication, division, minimum, maximum, average, logarithm, power.
-- Functions of one input: sine, cosine, tangent, square root, round (nearest, down, up; 0 to 8 decimals), limiter.
-- Table: pairs sorted by input, linear or step, no extrapolation.
-- Logic: six comparisons (exact, no tolerance), and, or, not, switch.
-- State: memory, persistent storage, trigger, on delay, off delay, counter.
-- Time-window filters: peak, minimum, average, low pass, trend. A window gets one sample per tick and removes at most one old sample per tick, as aquasuite does.
-- Signal generators: linear, sawtooth, triangle, sine, rectangle.
-- Comment: text only, no pins.
-- End nodes: sensor, action.
+Rejected: keep the Derived sensor list and add functions to it. The response use needs the Graph, and two models cost more than one. The three Derived kinds stay in the daemon because the Curves of a machine without a session depend on them.
 
-The source node "alarm event state" is new against aquasuite: it gives 1 while an Alarm or Warning event of the daemon is active for a chosen source, else 0. In aquasuite a device alarm is a data source of the device; nicecooling has its own event list.
+### G3. Values and the no-value rule (node-graph)
 
-The process node reuses the process scan of the Profile rules. The table reuses the interpolation of the Calibration table.
+A pin carries a number or no value. A logic output is 1 or 0. A logic input is true above 0.
 
-### G4. Evaluation
+- A sensor source node gives no value while its sensor has no value.
+- A node gives no value when a connected input has no value. The node "has value" is the one exception: it gives 1 when its input has a value and 0 when it has none.
+- An input pin with no connection takes the default of its kind. The spec lists the defaults. The input of an end node has no default: a sensor end node with no connection gives no value, and a response end node with no connection is false.
+- A division by 0, a function outside its domain and a result that is not finite give no value.
+- A response end node counts no value as false.
 
-- The daemon evaluates every enabled Graph once per second, in the control tick, after the sources are read and before the Curve stage. A Curve of the same tick sees the new value of a Graph sensor.
-- Order inside a Graph: sources and constants first, then each node whose connected inputs are computed. The write of a Graph refuses a connection that closes a loop, a connection between two pins of the same direction, and a connection inside one node.
-- Order between Graphs: a Graph that reads the sensor of another Graph runs after it. The write of a Graph refuses a loop across Graphs.
-- A disabled Graph publishes no value and runs no action.
-- A window length and a delay are wall-clock seconds from the simulated clock of the core, so the tests run without waiting.
-- For 10 s after the start of the daemon no action runs: the sensors must settle first.
+Reason: a Curve that gets no value follows the Lost Input rule of `add-nicecooling-v1` (D7): its Channel goes to 100% and the daemon raises a Warning. A substitute number would hide the loss.
 
-### G5. Storage
+Rejected: hold the last value for a set time, and the aquasuite fallback value. Both give a Curve a number that no sensor measured. The node "has value" gives the user the signal that these rules were for, as a logic value that no Curve can take for a temperature.
 
-- `graphs.json` in the state directory: all Graphs. Written through the state store of `add-nicecooling-v1` on each change.
-- `graph-values.json`: the stored values of the persistent storage nodes and of the sensor nodes with "keep the value over a restart". Written at most every 30 s and at shutdown.
-- Export: one Graph as one JSON file, written by the app. Import: the app sends the file content; the daemon gives the Graph and its nodes new ids. A sensor source that does not exist on this machine stays in the Graph as an unbound source (no value), and the editor marks it.
+The sensor end node has no "keep the value over a restart" option. aquasuite has one. It would publish a value from before the restart while the sources have no value, which is the case that this rule excludes. The persistent storage node stays: it is an explicit node of the Graph, and it gives no value while its inputs have none.
 
-### G6. Conversion of the Derived sensors
+### G4. Graph sensors reach the daemon as numbers (node-graph)
 
-At the first start with this change the daemon converts each stored Derived sensor to a Graph with the same sensor id:
+The daemon gets a new kind of sensor, the Graph sensor: an id, a name and a unit, created and removed through the D-Bus API, stored in `state.json`. The app sends the values of all Graph sensors in one call per second. The daemon puts them in the value table.
 
-- maximum of N sources: a chain of N - 1 maximum nodes;
-- mean of N sources: a chain of additions and one division by a constant N;
-- difference: one subtraction.
+- A value older than 3 s counts as no value, as for every sensor (`add-nicecooling-v1` D6). So a Graph sensor has no value when the app does not run, stops or hangs.
+- The daemon checks only that a value is a finite number. It runs no Graph code.
+- A Graph sensor is a normal entry of the value table: a Curve, a Profile rule, a Software sensor slot and the Feed can use it. The delete of a Graph sensor that something uses gives `InUse`, as for a Derived sensor.
+- At most 64 Graph sensors exist.
 
-The sensor id stays, so a Curve, a Rule and a software sensor that use it keep working. The Derived sensor objects and methods of the D-Bus API are removed, and the Sensors screen opens the Graph editor for these sensors. The old file key is kept in a backup copy of the state file.
+Reason for the numbers-only interface: the daemon keeps one small, typed entry point, and the failure of the app is the same event as the loss of a hwmon sensor.
 
-### G7. Action node
+Rejected: Graph sensors that only the app sees. The owner wants a formula as the Input of a Curve (issue #88, decision 6).
 
-Parameters common to every kind: a hold time (default 0 s), "repeat every" (off, default 60 s) and a minimum interval between two runs (default 0 s), with the state machine of aquasuite:
+Consequence that the editor must show: a Curve on a Graph sensor runs at 100% before the login and while the app is closed. The Curve editor shows this text when the user picks a Graph sensor as Input.
 
-1. Input false or no value: forget the trigger time, state "not run".
-2. Rising edge: trigger time = now.
-3. State "not run" and trigger time + hold time <= now: run, state "run".
-4. State "run", repeat on, last run + repeat interval <= now: run again.
-5. A run that comes before last run + minimum interval is dropped.
-6. "Test" in the editor runs once now and passes rule 5.
+### G5. Node kinds (node-graph)
 
-There is no action on the falling edge. The output pin of the action node is 1 in the state "run".
+The model has 51 kinds: the 49 kinds of aquasuite X.96, the source "alarm event state" and the node "has value". The spec has one requirement per family with the formula of each kind.
 
-Kinds and who runs them:
+- The alarm event state source gives 1 while a chosen Alarm or Warning of the daemon is active, else 0. aquasuite reads device alarms as device data. nicecooling has its own event list.
+- The comparisons use the `Comparison` type of the Profile rules, with its tolerance of 1e-9. A Profile rule and a Graph that compare the same sensor then agree. aquasuite compares exactly.
+- The on delay, the off delay and the hold time of a response use the hold logic of the sensor Profile rule: a false input or no value resets the time.
+- The table node uses one interpolation function that this change extracts in `nicecooling-core`: linear or step, with the first and the last output outside the pairs. The Calibration table keeps its own boundary rule and its results do not change.
+- A time-window filter removes every sample that is older than its span, each second. aquasuite removes at most one sample per cycle, which keeps old samples after a gap. While its input has no value, a filter gives no value and adds no sample, and its samples still age.
+- The process source uses the process scan of the app. The Profile rules of the daemon keep their own scan.
 
-| Kind | Parameters | Runs in |
+Rejected: a smaller first set of kinds. The owner chose all kinds (issue #88, decision 2). Each kind is a function of its inputs and its stored state, so its tests are tables.
+
+### G6. Time (node-graph, graph-responses)
+
+Every delay, window and interval of a Graph counts seconds of the monotonic clock of the app. The tests replace the clock.
+
+- The monotonic clock does not count the time of a suspend. A delay or a window continues after a resume as if no time passed.
+- The minimum interval between two runs of a response and the response pause use the wall clock, because they must count over a restart (G8).
+
+### G7. Fault isolation (node-graph)
+
+The app evaluates each Graph inside a panic boundary. A Graph whose evaluation panics is disabled and stored as disabled, and the app shows a notification that names it. Its Graph sensor then has no value.
+
+The control tick of the daemon does not depend on the evaluation: a slow or stopped app only makes the Graph sensors stale.
+
+### G8. Graph responses (graph-responses)
+
+A response end node has a kind, a hold time, an optional repeat interval and a minimum interval. The spec has the state machine. It follows aquasuite: the response runs when the input stays true for the hold time, it can repeat while the input is true, and it has no run on the falling edge.
+
+| Kind | Parameters | How the app runs it |
 |---|---|---|
-| Notification | title, text, urgency | app (it owns the desktop notifications) |
-| Sound | one of the sound names of the freedesktop sound theme | app, as the sound hint of a notification |
-| Command | program path, argument list, time limit (default 30 s) | app, in the user session |
-| E-mail | recipient, subject, text | daemon |
-| MQTT message | topic below the base topic, payload template | daemon |
-| Poweroff, reboot, suspend | countdown in seconds (default 30) | daemon, through logind |
+| Notification | title, text, urgency | the notification service of the app |
+| Sound | a sound name of the freedesktop sound theme | a notification with the sound hint |
+| Command | program path, arguments, time limit | a child process of the app, killed at the time limit |
+| E-mail | recipient, subject, text | the SMTP client of the app (G10) |
+| MQTT message | topic, payload | the MQTT client of the app (G9) |
+| Poweroff, reboot, suspend | countdown | a logind call of the session, after a countdown with cancel |
 
-- The daemon sends a D-Bus signal `ActionRequested(graph, run id, kind, parameters)` for the three kinds of the app. The app answers with `ReportActionOutcome(run id, outcome)`. Without an app in a session the outcome is "no session", and the daemon records it. The owner chose this: a command does not run without a session.
-- The text of a notification, an e-mail and an MQTT payload can hold placeholders for the Graph name and for the current value and unit of named nodes. aquasuite attaches a list of data sources to a message; the placeholder does the same with less interface.
-- Poweroff, reboot and suspend use the countdown, the cancel path and the notification of the alarm poweroff of `add-nicecooling-v1`. A cancel sets the node to the state "run" without the power action.
-- The command receives the Graph id, the Graph name and the node values as environment variables. The app kills it at the time limit.
-- Each run writes one row to an action log in the daemon: time, Graph, kind, outcome. The Graph editor shows the last rows of its Graph.
+Rules that the review of this design added:
 
-Alternative for the command: the daemon runs it as the user who wrote the Graph. Rejected by the owner.
+- Stored run state: the app stores the state and the last run time of each response end node, with the wall clock. After a restart of the app, a response whose input stayed true does not run again, and the minimum interval counts over a reboot.
+- Start delay: for 10 s after its start the app evaluates the Graphs and runs no response. An input that is true at the end of the delay counts as a rising edge then.
+- Power kinds: their default minimum interval is 600 s. The other kinds default to 0 s.
+- Response pause: the app counts the poweroff and reboot responses that it runs. The count goes back to 0 when the app runs for 10 minutes with no such run. At 3 the app enters the response pause: no Graph response runs, the Graph sensors still work, and the app shows a banner with "Turn the Graph responses on". This is the maintenance mode of aquasuite (issue #88, decision 10).
+- The alarm poweroff wins: while the daemon reports a poweroff countdown of an Alarm, the app starts no power response and cancels its own countdown. A Graph cannot delay the poweroff of an Alarm.
+- One app runs the responses: only the app of the active session runs Graph responses. The app reads this from logind. A second instance in another session runs none.
+- Text: the text of a notification, an e-mail and an MQTT payload can hold placeholders for the Graph name and for the value and unit of a labelled node. The spec gives the syntax.
+- Log: each run adds a row to a response log of the app: time, Graph, kind, outcome. The editor shows the newest rows of its Graph.
 
-### G8. MQTT
+Rejected: the daemon runs a command as the user who wrote the Graph. A root process would start programs from user data.
 
-- One broker in the daemon settings: host, port (default 1883, 8883 with TLS), TLS on or off with the system certificates and an optional CA file, user name, password, client id (default `nicecooling-<hostname>`), base topic (default `nicecooling`), value interval (default 10 s, 1 s to 1 h). MQTT is off until a host is set.
-- The password is in a file of the state directory that only root reads. The D-Bus API never returns it.
-- Topics: `<base>/status` with `online` (retained) and the last will `offline`; `<base>/sensor/<sensor id>` with one JSON object (value, unit, name, time), QoS 0, retained, at the value interval, for every sensor that is not hidden; `<base>/event/<event id>` with one JSON object per raise and per clear of an Alarm or Warning, QoS 1, not retained; the topic of an MQTT action node, QoS 1, not retained.
-- A sensor without a value publishes `null` as its value, so a consumer sees the loss.
-- A broker that is unreachable never blocks the tick: the client has its own task and a bounded queue, and it drops the oldest value message first. An event message waits in the queue.
-- Client crate: `rumqttc` with `rustls`, which the workspace already builds.
+Rejected: no response pause. The stored minimum interval alone does not protect a user who sets it to 0.
 
-### G9. E-mail
+The power kinds call logind with the rights of the session. logind can refuse, for example when another user is logged in. The outcome is then `failed`, and the app does not ask for a password.
 
-- One SMTP account in the daemon settings: host, port, security (STARTTLS, TLS, none), user name, password, sender address. Stored like the MQTT password.
-- A send has a 30 s time limit and never blocks the tick. The outcome goes to the action log.
-- Client crate: `lettre` with `rustls`.
+### G9. MQTT (mqtt-publishing)
 
-### G10. Editor
+The app holds one MQTT client with the settings of issue #88, decision 8. MQTT is off until a host is set.
 
-- A new workspace crate holds a copy of `gpui-flow` (MIT, commit `cfa5787`) with its license file. It compiles unchanged against the GPUI version of the app. The crate depends on GPUI from the git repository of its vendor, so it cannot be a normal dependency. The copy gets the theme tokens of `docs/ui/DESIGN.md` and the keyboard rules of the app.
-- A screen "Graphs" in the group "Control": the list of Graphs with name, kind of end node, state and live result; "New sensor", "New action", import.
-- The editor: the canvas with pan and zoom, a node list by family, pins that connect by drag, the live value on each node (one D-Bus read per second while the editor is open), a parameter panel for the selected node, "Test" on an action node, undo and redo, and Apply. The editor holds a draft: the daemon gets the Graph at Apply, and it checks the model rules of G1 and G4 again.
-- A source node has a "test value": the user gives a source a number for a set time, to try the Graph. The daemon evaluates the test on a copy of the draft Graph and returns the node values. A test never changes a published sensor value, so it never reaches a Curve, and a test of an action node runs the action once only through "Test".
+| Topic | Content | QoS | Retained |
+|---|---|---|---|
+| `<base>/status` | `online`, and `offline` as the last will | 1 | yes |
+| `<base>/sensor/<sensor id>` | value, unit, name and time of each sensor that is not hidden | 0 | yes |
+| `<base>/event/<event id>` | one message per raise and per clear of an Alarm or Warning | 1 | no |
+| the topic of an MQTT response | the payload of the response | 1 | no |
 
-### G11. API and authorization
+- The app publishes while it runs. After the app stops, the broker publishes `offline`, and a consumer knows that the retained values are old.
+- A sensor without a value publishes `null`.
+- The client keeps one pending value per sensor topic, where a new value replaces the old one, and a queue of 256 for events and responses. A broker that is not reachable never blocks the evaluation.
+- With TLS off and a password set, the settings show a warning.
+- "Hidden" is the hidden-sensor setting of the app, which the app already has.
 
-New objects `Graph` under `io.github.cappyt.NiceCooling1` with read methods in the read class and write methods in the polkit action `write`. The broker and SMTP settings are in the `write` action too. No method asks for a password.
+Client crate: `rumqttc` with `rustls`. The workspace builds `rustls` today and does not build `rumqttc`. The first MQTT task is a spike that proves the pending-slot rule and the mapping of a broker acknowledgment to a response run with this crate.
+
+Rejected: the client in the daemon or in a helper service (G1). Rejected: publish only response messages, as aquasuite does. A home automation system needs the values, and the owner chose them (issue #88, decision 8).
+
+### G10. E-mail (graph-responses)
+
+The app holds one SMTP account: host, port, security (STARTTLS, TLS or none), user name, password and sender address. A send has a time limit of 30 s and runs outside the evaluation. Client crate: `lettre` with `rustls`, new in the workspace.
+
+Rejected: a call of a local `sendmail`. A desktop has no configured mail transfer agent as a rule.
+
+### G11. Storage (node-graph, graph-responses, mqtt-publishing)
+
+| File | Owner | Content |
+|---|---|---|
+| `~/.config/nicecooling/graphs.json` | app | all Graphs |
+| `~/.local/share/nicecooling/graph-state.json` | app | the values of the persistent storage nodes, the run state of the responses, the response pause counter |
+| `~/.local/share/nicecooling/response-log.json` | app | the newest 500 response runs |
+| `~/.config/nicecooling/secrets.toml`, mode 0600 | app | the MQTT and SMTP passwords |
+| `state.json`, key `graph_sensors` | daemon | id, name and unit of each Graph sensor |
+
+The app writes `graph-state.json` at most every 30 s, at its stop, and before a power call. The timed writer of the history fits this use.
+
+Rejected: the Secret Service of the desktop for the passwords. The app starts at login without a window, and a locked keyring would then stop MQTT with a dialog. A file that only the user reads is what mail and MQTT tools on a desktop use.
+
+### G12. Export and import (node-graph)
+
+The app writes one Graph as one JSON file. The app reads a file, gives the Graph and its nodes new ids, and adds it as a disabled Graph, so a response from another machine does not run before the user sees it. A sensor source that this machine does not have stays as an unbound source with no value, and the editor marks it. The daemon has no part in this.
+
+### G13. Editor (node-graph)
+
+A new workspace crate holds a copy of the node canvas `gpui-flow` (MIT, https://github.com/pacifio/gpui-flow, commit `cfa5787`), with an entry in `THIRD_PARTY.md`. The upstream crate depends on GPUI from a git repository, and the app uses the pinned `gpui-pre` release, so the two cannot be in one dependency tree. The copy changes only its GPUI dependency line to compile against `gpui-pre`. This was checked on 2026-11-24. Its on-screen behavior is not checked.
+
+- The first task of the editor is a spike: the copy shows a Graph in the app with drag, connect, pan and zoom, in light and dark. The owner sees it before more editor work starts.
+- If the spike fails, the fallback is a canvas written on the drawing primitives that the Loop diagram of the app already uses. The tasks name this branch.
+- A screen "Graphs" in the group "Control" lists the Graphs with name, kind of end node, enabled state and live result.
+- The editor holds a draft. Apply validates it and stores it. The live value of each node comes from the evaluator of the app: a node of the applied Graph shows its value, and a node that exists only in the draft shows none until Apply.
+- "Try" evaluates the draft in the app with test values for its sources and shows the node values. A try runs no response. A response end node has its own button "Run once", which runs the response one time and ignores the minimum interval.
+
+Rejected: a git dependency on the upstream crate (not possible, see above). Rejected: write the canvas first. The copy saves about 2800 lines when the spike passes.
+
+### G14. Daemon API and authorization (node-graph)
+
+New methods on `io.github.cappyt.NiceCooling1`: create, rename and remove a Graph sensor, and feed the values. All are in the polkit action `write`, which gives a member of `wheel` in an active session access without a password. The daemon caches the authorization of a bus sender for the feed call, so one call per second does not ask polkit each time.
+
+The daemon sends no request for a response to the app, and the app accepts none from the bus.
+
+## Requirements of add-nicecooling-v1 that this change extends
+
+`add-nicecooling-v1` is not archived, so this change has no delta against `openspec/specs/`. It extends these contracts, and its tasks edit them:
+
+| Capability | Change |
+|---|---|
+| `fan-control` | An Input can be a Graph sensor. The Lost Input rule covers a Graph sensor that the app does not feed. |
+| `hardware-discovery` | The sensor list has a third origin: Graph sensor, next to measured and Derived. |
+| `profiles` | The source of a sensor Profile rule can be a Graph sensor. |
+| `leakshield-operation` | A Software sensor slot can take a Graph sensor. |
+| `control-api` | The Graph sensor methods, the `graph_sensors` key of `state.json`. No method is removed. |
+| `desktop-app` | The Graphs screen, the editor, the MQTT and SMTP settings, the response pause banner, the text in the Curve editor for a Graph sensor Input. |
+
+Files of the contract that change: `crates/nicecooling-api/dbus/io.github.cappyt.NiceCooling1.xml`, `docs/api.md`, `docs/storage.md`, `docs/app.md`, `GLOSSARY.md`, `THIRD_PARTY.md`, and a new `docs/graphs.md`.
+
+## Migration and rollback
+
+This change converts no stored data. The Derived sensors stay.
+
+- Forward: the daemon adds the key `graph_sensors` to `state.json`. The app creates its files at the first use.
+- Back: an older daemon follows the schema rule of `docs/storage.md` for a file that it does not know. The tasks check which case applies to a new key and state the downgrade steps in `docs/graphs.md`. A Curve whose Input was a Graph sensor has a Lost Input on an older daemon and runs at 100%.
 
 ## Risks / Trade-offs
 
-- **A Graph drives a pump or a fan through a Curve.** The no-value rule and the failure model of the Curve bound the damage of a broken Graph. A Graph that computes a wrong but valid number is the user's choice.
-- **An action with poweroff in a wrong Graph can shut the PC down in a loop.** The 10 s start delay, the countdown with cancel and the minimum interval limit this. aquasuite adds an automatic maintenance mode after three shutdowns in a row. The owner decided against it: the three limits are enough, and the app does not protect the user from a Graph that the user made.
-- **50 kinds are much code and many tests.** Each kind is a pure function with state, so the tests are tables of inputs and outputs.
-- **The copied editor code is 2800 lines of another author**, with one commit and no tests. The on-screen behavior is not checked yet: the first task is a spike that shows a Graph with drag, connect, pan and zoom in the app, in light and dark, before any other editor work.
-- **MQTT and SMTP add network clients to a root daemon.** Both use `rustls`, have time limits and never run in the tick.
-- **The removal of the Derived sensor API breaks the app screens that use it** in the same change; they move to the Graph editor.
+- [No Graph runs without a session] -> a Curve on a Graph sensor runs at 100% then, with a Warning. The Curve editor says so. The alarm response of the daemon needs no Graph.
+- [A wrong Graph gives a valid, wrong number to a Curve] -> nicecooling does not detect this. The Pump floor and the overrides of the control tick still apply.
+- [A power response in a loop] -> the stored minimum interval with its 600 s default, the countdown with cancel, the 10 s start delay and the response pause.
+- [A command response runs a program with the rights of the user] -> it is the program that the user chose, in the session of the user. No root process starts it.
+- [The app parses data from the network (MQTT, SMTP, TLS)] -> the app has the rights of the user and no access to the devices. The daemon takes only numbers from it.
+- [The app can feed a wrong value on purpose] -> the feed is in the `write` action, which already allows a direct write of a Fixed Duty.
+- [The copied canvas code is 2800 lines of one author with no tests] -> the spike decides before more work depends on it, and the fallback is named.
+- [51 node kinds] -> one table test per kind, and one validator and one evaluator for all.
+- [`rumqttc` keeps its own queue and replays requests after a reconnect] -> the MQTT spike decides if the pending-slot rule holds. If not, the spec changes before the client is built.
 
 ## Open Questions
 
-- Home Assistant discovery messages: not in this change by owner choice; the topic layout leaves room for it.
+- The result of the editor spike (G13).
+- The result of the MQTT spike (G9).
