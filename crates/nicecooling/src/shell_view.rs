@@ -348,7 +348,14 @@ impl ShellView {
         bar.window_control_area(WindowControlArea::Drag)
             .on_mouse_down(
                 MouseButton::Left,
-                cx.listener(|this, _, window, _| this.bar_press = !window.default_prevented()),
+                cx.listener(|this, _, window, cx| {
+                    this.bar_press = !window.default_prevented();
+                    // A press that moves the window must not start a text selection that
+                    // follows the pointer after the move.
+                    if this.bar_press {
+                        gpui_component::GlobalState::suppress_text_selection(cx);
+                    }
+                }),
             )
             .on_mouse_up(
                 MouseButton::Left,
@@ -452,11 +459,15 @@ impl ShellView {
         )
         .child(
             h_flex()
+                .id("header-controls")
                 .absolute()
                 .top_0()
                 .right(px(12.))
                 .h_full()
                 .gap(px(6.))
+                // A click on a button bubbles to the bar: a double click there must not
+                // maximize the window.
+                .on_click(|_, _, cx| cx.stop_propagation())
                 .child(menu_button)
                 .when(client_frame, |controls| {
                     controls.child(
