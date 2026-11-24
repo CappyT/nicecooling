@@ -74,10 +74,10 @@ Each dialog is 440 px wide. Escape and "Cancel" close it without a change.
 
 - Template gallery ("Templates"): the 14 templates and "No page", 3 per row. Each one has a schematic of its layout that the app draws, and its name. The template of the page has the accent outline. A click writes the template and closes the dialog. "No page" writes 255: the device skips the page.
 - "Own text": an input and "Save". The text goes into a page text of the device (names 20 to 34 of report 8), and the slot then selects it. The dialog names the page text that takes it. The rule for the page text:
-  1. the page text that the slot shows now, when no other text slot in use shows it;
-  2. else the first page text that is empty and that no text slot in use shows;
-  3. else the first page text that no text slot in use shows.
-  A text slot is in use when the template of its page shows it. A sensor name and a lighting name are never changed.
+  1. the page text that the slot shows now, when no other slot refers to it;
+  2. else the first page text that is empty and that no other slot refers to;
+  3. else the first page text that no other slot refers to.
+  A slot refers to a page text when `page_names` holds it on any of the 10 pages, whatever the template of the page: a page that is off shows its texts again when the user turns it on. A sensor name and a lighting name are never changed.
 - "Choose an icon": the 16 icons of the device at 2 px for each pixel, 6 per row. A click selects the icon. "No icon" clears the slot. "Import an icon" opens the import for the icon that the slot shows.
 - Import ("Change the logo", "Import an icon"): "Choose a file" opens the file dialog of the system. The dialog then shows the result, the threshold slider, the switch "Swap lit and dark" and the button "Write the logo" or "Write the icon". The section on the import of a picture has the rules.
 

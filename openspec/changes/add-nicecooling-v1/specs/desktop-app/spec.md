@@ -182,15 +182,19 @@ A value SHALL have a data source (a device sensor, a Software sensor or none, wr
 - **THEN** the app writes 15 into the second entry of `page_icons` of page 3
 
 ### Requirement: Own text of a display page
-An own text SHALL go with `SetDisplayName` into a page text (names 20 to 34): the page text of the slot when no other text slot in use shows it, else the first empty page text that no text slot in use shows, else the first page text that no text slot in use shows. The slot SHALL then select that name. The app SHALL NOT change a sensor name or a lighting name for an own text.
+An own text SHALL go with `SetDisplayName` into a page text (names 20 to 34): the page text of the slot when no other slot refers to it, else the first empty page text that no other slot refers to, else the first page text that no other slot refers to. A slot SHALL refer to a name when `page_names` holds it on any of the 10 pages, whatever the template of the page. The slot SHALL then select that name. The app SHALL NOT change a sensor name or a lighting name for an own text.
 
 #### Scenario: Own text into a free page text
 - **WHEN** the page texts 20 to 22 hold a text, no page shows a text, and the user saves the own text "CPU loop" for text 1 of page 2
 - **THEN** the app calls `SetDisplayName` with the index 23 and the text, and writes 23 into the first entry of `page_names` of page 2
 
 #### Scenario: All page texts in use
-- **WHEN** text slots in use of other pages show all 15 page texts
+- **WHEN** the slots of other pages refer to all 15 page texts
 - **THEN** "Own text" is disabled with the reason
+
+#### Scenario: Page that is off
+- **WHEN** page 5 has the template "none", its `page_names` hold the name 23, and the user saves an own text for text 1 of page 2
+- **THEN** the app does not use the name 23 for it
 
 ### Requirement: Logo and icon import
 The Display tab SHALL import a PNG file as the logo (128 x 64 pixels) or as an icon (23 x 23 pixels), with one import path for both. The app SHALL show the converted result before the write and SHALL write exactly that result with `SetDisplayLogo` or `SetDisplayIcon`. An imported icon SHALL replace the icon that the icon slot shows. The app SHALL refuse a file that is not a readable PNG image, with the reason.

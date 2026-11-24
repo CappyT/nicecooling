@@ -852,6 +852,22 @@ fn an_own_text_goes_into_a_free_page_text() {
     assert_eq!(text_target(&data(&state), 0, 0), Some(20));
 }
 
+#[test]
+fn an_own_text_does_not_take_the_name_of_a_page_that_is_off() {
+    // Page 5 has the template "none", but its `page_names` still refer to the page text 23.
+    let mut state = with_leakshield();
+    let data = |state: &AppState| state.snapshot.leakshield_data[LEAKSHIELD].clone();
+    assert_eq!(text_target(&data(&state), 1, 0), Some(23));
+    let mut templates = vec![NO_TEMPLATE.to_owned(); 10];
+    templates[1] = "values-1".into();
+    set_field(&mut state, "page_template", FieldValue::TextList(templates));
+    let mut names = vec![255.0; 80];
+    names[4 * 8] = 23.0;
+    set_field(&mut state, "page_names", FieldValue::List(names));
+
+    assert_eq!(text_target(&data(&state), 1, 0), Some(24));
+}
+
 // ---------------------------------------------------------------------------------------------
 // The states of a preview.
 

@@ -583,23 +583,21 @@ pub fn own_text_error(text: &str) -> Option<&'static str> {
 }
 
 /// The name of report 8 that takes an own text for a text slot of a page. The rule:
-/// 1. the page text that the slot shows now, when no other text slot in use shows it;
-/// 2. else the first page text (names 20 to 34) that is empty and that no text slot in use shows;
-/// 3. else the first page text that no text slot in use shows.
+/// 1. the page text that the slot shows now, when no other slot refers to it;
+/// 2. else the first page text (names 20 to 34) that is empty and that no other slot refers to;
+/// 3. else the first page text that no other slot refers to.
 ///
-/// A text slot is in use when the template of its page shows it. `None` when all 15 page texts
-/// are in use, or when the app has no names of the device.
+/// A slot refers to a name when `page_names` holds it, on any of the 10 pages and whatever the
+/// template of the page: a page that is off now shows the text again when the user turns it on.
+/// `None` when all 15 page texts are in use, or when the app has no names of the device.
 pub fn text_target(data: &LeakshieldData, page: usize, slot: usize) -> Option<u8> {
     let assets = data.display_assets.as_ref()?;
     let names = data.list("page_names")?;
-    let templates = data.text_list("page_template")?;
     let used_elsewhere = |name: u8| {
-        templates.iter().enumerate().any(|(other, template)| {
-            (0..template_slots(template).texts).any(|text| {
-                (other, text) != (page, slot)
-                    && names.get(other * SLOTS + text) == Some(&f64::from(name))
-            })
-        })
+        names
+            .iter()
+            .enumerate()
+            .any(|(entry, value)| entry != page * SLOTS + slot && *value == f64::from(name))
     };
     let current = names.get(page * SLOTS + slot).copied().unwrap_or(255.0);
     let free = |name: &u8| !used_elsewhere(*name);
