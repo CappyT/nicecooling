@@ -4,8 +4,6 @@ use std::rc::Rc;
 
 use gpui::prelude::*;
 use gpui::{AnyElement, Context, FontWeight, SharedString, Window, div, px};
-use gpui_component::button::Button;
-use gpui_component::input::Input;
 use gpui_component::slider::Slider;
 use gpui_component::switch::Switch;
 use gpui_component::{Disableable as _, Sizable as _, h_flex, v_flex};
@@ -17,11 +15,16 @@ use crate::screens::controls::{Pick, act};
 use crate::screens::format::plain;
 use crate::screens::leakshield::TabState;
 use crate::screens::leakshield::alarms::{AlarmsModel, EventRow, RecommendationKind};
-use crate::screens::leakshield::sensors_view::header_row;
+use crate::screens::leakshield::parts::{FieldMode, field_input, small_button};
 use crate::screens::ui::{
-    caption, card, card_header, card_row, locked, notice_row, page, severity_icon, write_line,
+    caption, card, card_header, card_row, locked, notice_row, page, severity_icon, table_header,
+    write_line,
 };
 use crate::tokens::Palette;
+
+/// The widths of the table columns.
+const THRESHOLD: f32 = 170.0;
+const RESPONSE: f32 = 190.0;
 
 impl ScreenView {
     pub(crate) fn render_ls_alarms(
@@ -50,9 +53,7 @@ impl ScreenView {
             let view = cx.entity();
             let command = reset.command.clone();
             let mut row = notice_row(reset.text.clone(), true, p).child(
-                Button::new("ls-reset-alarms")
-                    .small()
-                    .label(reset.label.clone())
+                small_button("ls-reset-alarms", reset.label.clone())
                     .disabled(!reset.enabled)
                     .on_click(act(&view, move |this, _, _| this.send(command.clone()))),
             );
@@ -75,9 +76,7 @@ impl ScreenView {
                 };
                 if let Some((label, command)) = item.button.clone() {
                     row = row.child(
-                        Button::new(SharedString::from(format!("ls-rec-{index}")))
-                            .small()
-                            .label(label)
+                        small_button(SharedString::from(format!("ls-rec-{index}")), label)
                             .disabled(model.state != TabState::Ready)
                             .on_click(act(&view, move |this, _, _| this.send(command.clone()))),
                     );
@@ -90,15 +89,20 @@ impl ScreenView {
             content = content.child(recommendation);
         }
         for group in &model.groups {
-            let mut card = card(p)
-                .child(card_header(group.title.clone(), p))
-                .child(header_row(&model.columns, &[0., 220., 250., 250.], p));
+            let mut card = card(p).child(card_header(group.title.clone(), p)).child(
+                table_header(
+                    &model.columns,
+                    &[None, Some(THRESHOLD), Some(RESPONSE), Some(RESPONSE)],
+                    p,
+                )
+                .border_t_0(),
+            );
             for row in &group.rows {
                 card = card.child(self.alarm_event_row(id, row, &model, p, window, cx));
             }
             content = content.child(card);
         }
-        content = content.child(caption(model.device_help.clone(), p));
+        content = content.child(caption(model.device_help.clone(), p).px(px(6.)));
         content.into_any_element()
     }
 
@@ -115,7 +119,7 @@ impl ScreenView {
         let ready = model.state == TabState::Ready;
         let event = row.event.clone();
 
-        let mut title = v_flex().flex_1().child(
+        let mut title = v_flex().flex_1().min_w_0().gap(px(3.)).child(
             h_flex()
                 .gap(px(6.))
                 .child(severity_icon(row.severity, p))
@@ -135,7 +139,7 @@ impl ScreenView {
             );
         }
 
-        let mut threshold = v_flex().w(px(220.)).gap(px(4.));
+        let mut threshold = v_flex().w(px(THRESHOLD)).flex_none().gap(px(6.));
         if let Some(ctl) = &row.threshold {
             let slider = self.range_slider(
                 &format!("ls:threshold:{}", ctl.field),
@@ -153,17 +157,16 @@ impl ScreenView {
             );
             threshold = threshold
                 .child(Slider::new(&slider).disabled(!(ctl.writable && ready)))
-                .child(
-                    h_flex()
-                        .gap(px(6.))
-                        .items_center()
-                        .child(
-                            div()
-                                .w(px(80.))
-                                .child(Input::new(&input).disabled(!(ctl.writable && ready))),
-                        )
-                        .child(div().text_color(p.fg_dim).child(ctl.unit.clone())),
-                );
+                .child(field_input(
+                    &input,
+                    &ctl.unit,
+                    ctl.writable && ready,
+                    ctl.error.is_some(),
+                    110.,
+                    p,
+                    window,
+                    cx,
+                ));
             if let Some(reason) = &ctl.reason {
                 threshold = threshold.child(
                     locked(reason.clone(), p)
@@ -172,11 +175,11 @@ impl ScreenView {
                 );
             }
             if let Some(error) = &ctl.error {
-                threshold = threshold.child(div().text_color(p.alarm).child(error.clone()));
+                threshold = threshold.child(caption(error.clone(), p).text_color(p.alarm));
             }
         }
 
-        let mut device_column = v_flex().w(px(250.)).gap(px(4.));
+        let mut device_column = v_flex().w(px(RESPONSE)).flex_none().gap(px(6.));
         if let Some(ctl) = &row.device {
             let pick: Pick = {
                 let device = device.to_owned();
@@ -218,6 +221,7 @@ impl ScreenView {
                         .items_center()
                         .child(
                             Switch::new(SharedString::from(format!("ls-sound-{}", row.event)))
+                                .large()
                                 .checked(sound.on)
                                 .disabled(!(sound.writable && ready))
                                 .on_click(move |on, _, cx| {
@@ -284,20 +288,27 @@ impl ScreenView {
             window,
             cx,
         );
-        let mut response_column = v_flex().w(px(250.)).gap(px(4.)).child(select).child(
-            h_flex()
-                .gap(px(6.))
-                .items_center()
-                .child(
-                    div()
-                        .w(px(70.))
-                        .child(Input::new(&delay).disabled(!response.delay_enabled)),
-                )
-                .child(div().text_color(p.fg_dim).child("s")),
-        );
+        let mut response_column = v_flex()
+            .w(px(RESPONSE))
+            .flex_none()
+            .gap(px(6.))
+            .child(select)
+            .child(field_input(
+                &delay,
+                "s",
+                if response.delay_enabled {
+                    FieldMode::Editable
+                } else {
+                    FieldMode::Off
+                },
+                false,
+                90.,
+                p,
+                window,
+                cx,
+            ));
         if let Some(text) = &response.delay_warning {
-            response_column =
-                response_column.child(div().text_color(p.warning).child(text.clone()));
+            response_column = response_column.child(caption(text.clone(), p).text_color(p.warning));
         }
         if let Some(command) = response.reset.clone() {
             response_column = response_column.child(
@@ -317,6 +328,8 @@ impl ScreenView {
         }
 
         card_row(p)
+            .py(px(9.))
+            .gap(px(18.))
             .items_start()
             .child(title)
             .child(threshold)
