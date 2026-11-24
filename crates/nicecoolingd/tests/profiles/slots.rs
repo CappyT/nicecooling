@@ -13,7 +13,7 @@ use nicecooling_protocol::sim::Request;
 use zbus::{OwnedVariant, Variant};
 
 use crate::activate::switch;
-use crate::support::{LEAKSHIELD, Rig, error_name, none_path, path};
+use crate::support::{LEAKSHIELD, Rig, error_name, none_path, path, without_clock};
 use crate::{ERR, profile, profile_objects, profiles, slot_file, with_profile_3};
 
 fn slot_dir(rig: &Rig, slot: u8) -> std::path::PathBuf {
@@ -43,8 +43,8 @@ async fn first_read_copies_report3_into_four_slots() {
         assert!(meta.contains("\"firmware\": 1022"), "{meta}");
         assert!(meta.contains("20417-31072"), "{meta}");
     }
-    // The first read writes nothing to the device.
-    assert!(rig.sim.commands().is_empty());
+    // The first read writes nothing to the device but the clock.
+    assert!(without_clock(rig.sim.commands()).is_empty());
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -360,7 +360,7 @@ async fn set_stored_fields_sends_nothing_to_device() {
 
     assert_eq!(sets_to_the_device(&rig), before);
     assert_eq!(rig.sim.report3(), device);
-    assert!(rig.sim.commands().is_empty());
+    assert!(without_clock(rig.sim.commands()).is_empty());
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

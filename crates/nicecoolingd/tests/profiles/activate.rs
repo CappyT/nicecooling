@@ -11,7 +11,7 @@ use nicecooling_protocol::sim::Request;
 use tokio::time::timeout;
 use zbus::Variant;
 
-use crate::support::{LEAKSHIELD, Rig, path};
+use crate::support::{LEAKSHIELD, Rig, path, without_clock};
 use crate::{profile, profiles, slot_file, with_profile_3};
 
 /// Activates a Profile by hand and waits for the end of the Leakshield part. Returns the state.
@@ -60,7 +60,8 @@ async fn daemon_start_writes_nothing_to_leakshield() {
     rig.ticks(3).await;
     tokio::time::sleep(Duration::from_millis(300)).await;
     assert_eq!(feature_writes(&rig), 0);
-    assert!(rig.sim.commands().is_empty());
+    // The daemon sets the clock at the attach. It sends no other command.
+    assert!(without_clock(rig.sim.commands()).is_empty());
     assert_eq!(rig.sim.report3()[747], 1);
 }
 

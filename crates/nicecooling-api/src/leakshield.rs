@@ -54,6 +54,8 @@ pub trait Leakshield {
     fn sync_clock(&self) -> zbus::Result<()>;
     fn reset_alarms(&self) -> zbus::Result<()>;
     fn reset_refill_history(&self) -> zbus::Result<()>;
+    fn reset_event_log(&self) -> zbus::Result<()>;
+    fn toggle_refill_pause(&self) -> zbus::Result<()>;
     fn reset_service_counter(&self) -> zbus::Result<()>;
     /// Counter name to value (`docs/api.md`, Leakshield counters).
     fn get_counters(&self) -> zbus::Result<HashMap<String, u64>>;

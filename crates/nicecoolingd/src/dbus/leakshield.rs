@@ -272,6 +272,26 @@ impl Leakshield {
         self.device.reset_refill_history()
     }
 
+    async fn reset_event_log(
+        &self,
+        #[zbus(connection)] connection: &Connection,
+        #[zbus(header)] header: Header<'_>,
+    ) -> Result<()> {
+        self.authorize(connection, &header, "ResetEventLog", None)
+            .await?;
+        self.device.reset_event_log()
+    }
+
+    async fn toggle_refill_pause(
+        &self,
+        #[zbus(connection)] connection: &Connection,
+        #[zbus(header)] header: Header<'_>,
+    ) -> Result<()> {
+        self.authorize(connection, &header, "ToggleRefillPause", None)
+            .await?;
+        self.device.toggle_refill_pause()
+    }
+
     async fn reset_service_counter(
         &self,
         #[zbus(connection)] connection: &Connection,

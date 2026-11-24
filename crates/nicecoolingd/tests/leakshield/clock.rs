@@ -10,9 +10,7 @@ use nicecoolingd::leakshield::save_settings::SAVE_SETTINGS_DELAY;
 use nicecoolingd::leakshield::{AttachParams, Attached, DeviceIo};
 
 use crate::Rig;
-
-/// `set_clock`, report 2 command 37000.
-const SET_CLOCK: u32 = 37000;
+use crate::support::SET_CLOCK;
 
 fn put_device_clock(rig: &Rig, offset_s: i64) {
     let seconds = clock::device_seconds(now_unix() + offset_s).unwrap();
@@ -63,16 +61,69 @@ async fn drift_3h_sets_clock() {
     assert!(clock::offset(&rig.io.read_report1().unwrap(), now_unix()).abs() <= 1);
 }
 
-#[tokio::test]
-async fn drift_20s_writes_nothing() {
+/// The `set_clock` commands that the device got.
+fn set_clocks(rig: &Rig) -> usize {
+    rig.sim
+        .commands()
+        .iter()
+        .filter(|c| c.command == SET_CLOCK)
+        .count()
+}
+
+#[tokio::test(start_paused = true)]
+async fn the_clock_is_set_at_the_attach_and_a_drift_of_20s_waits_for_the_period() {
     let rig = Rig::new("clock-drift-20s");
     put_device_clock(&rig, 20);
     let device = rig.attached();
 
     assert!(device.poll(now_unix()).is_some());
+    assert_eq!(set_clocks(&rig), 1, "at the attach");
+    assert!(clock::offset(&rig.io.read_report1().unwrap(), now_unix()).abs() <= 1);
 
-    assert!(rig.sim.output_reports().is_empty());
+    // A drift of 20 s is under the 60 s threshold.
+    put_device_clock(&rig, 20);
+    assert!(device.poll(now_unix()).is_some());
+    assert_eq!(set_clocks(&rig), 1);
     assert!(device.clock_offset() >= 19);
+}
+
+#[tokio::test(start_paused = true)]
+async fn the_clock_is_set_every_30_minutes_and_after_a_replug() {
+    let rig = Rig::new("clock-periodic");
+    put_device_clock(&rig, 0);
+    let device = rig.attached();
+    device.poll(now_unix());
+    assert_eq!(set_clocks(&rig), 1);
+
+    tokio::time::advance(Duration::from_secs(29 * 60)).await;
+    device.poll(now_unix());
+    assert_eq!(set_clocks(&rig), 1, "29 minutes after the last set");
+
+    tokio::time::advance(Duration::from_secs(61)).await;
+    device.poll(now_unix());
+    assert_eq!(set_clocks(&rig), 2, "30 minutes after the last set");
+
+    // The device comes back: it gets the clock at once.
+    device.reattach(&rig.io.clone());
+    assert_eq!(set_clocks(&rig), 3);
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_drift_over_60s_is_set_at_once_but_not_every_poll() {
+    let rig = Rig::new("clock-drift-over-60s");
+    put_device_clock(&rig, 0);
+    let device = rig.attached();
+    device.poll(now_unix());
+    assert_eq!(set_clocks(&rig), 1);
+
+    put_device_clock(&rig, 300);
+    tokio::time::advance(Duration::from_secs(10)).await;
+    device.poll(now_unix());
+    assert_eq!(set_clocks(&rig), 1, "less than a minute after the last set");
+
+    tokio::time::advance(Duration::from_secs(60)).await;
+    device.poll(now_unix());
+    assert_eq!(set_clocks(&rig), 2);
 }
 
 #[test]

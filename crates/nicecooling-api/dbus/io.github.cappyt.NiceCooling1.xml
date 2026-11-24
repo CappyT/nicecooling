@@ -311,6 +311,14 @@
     <method name="ResetRefillHistory">
       <annotation name="io.github.cappyt.NiceCooling1.Authorization" value="write"/>
     </method>
+    <!-- Sends reset_event_log (command 14, parameter 0), which clears the event list of the device. Fails with NotSupported when the registry of this firmware has no such command, and with ReadOnly on a firmware that the registry does not cover. -->
+    <method name="ResetEventLog">
+      <annotation name="io.github.cappyt.NiceCooling1.Authorization" value="write"/>
+    </method>
+    <!-- Sends set_fill_mode (command 15, parameter 0), which pauses a running Refill and resumes a paused one. The errors of ResetEventLog apply. -->
+    <method name="ToggleRefillPause">
+      <annotation name="io.github.cappyt.NiceCooling1.Authorization" value="write"/>
+    </method>
     <!-- Sends reset_service_counter (command 25000, serial XOR 0xFFFFFFFF). Fails with NotSupported when the registry of this firmware has no such command. -->
     <method name="ResetServiceCounter">
       <annotation name="io.github.cappyt.NiceCooling1.Authorization" value="write"/>

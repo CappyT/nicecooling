@@ -108,6 +108,28 @@ The daemon SHALL also publish, for each Leakshield, the sensors `volume_change`,
 - **WHEN** the device raises a Warning
 - **THEN** the API shows the Warning with its type
 
+### Requirement: Alarm suppression at sleep
+When the PC goes to sleep (logind `PrepareForSleep(true)`), the daemon SHALL send `suppress_alarm` (command 16, parameter 3600) to each Leakshield that it can write, before the sleep goes on. It SHALL hold a delay inhibitor of logind for this. The command SHALL NOT wait for a read of the device.
+
+#### Scenario: PC goes to sleep
+- **WHEN** logind sends `PrepareForSleep(true)` and a Leakshield is attached
+- **THEN** the daemon sends command 16 with parameter 3600, and then releases the sleep
+
+#### Scenario: Unknown firmware
+- **WHEN** the Leakshield is read-only because the registry does not cover its firmware
+- **THEN** the daemon sends it no command and still releases the sleep
+
+### Requirement: Event log reset and Refill pause
+The user SHALL be able to clear the event list of the Leakshield (`ResetEventLog`, command 14 with parameter 0) and to pause or resume a Refill (`ToggleRefillPause`, command 15 with parameter 0). Both SHALL be `write` class and SHALL fail with `NotSupported` when the registry of the firmware lacks the command.
+
+#### Scenario: Reset the event list
+- **WHEN** the user resets the event list
+- **THEN** the daemon sends command 14 with parameter 0
+
+#### Scenario: Pause a Refill
+- **WHEN** the user pauses a running Refill
+- **THEN** the daemon sends command 15 with parameter 0
+
 ### Requirement: Refill history
 The daemon SHALL keep each refill entry of report 1 that has a time and pump revolutions above 0, keyed by its time, for 90 days, in its state directory, and SHALL return the entries with `GetRefillHistory`. The history SHALL stay when the device forgets its entries.
 

@@ -5,7 +5,7 @@ use nicecooling_api::leakshield::LeakshieldProxy;
 use nicecooling_protocol::report1::RefillEntry;
 use nicecoolingd::leakshield::clock::DEVICE_EPOCH_UNIX;
 
-use crate::support::{LEAKSHIELD, Rig, path};
+use crate::support::{LEAKSHIELD, Rig, path, without_clock};
 
 /// The device time of `days_ago` days before now.
 fn device_time(days_ago: i64) -> u32 {
@@ -58,7 +58,7 @@ async fn get_refill_history_returns_the_kept_entries() {
     assert_eq!(history.len(), 2);
     assert_eq!(history[0], (us(older), 9, 40, 123.4));
     assert_eq!(history[1], (us(newer), 12, 60, 123.4));
-    assert!(rig.sim.commands().is_empty());
+    assert!(without_clock(rig.sim.commands()).is_empty());
 
     // The device forgets its history. The daemon keeps it, in the state directory.
     rig.sim

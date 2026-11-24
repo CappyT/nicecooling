@@ -24,6 +24,7 @@ pub mod external;
 pub mod factory_reset;
 pub mod feed;
 pub mod fields;
+pub mod housekeeping;
 pub mod lighting;
 pub mod mode;
 pub mod refill_history;

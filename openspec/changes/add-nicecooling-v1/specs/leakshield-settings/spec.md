@@ -127,11 +127,11 @@ The user SHALL be able to restore a backup of the device settings. A restore SHA
 - **THEN** the daemon writes report 3 only
 
 ### Requirement: The Leakshield owns its settings
-nicecooling SHALL NOT write the Leakshield settings at boot or when they drift from the active Profile. It SHALL write them only when the user changes a setting or activates a Profile.
+nicecooling SHALL NOT write the Leakshield settings at boot or when they drift from the active Profile (the device clock is not a setting: see Device clock). It SHALL write them only when the user changes a setting or activates a Profile.
 
 #### Scenario: Daemon starts
 - **WHEN** the daemon starts and the device settings differ from the active Profile
-- **THEN** the daemon writes nothing to the Leakshield
+- **THEN** the daemon writes no setting and no report 3 to the Leakshield
 
 ### Requirement: Detect changes by other tools
 The daemon SHALL read report 3 every 10 seconds and compare it with the last known value outside the volatile mask. A difference SHALL be an external change. After its own verified write, the daemon SHALL update the last known value. For an external change, nicecooling SHALL show the new value, keep it and send a notification. The notification SHALL say that the next Profile activation overwrites the value.
@@ -152,7 +152,7 @@ A setting that the user changes in nicecooling SHALL be saved into the active Pr
 - **THEN** Profile "Quiet" holds the new value
 
 ### Requirement: Device clock
-The user SHALL be able to read the clock of the Leakshield and set it from the PC clock at any offset. The daemon SHALL set the device clock to the PC time by itself only when the device time differs from the PC time by more than 60 seconds. This is the only Leakshield write that the daemon makes without a user action or a Profile activation.
+The user SHALL be able to read the clock of the Leakshield and set it from the PC clock at any offset. The daemon SHALL set the device clock to the PC time by itself, at the attach and every 30 minutes, and when the clocks differ by more than 60 seconds. These sets and the alarm suppression at sleep are its only Leakshield writes without a user action or a Profile activation.
 
 #### Scenario: Set the clock
 - **WHEN** the user sets the clock to the PC time
@@ -166,6 +166,14 @@ The user SHALL be able to read the clock of the Leakshield and set it from the P
 - **WHEN** the device time differs from the PC time by 3 hours
 - **THEN** the daemon sets the device clock to the PC time
 
+#### Scenario: Attach
+- **WHEN** the daemon attaches a Leakshield, also after a replug
+- **THEN** it sets the device clock to the PC time at once
+
+#### Scenario: Period
+- **WHEN** 30 minutes pass since the last clock set
+- **THEN** the daemon sets the device clock to the PC time
+
 #### Scenario: Small drift
-- **WHEN** the device time differs from the PC time by 20 seconds
+- **WHEN** the device time differs from the PC time by 20 seconds, less than 30 minutes after the last set
 - **THEN** the daemon does not write the device clock

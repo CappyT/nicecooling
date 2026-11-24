@@ -74,7 +74,7 @@ parameter = "0"
 [[command]]
 id = "set_fill_mode"
 code = 15
-parameter = "fill mode; values not defined in the code"
+parameter = "0: the Refill view of aquasuite sends it for its Pause and Resume button; other values are not defined in the code"
 
 [[command]]
 id = "suppress_alarm"

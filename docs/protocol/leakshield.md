@@ -421,11 +421,11 @@ The device profile number is 1, 2, 3 or 4 (P9). aquasuite keeps four fixed slots
 
 The device clock is `device_clock` in report 1: seconds since 2009-01-01 00:00 UTC, valid when bit 2 of `status_bits` is set (P5). The fw1022 dump has a valid clock that matches the dump time. The fw1019 dump has bit 2 clear and a clock from 2021. `local_time` is the device local time. The event list and the refill history use the `device_clock` format.
 
-The `set_clock` command (37000) sets the clock. aquasuite converts the PC time to UTC first. Its service sets the clock at device access and every 30 min.
+The `set_clock` command (37000) sets the clock. aquasuite converts the PC time to UTC first. Its service sets the clock at device access and every 30 min. The daemon does the same: at the attach, every 30 min, and at once when the device differs from the PC by more than 60 s (at most once a minute).
 
 ## Behavior when the Feed stops
 
-The aquasuite code does not define what the device does when the Feed stops (P10). aquasuite has no logic for a missing Feed. Its only related action: when the PC suspends, it sends `suppress_alarm` with the parameter 3600 (90000 / 25).
+The aquasuite code does not define what the device does when the Feed stops (P10). aquasuite has no logic for a missing Feed. Its only related action: when the PC suspends, it sends `suppress_alarm` with the parameter 3600 (90000 / 25) and waits 100 ms. The daemon does the same on the logind signal `PrepareForSleep(true)`, under a delay inhibitor. What the device does with the command is open.
 
 Observations on the reference device, outside the code:
 

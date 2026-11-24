@@ -190,6 +190,12 @@ Each active Alarm or Warning (`Alarms.Active`) and each `AlarmRaised` signal car
 - `SetStoredFields` decodes the stored report 3, changes the fields, encodes it and computes the CRC again. It writes `report3.bin` atomically and sets `edited` to true in `meta.json`.
 - The next activation of an edited slot uses the verified write path of design D11: backup, write, read-back. A good read-back clears `edited`. A failed read-back keeps it and reports `leakshield-failed`. The rule of design D14 that the device produced the stored bytes does not hold for an edited slot.
 
+## Leakshield clock and sleep
+
+- The daemon sets the device clock to the PC time (`set_clock`) when it attaches a Leakshield, also after a replug, and every 30 minutes. A device that differs from the PC by more than 60 s gets it at once, at most once a minute. `SyncClock` sets it at any time and any offset.
+- On the logind signal `PrepareForSleep(true)` the daemon sends `suppress_alarm` (command 16, parameter 3600) to each Leakshield that it can write, and releases its delay inhibitor of logind about 100 ms later. A Leakshield that is away, read-only or without the command gets nothing, and the sleep still goes on. The daemon takes a new inhibitor on `PrepareForSleep(false)`.
+- `Leakshield.ResetEventLog()` sends `reset_event_log` (command 14, parameter 0) and `Leakshield.ToggleRefillPause()` sends `set_fill_mode` (command 15, parameter 0): the device pauses a running Refill and resumes a paused one. Both are class `write`.
+
 ## Leakshield refill history
 
 `Leakshield.GetRefillHistory() -> a(tuud)` (class `read`) returns the refills that the daemon keeps, oldest first: the device time in microseconds since the Unix epoch (as in `GetEvents`, the clock offset is not applied), the duration in seconds, the pump revolutions and the volume in ml. The call does not read the device, so it works while the device is away.
@@ -286,7 +292,7 @@ Error names have the prefix `io.github.cappyt.NiceCooling1.Error.`, except two s
 | `Disconnected` | The device is not connected. |
 | `NoPoweroff` | `CancelPoweroff` for an instance with no pending poweroff. |
 | `PoweroffStarted` | `CancelPoweroff` for an instance whose call to logind is under way or was accepted. |
-| `NotSupported` | `ImportBackup`, `GetStoredFields` or `SetStoredFields` with a firmware that the field registry does not cover. `CancelAction`, `ResetAlarms`, `ResetRefillHistory`, `ResetServiceCounter` or `FactoryReset` when the field registry of the device firmware lacks the command (`cancel_action`, `reset_alarm`, `reset_refill_history`, `reset_service_counter`, `factory_defaults`). |
+| `NotSupported` | `ImportBackup`, `GetStoredFields` or `SetStoredFields` with a firmware that the field registry does not cover. `CancelAction`, `ResetAlarms`, `ResetRefillHistory`, `ResetEventLog`, `ToggleRefillPause`, `ResetServiceCounter` or `FactoryReset` when the field registry of the device firmware lacks the command (`cancel_action`, `reset_alarm`, `reset_refill_history`, `reset_event_log`, `set_fill_mode`, `reset_service_counter`, `factory_defaults`). |
 
 ## Authorization
 

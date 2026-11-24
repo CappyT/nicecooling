@@ -85,7 +85,7 @@ A switch writes the Curves, then, for each Leakshield, the stored report 3 of th
 - A switch to a Profile with another slot writes the whole report 3 of that slot over any change that another tool made.
 - A change that the device button made stays when the slot number is the number of the device.
 - The write also goes out while an Action runs and while the Mode is RELEASE (ADR-0007).
-- The daemon start writes nothing to a Leakshield.
+- The daemon start writes no setting and no report 3 to a Leakshield. It sets the device clock (`api.md`, Leakshield clock and sleep).
 
 The daemon does not write a Leakshield whose firmware is unknown, whose firmware differs from the firmware of the stored report, or whose serial differs from the serial of that report. A write error has the same result. In each case the Curves stay applied, `Profiles.ActiveState` reads `leakshield-failed`, and the app offers the restore of the backup.
 

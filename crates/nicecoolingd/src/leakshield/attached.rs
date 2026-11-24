@@ -5,7 +5,7 @@ use std::fmt;
 use std::io;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use nicecooling_api::Error;
 use nicecooling_api::errors::Result;
@@ -19,6 +19,7 @@ use nicecooling_protocol::report2::Report2;
 use nicecooling_protocol::report3::Report3;
 use tokio::sync::{mpsc, watch};
 use tokio::task::JoinHandle;
+use tokio::time::Instant;
 
 use super::action::{self, Action};
 use super::backup::{BackupEntry, BackupSet, Backups, ImportError, Reason};
@@ -33,14 +34,17 @@ use super::worker::{
     Job, ProfileRequest, ProfileTicket, StoredReply, StoredRequest, WorkerParts, WriteWorker,
 };
 use super::write::{FieldEdit, WriteEnv, WriteError, out_of_range_field, take_backup};
-use super::{DeviceEvent, DeviceIo, blocking, clock, counters, reset_alarm};
+use super::{DeviceEvent, DeviceIo, blocking, clock, counters, housekeeping, reset_alarm};
 use crate::profiles::activate::{Decision, Failure};
 use crate::state::slots::SlotMeta;
 use crate::state::{SlotStore, StateStore};
 use crate::value_table::ValueTable;
 
-/// The automatic clock sync runs at most this often, so a device that ignores it is not flooded.
+/// A drift of the device clock is corrected at most this often, so a device that ignores the
+/// command is not flooded.
 const AUTO_CLOCK_GAP: Duration = Duration::from_secs(60);
+/// The daemon sets the device clock at the attach and then this often, as aquasuite does.
+pub const CLOCK_PERIOD: Duration = Duration::from_secs(30 * 60);
 
 #[derive(Clone)]
 pub struct AttachParams {
@@ -347,6 +351,8 @@ impl Attached {
     /// shows the device again before the next period of the source.
     pub fn reattach(&self, io: &DeviceIo) {
         self.io.replace(io);
+        // A device that comes back sets its clock again.
+        *self.last_auto_clock.lock().unwrap() = None;
         self.poll(now_unix());
     }
 
@@ -482,16 +488,32 @@ impl Attached {
             return;
         }
         let mut last = self.last_auto_clock.lock().unwrap();
-        if last.is_some_and(|t| t.elapsed() < AUTO_CLOCK_GAP) {
+        let since = last.map(|t| t.elapsed());
+        // The clock is set at the attach and every 30 minutes. Between these, a device that
+        // differs from the PC by more than 60 s gets it, at most once a minute.
+        let due = since.is_none_or(|s| s >= CLOCK_PERIOD);
+        if !due && since.is_some_and(|s| s < AUTO_CLOCK_GAP) {
             return;
         }
-        match blocking(|| clock::auto_sync(&self.io, &self.registry, report1, now)) {
+        let result = blocking(|| {
+            if due {
+                clock::sync(&self.io, &self.registry, now)
+            } else {
+                clock::auto_sync(&self.io, &self.registry, report1, now)
+            }
+        });
+        match result {
             Ok(true) => *last = Some(Instant::now()),
             Ok(false) => {}
-            Err(e) => eprintln!(
-                "nicecoolingd: the automatic clock sync of {} failed: {e}",
-                self.id
-            ),
+            // A failed send waits for the next period like a good one, so that a device that
+            // refuses it is not asked at every report.
+            Err(e) => {
+                *last = Some(Instant::now());
+                eprintln!(
+                    "nicecoolingd: the automatic clock sync of {} failed: {e}",
+                    self.id
+                );
+            }
         }
     }
 
@@ -627,6 +649,40 @@ impl Attached {
             reset_alarm::command(&self.registry),
             reset_alarm::COMMAND_DELAY,
         )
+    }
+
+    /// Sends `reset_event_log`. The device clears its event list.
+    pub fn reset_event_log(&self) -> Result<()> {
+        self.send(
+            housekeeping::reset_event_log(&self.registry),
+            housekeeping::RESET_EVENT_LOG_DELAY,
+        )
+    }
+
+    /// Pauses a running Refill, or resumes a paused one: `set_fill_mode` with parameter 0.
+    pub fn toggle_refill_pause(&self) -> Result<()> {
+        self.send(
+            housekeeping::toggle_fill_mode(&self.registry),
+            COMMAND_DELAY,
+        )
+    }
+
+    /// Sends `suppress_alarm`, for the sleep of the PC. It reads nothing from the device: the
+    /// state of the last report 1 decides, so that the command goes out at once.
+    pub fn suppress_alarm(&self) -> Result<()> {
+        let command = housekeeping::suppress_alarm(&self.registry).ok_or_else(|| {
+            Error::not_supported("the registry of this firmware lacks the command")
+        })?;
+        {
+            let state = self.state.lock().unwrap();
+            if !state.connected {
+                return Err(Error::Disconnected(
+                    "the Leakshield is not connected".into(),
+                ));
+            }
+            self.require_writable(&state.report1)?;
+        }
+        blocking(|| self.io.send_command(command)).map_err(device_error)
     }
 
     pub fn reset_service_counter(&self) -> Result<()> {

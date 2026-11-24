@@ -8,11 +8,13 @@ use nicecooling_protocol::registry::Registry;
 use nicecooling_protocol::report2::Report2;
 use nicecoolingd::leakshield::backup::BackupSet;
 
-use crate::support::{LEAKSHIELD, Rig, path};
+use crate::support::{LEAKSHIELD, Rig, path, without_clock};
 use crate::{LEAKSHIELD_ID, Rig as DeviceRig};
 
 const FACTORY_DEFAULTS: u32 = 3;
 const RESET_ALARM: u32 = 11;
+const RESET_EVENT_LOG: u32 = 14;
+const SET_FILL_MODE: u32 = 15;
 const RESET_REFILL_HISTORY: u32 = 13;
 const RESET_SERVICE_COUNTER: u32 = 25000;
 /// A byte of report 3 that no test field covers, which the factory reset must bring back.
@@ -149,6 +151,94 @@ async fn reset_alarms_clears_the_latch_that_the_current_bits_do_not_hold() {
 }
 
 #[tokio::test]
+async fn reset_event_log_sends_command_14_and_the_refill_pause_command_15() {
+    let rig = DeviceRig::new("reset-event-log");
+    let device = rig.attached();
+
+    device.reset_event_log().unwrap();
+    device.toggle_refill_pause().unwrap();
+
+    assert_eq!(
+        rig.sim.commands(),
+        [
+            Report2::new(RESET_EVENT_LOG, 0),
+            Report2::new(SET_FILL_MODE, 0)
+        ]
+    );
+}
+
+#[tokio::test]
+async fn suppress_alarm_sends_command_16_with_3600_and_reads_nothing() {
+    let rig = DeviceRig::new("suppress-alarm");
+    let device = rig.attached();
+    rig.sim.clear_requests();
+
+    device.suppress_alarm().unwrap();
+
+    assert_eq!(rig.sim.commands(), [Report2::new(16, 3600)]);
+    // It does not wait for a report 1: the sleep of the PC does not wait.
+    assert!(
+        !rig.sim
+            .requests()
+            .iter()
+            .any(|r| matches!(r, nicecooling_protocol::sim::Request::ReadInput))
+    );
+}
+
+#[tokio::test]
+async fn suppress_alarm_refuses_a_device_that_is_away_unknown_or_without_the_command() {
+    let rig = DeviceRig::new("suppress-alarm-refused");
+    rig.sim.edit_report1(|r| r.firmware_version = 1019);
+    let error = rig.attached().suppress_alarm().unwrap_err();
+    assert!(matches!(error, Error::ReadOnly(reason) if reason == "unknown-firmware"));
+
+    let rig =
+        DeviceRig::with_registry("suppress-alarm-none", without_commands(&["suppress_alarm"]));
+    let error = rig.attached().suppress_alarm().unwrap_err();
+    assert!(
+        matches!(error, Error::ZBus(zbus::Error::FDO(e)) if matches!(*e, zbus::fdo::Error::NotSupported(_)))
+    );
+    assert!(rig.sim.commands().is_empty());
+
+    let rig = DeviceRig::new("suppress-alarm-gone");
+    let device = rig.attached();
+    device.detach();
+    assert!(matches!(
+        device.suppress_alarm().unwrap_err(),
+        Error::Disconnected(_)
+    ));
+}
+
+#[tokio::test]
+async fn event_log_and_refill_pause_refuse_unknown_firmware_and_a_registry_without_them() {
+    let rig = DeviceRig::new("event-log-read-only");
+    rig.sim.edit_report1(|r| r.firmware_version = 1019);
+    let device = rig.attached();
+    for error in [
+        device.reset_event_log().unwrap_err(),
+        device.toggle_refill_pause().unwrap_err(),
+    ] {
+        assert!(matches!(error, Error::ReadOnly(reason) if reason == "unknown-firmware"));
+    }
+    assert!(rig.sim.commands().is_empty());
+
+    let rig = DeviceRig::with_registry(
+        "event-log-no-command",
+        without_commands(&["reset_event_log", "set_fill_mode"]),
+    );
+    let device = rig.attached();
+    for error in [
+        device.reset_event_log().unwrap_err(),
+        device.toggle_refill_pause().unwrap_err(),
+    ] {
+        assert!(
+            matches!(error, Error::ZBus(zbus::Error::FDO(e)) if matches!(*e, zbus::fdo::Error::NotSupported(_)))
+        );
+    }
+    assert!(rig.sim.commands().is_empty());
+}
+
+#[tokio::test]
 async fn reset_service_counter_sends_25000_with_serial_xor() {
     let rig = DeviceRig::new("reset-service");
     let device = rig.attached();
@@ -213,7 +303,10 @@ async fn reset_commands_ask_write() {
             (Action::Write, false)
         ]
     );
-    let codes: Vec<u32> = rig.sim.commands().iter().map(|c| c.command).collect();
+    let codes: Vec<u32> = without_clock(rig.sim.commands())
+        .iter()
+        .map(|c| c.command)
+        .collect();
     assert_eq!(
         codes,
         [RESET_ALARM, RESET_REFILL_HISTORY, RESET_SERVICE_COUNTER]
@@ -224,6 +317,31 @@ async fn reset_commands_ask_write() {
     proxy.factory_reset().await.unwrap();
     assert_eq!(rig.authorizer.calls(), [(Action::Critical, false)]);
     assert_eq!(rig.sim.commands().last().unwrap().command, FACTORY_DEFAULTS);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn event_log_and_refill_pause_ask_write() {
+    if running_as_root() {
+        return;
+    }
+    let rig = Rig::start().await;
+    let proxy = proxy(&rig).await;
+
+    proxy.reset_event_log().await.unwrap();
+    proxy.toggle_refill_pause().await.unwrap();
+
+    assert_eq!(
+        rig.authorizer.calls(),
+        [(Action::Write, false), (Action::Write, false)]
+    );
+    let sent = without_clock(rig.sim.commands());
+    assert_eq!(
+        sent,
+        [
+            Report2::new(RESET_EVENT_LOG, 0),
+            Report2::new(SET_FILL_MODE, 0)
+        ]
+    );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

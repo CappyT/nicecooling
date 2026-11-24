@@ -34,6 +34,19 @@ pub use bus::PrivateBus;
 
 pub const LEAKSHIELD: &str = "leakshield_20417_31072";
 
+/// `set_clock`, report 2 command 37000. The daemon sends it at the attach and every 30 minutes.
+pub const SET_CLOCK: u32 = 37000;
+
+/// The commands of a simulated device without the clock sets of the daemon.
+pub fn without_clock(
+    commands: Vec<nicecooling_protocol::report2::Report2>,
+) -> Vec<nicecooling_protocol::report2::Report2> {
+    commands
+        .into_iter()
+        .filter(|c| c.command != SET_CLOCK)
+        .collect()
+}
+
 static COUNTER: AtomicU32 = AtomicU32::new(0);
 
 pub struct NoPing;

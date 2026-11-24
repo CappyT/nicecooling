@@ -12,7 +12,7 @@ use nicecooling_api::sensor::SensorProxy;
 use tokio::time::timeout;
 use zbus::{OwnedVariant, Variant};
 
-use crate::support::{LEAKSHIELD, Rig, error_name, none_path, path};
+use crate::support::{LEAKSHIELD, Rig, error_name, none_path, path, without_clock};
 
 const ERR: &str = "io.github.cappyt.NiceCooling1.Error";
 const WRITABLE: &str = "display_page_time";
@@ -303,8 +303,8 @@ async fn get_counters_returns_the_report_1_counters() {
     assert_eq!(counters["release_valve_cycles"], 952);
     assert_eq!(counters["total_runtime_s"], 145_500_674);
     assert_eq!(counters["power_up_count"], 142);
-    // The call asks no polkit action.
-    assert!(rig.sim.commands().is_empty());
+    // The call asks no polkit action and sends no command.
+    assert!(without_clock(rig.sim.commands()).is_empty());
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -393,11 +393,13 @@ async fn sync_clock_asks_write() {
     }
     let rig = Rig::start().await;
     let proxy = leakshield(&rig).await;
+    // The daemon set the clock at the attach.
+    let before = rig.sim.commands().len();
 
     proxy.sync_clock().await.unwrap();
 
     assert_eq!(rig.authorizer.calls(), [(Action::Write, false)]);
-    assert_eq!(rig.sim.commands().len(), 1);
+    assert_eq!(rig.sim.commands().len(), before + 1);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

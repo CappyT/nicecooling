@@ -181,8 +181,8 @@ async fn smoke() {
         (message.value(1), message.unit(1)),
         ((flow * 10.0).round() as i16, 12)
     );
-    // The device was read, and the clock command did not go out.
-    assert!(sim.commands().is_empty());
+    // The device was read, and only the clock command went out.
+    assert!(support::without_clock(sim.commands()).is_empty());
     assert_eq!(daemon.fleet.all().len(), 1);
     fs::remove_dir_all(state).unwrap();
 }

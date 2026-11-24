@@ -6,6 +6,7 @@ use std::time::Duration;
 use nicecoolingd::authz::PolkitAuthorizer;
 use nicecoolingd::daemon::{self, Options, Paths};
 use nicecoolingd::dbus;
+use nicecoolingd::sleep;
 use nicecoolingd::snapshot::{RestoreOutcome, restore_bios};
 use nicecoolingd::sources::usb::NusbBus;
 use nicecoolingd::tick_runner::TokioClock;
@@ -84,11 +85,14 @@ fn restore(paths: &Paths) -> ExitCode {
     }
 }
 
-async fn start_api(daemon: &daemon::Daemon) -> zbus::Result<(zbus::Connection, dbus::Served)> {
+async fn start_api(
+    daemon: &daemon::Daemon,
+) -> zbus::Result<(zbus::Connection, dbus::Served, tokio::task::JoinHandle<()>)> {
     let connection = zbus::connection::Builder::system().build().await?;
     let authorizer = PolkitAuthorizer::new(&connection).await?;
     let served = dbus::serve(&daemon.hub, &connection, Arc::new(authorizer)).await?;
-    Ok((connection, served))
+    let sleep = sleep::spawn(connection.clone(), daemon.hub.clone());
+    Ok((connection, served, sleep))
 }
 
 fn main() -> ExitCode {
