@@ -4,20 +4,23 @@ use std::rc::Rc;
 
 use gpui::prelude::*;
 use gpui::{AnyElement, Bounds, Context, FontWeight, Hsla, SharedString, Window, canvas, div, px};
-use gpui_component::button::{Button, ButtonVariants as _};
-use gpui_component::input::Input;
+use gpui_component::button::ButtonVariants as _;
 use gpui_component::switch::Switch;
-use gpui_component::{Disableable as _, Selectable as _, Sizable as _, h_flex, v_flex};
+use gpui_component::{Disableable as _, h_flex, v_flex};
 
 use crate::command::Command;
-use crate::icons::{NcIcon, icon, small_icon, text_icon};
+use crate::icons::{NcIcon, icon, small_icon};
 use crate::model::Severity;
 use crate::screen_view::{InputKey, ScreenView, skeleton};
+use crate::screens::controls::act;
 use crate::screens::sensors::{
     DerivedEditor, DerivedEditorModel, FUNCTIONS, SensorRow, SensorSection, SensorsModel,
     SensorsState,
 };
-use crate::screens::ui::{caption, card, page, popover, severity_icon};
+use crate::screens::ui::{
+    caption, card, heading, page, popover, seg, seg_item, select_trigger, severity_icon,
+    with_popover,
+};
 use crate::tokens::Palette;
 use crate::widgets::paint::{at, polyline};
 
@@ -32,6 +35,12 @@ pub struct PickRow {
 }
 
 type Pick = Rc<dyn Fn(&mut ScreenView, String, &mut Window, &mut Context<ScreenView>)>;
+
+/// The widths of the cells after the name. The name takes the rest of the row.
+const VALUE: f32 = 96.;
+const CHART: f32 = 120.;
+const USED_BY: f32 = 220.;
+const BUTTONS: f32 = 90.;
 
 impl ScreenView {
     pub(crate) fn render_sensors(
@@ -57,7 +66,9 @@ impl ScreenView {
             .w_full()
             .gap(px(12.))
             .items_center()
-            .child(div().w(px(260.)).child(Input::new(&search)))
+            .child(div().w(px(260.)).flex_none().child(
+                Self::field_input(&search, None, false, p).prefix(icon(NcIcon::Search, p.fg_dim)),
+            ))
             .child(
                 Switch::new("show-hidden")
                     .checked(model.show_hidden)
@@ -76,8 +87,7 @@ impl ScreenView {
             .child(div().flex_1())
             .child({
                 let view = view.clone();
-                Button::new("new-derived")
-                    .label(locale.tr("sensors.new_derived"))
+                Self::button("new-derived", locale.tr("sensors.new_derived"))
                     .disabled(!writes)
                     .tooltip(tooltip.clone())
                     .on_click(move |_, _, cx| {
@@ -134,31 +144,43 @@ impl ScreenView {
     fn sensor_columns(&self, p: &Palette, cx: &mut Context<Self>) -> AnyElement {
         let locale = self.model.read(cx).locale;
         h_flex()
-            .h(px(36.))
             .px(px(18.))
+            .py(px(6.))
             .gap(px(12.))
             .items_center()
             .text_size(px(12.))
+            .line_height(px(16.))
             .font_weight(FontWeight::BOLD)
             .text_color(p.fg_dim)
-            .child(div().flex_1().child(locale.tr("sensors.columns.sensor")))
             .child(
                 div()
-                    .w(px(110.))
+                    .flex_1()
+                    .min_w_0()
+                    .truncate()
+                    .child(locale.tr("sensors.columns.sensor")),
+            )
+            .child(
+                div()
+                    .w(px(VALUE))
+                    .flex_none()
                     .text_right()
                     .child(locale.tr("sensors.columns.value")),
             )
             .child(
                 div()
-                    .w(px(140.))
+                    .w(px(CHART))
+                    .flex_none()
+                    .truncate()
                     .child(locale.tr("sensors.columns.last_10_minutes")),
             )
             .child(
                 div()
-                    .w(px(180.))
+                    .w(px(USED_BY))
+                    .flex_none()
+                    .truncate()
                     .child(locale.tr("sensors.columns.used_by")),
             )
-            .child(div().w(px(170.)))
+            .child(div().w(px(BUTTONS)).flex_none())
             .into_any_element()
     }
 
@@ -193,9 +215,10 @@ impl ScreenView {
         let mut column = v_flex().w_full().child(
             h_flex()
                 .id(SharedString::from(format!("group-{id}")))
-                .h(px(32.))
+                .min_h(px(30.))
                 .px(px(18.))
-                .gap(px(8.))
+                .py(px(3.))
+                .gap(px(9.))
                 .items_center()
                 .bg(p.hover)
                 .border_t_1()
@@ -213,14 +236,15 @@ impl ScreenView {
                 })
                 .child(icon(
                     if folded { NcIcon::Right } else { NcIcon::Down },
-                    p.fg,
+                    p.fg_dim,
                 ))
-                .child(
-                    div()
-                        .font_weight(FontWeight::BOLD)
-                        .child(group.title.clone()),
-                )
-                .children(group.caption.clone().map(|text| caption(text, p))),
+                .child(heading(group.title.clone()).flex_none())
+                .children(
+                    group
+                        .caption
+                        .clone()
+                        .map(|text| caption(text, p).flex_1().truncate()),
+                ),
         );
         if !folded {
             for (row, points) in group.rows.iter().zip(sparks) {
@@ -248,12 +272,12 @@ impl ScreenView {
         let id = row.id.clone();
         let dim = row.dim;
         let ink = if dim { p.fg_dim } else { p.fg };
-        let mut name = v_flex().flex_1().min_w_0().child(
+        let mut name = v_flex().w_full().min_w_0().child(
             h_flex()
                 .gap(px(6.))
                 .items_center()
                 .children(row.severity.map(|severity| severity_icon(severity, p)))
-                .child(div().truncate().child(row.name.clone())),
+                .child(div().min_w_0().truncate().child(row.name.clone())),
         );
         if let Some(text) = &row.caption {
             name = name.child(caption(text.clone(), p));
@@ -270,16 +294,12 @@ impl ScreenView {
             name = name.child(caption(text.clone(), p).text_color(p.alarm));
         }
         let value = h_flex()
-            .w(px(110.))
+            .w(px(VALUE))
+            .flex_none()
             .justify_end()
             .gap(px(4.))
             .children(row.no_value.then(|| small_icon(NcIcon::Off, p.offline)))
-            .child(
-                div()
-                    .font_weight(FontWeight::BOLD)
-                    .text_color(ink)
-                    .child(row.value.clone()),
-            );
+            .child(div().text_color(ink).child(row.value.clone()));
         let color: Hsla = p.accent;
         let spark = canvas(
             |_, _, _| (),
@@ -305,7 +325,7 @@ impl ScreenView {
                 polyline(window, &trace, 1.5, color, None);
             },
         )
-        .w(px(120.))
+        .w(px(CHART))
         .h(px(24.));
 
         let rename_open = self
@@ -313,63 +333,69 @@ impl ScreenView {
             .rename
             .as_ref()
             .is_some_and(|(sensor, _)| sensor == &row.id);
-        let mut buttons = h_flex().w(px(170.)).gap(px(2.)).justify_end();
+        // The buttons: an icon each, with the name of the command as tooltip.
+        let mut buttons = h_flex()
+            .w(px(BUTTONS))
+            .flex_none()
+            .gap(px(3.))
+            .justify_end();
         let enabled = row.rename_enabled;
         buttons = buttons.child({
-            let view = view.clone();
             let (sensor, current) = (row.id.clone(), row.name.clone());
-            Button::new(SharedString::from(format!("rename-{}", row.id)))
-                .ghost()
-                .small()
-                .label(locale.tr("sensors.rename"))
-                .disabled(!enabled)
-                .on_click(move |_, _, cx| {
-                    let (sensor, current) = (sensor.clone(), current.clone());
-                    view.update(cx, |this, cx| {
-                        this.sensors.open_rename(&sensor, &current);
-                        cx.notify();
-                    })
-                })
+            Self::icon_button(
+                SharedString::from(format!("rename-{}", row.id)),
+                NcIcon::Pencil,
+            )
+            .tooltip(locale.tr("sensors.rename"))
+            .disabled(!enabled)
+            .on_click(act(&view, move |this, _, _| {
+                if this
+                    .sensors
+                    .rename
+                    .as_ref()
+                    .is_some_and(|(open, _)| open == &sensor)
+                {
+                    this.sensors.rename = None;
+                } else {
+                    this.sensors.open_rename(&sensor, &current);
+                }
+            }))
         });
         if row.derived.is_some() {
             buttons = buttons.child({
-                let view = view.clone();
                 let sensor = row.id.clone();
-                Button::new(SharedString::from(format!("edit-{}", row.id)))
-                    .ghost()
-                    .small()
-                    .label(locale.tr("sensors.edit"))
-                    .disabled(!enabled)
-                    .on_click(move |_, _, cx| {
-                        let sensor = sensor.clone();
-                        view.update(cx, |this, cx| {
-                            let state = this.state(cx);
-                            this.sensors.editor = state
-                                .snapshot
-                                .sensors
-                                .get(&sensor)
-                                .and_then(DerivedEditor::edit);
-                            cx.notify();
-                        })
-                    })
+                Self::icon_button(
+                    SharedString::from(format!("edit-{}", row.id)),
+                    NcIcon::Sliders,
+                )
+                .tooltip(locale.tr("sensors.edit"))
+                .disabled(!enabled)
+                .on_click(act(&view, move |this, _, cx| {
+                    let state = this.state(cx);
+                    this.sensors.editor = state
+                        .snapshot
+                        .sensors
+                        .get(&sensor)
+                        .and_then(DerivedEditor::edit);
+                }))
             });
             buttons = buttons.child({
-                let view = view.clone();
                 let sensor = row.id.clone();
-                let mut delete = Button::new(SharedString::from(format!("delete-{}", row.id)))
-                    .ghost()
-                    .small()
-                    .label(locale.tr("sensors.delete"))
-                    .disabled(!enabled || row.delete_reason.is_some());
-                if let Some(reason) = &row.delete_reason {
-                    delete = delete.tooltip(reason.clone());
-                }
-                delete.on_click(move |_, _, cx| {
-                    let sensor = sensor.clone();
-                    view.update(cx, |this, _| {
-                        this.send(Command::DeleteDerivedSensor { sensor })
+                Self::icon_button(
+                    SharedString::from(format!("delete-{}", row.id)),
+                    NcIcon::Trash,
+                )
+                .tooltip(
+                    row.delete_reason
+                        .clone()
+                        .unwrap_or_else(|| locale.tr("sensors.delete")),
+                )
+                .disabled(!enabled || row.delete_reason.is_some())
+                .on_click(act(&view, move |this, _, _| {
+                    this.send(Command::DeleteDerivedSensor {
+                        sensor: sensor.clone(),
                     })
-                })
+                }))
             });
         } else {
             let (label_key, disabled) = if row.hidden {
@@ -378,39 +404,44 @@ impl ScreenView {
                 ("sensors.hide", !row.hide_enabled)
             };
             buttons = buttons.child({
-                let view = view.clone();
                 let sensor = row.id.clone();
-                let mut hide = Button::new(SharedString::from(format!("hide-{}", row.id)))
-                    .ghost()
-                    .small()
-                    .label(locale.tr(label_key))
-                    .disabled(disabled);
-                if let Some(reason) = &row.hide_reason {
-                    hide = hide.tooltip(reason.clone());
-                }
-                hide.on_click(move |_, _, cx| {
-                    let sensor = sensor.clone();
-                    view.update(cx, |this, cx| {
+                Self::icon_button(SharedString::from(format!("hide-{}", row.id)), NcIcon::Eye)
+                    .tooltip(
+                        row.hide_reason
+                            .clone()
+                            .unwrap_or_else(|| locale.tr(label_key)),
+                    )
+                    .disabled(disabled)
+                    .on_click(act(&view, move |this, _, cx| {
                         this.sensors.toggle_hidden(&sensor);
                         this.persist_hidden(cx);
-                        cx.notify();
-                    })
-                })
+                    }))
             });
         }
 
+        let rename = rename_open.then(|| {
+            self.rename_popover(
+                InputKey::SensorRename,
+                &row.name,
+                locale.tr("sensors.rename_placeholder"),
+                p,
+                window,
+                cx,
+            )
+        });
         let mut line = h_flex()
             .id(SharedString::from(format!("sensor-{}", row.id)))
             .w_full()
-            .min_h(px(48.))
+            .min_h(px(36.))
             .px(px(18.))
-            .py(px(4.))
+            .py(px(3.))
             .gap(px(12.))
             .items_center()
             .border_t_1()
             .border_color(p.border)
             .text_color(ink)
             .when(row.selected, |line| line.bg(p.accent_tint))
+            .when(!row.selected, |line| line.hover(|line| line.bg(p.hover)))
             .on_click({
                 let view = view.clone();
                 let id = id.clone();
@@ -425,12 +456,13 @@ impl ScreenView {
                     })
                 }
             })
-            .child(name)
+            .child(with_popover(name, rename).flex_1())
             .child(value)
-            .child(div().w(px(140.)).child(spark))
+            .child(div().w(px(CHART)).flex_none().child(spark))
             .child(
                 div()
-                    .w(px(180.))
+                    .w(px(USED_BY))
+                    .flex_none()
                     .truncate()
                     .text_color(p.fg_dim)
                     .child(row.used_by.clone()),
@@ -440,16 +472,6 @@ impl ScreenView {
             line = line.opacity(0.6);
         }
         let mut column = v_flex().w_full().child(line);
-        if rename_open {
-            column = column.child(self.rename_popover(
-                InputKey::SensorRename,
-                &row.name,
-                locale.tr("sensors.rename_placeholder"),
-                p,
-                window,
-                cx,
-            ));
-        }
         // A flow sensor opens a panel with the Calibration table editor.
         if row.selected && row.is_flow {
             match &row.flow_loop {
@@ -534,23 +556,22 @@ impl ScreenView {
             cx,
         );
 
-        let mut functions = h_flex().gap(px(6.));
+        let mut functions = seg(p);
         for function in FUNCTIONS {
-            let view = view.clone();
             let active = model.function == function;
             functions = functions.child(
-                Button::new(SharedString::from(format!("fn-{function}")))
-                    .small()
-                    .label(locale.tr(&format!("sensors.function.{function}")))
-                    .selected(active)
-                    .on_click(move |_, _, cx| {
-                        view.update(cx, |this, cx| {
-                            if let Some(editor) = this.sensors.editor.as_mut() {
-                                editor.set_function(function);
-                            }
-                            cx.notify();
-                        })
-                    }),
+                seg_item(
+                    SharedString::from(format!("fn-{function}")),
+                    locale.tr(&format!("sensors.function.{function}")),
+                    active,
+                    true,
+                    p,
+                )
+                .on_click(act(&view, move |this, _, _| {
+                    if let Some(editor) = this.sensors.editor.as_mut() {
+                        editor.set_function(function);
+                    }
+                })),
             );
         }
 
@@ -558,56 +579,7 @@ impl ScreenView {
         for (slot, source) in model.slots.iter().enumerate() {
             let picker_key = format!("derived-source-{slot}");
             let open = self.open_picker.as_deref() == Some(picker_key.as_str());
-            let mut line = h_flex()
-                .gap(px(8.))
-                .items_center()
-                .child(div().w(px(90.)).child(caption(source.label.clone(), p)));
-            line = line.child({
-                let view = view.clone();
-                let key = picker_key.clone();
-                Button::new(SharedString::from(format!("source-{slot}")))
-                    .small()
-                    .label(
-                        source
-                            .sensor_name
-                            .clone()
-                            .unwrap_or_else(|| locale.tr("sensors.editor.choose")),
-                    )
-                    .on_click(move |_, _, cx| {
-                        let key = key.clone();
-                        view.update(cx, |this, cx| {
-                            this.open_picker = if this.open_picker.as_deref() == Some(key.as_str())
-                            {
-                                None
-                            } else {
-                                Some(key)
-                            };
-                            cx.notify();
-                        })
-                    })
-            });
-            if let Some(value) = &source.value {
-                line = line.child(caption(value.clone(), p));
-            }
-            if source.removable {
-                line = line.child({
-                    let view = view.clone();
-                    Button::new(SharedString::from(format!("source-remove-{slot}")))
-                        .ghost()
-                        .small()
-                        .icon(text_icon(NcIcon::X))
-                        .on_click(move |_, _, cx| {
-                            view.update(cx, |this, cx| {
-                                if let Some(editor) = this.sensors.editor.as_mut() {
-                                    editor.remove_source(slot);
-                                }
-                                cx.notify();
-                            })
-                        })
-                });
-            }
-            sources = sources.child(line);
-            if open {
+            let picker = open.then(|| {
                 let rows = self.picker_rows(Some(source.sensor.clone()), None, cx);
                 let pick: Pick = Rc::new(move |this, sensor, _, cx| {
                     if let Some(editor) = this.sensors.editor.as_mut() {
@@ -616,24 +588,65 @@ impl ScreenView {
                     this.open_picker = None;
                     cx.notify();
                 });
-                sources = sources.child(self.picker_list(&picker_key, rows, pick, p, window, cx));
+                self.picker_list(&picker_key, rows, pick, p, window, cx)
+            });
+            let trigger = select_trigger(
+                SharedString::from(format!("source-{slot}")),
+                source
+                    .sensor_name
+                    .clone()
+                    .unwrap_or_else(|| locale.tr("sensors.editor.choose")),
+                source.value.clone().map(SharedString::from),
+                false,
+                true,
+                p.track,
+            )
+            .on_click({
+                let key = picker_key.clone();
+                act(&view, move |this, _, _| {
+                    this.open_picker = if this.open_picker.as_deref() == Some(key.as_str()) {
+                        None
+                    } else {
+                        Some(key.clone())
+                    };
+                })
+            });
+            let mut line = h_flex()
+                .gap(px(9.))
+                .items_center()
+                .child(caption(source.label.clone(), p).w(px(90.)).flex_none())
+                .child(with_popover(trigger, picker).flex_1());
+            if source.removable {
+                line = line.child(
+                    Self::icon_button(
+                        SharedString::from(format!("source-remove-{slot}")),
+                        NcIcon::X,
+                    )
+                    .on_click(act(&view, move |this, _, _| {
+                        if let Some(editor) = this.sensors.editor.as_mut() {
+                            editor.remove_source(slot);
+                        }
+                    })),
+                );
             }
+            sources = sources.child(line);
         }
         if model.can_add_source {
             sources = sources.child({
                 let view = view.clone();
-                Button::new("add-source")
-                    .ghost()
-                    .small()
-                    .label(locale.tr("sensors.editor.add_source"))
-                    .on_click(move |_, _, cx| {
-                        view.update(cx, |this, cx| {
-                            if let Some(editor) = this.sensors.editor.as_mut() {
-                                editor.add_source();
-                            }
-                            cx.notify();
-                        })
+                Self::small_button(
+                    "add-source",
+                    locale.tr("sensors.editor.add_source"),
+                    Some(NcIcon::Plus),
+                )
+                .on_click(move |_, _, cx| {
+                    view.update(cx, |this, cx| {
+                        if let Some(editor) = this.sensors.editor.as_mut() {
+                            editor.add_source();
+                        }
+                        cx.notify();
                     })
+                })
             });
         }
 
@@ -656,7 +669,7 @@ impl ScreenView {
                 v_flex()
                     .gap(px(4.))
                     .child(caption(locale.tr("sensors.editor.name"), p))
-                    .child(Input::new(&name).disabled(!model.name_editable)),
+                    .child(Self::field_input(&name, None, false, p).disabled(!model.name_editable)),
             )
             .child(
                 v_flex()
@@ -694,22 +707,22 @@ impl ScreenView {
                     .gap(px(8.))
                     .child({
                         let view = view.clone();
-                        Button::new("derived-cancel")
-                            .label(locale.tr("sensors.editor.cancel"))
-                            .on_click(move |_, _, cx| {
+                        Self::button("derived-cancel", locale.tr("sensors.editor.cancel")).on_click(
+                            move |_, _, cx| {
                                 view.update(cx, |this, cx| {
                                     this.sensors.editor = None;
                                     this.open_picker = None;
                                     cx.notify();
                                 })
-                            })
+                            },
+                        )
                     })
                     .child({
                         let view = view.clone();
-                        let mut save = Button::new("derived-save")
-                            .primary()
-                            .label(locale.tr("sensors.editor.save"))
-                            .disabled(!model.can_save);
+                        let mut save =
+                            Self::button("derived-save", locale.tr("sensors.editor.save"))
+                                .primary()
+                                .disabled(!model.can_save);
                         if let Some(reason) = &model.save_reason {
                             save = save.tooltip(reason.clone());
                         }
@@ -798,7 +811,7 @@ impl ScreenView {
         let view = cx.entity();
         let mut list = v_flex()
             .id(SharedString::from(format!("picker-{key}")))
-            .max_h(px(260.))
+            .max_h(px(360.))
             .overflow_y_scroll();
         for (index, row) in rows
             .into_iter()
@@ -815,9 +828,9 @@ impl ScreenView {
             list = list.child(
                 h_flex()
                     .id(SharedString::from(format!("pick-{key}-{index}")))
-                    .h(px(34.))
+                    .min_h(px(34.))
                     .px(px(12.))
-                    .gap(px(8.))
+                    .gap(px(9.))
                     .items_center()
                     .cursor_pointer()
                     .hover(|row| row.bg(p.hover))
@@ -826,24 +839,31 @@ impl ScreenView {
                         let (id, pick) = (id.clone(), pick.clone());
                         view.update(cx, |this, cx| pick(this, id, window, cx))
                     })
-                    .child(div().flex_1().truncate().child(row.name))
-                    .child(caption(row.caption, p))
+                    // The check mark of a selected row. Its place stays empty in the others.
+                    .child(
+                        div()
+                            .w(px(16.))
+                            .flex_none()
+                            .children(row.selected.then(|| icon(NcIcon::Check, p.accent))),
+                    )
+                    .child(div().flex_1().min_w_0().truncate().child(row.name))
+                    .child(caption(row.caption, p).flex_none())
                     .child(
                         div()
                             .w(px(70.))
+                            .flex_none()
                             .text_right()
                             .font_weight(FontWeight::BOLD)
                             .child(row.value),
                     ),
             );
         }
-        v_flex()
+        popover(p)
             .w(px(360.))
-            .rounded(px(12.))
-            .bg(p.card)
-            .border_1()
-            .border_color(p.border)
-            .child(div().p(px(6.)).child(Input::new(&search)))
+            .overflow_hidden()
+            .child(div().p(px(6.)).child(
+                Self::field_input(&search, None, false, p).prefix(icon(NcIcon::Search, p.fg_dim)),
+            ))
             .child(list)
             .into_any_element()
     }

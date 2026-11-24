@@ -161,7 +161,8 @@ fn review_every_page_starts_under_the_header(cx: &mut TestAppContext) {
         visual.update(|window, cx| window.draw(cx).clear(cx));
         let scroll = visual.debug_bounds("screen-scroll").expect("scroll area");
         let before = visual.debug_bounds("screen-page").expect("page");
-        if before.size.height <= scroll.size.height {
+        // The wheel moves the page by 40 px: the page must be longer than its area by that.
+        if before.size.height < scroll.size.height + gpui::px(40.) {
             continue;
         }
         visual.simulate_event(gpui::ScrollEvent {
