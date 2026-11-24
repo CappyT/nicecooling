@@ -6,6 +6,7 @@ pub mod alarms_view;
 pub mod channels;
 pub mod channels_view;
 pub(crate) mod controls;
+pub mod countdown_view;
 pub mod first_run;
 pub mod first_run_view;
 pub mod format;

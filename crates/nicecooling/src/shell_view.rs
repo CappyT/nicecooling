@@ -678,7 +678,7 @@ impl Render for ShellView {
             let hide_view = cx.entity();
             let (commands, command) = (self.commands.clone(), dialog.cancel_command());
             let instance = dialog.instance.clone();
-            crate::screens::alarms_view::countdown_overlay(
+            crate::screens::countdown_view::countdown_overlay(
                 &dialog,
                 &self.countdown_focus,
                 move |_, cx| {
