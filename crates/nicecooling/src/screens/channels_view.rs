@@ -38,7 +38,7 @@ const BOTTOM: f32 = 32.0;
 pub const PLOT_HEIGHT: f32 = 292.0;
 /// The widths of the "rpm" and "Duty" cells of the list.
 const RPM: f32 = 44.0;
-const DUTY: f32 = 44.0;
+const DUTY: f32 = 52.0;
 
 /// "Input 31.4 °C" with the value in bold. The text of the locale ends with the value.
 fn readout_text(text: &str, value: &str) -> Div {
@@ -307,6 +307,7 @@ impl ScreenView {
                     .flex_none()
                     .text_right()
                     .when(row.no_signal.is_some(), |cell| cell.text_color(p.fg_dim))
+                    .whitespace_nowrap()
                     .child(row.rpm.clone()),
             )
             .child(
@@ -314,6 +315,7 @@ impl ScreenView {
                     .w(px(DUTY))
                     .flex_none()
                     .text_right()
+                    .whitespace_nowrap()
                     .child(row.duty.clone()),
             )
             .into_any_element()
