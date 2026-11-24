@@ -198,9 +198,10 @@ fn refill_command(device: &str) -> Command {
 }
 
 /// True when a Pump channel of a Loop of this Leakshield reads above 0 rpm or has no tach value.
-/// A Pump channel `<chip>_pwmN` reads as the sensor `<chip>_fanN`.
+/// A Pump channel `<chip>_pwmN` reads as the sensor `<chip>_fanN`. Only the current sample counts:
+/// after a reconnect the last one can be old.
 pub fn pump_runs(state: &AppState, device: &str) -> bool {
-    let sample = state.sensors.as_ref().or(state.last_sensors.as_ref());
+    let sample = state.sensors.as_ref();
     state
         .snapshot
         .loops

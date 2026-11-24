@@ -489,8 +489,8 @@ fn refill_asks_only_while_the_pump_runs() {
             .dialog
             .expect("the warning")
     };
-    assert_eq!(italian.title, "Avviare il Refill?");
-    assert_eq!(italian.confirm.as_deref(), Some("Avvia il Refill"));
+    assert_eq!(italian.title, "Avviare il rabbocco?");
+    assert_eq!(italian.confirm.as_deref(), Some("Avvia il rabbocco"));
 
     // A pump without a tach value counts as running.
     let state = pump_reads(None);
@@ -3633,4 +3633,69 @@ fn tab_reset_only_on_a_row_with_override() {
     );
     let model = alarms(&state, &done);
     assert!(row(&model, "leak-alarm").response.write_line.is_some());
+}
+
+#[test]
+fn refill_ignores_pumps_of_other_loops() {
+    use nicecooling::model::LoopInfo;
+    let state = tweak(|state| {
+        state.snapshot.loops.push(LoopInfo {
+            id: "loop_2".into(),
+            name: "Other".into(),
+            leakshield: Some("leakshield_1_1".into()),
+            pump_channels: vec!["nct6798_pwm2".into()],
+            ..Default::default()
+        });
+        for sample in [&mut state.sensors, &mut state.last_sensors]
+            .into_iter()
+            .flatten()
+        {
+            sample
+                .sensors
+                .retain(|(id, _, _)| id != "nct6798_fan6" && id != "nct6798_fan2");
+            sample.sensors.push(("nct6798_fan6".into(), 0.0, 0));
+            sample.sensors.push(("nct6798_fan2".into(), 1800.0, 0));
+        }
+    });
+    let mut ui = OverviewUi::default();
+    assert!(ui.request_action(&state, LEAKSHIELD, "refill").is_some());
+    assert!(ui.confirm.is_none());
+}
+
+#[test]
+fn refill_warns_when_one_of_two_pumps_has_no_value() {
+    let state = tweak(|state| {
+        state.snapshot.loops[0].pump_channels = vec!["nct6798_pwm6".into(), "nct6798_pwm2".into()];
+        for sample in [&mut state.sensors, &mut state.last_sensors]
+            .into_iter()
+            .flatten()
+        {
+            sample
+                .sensors
+                .retain(|(id, _, _)| id != "nct6798_fan6" && id != "nct6798_fan2");
+            sample.sensors.push(("nct6798_fan6".into(), 0.0, 0));
+            sample.sensors.push((
+                "nct6798_fan2".into(),
+                0.0,
+                nicecooling::model::FLAG_NO_VALUE,
+            ));
+        }
+    });
+    let mut ui = OverviewUi::default();
+    assert!(ui.request_action(&state, LEAKSHIELD, "refill").is_none());
+    assert_eq!(ui.confirm, Some(Confirm::Refill));
+}
+
+#[test]
+fn refill_warns_with_only_a_stale_sample() {
+    let state = tweak(|state| {
+        let mut last = state.sensors.take().unwrap();
+        last.sensors.retain(|(id, _, _)| id != "nct6798_fan6");
+        last.sensors.push(("nct6798_fan6".into(), 0.0, 0));
+        state.last_sensors = Some(last);
+    });
+    let mut ui = OverviewUi::default();
+    // After a reconnect the old sample can say 0 rpm while the pump runs now: no fresh value warns.
+    assert!(ui.request_action(&state, LEAKSHIELD, "refill").is_none());
+    assert_eq!(ui.confirm, Some(Confirm::Refill));
 }
