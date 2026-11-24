@@ -296,7 +296,6 @@ pub fn reason_text(locale: Locale, reason: &str) -> String {
 pub fn refused_text(locale: Locale, error: &str) -> String {
     let key = match error {
         "ReadOnly" | "NotVerified" => "leakshield.refused.read_only",
-        "PumpRunning" => "leakshield.refused.pump_running",
         "Busy" => "leakshield.refused.busy",
         "DeviceChanged" | "VerifyFailed" => "leakshield.refused.read_back",
         "Disconnected" => "leakshield.refused.disconnected",

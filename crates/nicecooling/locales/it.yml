@@ -824,7 +824,6 @@ leakshield:
     disconnected: "Il Leakshield non è collegato."
   refused:
     read_only: "Non applicato: il campo è di sola lettura."
-    pump_running: "Non applicato: la pompa è in funzione."
     busy: "Non applicato: il Leakshield sta già scrivendo."
     read_back: "Scrittura fallita: la rilettura non corrisponde."
     disconnected: "Non applicato: il Leakshield non è collegato."
@@ -837,6 +836,7 @@ leakshield:
     test: "Test"
     measure_fill_level: "Misura livello"
     deaerate: "Sfiata"
+    refill: "Refill"
   status_value:
     protecting: "In protezione"
     building: "Creazione pressione"
@@ -861,7 +861,6 @@ leakshield:
     feed: "Feed"
     feed_age: "Inviato %{seconds} s fa"
     mode_and_actions: "Modalità e azioni"
-    lock_hint: "RELEASE richiede la password di amministratore."
     action_hint: "Un'azione è temporanea: quando finisce, il Leakshield torna alla sua modalità."
     mode_caption:
       shield: "SHIELD: protezione completa con depressione e rilevamento delle perdite."
@@ -871,7 +870,7 @@ leakshield:
     unknown_tooltip: "Sola lettura: firmware sconosciuto."
     denied: "Non autorizzato. La modalità non è cambiata."
     release_banner: "Modalità RELEASE: il circuito non ha protezione dalle perdite."
-    refill: "Il rabbocco parte solo dal dispositivo. La pompa deve essere spenta: metti il PC in standby, poi tieni premuto il pulsante del Leakshield."
+    refill: "Il Refill si avvia anche dal device:"
     refill_link: "Mostra i passaggi"
     refill_title: "Rabbocco"
     refill_step:
@@ -886,6 +885,9 @@ leakshield:
       release: "RELEASE spegne la protezione dalle perdite."
     measure_confirm: "Durante la misura il circuito non ha protezione dalle perdite. Non avviarla se il circuito può perdere."
     measure_button: "Misura"
+    refill_confirm_title: "Avviare il Refill?"
+    refill_confirm: "La pompa gira. Il manuale del Leakshield chiede la pompa spenta durante il Refill."
+    refill_button: "Avvia il Refill"
     measure_step: "Rilascio della pressione"
     measure_banner: "La misura del livello è in corso. Il circuito non ha protezione dalle perdite fino alla fine."
     measure_result: "Livello %{value}"

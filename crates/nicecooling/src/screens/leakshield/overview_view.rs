@@ -216,9 +216,12 @@ impl ScreenView {
                     Button::new(SharedString::from(format!("ls-action-{}", action.action)))
                         .label(action.label.clone())
                         .disabled(!action.enabled)
-                        .on_click(act(&view, move |this, _, _| {
-                            if let Some(command) =
-                                this.leakshield.overview.request_action(&device, &name)
+                        .on_click(act(&view, move |this, _, cx| {
+                            let state = this.state(cx);
+                            if let Some(command) = this
+                                .leakshield
+                                .overview
+                                .request_action(&state, &device, &name)
                             {
                                 this.send(command);
                             }
@@ -238,7 +241,6 @@ impl ScreenView {
                     .child(actions),
             )
             .child(card_row(p).child(caption(mode.caption.clone(), p)))
-            .child(card_row(p).child(caption(mode.lock_hint.clone(), p)))
             .child(card_row(p).child(caption(mode.action_hint.clone(), p)));
         if let Some((text, link)) = &mode.read_only {
             card = card.child(

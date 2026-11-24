@@ -824,7 +824,6 @@ leakshield:
     disconnected: "The Leakshield is not connected."
   refused:
     read_only: "Not applied: the field is read-only."
-    pump_running: "Not applied: the pump runs."
     busy: "Not applied: the Leakshield has a write in progress."
     read_back: "Write failed: the read-back does not match."
     disconnected: "Not applied: the Leakshield is not connected."
@@ -837,6 +836,7 @@ leakshield:
     test: "Test"
     measure_fill_level: "Measure fill level"
     deaerate: "Deaerate"
+    refill: "Refill"
   status_value:
     protecting: "Protecting"
     building: "Building pressure"
@@ -861,7 +861,6 @@ leakshield:
     feed: "Feed"
     feed_age: "Sent %{seconds} s ago"
     mode_and_actions: "Mode and Actions"
-    lock_hint: "RELEASE needs the administrator password."
     action_hint: "An Action is temporary: when it ends, the Leakshield goes back to its Mode."
     mode_caption:
       shield: "SHIELD: full protection by negative pressure, and leak detection."
@@ -871,7 +870,7 @@ leakshield:
     unknown_tooltip: "Read-only: unknown firmware."
     denied: "Not authorized. The Mode did not change."
     release_banner: "Mode RELEASE: the Loop has no leak protection."
-    refill: "Refill starts on the device only. The pump must be off: put the PC in standby, then hold the Leakshield button."
+    refill: "Refill can also start on the device:"
     refill_link: "Show the steps"
     refill_title: "Refill"
     refill_step:
@@ -886,6 +885,9 @@ leakshield:
       release: "RELEASE turns the leak protection off."
     measure_confirm: "During the measurement the Loop has no leak protection. Do not start it when the Loop can leak."
     measure_button: "Measure"
+    refill_confirm_title: "Start Refill?"
+    refill_confirm: "The pump runs. The Leakshield manual asks for the pump off during Refill."
+    refill_button: "Start Refill"
     measure_step: "Releasing the pressure"
     measure_banner: "The fill level measurement runs. The Loop has no leak protection until it ends."
     measure_result: "Fill level %{value}"

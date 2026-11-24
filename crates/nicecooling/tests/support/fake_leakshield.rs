@@ -58,8 +58,6 @@ pub struct DeviceOptions {
     /// The registry of this firmware has no `cancel_action`, `reset_alarm`,
     /// `reset_refill_history` and `reset_service_counter`.
     pub no_reset_commands: bool,
-    /// A Pump channel of the Loop reads above 0 rpm.
-    pub pump_running: bool,
     /// The Feed is on and nothing was sent yet: `FeedState` is `waiting`, `LastFeed` is zero.
     pub feed_waiting: bool,
 }
@@ -676,11 +674,6 @@ impl Leakshield {
     ) -> fdo::Result<()> {
         self.shared
             .record(&format!("StartAction({action})"), &header)?;
-        if action == "refill" && self.options.pump_running {
-            return Err(fdo::Error::Failed(
-                "io.github.cappyt.NiceCooling1.Error.PumpRunning".into(),
-            ));
-        }
         self.device.lock().expect("device").action = action.to_owned();
         self.running_action_changed(&emitter).await?;
         Ok(())

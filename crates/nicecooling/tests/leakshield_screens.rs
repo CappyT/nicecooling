@@ -161,17 +161,13 @@ fn leakshield_overview_states() {
         "SHIELD: full protection by negative pressure, and leak detection."
     );
     assert_eq!(
-        model.mode.lock_hint,
-        "RELEASE needs the administrator password."
-    );
-    assert_eq!(
         model
             .mode
             .actions
             .iter()
             .map(|a| a.label.as_str())
             .collect::<Vec<_>>(),
-        ["Test", "Measure fill level", "Deaerate"]
+        ["Test", "Measure fill level", "Deaerate", "Refill"]
     );
     assert!(model.mode.actions.iter().all(|a| a.enabled));
     assert!(
@@ -179,7 +175,7 @@ fn leakshield_overview_states() {
             .mode
             .refill
             .text
-            .starts_with("Refill starts on the device only.")
+            .starts_with("Refill can also start on the device:")
     );
     assert!(model.action_view.is_none() && model.dialog.is_none());
 
@@ -336,7 +332,7 @@ fn leakshield_overview_actions_and_questions() {
 
     // The fill level measurement asks first.
     assert!(
-        ui.request_action(LEAKSHIELD, "measure-fill-level")
+        ui.request_action(&state, LEAKSHIELD, "measure-fill-level")
             .is_none()
     );
     let dialog = overview(&state, &ui).dialog.expect("a dialog");
@@ -356,12 +352,12 @@ fn leakshield_overview_actions_and_questions() {
     );
     // The Deaerate starts at once.
     assert!(matches!(
-        ui.request_action(LEAKSHIELD, "deaerate"),
+        ui.request_action(&state, LEAKSHIELD, "deaerate"),
         Some(Command::StartLeakshieldAction { .. })
     ));
 
     // The Test opens its setup with the pressure of the device. 50 mbar is out of range.
-    assert!(ui.request_action(LEAKSHIELD, "test").is_none());
+    assert!(ui.request_action(&state, LEAKSHIELD, "test").is_none());
     let model = overview(&state, &ui);
     let Some(ActionView::TestSetup {
         pressure,
@@ -443,13 +439,73 @@ fn leakshield_overview_actions_and_questions() {
         "2. Hold the Leakshield button for more than 1 s and select FILL."
     );
     assert!(dialog.confirm.is_none());
-    assert!(
-        overview(&state, &OverviewUi::default())
-            .mode
-            .actions
-            .iter()
-            .all(|a| a.action != "refill")
+}
+
+fn refill_command() -> Command {
+    Command::StartLeakshieldAction {
+        leakshield: LEAKSHIELD.into(),
+        action: "refill".into(),
+        test_pressure: None,
+    }
+}
+
+/// The pump of the Loop of the fixture reads `rpm` on its tach sensor, or has no value.
+fn pump_reads(rpm: Option<f64>) -> AppState {
+    tweak(|state| {
+        for sample in [&mut state.sensors, &mut state.last_sensors]
+            .into_iter()
+            .flatten()
+        {
+            sample.sensors.retain(|(id, _, _)| id != "nct6798_fan6");
+            if let Some(rpm) = rpm {
+                sample.sensors.push(("nct6798_fan6".into(), rpm, 0));
+            }
+        }
+    })
+}
+
+#[test]
+fn refill_asks_only_while_the_pump_runs() {
+    // The pump runs: the click opens the warning and sends nothing.
+    let state = pump_reads(Some(2840.0));
+    let mut ui = OverviewUi::default();
+    assert!(ui.request_action(&state, LEAKSHIELD, "refill").is_none());
+    assert_eq!(ui.confirm, Some(Confirm::Refill));
+    let dialog = overview(&state, &ui).dialog.expect("the warning");
+    assert_eq!(dialog.title, "Start Refill?");
+    assert_eq!(
+        dialog.text,
+        "The pump runs. The Leakshield manual asks for the pump off during Refill."
     );
+    assert_eq!(dialog.confirm.as_deref(), Some("Start Refill"));
+    // Cancel sends nothing. Confirm starts the Refill.
+    ui.cancel_dialog();
+    assert!(ui.confirm(LEAKSHIELD).is_none());
+    assert!(ui.request_action(&state, LEAKSHIELD, "refill").is_none());
+    assert_eq!(ui.confirm(LEAKSHIELD), Some(refill_command()));
+    let italian = {
+        ui.request_action(&state, LEAKSHIELD, "refill");
+        OverviewModel::build(&input(&state, &Feedback::default(), IT), &ui, LEAKSHIELD)
+            .dialog
+            .expect("the warning")
+    };
+    assert_eq!(italian.title, "Avviare il Refill?");
+    assert_eq!(italian.confirm.as_deref(), Some("Avvia il Refill"));
+
+    // A pump without a tach value counts as running.
+    let state = pump_reads(None);
+    let mut ui = OverviewUi::default();
+    assert!(ui.request_action(&state, LEAKSHIELD, "refill").is_none());
+    assert_eq!(ui.confirm, Some(Confirm::Refill));
+
+    // The pump is off: the Refill starts at once.
+    let state = pump_reads(Some(0.0));
+    let mut ui = OverviewUi::default();
+    assert_eq!(
+        ui.request_action(&state, LEAKSHIELD, "refill"),
+        Some(refill_command())
+    );
+    assert!(ui.confirm.is_none());
 }
 
 #[test]

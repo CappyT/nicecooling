@@ -1433,8 +1433,6 @@ pub struct Options {
     pub unknown_firmware: bool,
     /// The firmware of the Leakshield has no cancel and reset commands.
     pub no_reset_commands: bool,
-    /// A Pump channel of the Loop runs: the Refill is refused.
-    pub pump_running: bool,
     /// The Feed is on and nothing was sent yet.
     pub feed_waiting: bool,
 }
@@ -1650,7 +1648,6 @@ impl FakeDaemon {
                     reason,
                     DeviceOptions {
                         no_reset_commands: options.no_reset_commands,
-                        pump_running: options.pump_running,
                         feed_waiting: options.feed_waiting,
                     },
                     shared.clone(),

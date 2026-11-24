@@ -374,6 +374,7 @@ fn every_leakshield_tab_draws_in_each_state(cx: &mut TestAppContext) {
         for confirm in [
             Confirm::Mode("monitor".into()),
             Confirm::Measure,
+            Confirm::Refill,
             Confirm::RefillSteps,
         ] {
             window

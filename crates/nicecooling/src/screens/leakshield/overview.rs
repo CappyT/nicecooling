@@ -1,5 +1,7 @@
 //! The Overview tab and the Action views (`docs/ui/screens/leakshield-overview.md`).
 
+use nicecooling_core::loops::tach_sensor;
+
 use crate::command::Command;
 use crate::i18n::Locale;
 use crate::model::{AppState, PressureLimits, Severity};
@@ -65,6 +67,8 @@ impl ChartRange {
 pub enum Confirm {
     Mode(String),
     Measure,
+    /// "Start Refill?" while a Pump channel of the Loop runs.
+    Refill,
     /// The four steps of a Refill.
     RefillSteps,
 }
@@ -116,6 +120,7 @@ impl OverviewUi {
                 action: "measure-fill-level".to_owned(),
                 test_pressure: None,
             }),
+            Confirm::Refill => Some(refill_command(device)),
             Confirm::RefillSteps => None,
         }
     }
@@ -124,8 +129,14 @@ impl OverviewUi {
         self.confirm = None;
     }
 
-    /// A click on an Action button. The Test opens its setup, the measurement asks first.
-    pub fn request_action(&mut self, device: &str, action: &str) -> Option<Command> {
+    /// A click on an Action button. The Test opens its setup, the measurement asks first. The
+    /// Refill asks only while a Pump channel of the Loop runs.
+    pub fn request_action(
+        &mut self,
+        state: &AppState,
+        device: &str,
+        action: &str,
+    ) -> Option<Command> {
         match action {
             "test" => {
                 self.test_setup = true;
@@ -140,6 +151,13 @@ impl OverviewUi {
                 action: "deaerate".to_owned(),
                 test_pressure: None,
             }),
+            "refill" => {
+                if pump_runs(state, device) {
+                    self.confirm = Some(Confirm::Refill);
+                    return None;
+                }
+                Some(refill_command(device))
+            }
             _ => None,
         }
     }
@@ -169,6 +187,31 @@ impl OverviewUi {
     pub fn cancel_test_setup(&mut self) {
         self.test_setup = false;
     }
+}
+
+fn refill_command(device: &str) -> Command {
+    Command::StartLeakshieldAction {
+        leakshield: device.to_owned(),
+        action: "refill".to_owned(),
+        test_pressure: None,
+    }
+}
+
+/// True when a Pump channel of a Loop of this Leakshield reads above 0 rpm or has no tach value.
+/// A Pump channel `<chip>_pwmN` reads as the sensor `<chip>_fanN`.
+pub fn pump_runs(state: &AppState, device: &str) -> bool {
+    let sample = state.sensors.as_ref().or(state.last_sensors.as_ref());
+    state
+        .snapshot
+        .loops
+        .iter()
+        .filter(|l| l.leakshield.as_deref() == Some(device))
+        .flat_map(|l| &l.pump_channels)
+        .any(|channel| {
+            tach_sensor(channel)
+                .and_then(|tach| sample?.sensor_value(&tach))
+                .is_none_or(|rpm| rpm > 0.0)
+        })
 }
 
 fn mode_command(device: &str, mode: &str) -> Command {
@@ -243,7 +286,6 @@ pub struct ModeCard {
     pub title: String,
     pub buttons: Vec<ModeButton>,
     pub caption: String,
-    pub lock_hint: String,
     /// "Read-only: Mode is not a Verified field yet." with a link to the Fields tab.
     pub read_only: Option<(String, String)>,
     /// The tooltip of a disabled control.
@@ -533,13 +575,12 @@ impl OverviewModel {
             } else {
                 locale.tr(&format!("leakshield.overview.mode_caption.{mode}"))
             },
-            lock_hint: locale.tr("leakshield.overview.lock_hint"),
             read_only,
             tooltip,
             write_line: mode_line,
             denied,
             action_hint: locale.tr("leakshield.overview.action_hint"),
-            actions: ["test", "measure-fill-level", "deaerate"]
+            actions: ["test", "measure-fill-level", "deaerate", "refill"]
                 .iter()
                 .map(|a| ActionButton {
                     action: (*a).to_owned(),
@@ -635,6 +676,13 @@ impl OverviewModel {
                 steps: Vec::new(),
                 cancel: locale.tr("leakshield.cancel"),
                 confirm: Some(locale.tr("leakshield.overview.measure_button")),
+            },
+            Confirm::Refill => Dialog {
+                title: locale.tr("leakshield.overview.refill_confirm_title"),
+                text: locale.tr("leakshield.overview.refill_confirm"),
+                steps: Vec::new(),
+                cancel: locale.tr("leakshield.cancel"),
+                confirm: Some(locale.tr("leakshield.overview.refill_button")),
             },
             Confirm::RefillSteps => Dialog {
                 title: locale.tr("leakshield.overview.refill_title"),
