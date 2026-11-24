@@ -286,11 +286,11 @@ impl<'a> Device<'a> {
 /// A value that is a change, with its sign: "+0.4 ml/h", "-0.1 mbar/min". "--" without a value.
 pub fn change_text(locale: Locale, value: Option<f64>, unit: &str) -> String {
     let text = crate::screens::format::optional_value(locale, value, unit);
+    let zero = !text.contains(|c: char| ('1'..='9').contains(&c));
     match value {
         // A value that rounds to zero has no sign.
-        Some(value) if value > 0.0 && text.contains(|c: char| ('1'..='9').contains(&c)) => {
-            format!("+{text}")
-        }
+        Some(_) if zero => text.trim_start_matches('-').to_owned(),
+        Some(value) if value > 0.0 => format!("+{text}"),
         _ => text,
     }
 }
