@@ -131,7 +131,7 @@ The user SHALL be able to clear the event list of the Leakshield (`ResetEventLog
 - **THEN** the daemon sends command 15 with parameter 0
 
 ### Requirement: Refill history
-The daemon SHALL keep each refill entry of report 1 that has a time and pump revolutions above 0, keyed by its time, for 90 days, in its state directory, and SHALL return the entries with `GetRefillHistory`. The history SHALL stay when the device forgets its entries.
+The daemon SHALL keep each refill entry of report 1 that has a time and pump revolutions above 0 and is at most 14 days old, keyed by its time, for 90 days, in its state directory, and SHALL return the entries with `GetRefillHistory`. The history SHALL stay when the device forgets its entries.
 
 #### Scenario: Refill entries
 - **WHEN** report 1 holds a refill of 12 s with 60 pump revolutions, a refill with no time and a refill with 0 pump revolutions

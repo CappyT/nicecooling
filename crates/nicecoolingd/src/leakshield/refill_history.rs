@@ -13,6 +13,8 @@ use crate::state::StateStore;
 
 /// The daemon drops an entry that is older than this.
 pub const RETENTION_S: i64 = 90 * 86_400;
+/// The oldest entry of the device that the history takes, as aquasuite does.
+pub const INGEST_AGE_S: i64 = 14 * 86_400;
 
 /// One refill: the time is the device time in microseconds since the Unix epoch, as in
 /// `GetEvents`. The volume is in 0.1 ml.
@@ -54,14 +56,19 @@ impl RefillHistory {
         }
     }
 
-    /// Takes the refill entries of `report1` that have a time and pump revolutions above 0, and
-    /// drops what is older than the retention. An entry with a known time replaces the stored
+    /// Takes the refill entries of `report1` that have a time and pump revolutions above 0 and
+    /// are at most 14 days old, and drops what is older than the retention. An entry with a time
+    /// after `now_unix` comes from a wrong device clock: it would never leave the history. An entry with a known time replaces the stored
     /// one. The file is written only when the history changed.
     pub fn ingest(&self, report1: &Report1, now_unix: i64) {
         let mut entries = self.entries.lock().unwrap();
         let before = entries.clone();
         for entry in &report1.refill_history {
             if entry.time == 0 || entry.pump_turns == 0 {
+                continue;
+            }
+            let age_s = now_unix - (i64::from(entry.time) + DEVICE_EPOCH_UNIX);
+            if !(0..=INGEST_AGE_S).contains(&age_s) {
                 continue;
             }
             let time_us = (u64::from(entry.time) + DEVICE_EPOCH_UNIX as u64) * 1_000_000;
@@ -165,6 +172,23 @@ mod tests {
                 volume_tenth_ml: 1234,
             }
         );
+    }
+
+    #[test]
+    fn an_entry_older_than_14_days_or_from_the_future_is_not_taken() {
+        let dir = dir("age");
+        let history = history(&dir);
+        history.ingest(
+            &report1(&[
+                entry(DEVICE_TIME - 15 * 86_400, 10, 50),
+                entry(DEVICE_TIME + 3600, 10, 50),
+                entry(DEVICE_TIME - 13 * 86_400, 7, 30),
+            ]),
+            NOW,
+        );
+        let kept = history.entries();
+        assert_eq!(kept.len(), 1);
+        assert_eq!(kept[0].duration_s, 7);
     }
 
     #[test]
