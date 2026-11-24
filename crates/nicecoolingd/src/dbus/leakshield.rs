@@ -282,6 +282,16 @@ impl Leakshield {
         self.device.reset_service_counter()
     }
 
+    #[zbus(out_args("counters"))]
+    async fn get_counters(&self) -> Result<HashMap<String, u64>> {
+        Ok(self
+            .device
+            .get_counters()?
+            .into_iter()
+            .map(|(name, value)| (name.to_owned(), value))
+            .collect())
+    }
+
     #[zbus(out_args("events"))]
     async fn get_events(&self) -> Result<Vec<(u64, String, HashMap<String, OwnedVariant>)>> {
         Ok(self

@@ -196,3 +196,14 @@ Each Leakshield object SHALL expose the active slot of report 1 (`ActiveSlot`), 
 #### Scenario: Pressure limits
 - **WHEN** report 1 holds `pressure_setpoint` 3000 and `pressure_low` 2500
 - **THEN** the sensors read 300 mbar and 250 mbar
+
+### Requirement: Leakshield runtime values
+Each Leakshield object SHALL expose the sensors of `docs/api.md` (Leakshield sensors and counters) and the method `GetCounters` (class `read`), which returns `pump_runtime_s`, `pump_short_cycle_runtime_s`, `pump_revolution_count`, `fill_valve_cycles`, `release_valve_cycles`, `total_runtime_s` and `power_up_count` of report 1.
+
+#### Scenario: Leak rates
+- **WHEN** report 1 holds a volume leak rate of 12 and a pressure leak rate of -4
+- **THEN** the sensors `volume_change` and `pressure_change` read 12 ml/h and -0.4 mbar/min
+
+#### Scenario: No value
+- **WHEN** report 1 holds 32767 for the pump pressure
+- **THEN** the sensor `pump_head_pressure` has no value

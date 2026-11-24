@@ -89,7 +89,7 @@
     <property name="Kind" type="s" access="read">
       <annotation name="org.freedesktop.DBus.Property.EmitsChangedSignal" value="const"/>
     </property>
-    <!-- degC | rpm | l/h | V | A | W | mbar | ml | % | empty -->
+    <!-- degC | rpm | l/h | V | A | W | mbar | mbar/min | ml | ml/h | s | % | empty -->
     <property name="Unit" type="s" access="read">
       <annotation name="org.freedesktop.DBus.Property.EmitsChangedSignal" value="const"/>
     </property>
@@ -314,6 +314,12 @@
     <!-- Sends reset_service_counter (command 25000, serial XOR 0xFFFFFFFF). Fails with NotSupported when the registry of this firmware has no such command. -->
     <method name="ResetServiceCounter">
       <annotation name="io.github.cappyt.NiceCooling1.Authorization" value="write"/>
+    </method>
+    <!-- Counter name to value, from report 1: pump_runtime_s, pump_short_cycle_runtime_s, pump_revolution_count, fill_valve_cycles,
+         release_valve_cycles, total_runtime_s, power_up_count. api.md gives the units. -->
+    <method name="GetCounters">
+      <annotation name="io.github.cappyt.NiceCooling1.Authorization" value="read"/>
+      <arg name="counters" type="a{st}" direction="out"/>
     </method>
     <!-- (device time us, event identifier, details) -->
     <method name="GetEvents">

@@ -139,6 +139,23 @@ Each of the 20 sensors has 10 bytes at offset 59 + 10 x n: unit code (u8), name 
 
 The kernel driver `aquacomputer_d5next` shows sensor 4 as "User-Provided Pump Speed" (offset 101) and sensor 5 as "User-Provided Flow" (offset 111) (P3). The map from Feed slot to sensor comes from the names and the units of the dump, not from the code (open question 3).
 
+### Published values
+
+The daemon publishes these report 1 values as sensors and reads the counters on request (`docs/api.md`, Leakshield sensors and counters). Sensors 4 and 5 give the pump speed and the flow that the device holds for the Feed, in the scale of their unit code: 0 decimals for rpm, 1 decimal for l/h. The fw1022 dump holds 2500 rpm and 130.0 l/h there, and the fw1019 dump holds no value.
+
+| Value | Offset | Scale |
+|---|---|---|
+| Leak indicator | 303 | 1 ml/h, average of the volume change |
+| Volume change | 307 | 1 ml/h |
+| Pressure change | 305 | 0.1 mbar/min |
+| Daily pump time | 265 | 1 s |
+| Pump pressure | 289 | 0.1 mbar, computed by the device for the loop pump |
+| Air volume, water volume | 309, 311 | 1 ml |
+| Supply voltage | 259 | 0.01 V |
+| Counters | 321, 325, 329, 333, 337, 28, 24 | pump runtime s, pump runtime in short cycles s, pump revolutions, fill valve cycles, release valve cycles, total runtime s, power-up count |
+
+The fw1022 dump holds "no value" for the volume change, the pressure change and the leak indicator, and 0 s for the daily pump time. No dump holds a number for them.
+
 ### Event list
 
 The event list has 15 entries of 20 bytes at offset 465: time u32 (`device_clock` format), entry id u8, event code u8, Mode i16, procedure state i16, pressure i16 (0.1 mbar), pressure leak rate i16, volume leak rate i16, value 1 i16, value 2 i16. Event code 255 marks an empty entry. The event codes (P3):

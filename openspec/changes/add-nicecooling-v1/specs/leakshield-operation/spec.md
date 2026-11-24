@@ -86,6 +86,16 @@ The daemon SHALL write values into the 12 Software sensor slots of the Leakshiel
 ### Requirement: Device status and events
 The daemon SHALL decode the Leakshield sensor report each tick and expose pressure, fill level, Mode, running Action, Warnings and Alarms.
 
+The daemon SHALL also publish, for each Leakshield, the sensors `volume_change`, `pressure_change`, `leak_indicator`, `daily_pump_time`, `pump_head_pressure`, `air_volume`, `water_volume`, `supply_voltage`, `feed_rpm` and `flow`, and SHALL return the counters of the report on request. A report value of 32767 SHALL give a sensor without a value.
+
+#### Scenario: Values of the fw1022 report
+- **WHEN** report 1 is the fw1022 dump
+- **THEN** `pump_head_pressure` reads 101.2 mbar, `supply_voltage` 4.69 V, `air_volume` 108 ml, `water_volume` 162 ml, `feed_rpm` 2500 rpm and `flow` 130 L/h, and `volume_change`, `pressure_change` and `leak_indicator` have no value
+
+#### Scenario: Counters
+- **WHEN** a client calls `GetCounters` and report 1 holds a pump runtime of 11431 s
+- **THEN** `pump_runtime_s` is 11431
+
 #### Scenario: Warning decoded
 - **WHEN** the device raises a Warning
 - **THEN** the API shows the Warning with its type

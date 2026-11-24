@@ -58,6 +58,29 @@ The daemon keeps the map from identifier to hardware identity in its state (`sto
 - The sensors `<leakshield id>_pressure_setpoint`, `<leakshield id>_pressure_low` and `<leakshield id>_pressure_high` come from report 1 (offsets 293, 291 and 295, 0.1 mbar). Their kind is `pressure` and their unit is mbar.
 - Every new property of the Leakshield and Profiles interfaces emits `PropertiesChanged` when its value changes. The const properties do not.
 
+## Leakshield sensors and counters
+
+A Leakshield sensor has the id `<leakshield id>_<field id>`, the origin `leakshield` and a value from report 1 (`docs/protocol/leakshield.md`). A report value of 32767 is "no value": the sensor then has no value. The app reads each value by its field id, so the names in this table are the contract.
+
+| Field id | Report 1 | Kind | Unit | Scale |
+|---|---|---|---|---|
+| `pressure` | 285 | `pressure` | mbar | 0.1 |
+| `pressure_setpoint`, `pressure_low`, `pressure_high` | 293, 291, 295 | `pressure` | mbar | 0.1 |
+| `fill_level` | 315 | `level` | % | 0.01 |
+| `volume_change` | 307 | `other` | ml/h | 1 |
+| `pressure_change` | 305 | `other` | mbar/min | 0.1 |
+| `leak_indicator` | 303 | `other` | ml/h | 1 |
+| `daily_pump_time` | 265 | `other` | s | 1 |
+| `pump_head_pressure` | 289 | `pressure` | mbar | 0.1 |
+| `air_volume`, `water_volume` | 309, 311 | `level` | ml | 1 |
+| `supply_voltage` | 259 | `voltage` | V | 0.01 |
+| `feed_rpm` | device sensor 4, value at 101 | `fan` | rpm | 1 |
+| `flow` | device sensor 5, value at 111 | `flow` | l/h | 0.1 |
+
+`feed_rpm` and `flow` are the values that the device holds for the Feed. A slot with another unit code than rpm or l/h gives no value.
+
+`Leakshield.GetCounters() -> a{st}` (class `read`) reads report 1 and returns the counters of the System page: `pump_runtime_s`, `pump_short_cycle_runtime_s`, `pump_revolution_count`, `fill_valve_cycles`, `release_valve_cycles`, `total_runtime_s` and `power_up_count`. The times are in seconds. The call fails like any other read of the device (`Disconnected`).
+
 ## Event identifiers
 
 Alarms and Warnings use one identifier each. The app maps an identifier to its text in English and Italian. The daemon sends no text.

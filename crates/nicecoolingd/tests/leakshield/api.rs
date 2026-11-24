@@ -252,6 +252,60 @@ async fn pressure_and_fill_level_sensors_exposed() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn runtime_sensors_exposed() {
+    let mut rig = Rig::start().await;
+    rig.sim.edit_report1(|r| {
+        r.volume_leak_rate = 12;
+        r.pressure_leak_rate = -4;
+    });
+    rig.tick_in_background();
+    let sensor = |id: &str| {
+        let client = rig.client.clone();
+        let path = path(Kind::Sensor, &format!("{LEAKSHIELD}_{id}"));
+        async move {
+            SensorProxy::builder(&client)
+                .path(path)
+                .cache_properties(zbus::proxy::CacheProperties::No)
+                .build()
+                .await
+                .unwrap()
+        }
+    };
+    let volume = sensor("volume_change").await;
+    until(async || volume.has_value().await.unwrap().then_some(())).await;
+    assert_eq!(volume.value().await.unwrap(), 12.0);
+    assert_eq!(volume.unit().await.unwrap(), "ml/h");
+    let pressure = sensor("pressure_change").await;
+    assert!((pressure.value().await.unwrap() + 0.4).abs() < 1e-9);
+    assert_eq!(pressure.unit().await.unwrap(), "mbar/min");
+    // The fw1022 dump: the Feed gave 2500 rpm and 130.0 l/h, and the pump reads 101.2 mbar.
+    assert_eq!(sensor("feed_rpm").await.value().await.unwrap(), 2500.0);
+    assert!((sensor("flow").await.value().await.unwrap() - 130.0).abs() < 1e-9);
+    assert!((sensor("pump_head_pressure").await.value().await.unwrap() - 101.2).abs() < 1e-9);
+    // 32767 is no value: the dump has none for the leak indicator.
+    assert!(!sensor("leak_indicator").await.has_value().await.unwrap());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn get_counters_returns_the_report_1_counters() {
+    let rig = Rig::start().await;
+    let proxy = leakshield(&rig).await;
+
+    let counters = proxy.get_counters().await.unwrap();
+
+    assert_eq!(counters.len(), 7);
+    assert_eq!(counters["pump_runtime_s"], 11_431);
+    assert_eq!(counters["pump_short_cycle_runtime_s"], 21);
+    assert_eq!(counters["pump_revolution_count"], 633_745);
+    assert_eq!(counters["fill_valve_cycles"], 3074);
+    assert_eq!(counters["release_valve_cycles"], 952);
+    assert_eq!(counters["total_runtime_s"], 145_500_674);
+    assert_eq!(counters["power_up_count"], 142);
+    // The call asks no polkit action.
+    assert!(rig.sim.commands().is_empty());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn mode_and_running_action_properties() {
     let mut rig = Rig::start().await;
     rig.sim.edit_report1(|r| r.mode = 1);

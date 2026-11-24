@@ -631,6 +631,11 @@ impl Attached {
         )
     }
 
+    /// The counters of report 1 (`counters::counters`).
+    pub fn get_counters(&self) -> Result<Vec<(&'static str, u64)>> {
+        Ok(counters::counters(&self.fresh_report1()?))
+    }
+
     /// The events of report 1, oldest first.
     pub fn get_events(&self) -> Result<Vec<Event>> {
         Ok(decode_events(&self.fresh_report1()?))
