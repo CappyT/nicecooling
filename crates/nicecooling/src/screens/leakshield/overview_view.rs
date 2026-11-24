@@ -401,8 +401,9 @@ impl ScreenView {
                     if history.key.as_ref() == Some(&key) {
                         history.loaded_at = now;
                         history.runs = runs.unwrap_or_default();
-                        cx.notify();
                     }
+                    // A render starts the read of the range that the user picked meanwhile.
+                    cx.notify();
                 });
             })
             .detach();
