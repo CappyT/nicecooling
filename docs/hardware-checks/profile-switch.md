@@ -6,7 +6,7 @@ The daemon logs no Leakshield write: it prints a line only for a failure. So the
 
 ## Safety
 
-- A switch to another slot writes the whole stored report 3 of that slot to the Leakshield, as stored. It also writes while an Action runs and while the Mode is RELEASE (design D14). The loop is filled and leak-free, the Mode is SHIELD and no Action runs.
+- A switch to another slot writes the whole stored report 3 of that slot to the Leakshield, as stored. It also writes while an Action runs and while the Mode is RELEASE (design D14). The loop is filled and leak-free and no Action runs. The Mode belongs to the Profile (design D14): the device and the four slots are in RELEASE, so a switch does not change the Mode and steps 1, 4 and 10 compare equal reports. Step 11 checks the Mode of a Profile.
 - Each slot must hold a copy of the device settings. Step 1 checks it. A slot that holds other settings (for example Safety fields that you changed) writes them to the device at the switch.
 - Take the backup of step 1 first. Recovery restores it.
 - The check ends on the Default Profile (slot 1).
@@ -56,6 +56,7 @@ Each step reads only the capture lines after its action: `N=$(wc -l < ~/usbmon.t
 8. Check the rate limit. Wait 10 s so that the last profile write is more than 2 s old. Then run the three calls in one command: `N=$(wc -l < ~/usbmon.txt); for p in profile_2 profile_3 profile_4; do $BC call $B $R $B.Profiles ActivateProfile o $R/profile/$p; done; sleep 10; tail -n +$((N+1)) ~/usbmon.txt | rg -e "$SETF" -e "$SAVE"; r1 50 1`. The first call writes at once. The two others come within 2 s of that write. Expected: the capture lists exactly two writes of report 3 and one save-settings line. The second write comes 1.5 s after the first one (less than 0.2 s of difference), so only the newest request (slot 4) was written and the request for slot 3 was dropped. The save-settings line comes 4 s after the second write. `r1 50 1` prints `04`.
 9. Check that no write has a read-back. Run `awk -v s="$SETF" -v g="$GETF" 'index($0,s){w=$2} index($0,g){ if (w && $2-w < 1000000) print "READBACK", $2-w }' ~/usbmon.txt`. Then `journalctl -u nicecoolingd --since "-30min" | rg -i 'not saved|did not answer|failed'`. Expected: the `awk` command prints no line: no read of report 3 starts less than 1 s after a write. A line that shows up can be the 10 s poll: repeat step 8 once and compare before you fail the step. The journal command prints no line, because the daemon logs nothing for a successful write and nothing for a read-back.
 10. Return to the Default Profile and compare with the first backup. Run `N=$(wc -l < ~/usbmon.txt); $BC call $B $R $B.Profiles ReturnToAutomatic; sleep 8; tail -n +$((N+1)) ~/usbmon.txt | rg -e "$SETF" -e "$SAVE"; r1 50 1; S2=$($BC call $B $LS $B.Leakshield CreateBackup | cut -d'"' -f2); sudo cmp $D/backups/$LSID/$S0/report3.bin $D/backups/$LSID/$S2/report3.bin`. Expected: one write of report 3 and one save-settings line 4 s later, `r1 50 1` prints `01`, and `cmp` prints nothing. Stop the capture (`Ctrl+C` in the third terminal). Delete the third Profile: `$BC call $B $R/profile/$PC $B.Profile Delete`.
+11. Check the Mode of a Profile. Run `$BC call $B $LS $B.Leakshield SetMode s shield` (the administrator password is asked) and wait until `busctl get-property $B $LS $B.Leakshield Mode` prints `s "shield"` and `RunningAction` prints `s ""`. Then `for n in 1 2 3 4; do sudo xxd -s 724 -l 1 -p $D/leakshield/$LSID/slot-$n/report3.bin; done`. Switch to `profile_2`, wait 8 s and read `Mode`. Switch to `profile_default`, wait until `Mode` prints `s "shield"` and no Action runs, and read the four slots again. Run `$BC call $B $LS $B.Leakshield SetMode s release`, wait until `Mode` prints `s "release"`, and read slot 1 again. Last, `S3=$($BC call $B $LS $B.Leakshield CreateBackup | cut -d'"' -f2); sudo cmp $D/backups/$LSID/$S0/report3.bin $D/backups/$LSID/$S3/report3.bin`. Expected: after SetMode shield the slots read `01 03 03 03`. Slot 2 gives `s "release"`. The switch back runs `measure-fill-level` and gives `s "shield"`, and the slots still read `01 03 03 03`. After SetMode release slot 1 reads `03`. `cmp` prints nothing.
 
 ## Recovery
 
@@ -68,13 +69,14 @@ Each step reads only the capture lines after its action: `N=$(wc -l < ~/usbmon.t
 
 | Step | Result |
 |---|---|
-| 1 | |
-| 2 | |
-| 3 | |
-| 4 | |
-| 5 | |
-| 6 | |
-| 7 | |
-| 8 | |
-| 9 | |
-| 10 | |
+| 1 | 2026-11-24, pass: slots 2-4 differ from slot 1 only at byte 748 and the CRC, slot 1 equals S0, `01`. |
+| 2 | 2026-11-24, pass: the filters match the capture of device 013. |
+| 3 | 2026-11-24, pass with a deviation: one write and one save-settings, `02`. The save came 4.286 s after the write (expected 4 s +- 0.2). It was the first write after a restart of the daemon. Cause not measured; accepted by the owner. |
+| 4 | 2026-11-24, pass: only byte 748 and the CRC. |
+| 5 | 2026-11-24, pass: no write, `02`. |
+| 6 | 2026-11-24, pass: one write, save 4.016 s later, `01`. |
+| 7 | 2026-11-24, pass: no write in both rounds, `applied`, `01`. |
+| 8 | 2026-11-24, pass: writes at 0 s and 1.501 s, save 4.016 s after the second, `04`. |
+| 9 | 2026-11-24, pass: one read 0.181 s after a write, at 80.001 s on the grid of the 10 s poll. No journal line. |
+| 10 | 2026-11-24, pass: one write, save 4.026 s later, `01`, S2 equals S0. |
+| 11 | 2026-11-24, pass: SHIELD after 27 s, slots `01 03 03 03`, slot 2 gives RELEASE, back on slot 1 SHIELD after 18 s, release gives slot 1 `03`, S3 equals S0. |
