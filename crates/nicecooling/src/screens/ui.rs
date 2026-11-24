@@ -477,6 +477,8 @@ pub fn modal(
         .items_start()
         .pt(px(120.))
         .bg(scrim(p))
+        // The scrim takes the presses: a control under a dialog does not get them.
+        .occlude()
         .child(
             v_flex()
                 .w(px(440.))

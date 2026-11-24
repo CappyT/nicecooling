@@ -651,3 +651,50 @@ fn a_dialog_keeps_the_height_of_its_content(cx: &mut TestAppContext) {
         dialog.size.height
     );
 }
+
+/// A press on the scrim of a dialog does not reach the control under it.
+#[gpui::test]
+fn a_dialog_scrim_blocks_the_controls_under_it(cx: &mut TestAppContext) {
+    use gpui::prelude::*;
+    use nicecooling::screens::ui::modal;
+    use nicecooling::tokens::Palette;
+
+    struct Screen {
+        pressed: usize,
+    }
+    impl gpui::Render for Screen {
+        fn render(
+            &mut self,
+            _: &mut gpui::Window,
+            cx: &mut gpui::Context<Self>,
+        ) -> impl IntoElement {
+            gpui::div()
+                .relative()
+                .size_full()
+                .child(
+                    gpui::div()
+                        .id("under")
+                        .debug_selector(|| "under".to_owned())
+                        .w(gpui::px(200.))
+                        .h(gpui::px(60.))
+                        .on_click(cx.listener(|this, _, _, _| this.pressed += 1)),
+                )
+                .child(modal(
+                    "Use the Hardware curve?",
+                    "The Board runs its Hardware curve.",
+                    Vec::new(),
+                    Vec::new(),
+                    &Palette::new(false),
+                ))
+        }
+    }
+    let window = cx.add_window(|_, _| Screen { pressed: 0 });
+    let mut visual = VisualTestContext::from_window(window.into(), cx);
+    visual.simulate_resize(gpui::size(gpui::px(1100.), gpui::px(700.)));
+    visual.update(|window, cx| window.draw(cx).clear(cx));
+    let under = visual.debug_bounds("under").expect("the control");
+    visual.simulate_click(under.center(), gpui::Modifiers::none());
+    visual.run_until_parked();
+    let pressed = window.update(cx, |screen, _, _| screen.pressed).unwrap();
+    assert_eq!(pressed, 0, "the press went through the scrim");
+}
