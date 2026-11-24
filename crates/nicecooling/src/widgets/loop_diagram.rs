@@ -519,8 +519,9 @@ use std::rc::Rc;
 
 use gpui::prelude::*;
 use gpui::{
-    App, Bounds, Div, FontWeight, Hsla, Pixels, Point, SharedString, Window, canvas, div, px,
-    relative, size,
+    AnyElement, App, AvailableSpace, Bounds, Div, Element, ElementId, FontWeight, GlobalElementId,
+    Hsla, InspectorElementId, LayoutId, Pixels, Point, SharedString, Style, Window, canvas, div,
+    px, relative, size,
 };
 use gpui_component::ActiveTheme as _;
 use gpui_component::tooltip::Tooltip;
@@ -533,6 +534,10 @@ type OpenPage = Rc<dyn Fn(Page, &mut Window, &mut App)>;
 
 /// The height of the diagram in px.
 pub const HEIGHT: f32 = 168.0;
+/// Under this width the diagram has two rows: the Leakshield group above the water path.
+pub const NARROW: f32 = 640.0;
+/// How far the water path moves down in the narrow diagram.
+const ROW: f32 = 44.0;
 
 /// Where the parts sit: the fractions of the width, as in `widgets.md`.
 const PUMP: f32 = 0.34;
@@ -634,15 +639,121 @@ fn slice(basis: f32) -> Div {
         .flex_basis(relative(basis))
 }
 
-/// The diagram of one Loop. `on_open` gets the page of a clicked bubble.
+/// The height of a diagram of `width` px.
+pub fn height(width: f32) -> f32 {
+    if width < NARROW { HEIGHT + ROW } else { HEIGHT }
+}
+
+/// The diagram of one Loop. `on_open` gets the page of a clicked bubble. The element takes
+/// the width of its parent, and that width chooses the layout.
 pub fn element(
     diagram: &LoopDiagram,
     p: &Palette,
     on_open: impl Fn(Page, &mut Window, &mut App) + 'static,
     cx: &App,
+) -> Responsive {
+    Responsive {
+        diagram: diagram.clone(),
+        dark: p.dark,
+        mono: cx.theme().mono_font_family.clone(),
+        on_open: Rc::new(on_open),
+    }
+}
+
+/// Draws the wide or the narrow diagram, from the width that the layout gives it.
+pub struct Responsive {
+    diagram: LoopDiagram,
+    dark: bool,
+    mono: SharedString,
+    on_open: OpenPage,
+}
+
+impl IntoElement for Responsive {
+    type Element = Self;
+
+    fn into_element(self) -> Self {
+        self
+    }
+}
+
+impl Element for Responsive {
+    type RequestLayoutState = ();
+    type PrepaintState = AnyElement;
+
+    fn id(&self) -> Option<ElementId> {
+        None
+    }
+
+    fn source_location(&self) -> Option<&'static std::panic::Location<'static>> {
+        None
+    }
+
+    fn request_layout(
+        &mut self,
+        _: Option<&GlobalElementId>,
+        _: Option<&InspectorElementId>,
+        window: &mut Window,
+        _: &mut App,
+    ) -> (LayoutId, ()) {
+        let mut style = Style::default();
+        style.size.width = relative(1.).into();
+        let layout = window.request_measured_layout(style, |known, available, _, _| {
+            let width = known.width.unwrap_or(match available.width {
+                AvailableSpace::Definite(width) => width,
+                _ => px(0.),
+            });
+            size(width, px(height(f32::from(width))))
+        });
+        (layout, ())
+    }
+
+    fn prepaint(
+        &mut self,
+        _: Option<&GlobalElementId>,
+        _: Option<&InspectorElementId>,
+        bounds: Bounds<Pixels>,
+        _: &mut (),
+        window: &mut Window,
+        cx: &mut App,
+    ) -> AnyElement {
+        let narrow = f32::from(bounds.size.width) < NARROW;
+        let mut drawn = layout(
+            &self.diagram,
+            &Palette::new(self.dark),
+            self.mono.clone(),
+            self.on_open.clone(),
+            narrow,
+        )
+        .into_any_element();
+        drawn.prepaint_as_root(bounds.origin, bounds.size.into(), window, cx);
+        drawn
+    }
+
+    fn paint(
+        &mut self,
+        _: Option<&GlobalElementId>,
+        _: Option<&InspectorElementId>,
+        _: Bounds<Pixels>,
+        _: &mut (),
+        drawn: &mut AnyElement,
+        window: &mut Window,
+        cx: &mut App,
+    ) {
+        drawn.paint(window, cx);
+    }
+}
+
+/// The diagram in one of its two layouts. The narrow one keeps the Leakshield, its bubble
+/// and its text in a row of their own, and has the water path `ROW` px lower.
+fn layout(
+    diagram: &LoopDiagram,
+    p: &Palette,
+    mono: SharedString,
+    on_open: OpenPage,
+    narrow: bool,
 ) -> Div {
-    let on_open: OpenPage = Rc::new(on_open);
-    let mono = cx.theme().mono_font_family.clone();
+    let down = if narrow { ROW } else { 0.0 };
+    let (supply, back) = (SUPPLY_Y + down, RETURN_Y + down);
     let has_leakshield = diagram.has_leakshield;
     // The reservoir shows its level only while the value is live.
     let level = diagram.fill_level.filter(|_| diagram.live);
@@ -667,15 +778,15 @@ pub fn element(
             let right = w - 34.0;
 
             // The water path: the supply leg, the corner at the right, the return leg.
-            let mut path = vec![at(o, x0, SUPPLY_Y), at(o, right, SUPPLY_Y)];
-            arc(&mut path, o, (right, SUPPLY_Y + 10.0), 10.0, -90.0, 0.0);
-            path.push(at(o, right + 10.0, RETURN_Y - 10.0));
-            arc(&mut path, o, (right, RETURN_Y - 10.0), 10.0, 0.0, 90.0);
-            path.push(at(o, x0, RETURN_Y));
+            let mut path = vec![at(o, x0, supply), at(o, right, supply)];
+            arc(&mut path, o, (right, supply + 10.0), 10.0, -90.0, 0.0);
+            path.push(at(o, right + 10.0, back - 10.0));
+            arc(&mut path, o, (right, back - 10.0), 10.0, 0.0, 90.0);
+            path.push(at(o, x0, back));
             if !has_leakshield {
-                arc(&mut path, o, (x0, RETURN_Y - 10.0), 10.0, 90.0, 180.0);
-                path.push(at(o, x0 - 10.0, SUPPLY_Y + 10.0));
-                arc(&mut path, o, (x0, SUPPLY_Y + 10.0), 10.0, 180.0, 270.0);
+                arc(&mut path, o, (x0, back - 10.0), 10.0, 90.0, 180.0);
+                path.push(at(o, x0 - 10.0, supply + 10.0));
+                arc(&mut path, o, (x0, supply + 10.0), 10.0, 180.0, 270.0);
             }
             polyline(window, &path, 3.0, water, None);
 
@@ -683,15 +794,18 @@ pub fn element(
                 // The reservoir with its fill level, and the Leakshield capsule over it.
                 polyline(
                     window,
-                    &[at(o, 56.0, 60.0), at(o, 56.0, 82.0)],
+                    &[at(o, 56.0, 60.0), at(o, 56.0, 82.0 + down)],
                     2.0,
                     air,
                     Some((5.0, 4.0)),
                 );
-                outlined(window, o, [24.0, 82.0, 64.0, 78.0], 4.0, part, fg);
+                outlined(window, o, [24.0, 82.0 + down, 64.0, 78.0], 4.0, part, fg);
                 if let Some(level) = level {
                     let height = (76.0 * (level / 100.0).clamp(0.0, 1.0)).round() as f32;
-                    let fill = Bounds::new(at(o, 25.0, 159.0 - height), size(px(62.), px(height)));
+                    let fill = Bounds::new(
+                        at(o, 25.0, 159.0 + down - height),
+                        size(px(62.), px(height)),
+                    );
                     rect(window, fill, 0.0, water.opacity(0.3), None);
                 }
                 outlined(window, o, [8.0, 32.0, 96.0, 28.0], 14.0, part, fg);
@@ -710,7 +824,7 @@ pub fn element(
             // Blocks and radiators: one dashed box that nicecooling does not measure.
             let box_w = (w * 0.3).min(230.0).round();
             let x = (w * BLOCKS - box_w / 2.0).round();
-            let (top, bottom, far) = (138.0, 162.0, x + box_w);
+            let (top, bottom, far) = (138.0 + down, 162.0 + down, x + box_w);
             rect(
                 window,
                 Bounds::new(at(o, x, top), size(px(box_w), px(bottom - top))),
@@ -735,26 +849,28 @@ pub fn element(
     let mut root = div()
         .relative()
         .w_full()
-        .h(px(HEIGHT))
+        .h(px(HEIGHT + down))
         .overflow_hidden()
         .whitespace_nowrap()
         .text_size(px(12.))
         .line_height(px(16.))
         .text_color(p.fg_dim)
+        .debug_selector(|| "loop-diagram".to_owned())
         .child(base)
         .child(
             div()
                 .absolute()
                 .left(relative(BLOCKS))
                 .ml(px(-100.))
-                .top(px(142.))
+                .top(px(142. + down))
                 .w(px(200.))
                 .text_center()
                 .child(diagram.labels.blocks.clone()),
         );
 
-    // The value and the caption of a bubble, `left` px after the start of its slice.
-    let text_of = |bubble: &Bubble, left: f32| {
+    // The value and the caption of a bubble: `left` px after the start of its slice, beside a
+    // bubble at `y`.
+    let text_of = |bubble: &Bubble, left: f32, y: f32| {
         let (value_color, caption_color) = match bubble.state {
             BubbleState::Normal => (p.fg, p.fg_dim),
             BubbleState::Warning => (p.fg, p.warning),
@@ -767,11 +883,12 @@ pub fn element(
             _ if bubble.info => Some((NcIcon::Info, p.fg_dim)),
             _ => None,
         };
+        let name = bubble.tag.text();
         div()
             .flex()
             .flex_col()
             .items_start()
-            .mt(px(26.))
+            .mt(px(y - 20.))
             .ml(px(left))
             .mr(px(26.))
             .child(
@@ -783,6 +900,7 @@ pub fn element(
                     .line_height(px(22.))
                     .font_weight(FontWeight::BOLD)
                     .text_color(value_color)
+                    .debug_selector(move || format!("loop-value-{name}"))
                     .child(bubble.value.clone())
                     .children((!bubble.unit.is_empty()).then(|| {
                         div()
@@ -799,12 +917,13 @@ pub fn element(
                     .items_center()
                     .gap(px(4.))
                     .text_color(caption_color)
+                    .debug_selector(move || format!("loop-caption-{name}"))
                     .children(marker.map(|(name, color): (NcIcon, Hsla)| small_icon(name, color)))
                     .child(bubble.caption.clone()),
             )
     };
-    // The circle of a bubble takes the click and shows the tooltip. `x` is its center.
-    let tag_of = |index: usize, bubble: &Bubble, x: f32| {
+    // The circle of a bubble takes the click and shows the tooltip. `x`, `y` is its center.
+    let tag_of = |index: usize, bubble: &Bubble, x: f32, y: f32| {
         let ink = match bubble.state {
             BubbleState::Normal => p.fg,
             BubbleState::Warning => p.warning_fg,
@@ -814,11 +933,12 @@ pub fn element(
         let page = bubble.opens.clone();
         let open = on_open.clone();
         let tooltip: SharedString = bubble.tooltip.clone().into();
+        let name = bubble.tag.text();
         div()
             .id(("bubble", index))
             .absolute()
             .left(px(x - 18.0))
-            .top(px(BUBBLE_Y - 18.0))
+            .top(px(y - 18.0))
             .size(px(36.))
             .flex()
             .items_center()
@@ -828,6 +948,7 @@ pub fn element(
             .font_family(mono.clone())
             .font_weight(FontWeight::BOLD)
             .cursor_pointer()
+            .debug_selector(move || format!("loop-bubble-{name}"))
             .tooltip(move |window, cx| Tooltip::new(tooltip.clone()).build(window, cx))
             .on_click(move |_, window, cx| open(page.clone(), window, cx))
             .child(bubble.tag.text())
@@ -841,7 +962,10 @@ pub fn element(
     };
 
     // The first slice: the Leakshield with its bubble, or the text of a Loop without one.
+    // In the narrow diagram the text of this group is out of the slice: it has the row for
+    // itself, and the slice only keeps the pump clear of the reservoir.
     let mut first = slice(PUMP);
+    let mut group: Option<Div> = None;
     if has_leakshield {
         first = first
             .child(
@@ -862,7 +986,7 @@ pub fn element(
                 div()
                     .absolute()
                     .left(px(24.))
-                    .top(px(110.))
+                    .top(px(110. + down))
                     .w(px(64.))
                     .flex()
                     .flex_col()
@@ -877,12 +1001,11 @@ pub fn element(
                     .child(diagram.labels.fill_level.clone())
             }));
         if let Some((index, bubble)) = indexed(Tag::Pt) {
-            first = first
-                .child(tag_of(index, bubble, 132.0))
-                .child(text_of(bubble, 158.0));
+            first = first.child(tag_of(index, bubble, 132.0, BUBBLE_Y));
+            group = Some(text_of(bubble, 158.0, BUBBLE_Y));
         }
     } else if let Some((title, text)) = &diagram.no_leakshield {
-        first = first.child(
+        group = Some(
             div()
                 .mt(px(31.))
                 .ml(px(24.))
@@ -890,6 +1013,13 @@ pub fn element(
                 .child(div().font_weight(FontWeight::BOLD).child(title.clone()))
                 .child(div().mt(px(2.)).child(text.clone())),
         );
+    }
+    if narrow {
+        // The pump stays right of the reservoir, or of the corner of a closed water path.
+        first = first.min_w(px(if has_leakshield { 130. } else { 70. }));
+        root = root.children(group.map(|group| div().absolute().top_0().left_0().child(group)));
+    } else {
+        first = first.children(group);
     }
 
     // The slices of the pump, the flow sensor and the water temperature. Each part is at the
@@ -916,25 +1046,27 @@ pub fn element(
                     let o = bounds.origin;
                     let span = f32::from(bounds.size.width);
                     if matches!(symbol, Symbol::Pump) {
-                        // The flow arrows, one on each leg.
+                        // The flow arrows, one on each leg. The narrow diagram has no room
+                        // left of the pump: the arrow of the return leg is under the other.
                         let middle = (span / 2.0).round();
                         polyline(
                             window,
                             &[
-                                at(o, middle - 6.0, SUPPLY_Y - 7.0),
-                                at(o, middle + 6.0, SUPPLY_Y),
-                                at(o, middle - 6.0, SUPPLY_Y + 7.0),
+                                at(o, middle - 6.0, supply - 7.0),
+                                at(o, middle + 6.0, supply),
+                                at(o, middle - 6.0, supply + 7.0),
                             ],
                             3.0,
                             water,
                             None,
                         );
+                        let tip = if narrow { middle - 6.0 } else { -52.0 };
                         polyline(
                             window,
                             &[
-                                at(o, -40.0, RETURN_Y - 7.0),
-                                at(o, -52.0, RETURN_Y),
-                                at(o, -40.0, RETURN_Y + 7.0),
+                                at(o, tip + 12.0, back - 7.0),
+                                at(o, tip, back),
+                                at(o, tip + 12.0, back + 7.0),
                             ],
                             3.0,
                             water,
@@ -945,13 +1077,13 @@ pub fn element(
                         return;
                     }
                     let leader_end = match symbol {
-                        Symbol::Pump => 86.0,
-                        Symbol::Flow => 89.0,
-                        Symbol::Water => 96.0,
+                        Symbol::Pump => supply - 14.0,
+                        Symbol::Flow => supply - 11.0,
+                        Symbol::Water => supply - 4.0,
                     };
                     polyline(
                         window,
-                        &[at(o, 0.0, 64.0), at(o, 0.0, leader_end)],
+                        &[at(o, 0.0, 64.0 + down), at(o, 0.0, leader_end)],
                         1.0,
                         fg,
                         None,
@@ -960,7 +1092,7 @@ pub fn element(
                         Symbol::Pump => {
                             disc(
                                 window,
-                                at(o, 0.0, SUPPLY_Y),
+                                at(o, 0.0, supply),
                                 14.0 + OUTLINE / 2.0,
                                 part,
                                 Some((fg, OUTLINE, false)),
@@ -968,20 +1100,20 @@ pub fn element(
                             polygon(
                                 window,
                                 &[
-                                    at(o, -5.0, SUPPLY_Y - 7.0),
-                                    at(o, 7.0, SUPPLY_Y),
-                                    at(o, -5.0, SUPPLY_Y + 7.0),
+                                    at(o, -5.0, supply - 7.0),
+                                    at(o, 7.0, supply),
+                                    at(o, -5.0, supply + 7.0),
                                 ],
                                 fg,
                             );
                         }
                         Symbol::Flow => {
-                            outlined(window, o, [-18.0, 89.0, 36.0, 22.0], 3.0, part, fg);
+                            outlined(window, o, [-18.0, supply - 11.0, 36.0, 22.0], 3.0, part, fg);
                         }
-                        Symbol::Water => disc(window, at(o, 0.0, SUPPLY_Y), 4.5, fg, None),
+                        Symbol::Water => disc(window, at(o, 0.0, supply), 4.5, fg, None),
                     }
                     if let Some(state) = state {
-                        bubble_circle(window, o, state, &bubble_colors);
+                        bubble_circle(window, at(o, 0.0, down), state, &bubble_colors);
                     }
                 },
             )
@@ -992,21 +1124,20 @@ pub fn element(
         );
         if let Some((index, bubble)) = found {
             part_slice = part_slice
-                .child(tag_of(index, bubble, 0.0))
+                .child(tag_of(index, bubble, 0.0, BUBBLE_Y + down))
                 .child(
                     div()
                         .absolute()
                         .left(px(-70.))
-                        .top(px(116.))
+                        .top(px(116. + down))
                         .w(px(140.))
                         .text_center()
                         .truncate()
                         .child(bubble.name.clone()),
                 )
-                .child(text_of(bubble, 26.0));
+                .child(text_of(bubble, 26.0, BUBBLE_Y + down));
         }
         row = row.child(part_slice);
     }
-    root = root.child(row);
-    root
+    root.child(row)
 }
