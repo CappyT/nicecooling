@@ -22,6 +22,12 @@ One card per group. Each event is one row with these columns:
 | System | "System Alarm": a fault of the Leakshield or of its power supply. No threshold |
 | nicecooling | "Leakshield unreachable": nicecooling gets no data for 10 s. It has an alarm response only |
 
+Below the group cards: the card "Options" with switches that are bits of the settings:
+
+| Switch | Field and bit |
+|---|---|
+| "Disable alarm actions during standby" | `standby_conditions` bit 3, set is on. The System tab has the same switch |
+
 Above the cards: the row "Reset device alarms", then the recommendation card.
 
 ## Reset device alarms

@@ -1010,6 +1010,9 @@ leakshield:
       threshold: "Soglia"
       device: "Risposta del dispositivo"
       response: "Risposta all'allarme"
+    options: "Opzioni"
+    option:
+      standby_actions: "Disattiva le azioni di allarme durante lo standby"
     group:
       leakage: "Perdite"
       fill: "Livello"
@@ -1246,7 +1249,7 @@ leakshield:
     standby_row:
       suspended: "Standby con bus USB sospeso"
       no_usb: "Standby senza collegamento USB"
-      alarm: "Esci dallo standby con un allarme"
+      alarm: "Disattiva le azioni di allarme durante lo standby"
     backups: "Backup"
     column:
       time: "Ora"

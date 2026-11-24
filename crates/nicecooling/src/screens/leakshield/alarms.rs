@@ -101,6 +101,19 @@ const EVENTS: [EventDef; 6] = [
     },
 ];
 
+/// A switch of the tab that is one bit of a settings field.
+struct OptionDef {
+    key: &'static str,
+    field: &'static str,
+    bit: u32,
+}
+
+const OPTIONS: [OptionDef; 1] = [OptionDef {
+    key: "standby_actions",
+    field: "standby_conditions",
+    bit: 8,
+}];
+
 /// The id of the alarm response of an event of this tab.
 pub fn response_event(event: &str) -> String {
     format!("leakshield.{event}")
@@ -134,6 +147,28 @@ impl AlarmsUi {
             id,
             &format!("threshold:{field}"),
             vec![(field.to_owned(), FieldValue::Number(value))],
+        ))
+    }
+
+    /// A switch of the options card: a bit of a settings field.
+    pub fn set_option(
+        &self,
+        input: &ScreenInput<'_>,
+        id: &str,
+        key: &str,
+        on: bool,
+    ) -> Option<Command> {
+        let def = OPTIONS.iter().find(|o| o.key == key)?;
+        let device = Device::new(input, id);
+        if !device.access(def.field).writable {
+            return None;
+        }
+        let mask = device.number(def.field)? as u32;
+        let mask = if on { mask | def.bit } else { mask & !def.bit };
+        Some(fields_command(
+            id,
+            &format!("option:{key}"),
+            vec![(def.field.to_owned(), FieldValue::Number(f64::from(mask)))],
         ))
     }
 
@@ -314,6 +349,17 @@ pub struct ResetRow {
     pub write_line: Option<FeedbackLine>,
 }
 
+/// A switch of the options card.
+#[derive(Clone, Debug, PartialEq)]
+pub struct OptionCtl {
+    pub key: String,
+    pub label: String,
+    pub on: bool,
+    pub writable: bool,
+    pub reason: Option<String>,
+    pub write_line: Option<FeedbackLine>,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct AlarmsModel {
     pub state: TabState,
@@ -322,6 +368,8 @@ pub struct AlarmsModel {
     pub recommendations: Vec<Recommendation>,
     pub columns: Vec<String>,
     pub groups: Vec<EventGroup>,
+    pub options_title: String,
+    pub options: Vec<OptionCtl>,
     pub device_help: String,
     pub sound_label: String,
 }
@@ -516,6 +564,22 @@ impl AlarmsModel {
                 .map(|name| locale.tr(&format!("leakshield.alarms.column.{name}")))
                 .collect(),
             groups,
+            options_title: locale.tr("leakshield.alarms.options"),
+            options: OPTIONS
+                .iter()
+                .filter_map(|def| {
+                    let mask = device.number(def.field)? as u32;
+                    let access = device.access(def.field);
+                    Some(OptionCtl {
+                        key: def.key.to_owned(),
+                        label: locale.tr(&format!("leakshield.alarms.option.{}", def.key)),
+                        on: mask & def.bit != 0,
+                        writable: access.writable,
+                        reason: (!access.writable).then(|| device.reason_text(&access.reason)),
+                        write_line: write_line(input, id, &format!("option:{}", def.key)),
+                    })
+                })
+                .collect(),
             device_help: locale.tr("leakshield.alarms.device_help"),
             sound_label: locale.tr("leakshield.alarms.sound"),
         }

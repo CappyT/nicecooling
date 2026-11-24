@@ -1327,6 +1327,72 @@ async fn accepting_a_proposal_sends_the_name() {
 }
 
 #[test]
+fn bit_3_of_the_standby_conditions_disables_the_alarm_actions_in_standby() {
+    let feedback = Feedback::default();
+    let conditions = |value: f64| {
+        tweak(|state| set_field(state, "standby_conditions", FieldValue::Number(value)))
+    };
+    // The System tab names the bit. Bit 3 set is "on".
+    let system_rows = |value: f64| {
+        let state = conditions(value);
+        SystemModel::build(&en(&state, &feedback), &SystemUi::default(), LEAKSHIELD)
+            .standby
+            .rows
+    };
+    let rows = system_rows(11.0);
+    assert_eq!(rows[2].label, "Disable alarm actions during standby");
+    assert!(rows[2].on && rows[2].bit == 8);
+    assert!(!system_rows(3.0)[2].on);
+    // The Alarms tab has the same switch.
+    let option = |value: f64| {
+        let state = conditions(value);
+        alarms(&state, &feedback).options.remove(0)
+    };
+    let on = option(11.0);
+    assert_eq!(on.label, "Disable alarm actions during standby");
+    assert!(on.on && on.writable);
+    assert!(!option(3.0).on);
+    // A write changes bit 3 only.
+    let state = conditions(3.0);
+    let write = |state: &AppState, on: bool| {
+        let Some(Command::SetLeakshieldFields { fields, .. }) =
+            AlarmsUi.set_option(&en(state, &feedback), LEAKSHIELD, "standby_actions", on)
+        else {
+            panic!("a field write");
+        };
+        fields[0].clone()
+    };
+    assert_eq!(
+        write(&state, true),
+        ("standby_conditions".to_owned(), FieldValue::Number(11.0))
+    );
+    assert_eq!(write(&conditions(11.0), false).1, FieldValue::Number(3.0));
+    assert!(
+        AlarmsUi
+            .set_option(&en(&state, &feedback), LEAKSHIELD, "nothing", true)
+            .is_none()
+    );
+    // A read-only device sends nothing.
+    let unknown = unknown_firmware();
+    assert!(
+        AlarmsUi
+            .set_option(
+                &en(&unknown, &feedback),
+                LEAKSHIELD,
+                "standby_actions",
+                true
+            )
+            .is_none()
+    );
+    // Italian.
+    let italian = AlarmsModel::build(&input(&state, &feedback, IT), &AlarmsUi, LEAKSHIELD);
+    assert_eq!(
+        italian.options[0].label,
+        "Disattiva le azioni di allarme durante lo standby"
+    );
+}
+
+#[test]
 fn leakshield_alarms_commands() {
     let state = with_leakshield();
     let feedback = Feedback::default();
@@ -2908,19 +2974,11 @@ fn no_pump_runtime_button() {
 
 #[test]
 fn leakshield_system_labels() {
-    // The daemon gives no device description, no date format, no refill rows, no size of a backup
-    // and no alarm evaluation for each USB state.
+    // The daemon gives no device description, no date format, no refill rows and no size of a
+    // backup.
     let missing = labels::missing_labels(
         "leakshield-system.md",
-        &[
-            "Device description",
-            "Date format",
-            "Suspended",
-            "No USB host",
-            "Alarm evaluation",
-            "Size",
-            "With alarm evaluation off, the Leakshield does not detect a leak in that state.",
-        ],
+        &["Device description", "Date format", "Size"],
     );
     assert!(missing.is_empty(), "labels without text: {missing:?}");
     let italian = SystemModel::build(

@@ -8,7 +8,7 @@ Six cards.
 
 1. "Device": rows "Serial" (mono), "Firmware version" (with the tag "Known" or the warning tag "Unknown"), "Maintenance indicator" (a progress bar and percent, and the button "Reset service counter" at the end of the row), "Device description" (input).
 2. "Clock": "Device time" (live), "Time zone" (select), "Date format" and "Time format" (selects), button "Set from the PC".
-3. "Standby behavior": a table with one row per USB state ("Active", "Suspended", "No USB host") and three switch columns: "Display", "Alarm evaluation", "Lighting".
+3. "Standby behavior": three switches, each one a bit of `standby_conditions`: "Standby when the USB bus is suspended" (bit 1), "Standby without a USB connection" (bit 0) and "Disable alarm actions during standby" (bit 3, set is on). The Alarms tab has the third switch too.
 4. "Backups": a table with "Time", "Reason" ("Before a write", "Manual", "Imported") and "Size", newest first. Row buttons: "Export", "Restore". Header buttons: "Back up now", "Import".
 5. "Refill history": a table with "Time", "Duration" and "Volume", one row for each of the 7 entries of the device, newest first. Header button: "Reset refill history".
 6. "Reset": "Reset to factory settings" (destructive button).
@@ -23,7 +23,6 @@ Six cards.
 | Unknown firmware | Firmware row: warning tag "Unknown" and the text "nicecooling has no field layout for this firmware. Every field is read-only." No firmware update function exists: "To update the firmware, use aquasuite on Windows." |
 | Maintenance indicator at 0 % | Warning row: "The vacuum pump and the valves need maintenance by Aqua Computer." |
 | Clock not set | Warning in the Clock card: "The Leakshield has no battery for its clock. After a power loss, set the time again." |
-| Alarm evaluation off in a state | Warning under the table: "With alarm evaluation off, the Leakshield does not detect a leak in that state." |
 | Not authorized | A user outside `wheel` gets the polkit dialog on "Restore" and "Reset to factory settings". After a denial: "Not authorized. Nothing changed." |
 | Reset not supported | The daemon replies `NotSupported`. Text under the button: "This firmware has no such command." |
 | Restoring | Write status with the four steps. Other writes are disabled until it ends |

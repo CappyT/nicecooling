@@ -106,7 +106,55 @@ impl ScreenView {
             }
             content = content.child(card);
         }
-        content = content.child(caption(model.device_help.clone(), p).px(px(6.)));
+        let mut options = card(p).child(card_header(model.options_title.clone(), p));
+        for option in &model.options {
+            let (view, device, key) = (cx.entity(), id.to_owned(), option.key.clone());
+            let ready = model.state == TabState::Ready;
+            options = options.child(
+                card_row(p)
+                    .gap(px(18.))
+                    .child(
+                        v_flex()
+                            .flex_1()
+                            .min_w_0()
+                            .gap(px(3.))
+                            .child(
+                                div()
+                                    .font_weight(FontWeight::BOLD)
+                                    .child(option.label.clone()),
+                            )
+                            .when_some(option.reason.clone(), |column, reason| {
+                                column.child(
+                                    locked(reason, p).text_size(px(12.)).text_color(p.fg_dim),
+                                )
+                            })
+                            .when_some(option.write_line.as_ref(), |column, line| {
+                                column.child(write_line(line, p))
+                            }),
+                    )
+                    .child(
+                        Switch::new(SharedString::from(format!("ls-option-{}", option.key)))
+                            .large()
+                            .checked(option.on)
+                            .disabled(!(option.writable && ready))
+                            .on_click(move |on, _, cx| {
+                                let on = *on;
+                                let (device, key) = (device.clone(), key.clone());
+                                view.update(cx, |this, cx| {
+                                    let command = this.with_input(cx, |input| {
+                                        this.leakshield.alarms.set_option(input, &device, &key, on)
+                                    });
+                                    if let Some(command) = command {
+                                        this.send(command);
+                                    }
+                                });
+                            }),
+                    ),
+            );
+        }
+        content = content
+            .child(options)
+            .child(caption(model.device_help.clone(), p).px(px(6.)));
         content.into_any_element()
     }
 

@@ -1010,6 +1010,9 @@ leakshield:
       threshold: "Threshold"
       device: "Device response"
       response: "Alarm response"
+    options: "Options"
+    option:
+      standby_actions: "Disable alarm actions during standby"
     group:
       leakage: "Leakage"
       fill: "Fill level"
@@ -1246,7 +1249,7 @@ leakshield:
     standby_row:
       suspended: "Standby when the USB bus is suspended"
       no_usb: "Standby without a USB connection"
-      alarm: "Leave standby on an alarm"
+      alarm: "Disable alarm actions during standby"
     backups: "Backups"
     column:
       time: "Time"
