@@ -3,7 +3,7 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 
 /// Two values closer than this are equal.
-const EQ_TOLERANCE: f64 = 1e-9;
+pub const EQ_TOLERANCE: f64 = 1e-9;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -74,36 +74,64 @@ impl SensorRule {
     }
 
     pub fn compares(&self, reading: f64) -> bool {
-        let value = self.value;
-        match self.comparison {
-            Comparison::Lt => reading < value,
-            Comparison::Le => reading <= value,
-            Comparison::Eq => (reading - value).abs() <= EQ_TOLERANCE,
-            Comparison::Ge => reading >= value,
-            Comparison::Gt => reading > value,
-            Comparison::Ne => (reading - value).abs() > EQ_TOLERANCE,
-            Comparison::InRange => {
-                reading >= value && reading <= self.value_max.unwrap_or(f64::NEG_INFINITY)
-            }
+        compare(self.comparison, reading, self.value, self.value_max)
+    }
+}
+
+/// Whether `reading` passes the comparison against `value`. `in_range` also needs `value_max`:
+/// without it nothing is in range. A Profile rule and a Graph node share this function, so both
+/// agree on a reading.
+pub fn compare(comparison: Comparison, reading: f64, value: f64, value_max: Option<f64>) -> bool {
+    match comparison {
+        Comparison::Lt => reading < value,
+        Comparison::Le => reading <= value,
+        Comparison::Eq => (reading - value).abs() <= EQ_TOLERANCE,
+        Comparison::Ge => reading >= value,
+        Comparison::Gt => reading > value,
+        Comparison::Ne => (reading - value).abs() > EQ_TOLERANCE,
+        Comparison::InRange => {
+            reading >= value && reading <= value_max.unwrap_or(f64::NEG_INFINITY)
         }
+    }
+}
+
+/// A condition that must stay true for a time. A false condition and a condition with no value
+/// start the time again.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Hold {
+    since: Option<Duration>,
+}
+
+impl Hold {
+    /// `condition` is `None` when the value of the condition is not known. It returns true when
+    /// the condition has held for `hold` at `now`.
+    pub fn holds(&mut self, condition: Option<bool>, hold: Duration, now: Duration) -> bool {
+        if condition != Some(true) {
+            self.since = None;
+            return false;
+        }
+        let since = *self.since.get_or_insert(now);
+        now.saturating_sub(since) >= hold
+    }
+
+    /// Forgets the time that the condition held.
+    pub fn reset(&mut self) {
+        self.since = None;
     }
 }
 
 /// The hold time of one sensor rule.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct SensorState {
-    since: Option<Duration>,
+    hold: Hold,
 }
 
 impl SensorState {
     /// A sensor with no value makes the rule false.
     pub fn holds(&mut self, rule: &SensorRule, reading: Option<f64>, now: Duration) -> bool {
-        if reading.is_none_or(|r| !rule.compares(r)) {
-            self.since = None;
-            return false;
-        }
-        let since = *self.since.get_or_insert(now);
-        now.saturating_sub(since) >= Duration::from_secs(u64::from(rule.hold_s))
+        let condition = reading.map(|r| rule.compares(r));
+        self.hold
+            .holds(condition, Duration::from_secs(u64::from(rule.hold_s)), now)
     }
 }
 
@@ -202,5 +230,62 @@ mod tests {
         assert!(!state.holds(&timed, Some(60.0), Duration::ZERO));
         assert!(!state.holds(&timed, None, Duration::from_secs(4)));
         assert!(!state.holds(&timed, Some(60.0), Duration::from_secs(5)));
+    }
+
+    #[test]
+    fn compare_equal_tolerance_1e_9() {
+        assert!(compare(Comparison::Eq, 50.000_000_000_1, 50.0, None));
+        assert!(compare(Comparison::Eq, 0.1 + 0.2, 0.3, None));
+        assert!(!compare(Comparison::Ne, 50.000_000_000_1, 50.0, None));
+        assert_eq!(EQ_TOLERANCE, 1e-9);
+    }
+
+    #[test]
+    fn compare_not_equal_outside_tolerance() {
+        assert!(!compare(Comparison::Eq, 5.0, 5.000_001, None));
+        assert!(compare(Comparison::Ne, 5.0, 5.000_001, None));
+        assert!(!compare(Comparison::Ne, 5.0, 5.0, None));
+        assert!(!compare(Comparison::InRange, 5.0, 1.0, None));
+        assert!(compare(Comparison::InRange, 5.0, 1.0, Some(5.0)));
+    }
+
+    #[test]
+    fn hold_resets_on_false() {
+        let secs = Duration::from_secs;
+        let mut hold = Hold::default();
+        assert!(!hold.holds(Some(true), secs(3), secs(10)));
+        assert!(!hold.holds(Some(true), secs(3), secs(12)));
+        assert!(!hold.holds(Some(false), secs(3), secs(13)));
+        // The time starts again at second 14.
+        assert!(!hold.holds(Some(true), secs(3), secs(14)));
+        assert!(!hold.holds(Some(true), secs(3), secs(16)));
+        assert!(hold.holds(Some(true), secs(3), secs(17)));
+    }
+
+    #[test]
+    fn hold_resets_on_no_value() {
+        let secs = Duration::from_secs;
+        let mut hold = Hold::default();
+        assert!(!hold.holds(Some(true), secs(3), secs(10)));
+        assert!(!hold.holds(None, secs(3), secs(12)));
+        assert!(!hold.holds(Some(true), secs(3), secs(13)));
+        assert!(!hold.holds(Some(true), secs(3), secs(15)));
+        assert!(hold.holds(Some(true), secs(3), secs(16)));
+        hold.reset();
+        assert!(!hold.holds(Some(true), secs(3), secs(17)));
+    }
+
+    #[test]
+    fn hold_reaches_after_seconds() {
+        let secs = Duration::from_secs;
+        let mut hold = Hold::default();
+        for t in 10..13 {
+            assert!(!hold.holds(Some(true), secs(3), secs(t)), "t={t}");
+        }
+        for t in 13..20 {
+            assert!(hold.holds(Some(true), secs(3), secs(t)), "t={t}");
+        }
+        // A hold of 0 s holds at once.
+        assert!(Hold::default().holds(Some(true), Duration::ZERO, secs(1)));
     }
 }
