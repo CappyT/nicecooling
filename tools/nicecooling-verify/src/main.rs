@@ -1,14 +1,15 @@
 //! The Verification tool (task 5.12, `docs/hardware-checks/verification-writes.md`). It runs the
-//! Verification writes of one or more Safety fields of the reference Leakshield with one replug and
-//! prints the change that the registry needs. The daemon must not run: the tool refuses while it
+//! Verification writes of one or more Safety fields of the reference Leakshield and prints the
+//! change that the registry needs. A write is checked by its read-back and by a read-back after the
+//! save-settings command. The device does not restart. The daemon must not run: the tool refuses while it
 //! owns the bus name.
 
 use std::collections::BTreeSet;
 use std::fmt;
-use std::io::{self, BufRead, Write};
+use std::io::{self, Write};
 use std::path::PathBuf;
 use std::process::ExitCode;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use nicecooling_api::ids::BUS_NAME;
 use nicecooling_protocol::device::DeviceError;
@@ -40,10 +41,6 @@ const NO_SAFE_TEST_VALUE: [&str; 3] = [
     "device_profile",
 ];
 
-/// How long the tool waits for the device to come back after the replug.
-const REOPEN_TIMEOUT: Duration = Duration::from_secs(30);
-const REOPEN_POLL: Duration = Duration::from_millis(250);
-
 const REGISTRY_FILE: &str = "crates/nicecooling-protocol/registry/leakshield.toml";
 
 /// One field under test and its test value.
@@ -63,7 +60,6 @@ pub struct Options {
     pub state_dir: PathBuf,
     /// The time between the report 3 write and the save-settings command.
     pub save_delay: Duration,
-    pub reopen_timeout: Duration,
 }
 
 fn parse_args(args: impl Iterator<Item = String>) -> Result<Options, String> {
@@ -109,7 +105,6 @@ fn parse_args(args: impl Iterator<Item = String>) -> Result<Options, String> {
         confirm_serial,
         state_dir,
         save_delay: SAVE_SETTINGS_DELAY,
-        reopen_timeout: REOPEN_TIMEOUT,
     })
 }
 
@@ -235,30 +230,6 @@ impl fmt::Display for Verdict {
     }
 }
 
-/// How the operator replugs the USB cable. The tests replug the simulated device.
-pub trait Replug {
-    fn replug(&mut self, say: &mut dyn Write) -> io::Result<()>;
-}
-
-struct Terminal;
-
-impl Replug for Terminal {
-    fn replug(&mut self, say: &mut dyn Write) -> io::Result<()> {
-        writeln!(
-            say,
-            "ACTION: unplug the USB cable of the Leakshield, wait 5 s, plug it in again, then \
-             press Enter."
-        )?;
-        say.flush()?;
-        let mut line = String::new();
-        // End of input is not a replug: the persistence check would read the same session.
-        if io::stdin().lock().read_line(&mut line)? == 0 {
-            return Err(io::ErrorKind::UnexpectedEof.into());
-        }
-        Ok(())
-    }
-}
-
 /// Stops the run: `Failed` is a result on every field of the group, `Error` is a step that gave
 /// none.
 enum Stop {
@@ -356,32 +327,20 @@ fn probe(bus: &dyn UsbBus, serial: &str) -> Probe {
     }
 }
 
-/// Opens the Leakshield with `serial`. A device with another serial ends the search at once.
-fn open_by_serial(
-    bus: &dyn UsbBus,
-    serial: &str,
-    wait: Duration,
-) -> Result<(DeviceIo, Report1), Error> {
-    let deadline = Instant::now() + wait;
-    loop {
-        match probe(bus, serial) {
-            Probe::Found(io, report1) => return Ok((io, *report1)),
-            Probe::Mismatch(found) => {
-                return Err(Error::SerialMismatch {
-                    confirmed: serial.to_owned(),
-                    found,
-                });
-            }
-            Probe::NotYet(why) if Instant::now() >= deadline => return Err(Error::NoDevice(why)),
-            Probe::NotYet(_) => std::thread::sleep(REOPEN_POLL),
-        }
+/// Opens the Leakshield with `serial`. A device with another serial is an error.
+fn open_by_serial(bus: &dyn UsbBus, serial: &str) -> Result<(DeviceIo, Report1), Error> {
+    match probe(bus, serial) {
+        Probe::Found(io, report1) => Ok((io, *report1)),
+        Probe::Mismatch(found) => Err(Error::SerialMismatch {
+            confirmed: serial.to_owned(),
+            found,
+        }),
+        Probe::NotYet(why) => Err(Error::NoDevice(why)),
     }
 }
 
 struct Check<'a> {
-    bus: &'a dyn UsbBus,
     opts: &'a Options,
-    serial: &'a str,
     /// The compiled-in registry with the tested fields forced writable. Only the tool holds it.
     registry: Registry,
     backups: Backups,
@@ -394,7 +353,6 @@ struct Check<'a> {
     /// True once the device may hold a test value.
     touched: bool,
     say: &'a mut dyn Write,
-    replug: &'a mut dyn Replug,
 }
 
 impl Check<'_> {
@@ -491,8 +449,7 @@ impl Check<'_> {
             .collect()
     }
 
-    /// Writes each field, saves, reads back, replugs, reads back. The verdicts follow the order of
-    /// the fields.
+    /// Writes each field, saves, reads back. The verdicts follow the order of the fields.
     fn exercise(&mut self) -> Result<Vec<Verdict>, Stop> {
         // The report that the previous step read back: the base of the next write.
         let mut base = self.original.clone();
@@ -547,74 +504,19 @@ impl Check<'_> {
         self.save_settings().map_err(Stop::Error)?;
         let report = self.read_report3()?;
         let verdicts = self.judge(&report, "read-back after save-settings");
-        if verdicts.iter().any(|v| matches!(v, Verdict::Failed(_))) {
-            // The replug does not run: no field has a persistence result.
-            return Ok(verdicts
-                .into_iter()
-                .map(|v| {
-                    if v == Verdict::Pass {
-                        Verdict::NotRun
-                    } else {
-                        v
-                    }
-                })
-                .collect());
-        }
-        self.line("read-back: only the expected bytes changed");
-
-        let power_ups = self.report1.power_up_count;
-        self.replug
-            .replug(self.say)
-            .map_err(|e| Stop::Error(format!("replug prompt: {e}")))?;
-        let no_restart = || {
-            Stop::Error(
-                "power_up_count did not change: the device did not restart, so the persistence \
-                 check would prove nothing"
-                    .to_owned(),
-            )
-        };
-        // A device that did not restart still answers on the old handle. Its bulk interface stays
-        // claimed there, so a reopen would fail with EBUSY.
-        if self
-            .io
-            .read_report1()
-            .is_ok_and(|report1| report1.power_up_count == power_ups)
-        {
-            return Err(no_restart());
-        }
-        let (io, report1) = open_by_serial(self.bus, self.serial, self.opts.reopen_timeout)
-            .map_err(|e| Stop::Error(e.to_string()))?;
-        self.io = io;
-        self.report1 = report1;
-        if self.report1.power_up_count == power_ups {
-            return Err(no_restart());
-        }
-        let report = self.read_report3()?;
-        let verdicts = self.judge(
-            &report,
-            "read-back after the replug (the value did not persist)",
-        );
         if verdicts.iter().all(|v| *v == Verdict::Pass) {
-            self.line("persistence: the test values survived the replug");
+            self.line("read-back: only the expected bytes changed");
         }
         Ok(verdicts)
     }
 
     /// Writes back the report 3 that the tool read before its first write, saves it and checks
     /// that the device holds those bytes. It takes no backup, so a full or read-only state
-    /// directory and the backup retention cannot stop it. A device that left the bus during the run
-    /// is opened again once.
+    /// directory and the backup retention cannot stop it.
     fn restore(&mut self) -> Result<(), String> {
         self.line(format!("restore: the report 3 of backup {}", self.backup));
-        if let Err(first) = write_verified(&self.env(), &self.original, &self.backup) {
-            self.line(format!("restore: {first}; opening the device again"));
-            let (io, report1) = open_by_serial(self.bus, self.serial, self.opts.reopen_timeout)
-                .map_err(|e| format!("restore: {first}; reopen: {e}"))?;
-            self.io = io;
-            self.report1 = report1;
-            write_verified(&self.env(), &self.original, &self.backup)
-                .map_err(|e| format!("restore: {e}"))?;
-        }
+        write_verified(&self.env(), &self.original, &self.backup)
+            .map_err(|e| format!("restore: {e}"))?;
         self.save_settings()?;
         let report = self
             .io
@@ -637,7 +539,6 @@ fn verify(
     bus: &dyn UsbBus,
     opts: &Options,
     serial: &str,
-    replug: &mut dyn Replug,
     say: &mut dyn Write,
 ) -> Result<Vec<(String, Verdict)>, Error> {
     let compiled = Registry::leakshield();
@@ -668,7 +569,7 @@ fn verify(
             field,
         });
     }
-    let (io, report1) = open_by_serial(bus, serial, Duration::ZERO)?;
+    let (io, report1) = open_by_serial(bus, serial)?;
     let _ = writeln!(
         say,
         "device: serial {}, firmware {}, power_up_count {}",
@@ -709,9 +610,7 @@ fn verify(
     }
 
     let mut check = Check {
-        bus,
         opts,
-        serial,
         registry,
         backups,
         backup: backup.clone(),
@@ -721,7 +620,6 @@ fn verify(
         report1,
         touched: false,
         say,
-        replug,
     };
     let stopped = check.exercise();
     if let (Err(Stop::Error(why)), false) = (&stopped, check.touched) {
@@ -796,7 +694,6 @@ pub async fn run(
     connection: &zbus::Connection,
     bus: &dyn UsbBus,
     opts: &Options,
-    replug: &mut dyn Replug,
     say: &mut dyn Write,
 ) -> Result<Vec<(String, Verdict)>, Error> {
     let serial = opts
@@ -804,7 +701,7 @@ pub async fn run(
         .as_deref()
         .ok_or(Error::MissingConfirmSerial)?;
     check_name_free(connection).await?;
-    verify(bus, opts, serial, replug, say)
+    verify(bus, opts, serial, say)
 }
 
 #[tokio::main(flavor = "current_thread")]
@@ -824,7 +721,7 @@ async fn main() -> ExitCode {
         }
     };
     let bus = NusbBus::new("/sys".into(), "/dev".into());
-    match run(&connection, &*bus, &opts, &mut Terminal, &mut io::stdout()).await {
+    match run(&connection, &*bus, &opts, &mut io::stdout()).await {
         Ok(results) if results.iter().all(|(_, verdict)| *verdict == Verdict::Pass) => {
             ExitCode::SUCCESS
         }

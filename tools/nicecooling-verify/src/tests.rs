@@ -84,49 +84,28 @@ impl Rig {
             confirm_serial: Some(self.serial()),
             state_dir: self.state.0.clone(),
             save_delay: Duration::ZERO,
-            reopen_timeout: Duration::from_secs(1),
-        }
-    }
-
-    /// A replug that runs `hook` while the device is off the bus.
-    fn replug(&self, hook: impl FnMut(&SimDevice) + 'static) -> SimReplug {
-        SimReplug {
-            usb: self.usb.clone(),
-            sim: self.sim.clone(),
-            calls: 0,
-            hook: Box::new(hook),
-            power_cycle: true,
         }
     }
 
     /// The first field of the group has the first verdict.
-    async fn run_group(
-        &self,
-        opts: &Options,
-        replug: &mut SimReplug,
-    ) -> (Result<Vec<(String, Verdict)>, Error>, String) {
+    async fn run_group(&self, opts: &Options) -> (Result<Vec<(String, Verdict)>, Error>, String) {
         let mut out = Tripwire::default();
-        let result = self.run_into(opts, replug, &mut out).await;
+        let result = self.run_into(opts, &mut out).await;
         (result, out.text())
     }
 
     async fn run_into(
         &self,
         opts: &Options,
-        replug: &mut dyn Replug,
         out: &mut dyn Write,
     ) -> Result<Vec<(String, Verdict)>, Error> {
         let connection = self.bus.connect().await;
-        run(&connection, &self.usb, opts, replug, out).await
+        run(&connection, &self.usb, opts, out).await
     }
 
     /// A run of one field.
-    async fn run(
-        &self,
-        opts: &Options,
-        replug: &mut SimReplug,
-    ) -> (Result<Verdict, Error>, String) {
-        let (result, out) = self.run_group(opts, replug).await;
+    async fn run(&self, opts: &Options) -> (Result<Verdict, Error>, String) {
+        let (result, out) = self.run_group(opts).await;
         let result = result.map(|mut results| {
             assert_eq!(results.len(), 1, "{results:?}");
             results.remove(0).1
@@ -196,39 +175,12 @@ impl Write for Tripwire {
     }
 }
 
-struct SimReplug {
-    usb: SimUsb,
-    sim: SimDevice,
-    calls: usize,
-    hook: Box<dyn FnMut(&SimDevice)>,
-    /// A real replug powers the device off and on, so `power_up_count` grows.
-    power_cycle: bool,
-}
-
-impl Replug for SimReplug {
-    fn replug(&mut self, _say: &mut dyn Write) -> io::Result<()> {
-        self.calls += 1;
-        self.usb.unplug(PATH);
-        (self.hook)(&self.sim);
-        if self.power_cycle {
-            self.sim.edit_report1(|r| r.power_up_count += 1);
-        }
-        self.usb.plug(sim_usb::device(PATH, 0x0100, 3), &self.sim);
-        Ok(())
-    }
-}
-
-fn no_hook(_: &SimDevice) {}
-
 #[tokio::test]
 async fn refuses_when_name_owned() {
     let rig = Rig::new();
     let owner = rig.bus.connect().await;
     owner.request_name(BUS_NAME).await.unwrap();
-    let mut replug = rig.replug(no_hook);
-    let (result, _) = rig
-        .run(&rig.options("pump_max_speed", 4801), &mut replug)
-        .await;
+    let (result, _) = rig.run(&rig.options("pump_max_speed", 4801)).await;
     assert!(matches!(result, Err(Error::NameOwned)), "{result:?}");
     assert!(rig.sim.requests().is_empty());
     assert!(rig.usb.opened().is_empty());
@@ -239,8 +191,7 @@ async fn refuses_without_confirm_serial() {
     let rig = Rig::new();
     let mut opts = rig.options("pump_max_speed", 4801);
     opts.confirm_serial = None;
-    let mut replug = rig.replug(no_hook);
-    let (result, _) = rig.run(&opts, &mut replug).await;
+    let (result, _) = rig.run(&opts).await;
     assert!(
         matches!(result, Err(Error::MissingConfirmSerial)),
         "{result:?}"
@@ -254,8 +205,7 @@ async fn refuses_wrong_serial() {
     let rig = Rig::new();
     let mut opts = rig.options("pump_max_speed", 4801);
     opts.confirm_serial = Some("1-2".to_owned());
-    let mut replug = rig.replug(no_hook);
-    let (result, _) = rig.run(&opts, &mut replug).await;
+    let (result, _) = rig.run(&opts).await;
     match result {
         Err(Error::SerialMismatch { confirmed, found }) => {
             assert_eq!(confirmed, "1-2");
@@ -271,34 +221,34 @@ async fn refuses_wrong_serial() {
             .all(|r| matches!(r, Request::ReadInput))
     );
     assert!(!rig.state.0.join("backups").exists());
-    assert_eq!(replug.calls, 0);
 }
 
 #[tokio::test]
 async fn happy_path_prints_registry_change() {
     let rig = Rig::new();
-    // The device holds the test value, and only that, when the operator replugs it.
-    let at_replug = {
+    // The device holds the test value, and only that, when the restore starts.
+    let mut out = Tripwire::new("restore: the report 3", {
+        let sim = rig.sim.clone();
         let original = rig.original.clone();
-        move |sim: &SimDevice| {
+        move || {
             let held = sim.report3();
             let changed: Vec<usize> = (1..=747).filter(|&o| held[o] != original[o]).collect();
             // 4800 and 4801 differ in the low byte only.
             assert_eq!(changed, [16]);
             assert_eq!(held[15..17], 4801i16.to_be_bytes());
         }
-    };
-    let mut replug = rig.replug(at_replug);
-    let (result, out) = rig
-        .run(&rig.options("pump_max_speed", 4801), &mut replug)
+    });
+    let result = rig
+        .run_into(&rig.options("pump_max_speed", 4801), &mut out)
         .await;
-    assert_eq!(result.unwrap(), Verdict::Pass, "{out}");
+    let out = out.text();
+    let results = result.unwrap();
+    assert_eq!(verdicts(&results), [Verdict::Pass], "{out}");
     assert!(out.contains("field pump_max_speed:"), "{out}");
     assert!(
         out.contains("verification_state = \"code-defined\" -> \"verified-write\""),
         "{out}"
     );
-    assert_eq!(replug.calls, 1);
     // The restore brought the backup back and saved it.
     assert_eq!(rig.sim.report3(), rig.original);
     assert_eq!(rig.report3_writes(), 2);
@@ -313,15 +263,11 @@ async fn unexpected_byte_change_aborts_and_restores() {
     // The device stores another byte than the one written.
     rig.sim
         .tamper_next_set_feature(100, rig.original[100] ^ 0xFF);
-    let mut replug = rig.replug(no_hook);
-    let (result, out) = rig
-        .run(&rig.options("pump_max_speed", 4801), &mut replug)
-        .await;
+    let (result, out) = rig.run(&rig.options("pump_max_speed", 4801)).await;
     match &result {
         Ok(Verdict::Failed(why)) => assert!(why.contains("[100]"), "{why}"),
         other => panic!("{other:?}\n{out}"),
     }
-    assert_eq!(replug.calls, 0, "the check ends before the replug");
     assert_eq!(rig.sim.report3(), rig.original);
     assert!(
         out.contains("restore: the device holds the backup bytes"),
@@ -334,49 +280,28 @@ async fn unexpected_byte_change_aborts_and_restores() {
 }
 
 #[tokio::test]
-async fn persistence_failure_prints_failed_state() {
-    let rig = Rig::new();
-    // The device lost the test value while it was off.
-    let lose_value = {
-        let original = rig.original.clone();
-        move |sim: &SimDevice| sim.change_report3(15, &original[15..17])
-    };
-    let mut replug = rig.replug(lose_value);
-    let (result, out) = rig
-        .run(&rig.options("pump_max_speed", 4801), &mut replug)
-        .await;
-    match &result {
-        Ok(Verdict::Failed(why)) => assert!(why.contains("did not persist"), "{why}"),
-        other => panic!("{other:?}\n{out}"),
-    }
-    assert_eq!(replug.calls, 1);
-    assert_eq!(rig.sim.report3(), rig.original);
-    assert!(
-        out.contains("verification_state = \"code-defined\" -> \"failed\""),
-        "{out}"
-    );
-}
-
-#[tokio::test]
 async fn repeated_field_writes_copy_0_only() {
     let rig = Rig::new();
-    let original = rig.original.clone();
-    let mut replug = rig.replug(move |sim| {
-        let held = sim.report3();
-        assert_eq!(held[716], 10);
-        assert_eq!(held[718], original[718], "copy 1 stays");
+    let mut out = Tripwire::new("restore: the report 3", {
+        let sim = rig.sim.clone();
+        let original = rig.original.clone();
+        move || {
+            let held = sim.report3();
+            assert_eq!(held[716], 10);
+            assert_eq!(held[718], original[718], "copy 1 stays");
+        }
     });
-    let (result, out) = rig
-        .run(&rig.options("vacuum_timer_start_hour", 10), &mut replug)
+    let result = rig
+        .run_into(&rig.options("vacuum_timer_start_hour", 10), &mut out)
         .await;
-    assert_eq!(result.unwrap(), Verdict::Pass, "{out}");
+    let out = out.text();
+    assert_eq!(verdicts(&result.unwrap()), [Verdict::Pass], "{out}");
     assert_eq!(rig.sim.report3(), rig.original);
 }
 
 #[tokio::test]
 async fn refuses_fields_that_need_no_check_or_have_no_safe_value() {
     let rig = Rig::new();
-    let mut replug = rig.replug(no_hook);
     for (field, value, refused) in [
         ("signal_output_config", 1, "no safe test value"),
         ("alarm_start_delay", 6, "no safe test value"),
@@ -386,13 +311,12 @@ async fn refuses_fields_that_need_no_check_or_have_no_safe_value() {
         // The same value as the device holds.
         ("pump_max_speed", 4800, "holds 4800 already"),
     ] {
-        let (result, _) = rig.run(&rig.options(field, value), &mut replug).await;
+        let (result, _) = rig.run(&rig.options(field, value)).await;
         let why = result.expect_err(field).to_string();
         assert!(why.contains(refused), "{field} {value}: {why}");
     }
     assert_eq!(rig.report3_writes(), 0);
     assert_eq!(rig.save_settings_count(), 0);
-    assert_eq!(replug.calls, 0);
 }
 
 #[test]
@@ -450,63 +374,6 @@ fn arguments_repeat_in_pairs() {
     assert!(parse(&["--field", "a", "--value", "1", "--field", "b"]).is_err());
 }
 
-#[tokio::test]
-async fn replug_without_a_power_cycle_aborts_and_restores() {
-    let rig = Rig::new();
-    let mut replug = rig.replug(|_| {});
-    replug.power_cycle = false;
-    let (result, out) = rig
-        .run(&rig.options("pump_max_speed", 4801), &mut replug)
-        .await;
-    match &result {
-        Err(Error::Aborted {
-            cause, restored, ..
-        }) => {
-            assert!(cause.contains("did not restart"), "{cause}");
-            assert!(restored, "{out}");
-        }
-        other => panic!("{other:?}\n{out}"),
-    }
-    assert_eq!(rig.sim.report3(), rig.original);
-    assert!(!out.contains("verification_state ="), "{out}");
-}
-
-/// The operator presses Enter without a replug: the device never left the bus.
-struct NoReplug;
-
-impl Replug for NoReplug {
-    fn replug(&mut self, _say: &mut dyn Write) -> io::Result<()> {
-        Ok(())
-    }
-}
-
-#[tokio::test]
-async fn enter_without_a_replug_aborts_on_the_old_handle() {
-    let rig = Rig::new();
-    let mut tripwire = Tripwire::default();
-    let result = rig
-        .run_into(
-            &rig.options("pump_max_speed", 4801),
-            &mut NoReplug,
-            &mut tripwire,
-        )
-        .await;
-    let out = tripwire.text();
-    match &result {
-        Err(Error::Aborted {
-            cause, restored, ..
-        }) => {
-            assert!(cause.contains("did not restart"), "{cause}");
-            assert!(restored, "{out}");
-        }
-        other => panic!("{other:?}\n{out}"),
-    }
-    // The bulk interface of the first open stays claimed, so a second open would get EBUSY on
-    // the real device.
-    assert_eq!(rig.usb.opened().len(), 1, "{out}");
-    assert_eq!(rig.sim.report3(), rig.original);
-}
-
 const GROUP: [&str; 3] = [
     "reservoir_air_volume_full",
     "pump_max_speed",
@@ -526,13 +393,14 @@ fn count(out: &str, text: &str) -> usize {
 }
 
 #[tokio::test]
-async fn group_of_three_passes_with_one_replug() {
+async fn group_of_three_passes() {
     let rig = Rig::new();
     let pairs = group_pairs(&rig);
-    // The device holds the three test values, and only them, when the operator replugs it.
-    let at_replug = {
+    // The device holds the three test values, and only them, when the restore starts.
+    let mut out = Tripwire::new("restore: the report 3", {
+        let sim = rig.sim.clone();
         let original = rig.original.clone();
-        move |sim: &SimDevice| {
+        move || {
             let held = sim.report3();
             let changed: Vec<usize> = (1..=747).filter(|&o| held[o] != original[o]).collect();
             assert!(changed.contains(&8) && changed.contains(&16) && changed.contains(&20));
@@ -542,9 +410,9 @@ async fn group_of_three_passes_with_one_replug() {
                     .all(|o| (7..9).contains(o) || (15..17).contains(o) || (19..21).contains(o))
             );
         }
-    };
-    let mut replug = rig.replug(at_replug);
-    let (result, out) = rig.run_group(&rig.group_options(&pairs), &mut replug).await;
+    });
+    let result = rig.run_into(&rig.group_options(&pairs), &mut out).await;
+    let out = out.text();
     let results = result.unwrap();
     let fields: Vec<&str> = results.iter().map(|(f, _)| f.as_str()).collect();
     assert_eq!(fields, GROUP, "{out}");
@@ -554,7 +422,6 @@ async fn group_of_three_passes_with_one_replug() {
         assert!(out.contains(&format!("field {field}:")), "{out}");
     }
     assert_eq!(count(&out, "-> \"verified-write\""), 3, "{out}");
-    assert_eq!(replug.calls, 1);
     // Three writes, one for each field, and the restore. One save-settings after the last write
     // and one after the restore.
     assert_eq!(rig.sim.report3(), rig.original);
@@ -572,10 +439,7 @@ async fn failure_at_the_second_write_stops_the_group_and_restores() {
         let byte = rig.original[100] ^ 0xFF;
         move || sim.tamper_next_set_feature(100, byte)
     });
-    let mut replug = rig.replug(no_hook);
-    let result = rig
-        .run_into(&rig.group_options(&pairs), &mut replug, &mut out)
-        .await;
+    let result = rig.run_into(&rig.group_options(&pairs), &mut out).await;
     let out = out.text();
     let results = result.unwrap();
     match verdicts(&results).as_slice() {
@@ -584,7 +448,6 @@ async fn failure_at_the_second_write_stops_the_group_and_restores() {
         }
         other => panic!("{other:?}\n{out}"),
     }
-    assert_eq!(replug.calls, 0, "the group ends before the replug");
     assert!(!out.contains("write: pump_start_speed"), "{out}");
     assert_eq!(rig.sim.report3(), rig.original);
     assert!(
@@ -601,40 +464,17 @@ async fn failure_at_the_second_write_stops_the_group_and_restores() {
 }
 
 #[tokio::test]
-async fn one_field_that_does_not_persist_fails_alone() {
-    let rig = Rig::new();
-    let pairs = group_pairs(&rig);
-    // The device loses the value of the second field while it is off.
-    let lose_value = {
-        let original = rig.original.clone();
-        move |sim: &SimDevice| sim.change_report3(15, &original[15..17])
-    };
-    let mut replug = rig.replug(lose_value);
-    let (result, out) = rig.run_group(&rig.group_options(&pairs), &mut replug).await;
-    let results = result.unwrap();
-    match verdicts(&results).as_slice() {
-        [Verdict::Pass, Verdict::Failed(why), Verdict::Pass] => {
-            assert!(why.contains("did not persist"), "{why}");
-        }
-        other => panic!("{other:?}\n{out}"),
-    }
-    assert_eq!(replug.calls, 1);
-    assert_eq!(rig.sim.report3(), rig.original);
-    assert_eq!(count(&out, "registry change"), 3, "{out}");
-    assert_eq!(count(&out, "-> \"verified-write\""), 2, "{out}");
-    assert_eq!(count(&out, "-> \"failed\""), 1, "{out}");
-}
-
-#[tokio::test]
 async fn a_byte_that_no_field_explains_fails_the_whole_group() {
     let rig = Rig::new();
     let pairs = group_pairs(&rig);
-    let change_other_byte = {
-        let original = rig.original.clone();
-        move |sim: &SimDevice| sim.change_report3(100, &[original[100] ^ 0xFF])
-    };
-    let mut replug = rig.replug(change_other_byte);
-    let (result, out) = rig.run_group(&rig.group_options(&pairs), &mut replug).await;
+    // A byte that no write explains changes before the read-back after save-settings.
+    let mut out = Tripwire::new("save-settings: waiting", {
+        let sim = rig.sim.clone();
+        let byte = rig.original[100] ^ 0xFF;
+        move || sim.change_report3(100, &[byte])
+    });
+    let result = rig.run_into(&rig.group_options(&pairs), &mut out).await;
+    let out = out.text();
     let results = result.unwrap();
     for verdict in verdicts(&results) {
         match verdict {
@@ -649,22 +489,19 @@ async fn a_byte_that_no_field_explains_fails_the_whole_group() {
 #[tokio::test]
 async fn group_refuses_a_duplicate_field_before_the_device() {
     let rig = Rig::new();
-    let mut replug = rig.replug(no_hook);
     let opts = rig.group_options(&[("pump_max_speed", 4801), ("pump_max_speed", 4802)]);
-    let (result, _) = rig.run_group(&opts, &mut replug).await;
+    let (result, _) = rig.run_group(&opts).await;
     match result {
         Err(Error::DuplicateField(field)) => assert_eq!(field, "pump_max_speed"),
         other => panic!("{other:?}"),
     }
     assert!(rig.sim.requests().is_empty());
     assert!(rig.usb.opened().is_empty());
-    assert_eq!(replug.calls, 0);
 }
 
 #[tokio::test]
 async fn group_validates_every_pair_before_the_first_write() {
     let rig = Rig::new();
-    let mut replug = rig.replug(no_hook);
     for (second, refused) in [
         (("display_page_time", 50), "not a Safety field"),
         (("alarm_start_delay", 6), "no safe test value"),
@@ -677,13 +514,12 @@ async fn group_validates_every_pair_before_the_first_write() {
         ),
     ] {
         let opts = rig.group_options(&[("pump_max_speed", 4801), second]);
-        let (result, _) = rig.run_group(&opts, &mut replug).await;
+        let (result, _) = rig.run_group(&opts).await;
         let why = result.expect_err(second.0).to_string();
         assert!(why.contains(refused), "{second:?}: {why}");
     }
     assert_eq!(rig.report3_writes(), 0);
     assert_eq!(rig.save_settings_count(), 0);
-    assert_eq!(replug.calls, 0);
 }
 
 /// The state dir already holds the first backup and 20 newer ones, and the oldest of them holds the
@@ -724,8 +560,7 @@ async fn restore_survives_backup_retention() {
         );
     }
     let pairs = &group_pairs(&rig)[..2];
-    let mut replug = rig.replug(no_hook);
-    let (result, out) = rig.run_group(&rig.group_options(pairs), &mut replug).await;
+    let (result, out) = rig.run_group(&rig.group_options(pairs)).await;
     assert!(out.contains(&format!("backup: {same}")), "{out}");
     assert_eq!(
         rig.sim.report3(),
@@ -742,10 +577,7 @@ async fn restore_of_an_out_of_range_original() {
     // fill_level_calibration: i16 at 4, scale 0.01, range -20..20 %.
     rig.sim.change_report3(4, &3000i16.to_be_bytes());
     rig.original = rig.sim.report3();
-    let mut replug = rig.replug(no_hook);
-    let (result, out) = rig
-        .run(&rig.options("pump_max_speed", 4801), &mut replug)
-        .await;
+    let (result, out) = rig.run(&rig.options("pump_max_speed", 4801)).await;
     assert!(
         rig.report3_writes() == 0 || rig.sim.report3() == rig.original,
         "wrote, then left the device unrestored: {result:?}\n{out}"
@@ -769,10 +601,7 @@ async fn restore_without_a_writable_state_dir() {
             }
         }
     });
-    let mut replug = rig.replug(no_hook);
-    let result = rig
-        .run_into(&rig.group_options(&pairs), &mut replug, &mut out)
-        .await;
+    let result = rig.run_into(&rig.group_options(&pairs), &mut out).await;
     for entry in std::fs::read_dir(&leak_dir).unwrap() {
         let p = entry.unwrap().path();
         std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o755)).unwrap();
@@ -818,9 +647,8 @@ async fn a_failed_restore_aborts_without_a_registry_change() {
     let mut out = Tripwire::new("restore: the report 3", move || {
         sim.fail_feature_writes(true)
     });
-    let mut replug = rig.replug(no_hook);
     let result = rig
-        .run_into(&rig.options("pump_max_speed", 4801), &mut replug, &mut out)
+        .run_into(&rig.options("pump_max_speed", 4801), &mut out)
         .await;
     rig.sim.fail_feature_writes(false);
     assert!(
