@@ -8,7 +8,7 @@ Every Leakshield page has the same frame: the header bar with the device label a
 
 1. Row of two cards.
    - "Pressure": the pressure gauge (see `../widgets.md`) with the tag "In range".
-   - "Status": a status tag ("Protecting"), then rows: "Fill level" with the time of the measurement, "Volume change" in ml/h, "Pressure change" in mbar/min, "Feed" with its age.
+   - "Status": a status tag ("Protecting"), then rows: "Fill level" with the time of the last measurement (the time of the newest event "Fill level measured" of the device; the row shows no time while the event list has none), "Volume change" in ml/h, "Pressure change" in mbar/min, "Feed" with its age.
 2. Card "Mode and Actions".
    - Mode selector: three toggle buttons, SHIELD, MONITOR and RELEASE.
    - Action bar: "Test", "Measure fill level", "Deaerate", "Refill".

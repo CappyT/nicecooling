@@ -1,10 +1,11 @@
-//! The pump runtime per day on the Overview tab.
+//! The pump runtime per day and the time of the last fill level measurement on the Overview tab.
 
 mod support;
 
 use chrono::{Days, Local, NaiveDate, TimeZone as _};
 use nicecooling::i18n::{EN, IT, Locale};
-use nicecooling::model::{AppState, FieldValue, RefillEntry};
+use nicecooling::model::{AppState, DeviceEvent, FieldValue, RefillEntry};
+use nicecooling::screens::format::clock_minutes;
 use nicecooling::screens::leakshield::overview::{
     DAY_CAP_S, DayLevel, OverviewModel, OverviewUi, PUMP_LIMIT_FIELD, RUNTIME_DAYS, day_bars,
 };
@@ -139,4 +140,55 @@ fn the_limit_line_comes_from_the_field_of_the_device() {
         model(&state, IT).charts.runtime_limit,
         Some((5.0, "Limite di avviso: 5 s al giorno".to_owned()))
     );
+}
+
+fn event(id: &str, time_us: u64) -> DeviceEvent {
+    DeviceEvent {
+        time_us,
+        id: id.into(),
+        details: Default::default(),
+    }
+}
+
+#[test]
+fn the_measured_time_is_the_time_of_the_newest_measurement_event() {
+    let mut state = with_leakshield();
+    let data = state.snapshot.leakshield_data.get_mut(LEAKSHIELD).unwrap();
+    let (old, new) = (1_700_000_000_000_000, 1_700_050_000_000_000);
+    data.events = vec![
+        event("leakshield.fill-level-measurement-start", new + 10_000_000),
+        event("leakshield.fill-level-measurement-finished", new),
+        event("leakshield.fill-level-measurement-finished", old),
+    ];
+    let rows = model(&state, EN).status.rows;
+    assert_eq!(
+        rows[0].caption,
+        Some(format!("measured {}", clock_minutes(new)))
+    );
+    // The same time with the events in the other order.
+    state
+        .snapshot
+        .leakshield_data
+        .get_mut(LEAKSHIELD)
+        .unwrap()
+        .events
+        .reverse();
+    assert_eq!(
+        model(&state, EN).status.rows[0].caption,
+        Some(format!("measured {}", clock_minutes(new)))
+    );
+}
+
+#[test]
+fn without_a_measurement_event_the_row_shows_no_time() {
+    let mut state = with_leakshield();
+    state
+        .snapshot
+        .leakshield_data
+        .get_mut(LEAKSHIELD)
+        .unwrap()
+        .events = vec![event("leakshield.fill-level-measurement-start", 1)];
+    // The sensors have a sample time. It is not the time of a measurement.
+    assert!(state.sensors.is_some());
+    assert_eq!(model(&state, EN).status.rows[0].caption, None);
 }

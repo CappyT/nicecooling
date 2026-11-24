@@ -104,6 +104,17 @@ The Overview tab of a Leakshield SHALL chart the pump runtime of the last 14 loc
 - **WHEN** the warning limit field of the device holds 5
 - **THEN** the dashed line is at 5 s per day
 
+### Requirement: Time of the fill level measurement
+The Overview tab of a Leakshield SHALL show the time of the last fill level measurement as the time of the newest device event "fill level measurement finished" in `GetEvents`. It SHALL show no time while no such event exists, and SHALL NOT show the time of a sensor sample in its place.
+
+#### Scenario: Measurement event
+- **WHEN** the event list holds two finished measurements at 09:12 and 14:40
+- **THEN** the Fill level row shows "measured 14:40"
+
+#### Scenario: No measurement event
+- **WHEN** the event list holds no finished measurement
+- **THEN** the Fill level row shows its value and no time
+
 ### Requirement: Profile and rule management
 The app SHALL let the user create, edit, activate and revoke Profiles, set the Leakshield slot of a Profile, edit Rule groups, and set Immediate switching. The app SHALL NOT offer to delete the Default Profile.
 

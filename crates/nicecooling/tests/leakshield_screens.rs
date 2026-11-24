@@ -138,12 +138,8 @@ fn leakshield_overview_states() {
         .map(|r| (r.label.as_str(), r.value.as_str()))
         .collect();
     assert_eq!(rows[0], ("Fill level", "68 %"));
-    assert!(
-        model.status.rows[0]
-            .caption
-            .as_deref()
-            .is_some_and(|text| text.starts_with("measured "))
-    );
+    // The fixture has no event of a finished fill level measurement: no time shows.
+    assert_eq!(model.status.rows[0].caption, None);
     assert_eq!(rows[1], ("Volume change", "+2 ml/h"));
     assert_eq!(rows[2], ("Pressure change", "-0.4 mbar/min"));
     assert_eq!(rows[3], ("Feed", "2\u{a0}840 rpm, 115 L/h"));

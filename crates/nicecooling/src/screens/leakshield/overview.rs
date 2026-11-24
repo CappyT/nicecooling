@@ -15,6 +15,9 @@ use crate::screens::{FeedbackLine, ScreenInput, WriteOutcome};
 /// The field that holds the limit line of the pump runtime chart: the daily pump time above
 /// which the device warns.
 pub const PUMP_LIMIT_FIELD: &str = "refill_duration_warning";
+/// The event of a finished fill level measurement: the time of the newest one is the time of the
+/// last measurement.
+const MEASUREMENT_FINISHED: &str = "fill-level-measurement-finished";
 /// The days of the pump runtime chart, today last.
 pub const RUNTIME_DAYS: i64 = 14;
 /// A day shows at most this many seconds.
@@ -146,6 +149,17 @@ pub fn day_bars(refills: &[RefillEntry], now_us: u64) -> Vec<DayBar> {
             }
         })
         .collect()
+}
+
+/// The time of the newest finished fill level measurement in the event list.
+pub fn last_measurement_us(events: &[crate::model::DeviceEvent]) -> Option<u64> {
+    events
+        .iter()
+        .filter(|event| {
+            event.id.strip_prefix("leakshield.").unwrap_or(&event.id) == MEASUREMENT_FINISHED
+        })
+        .map(|event| event.time_us)
+        .max()
 }
 
 /// The pressure of one range of the chart, as the history database has it.
@@ -527,11 +541,6 @@ impl OverviewModel {
         } else {
             None
         };
-        let sample = input
-            .state
-            .sensors
-            .as_ref()
-            .or(input.state.last_sensors.as_ref());
         let limits = limits_of(&device);
         let info = device.info;
         let mode = info.map_or("", |i| i.mode.as_str());
@@ -626,12 +635,18 @@ impl OverviewModel {
                 .map(|a| a.severity)
                 .max()
         };
-        let measured = sample.filter(|_| ready).map(|s| {
-            locale.fmt(
-                "leakshield.overview.measured",
-                &[("time", &clock_minutes(s.time_us))],
-            )
-        });
+        // The time of the last fill level measurement is the time of its event. Without such an
+        // event the row shows no time.
+        let measured = device
+            .data
+            .and_then(|data| last_measurement_us(&data.events))
+            .filter(|_| ready)
+            .map(|time_us| {
+                locale.fmt(
+                    "leakshield.overview.measured",
+                    &[("time", &clock_minutes(time_us))],
+                )
+            });
         // The last good Feed send: its values and its age.
         let feed = info
             .map(|i| i.last_feed)
