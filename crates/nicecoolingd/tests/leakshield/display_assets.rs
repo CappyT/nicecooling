@@ -16,7 +16,7 @@ use nicecoolingd::leakshield::assets::AssetEdit;
 use nicecoolingd::leakshield::attached::Info;
 use nicecoolingd::leakshield::save_settings::SAVE_SETTINGS_DELAY;
 use nicecoolingd::leakshield::worker::{Job, WorkerParts, WriteWorker};
-use nicecoolingd::leakshield::write::WriteError;
+use nicecoolingd::leakshield::write::{WriteEnv, WriteError, restore};
 
 use crate::Rig as DeviceRig;
 use crate::support::{LEAKSHIELD, Rig, error_name, path};
@@ -144,6 +144,113 @@ async fn a_read_back_that_differs_is_verify_failed_with_the_backup() {
         panic!("{error:?}")
     };
     assert_eq!(device.get_backup(&backup).unwrap().report8, before);
+}
+
+/// The report IDs of the feature writes since the last `clear_requests`.
+fn written_reports(rig: &DeviceRig) -> Vec<u8> {
+    rig.sim
+        .requests()
+        .iter()
+        .filter_map(|r| match r {
+            Request::SetFeature { id, .. } => Some(*id),
+            _ => None,
+        })
+        .collect()
+}
+
+#[tokio::test]
+async fn a_restore_after_a_name_change_brings_the_old_name_back() {
+    let rig = DeviceRig::new("assets-restore-name");
+    let device = rig.attached();
+    let before = rig.sim.report8();
+    let backup = device.create_backup().unwrap();
+    device.set_display_name(21, "Pump").await.unwrap();
+    assert_ne!(rig.sim.report8(), before);
+    rig.sim.clear_requests();
+
+    let started = Instant::now();
+    device.restore_backup(&backup).await.unwrap();
+
+    assert_eq!(rig.sim.report8(), before);
+    assert_eq!(device.get_display_assets().unwrap().names[21], "Name 2");
+    // Report 3 first, then report 8 with the delay of an asset write.
+    assert_eq!(written_reports(&rig), [3, 8]);
+    assert!(started.elapsed() >= Duration::from_millis(250));
+}
+
+#[tokio::test]
+async fn a_restore_with_an_equal_report_8_sends_no_report_8() {
+    let rig = DeviceRig::new("assets-restore-equal");
+    let device = rig.attached();
+    let backup = device.create_backup().unwrap();
+    rig.sim.clear_requests();
+
+    device.restore_backup(&backup).await.unwrap();
+
+    assert_eq!(written_reports(&rig), [3]);
+}
+
+#[tokio::test]
+async fn a_backup_without_report_8_restores_report_3_only() {
+    let rig = DeviceRig::new("assets-restore-old");
+    let device = rig.attached();
+    let backup = device.create_backup().unwrap();
+    let changed_name = {
+        device.set_display_name(21, "Pump").await.unwrap();
+        rig.sim.report8()
+    };
+    // A backup from before the assets: it holds no report 8.
+    let file = rig
+        .dir
+        .join("backups")
+        .join(crate::LEAKSHIELD_ID)
+        .join(&backup)
+        .join("report8.bin");
+    std::fs::remove_file(&file).unwrap();
+    assert!(device.get_backup(&backup).unwrap().report8.is_empty());
+    rig.sim.clear_requests();
+
+    device.restore_backup(&backup).await.unwrap();
+
+    assert_eq!(written_reports(&rig), [3]);
+    assert_eq!(rig.sim.report8(), changed_name);
+}
+
+#[tokio::test]
+async fn a_read_back_of_report_8_that_differs_fails_the_restore_after_report_3() {
+    let rig = DeviceRig::new("assets-restore-verify");
+    let device = rig.attached();
+    let backup = device.create_backup().unwrap();
+    let saved = device.get_backup(&backup).unwrap();
+    device.set_display_name(21, "Pump").await.unwrap();
+    // The device report 3 differs from the backup: the restore must write it.
+    rig.sim.change_report3(300, &[0x55]);
+    assert_ne!(rig.sim.report3(), saved.report3);
+    rig.sim.tamper_next_report8(NAMES + 24 * 21, b'X');
+    let env = WriteEnv {
+        io: &rig.io,
+        registry: &rig.registry,
+        backups: &rig.backups(),
+    };
+    let report1 = rig.io.read_report1().unwrap();
+
+    let error = restore(&env, &report1, &backup, 0).unwrap_err();
+
+    let WriteError::VerifyFailed {
+        report,
+        backup: before_restore,
+        offsets,
+    } = error
+    else {
+        panic!("{error:?}")
+    };
+    assert_eq!(report, 8);
+    assert!(!offsets.is_empty());
+    // The backup of the failed restore holds the state from before it.
+    assert_ne!(before_restore, backup);
+    // Report 3 is restored, report 8 is not.
+    assert_eq!(rig.sim.report3(), saved.report3);
+    assert_ne!(rig.sim.report8(), saved.report8);
 }
 
 #[tokio::test]

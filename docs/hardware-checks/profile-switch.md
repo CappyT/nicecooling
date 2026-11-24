@@ -60,7 +60,7 @@ Each step reads only the capture lines after its action: `N=$(wc -l < ~/usbmon.t
 
 ## Recovery
 
-- The device holds a wrong slot or wrong settings: `$BC call $B $LS $B.Leakshield RestoreBackup s $S0` (polkit asks no password), then check `r1 50 1`. The restore writes report 3 of the backup, which has the profile number 1.
+- The device holds a wrong slot or wrong settings: `$BC call $B $LS $B.Leakshield RestoreBackup s $S0` (polkit asks no password), then check `r1 50 1`. The restore writes report 3 of the backup, which has the profile number 1, and report 8 of the backup when the device holds another one.
 - A Profile stays active that you did not want: `$BC call $B $R $B.Profiles ReturnToAutomatic`.
 - The capture grows: it is limited to 900 s by `timeout`. Delete `~/usbmon.txt` after the record.
 - The Leakshield does not answer: unplug and plug the USB cable, then `sudo systemctl restart nicecoolingd`.

@@ -149,7 +149,10 @@ async fn unexpected_byte_change_returns_verify_failed_with_backup_id() {
     rig.sim.tamper_next_set_feature(300, 0x55);
     let error = worker.submit(write_job(&rig, 150)).await.unwrap_err();
 
-    let WriteError::VerifyFailed { backup, offsets } = error else {
+    let WriteError::VerifyFailed {
+        backup, offsets, ..
+    } = error
+    else {
         panic!("{error:?}");
     };
     assert_eq!(offsets, [300]);

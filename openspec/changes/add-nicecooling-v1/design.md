@@ -270,7 +270,7 @@ A write follows these steps:
 
 aquasuite X.75 and X.96 send the save-settings command this way (`docs/protocol/leakshield.md`). The secondary report 2 that the kernel driver sends after each control write is not used.
 
-Backups keep reports 3, 5 and 8, but a restore writes only report 3, until reports 5 and 8 are decoded. Retention: the first backup per serial plus the last 20, deduplicated by hash.
+Backups keep reports 3, 5 and 8. A restore writes report 3 and reads it back, then writes report 8 when the device holds another one (the write path of a display asset). It does not write report 5. Retention: the first backup per serial plus the last 20, deduplicated by hash.
 
 External change detection: the daemon reads report 3 every 10 s and compares it with the last known value outside the volatile mask. A difference is an external change (ADR-0006). After its own verified write, the daemon updates the last known value. The daemon keeps the last known report 3 on disk, so detection survives a restart.
 

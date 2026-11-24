@@ -405,6 +405,8 @@ Write sequence (P7, the GUI of aquasuite):
 
 The daemon patches one asset in the report that it reads from the device, so the other bytes stay as the device holds them. Then it follows steps 2 and 3, reads report 8 again and compares all bytes with the written ones. A difference is a `VerifyFailed` error. A backup of reports 3, 5 and 8 comes first, as before a report 3 write. The daemon sends save-settings 4 s after the last write, as it does for report 3.
 
+A restore of a backup writes report 3 and reads it back, then reads report 8. When the report 8 of the backup differs from the report 8 of the device, the restore writes it with steps 2 and 3 and compares the read-back. A backup without a report 8 restores report 3 only. The restore reports which report failed its read-back.
+
 Not determined:
 
 - Whether the device keeps report 8 over a power cycle without the save-settings command. The library of aquasuite sends none after the write, but the Display page triggers one through the report 3 write of step 4. The daemon sends it to be safe.

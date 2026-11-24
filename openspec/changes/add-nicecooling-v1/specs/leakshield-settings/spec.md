@@ -317,15 +317,31 @@ After each write, the daemon SHALL read the settings back and check that only th
 - **THEN** the daemon reports an error and offers the restore of the backup
 
 ### Requirement: Restore a backup
-The user SHALL be able to restore a backup of the device settings. A restore SHALL use the polkit action `critical`, which needs no admin password for a `wheel` member in the active local session. A restore SHALL write only report 3, until reports 5 and 8 are decoded.
+The user SHALL be able to restore a backup of the device settings. A restore SHALL use the polkit action `critical`, which needs no admin password for a `wheel` member in the active local session. A restore SHALL write report 3 and read it back, then write report 8 when the device holds another one, with the write path of a display asset. A restore SHALL NOT write report 5.
 
 #### Scenario: Restore with authorization
 - **WHEN** an authorized caller restores a backup
 - **THEN** report 3 of the device equals the backup and the daemon reads it back to confirm
 
-#### Scenario: Reports 5 and 8 not decoded
-- **WHEN** a backup holds reports 3, 5 and 8 and the user restores it
+#### Scenario: Restore of the display assets
+- **WHEN** a backup holds reports 3, 5 and 8, the device holds another report 8 and the user restores the backup
+- **THEN** the daemon writes report 3, then report 8, and the names, icons and logo of the backup come back
+
+#### Scenario: Equal report 8
+- **WHEN** the report 8 of the backup equals the report 8 of the device
+- **THEN** the daemon sends no write of report 8
+
+#### Scenario: Backup without report 8
+- **WHEN** a backup holds no report 8 and the user restores it
 - **THEN** the daemon writes report 3 only
+
+#### Scenario: Report 8 read-back differs
+- **WHEN** the read-back of report 8 differs from the written report during a restore
+- **THEN** the restore fails with a verify error that names report 8, and report 3 of the device equals the backup
+
+#### Scenario: Write path of report 8
+- **WHEN** a restore writes report 8
+- **THEN** it writes the whole report with its CRC, waits 250 ms and reads it back, and the read-back equals the written bytes
 
 ### Requirement: The Leakshield owns its settings
 nicecooling SHALL NOT write the Leakshield settings at boot or when they drift from the active Profile (the device clock is not a setting: see Device clock). It SHALL write them only when the user changes a setting or activates a Profile.

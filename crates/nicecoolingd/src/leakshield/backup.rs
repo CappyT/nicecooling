@@ -257,7 +257,11 @@ impl Backups {
         Ok(BackupSet {
             report3: fs::read(dir.join("report3.bin"))?,
             report5: fs::read(dir.join("report5.bin"))?,
-            report8: fs::read(dir.join("report8.bin"))?,
+            // A backup without report 8 gives an empty report: a restore writes report 3 only.
+            report8: match fs::read(dir.join("report8.bin")) {
+                Err(e) if e.kind() == io::ErrorKind::NotFound => Vec::new(),
+                other => other?,
+            },
         })
     }
 

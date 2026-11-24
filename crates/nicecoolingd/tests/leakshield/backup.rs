@@ -77,7 +77,7 @@ fn duplicate_hash_not_written() {
 }
 
 #[test]
-fn restore_writes_report3_only() {
+fn restore_with_an_equal_report8_writes_report3_only() {
     let rig = Rig::new("restore");
     let backups = rig.backups();
     let env = WriteEnv {

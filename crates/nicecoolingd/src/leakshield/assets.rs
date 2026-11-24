@@ -101,28 +101,52 @@ pub fn write_asset(
     if bytes == current {
         return Ok(backup);
     }
+    write_report8_verified(env, &bytes, &backup)?;
+    Ok(backup)
+}
+
+/// Writes the report 8 of a backup when the device holds another one. Reads report 8 first: a
+/// report that equals the device report sends nothing.
+pub(super) fn restore_report8(
+    env: &WriteEnv<'_>,
+    report8: &[u8],
+    backup: &str,
+) -> Result<(), WriteError> {
+    let current =
+        retry_stalled(|| env.io.read_report8()).map_err(|e| device_error(e, Some(backup)))?;
+    if current == report8 {
+        return Ok(());
+    }
+    write_report8_verified(env, report8, backup)
+}
+
+/// Writes a whole report 8 with its CRC, waits 250 ms and reads it back. The read-back must equal
+/// the written bytes.
+fn write_report8_verified(
+    env: &WriteEnv<'_>,
+    bytes: &[u8],
+    backup: &str,
+) -> Result<(), WriteError> {
     env.io
-        .write_report8(&bytes)
-        .map_err(|e| device_error(e, Some(&backup)))?;
+        .write_report8(bytes)
+        .map_err(|e| device_error(e, Some(backup)))?;
     thread::sleep(WRITE_DELAY);
-    let read = retry_stalled(|| env.io.read_report8()).map_err(|e| device_error(e, Some(&backup)));
-    match read {
-        Ok(read) if read == bytes => Ok(backup),
+    match retry_stalled(|| env.io.read_report8()) {
+        Ok(read) if read == bytes => Ok(()),
         Ok(read) => Err(WriteError::VerifyFailed {
-            backup,
+            report: 8,
+            backup: backup.to_owned(),
             offsets: (1..bytes.len())
                 .filter(|&i| bytes[i] != read[i])
                 .take(LISTED_OFFSETS)
                 .collect(),
         }),
         // A read that does not decode holds something else than the written report.
-        Err(WriteError::Device {
-            error: DeviceError::BadReport(_),
-            ..
-        }) => Err(WriteError::VerifyFailed {
-            backup,
+        Err(DeviceError::BadReport(_)) => Err(WriteError::VerifyFailed {
+            report: 8,
+            backup: backup.to_owned(),
             offsets: Vec::new(),
         }),
-        Err(e) => Err(e),
+        Err(e) => Err(device_error(e, Some(backup))),
     }
 }

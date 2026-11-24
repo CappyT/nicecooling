@@ -10,8 +10,10 @@ use nicecooling_protocol::device::DeviceError;
 use nicecooling_protocol::registry::{Field, Registry, Scalar};
 use nicecooling_protocol::report1::Report1;
 use nicecooling_protocol::report3::Report3;
+use nicecooling_protocol::report8::Report8;
 
 use super::DeviceIo;
+use super::assets::restore_report8;
 use super::backup::{BackupSet, Backups, Reason};
 
 /// New raw values of one field: one value for each element of `Field::element_offsets`.
@@ -42,8 +44,10 @@ pub enum WriteError {
     Busy,
     /// Report 3 changed outside the volatile mask after the first read.
     DeviceChanged,
-    /// The read-back differs from the written report outside the volatile mask.
+    /// The read-back differs from the written report (outside the volatile mask for report 3).
+    /// `report` is the number of the report that failed: 3 or 8.
     VerifyFailed {
+        report: u8,
         backup: String,
         offsets: Vec<usize>,
     },
@@ -80,7 +84,9 @@ impl fmt::Display for WriteError {
             Self::OutOfRange { field } => write!(f, "value out of range for {field}"),
             Self::Busy => write!(f, "a write is queued"),
             Self::DeviceChanged => write!(f, "report 3 changed since the last read"),
-            Self::VerifyFailed { backup, .. } => write!(f, "read-back differs, backup {backup}"),
+            Self::VerifyFailed { report, backup, .. } => {
+                write!(f, "read-back of report {report} differs, backup {backup}")
+            }
             Self::Disconnected { .. } => write!(f, "device disconnected"),
             Self::Device { error, .. } => write!(f, "{error}"),
             Self::Backup(e) => write!(f, "backup failed: {e}"),
@@ -245,6 +251,7 @@ fn write_and_verify(
         // A report that does not decode has a bad CRC or size: the device holds something else.
         Err(DeviceError::BadReport(_)) => {
             return Err(WriteError::VerifyFailed {
+                report: 3,
                 backup: backup.to_owned(),
                 offsets: Vec::new(),
             });
@@ -256,6 +263,7 @@ fn write_and_verify(
         Ok(read_back)
     } else {
         Err(WriteError::VerifyFailed {
+            report: 3,
             backup: backup.to_owned(),
             offsets,
         })
@@ -393,8 +401,10 @@ pub fn edit_stored(
     Ok(report3)
 }
 
-/// Writes report 3 of a backup and reads it back. Reports 5 and 8 stay as they are. The state
-/// from before the restore becomes a backup first.
+/// Restores a backup: writes its report 3 and reads it back, then writes its report 8 when the
+/// device holds another one (through the write of an asset: whole report, 250 ms, read-back).
+/// Report 5 stays as it is. A backup without a report 8 restores report 3 only. The state from
+/// before the restore becomes a backup first.
 pub fn restore(
     env: &WriteEnv<'_>,
     report1: &Report1,
@@ -423,7 +433,15 @@ pub fn restore(
     if firmware != report1.firmware_version {
         return Err(WriteError::BackupMismatch("firmware"));
     }
+    if !set.report8.is_empty() && Report8::decode(&set.report8).is_err() {
+        return Err(WriteError::BackupMismatch(
+            "report 8 of the backup is invalid",
+        ));
+    }
     let backup = take_backup(env, report1, Reason::BeforeWrite, now_us)?;
     let report3 = write_and_verify(env, &stored, &backup)?;
+    if !set.report8.is_empty() {
+        restore_report8(env, &set.report8, &backup)?;
+    }
     Ok(Written { backup, report3 })
 }

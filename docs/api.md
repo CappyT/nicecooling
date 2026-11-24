@@ -173,7 +173,7 @@ Each active Alarm or Warning (`Alarms.Active`) and each `AlarmRaised` signal car
 
 - `GetBackup` returns the firmware version of the backup, then reports 3, 5 and 8. `ImportBackup` takes the firmware as its first argument, then the three reports. The daemon stores the backup with that firmware.
 - `ImportBackup` fails with `NotSupported` when the field registry does not cover the firmware. It fails with `InvalidArgument` for a wrong size, a bad CRC, a field out of its range or another structure id than the device has.
-- `RestoreBackup` refuses a backup whose firmware differs from the firmware of the device.
+- `RestoreBackup` refuses a backup whose firmware differs from the firmware of the device. It writes report 3 and reads it back, then writes report 8 of the backup when it differs from the report 8 of the device now (the write path of an asset: the whole report with its CRC, 250 ms, a read-back that equals the written bytes). Report 5 stays as it is. A backup without a report 8 restores report 3 only. A read-back that differs fails with `VerifyFailed`; the message holds the id of the backup that the restore took before it started. When the read-back of report 8 fails, report 3 is already restored. The save-settings command follows the restore.
 
 ## Stored slot settings
 
@@ -227,7 +227,7 @@ Pages are numbered 0 to 9, as in report 3. A bitmap is `width` (q), `height` (q)
 
 1. It reads report 1 and refuses a device that is read-only (`ReadOnly`). The assets have no verification state: a device that the registry covers takes them.
 2. It checks the value and sends nothing when the value does not fit: `InvalidArgument` for an index above 39 (name) or 15 (icon), a text with more than 23 bytes of Windows-1252, a character that Windows-1252 lacks, a control character, a bitmap with another size than 23 x 23 (icon) or 128 x 64 (logo), or a `rows` array with a wrong byte count.
-3. It takes a backup of reports 3, 5 and 8 (`ListBackups`), reads report 8, changes the one asset, writes the whole report with a new CRC, waits 250 ms and reads report 8 again. A read-back that differs from the written bytes fails with `VerifyFailed`. The message holds the backup id, and `RestoreBackup` restores report 3 only.
+3. It takes a backup of reports 3, 5 and 8 (`ListBackups`), reads report 8, changes the one asset, writes the whole report with a new CRC, waits 250 ms and reads report 8 again. A read-back that differs from the written bytes fails with `VerifyFailed`. The message holds the backup id, and `RestoreBackup` of a backup restores report 8 again.
 4. It sends save-settings 4 s after the last write, as for report 3. A second write while one runs fails with `Busy`.
 
 The call returns after the read-back. A write that changes no byte writes nothing.
