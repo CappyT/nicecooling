@@ -49,6 +49,8 @@ Terms that the safety decisions use (`GLOSSARY.md` has the full list):
 - A dedicated CLI: `busctl` covers scripting.
 - A hand-edited configuration file.
 - Compatibility with aquasuite profile files.
+- Use next to aquasuite or another program that writes the Leakshield or the Channels.
+- Protection against other local users or other software: the desktop has one trusted user.
 
 ## Repository and install layout
 
@@ -476,7 +478,6 @@ Rejected:
 - [The rebuild of the fan-control stack costs work] -> ADR-0008 records the reason. Code may come from CoolerControl. `THIRD_PARTY.md` records each taken file. The GPL-3.0 license must be compatible before any distribution.
 - [The legal basis of decompiling aquasuite] -> The purpose is interoperability with a device that has no documentation: Directive 2009/24/EC, Article 6. No decompiled code enters the repository, and the identifier check covers the protocol documents and the crates.
 - [A firmware update moves fields] -> The registry is keyed by firmware version. Unknown versions are read-only.
-- [aquasuite in the VM and the daemon both write the Leakshield] -> A Leakshield passed to the VM is unreachable for the daemon, and the daemon raises "Leakshield unreachable". After the device returns, external change detection reports a change made in the VM.
 - [The out-of-tree driver and the daemon both send the Feed message] -> Document the conflict. Do not load the out-of-tree driver next to the daemon.
 - [The kernel driver and the daemon both read report 1] -> Task 5.2 checks that both readers work together.
 - [The Feed message stops] -> The "Leakshield unreachable" Alarm covers a failed Feed message. The device behavior without the Feed is an Open Question.
