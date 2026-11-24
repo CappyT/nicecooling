@@ -19,10 +19,26 @@ Each setting row has: the name, the verification badge, a caption, and the contr
 | Reservoir | "Reservoir": select with the known models and "Custom". With "Custom": "Total volume" (ml), "Air volume at maximum fill level" (ml), "Air volume at minimum fill level" (ml). "Automatic fill-level measurement": switch, with a warning caption |
 | Pump | "Pump": select with the known types and "Custom". With "Custom": "Maximum pressure" (mbar), "Maximum speed" (rpm). "Speed source": read-only text "Pump channel of Main loop: Waterpump" with the link "Open Loop" |
 | Flow | "Flow source": read-only text "Flow sensor of Main loop: Water Flow, 115 L/h" with "Open Loop". Without a flow sensor: "None. The Leakshield uses the pump speed only." |
-| Pressure | "Adaptive pressure": switch. "Expert values": minimum, target, maximum in mbar, used only with adaptive pressure off. "Time-controlled vacuum generation": switch and two times |
+| Pressure | "Pressure values": the radio rows "Recommended values" and "My own values". The band diagram. "Maximum pressure", "Target pressure", "Minimum pressure" in mbar, each with a caption. "Adaptive pressure": switch. "Time-controlled vacuum generation": switch and two times. See "Pressure step" |
 | Standby | "Default pump speed" (rpm) and "Default flow" (L/h), each with the button "Use the current value". "Reduced vacuum in standby": switch and a value in mbar |
 | Mode | The three Modes as radio rows with their captions |
 | Summary | The diff table (see `../widgets.md`), notes and warnings above it, and the button "Apply 5 changes" |
+
+## Pressure step
+
+The three values are the control band of SHIELD. They are not alarm limits: no value raises a Warning or an Alarm.
+
+| Value | What the Leakshield does |
+|---|---|
+| Minimum pressure | Below it, the Leakshield starts its pump |
+| Target pressure | The pump builds the vacuum up to it and stops |
+| Maximum pressure | Above it, the Leakshield opens its vent valve and releases vacuum |
+
+- "Pressure values" is `shield_flags` bit 4. Bit set: the recommended values. Bit clear: the values of the user. With the recommended values the three inputs are read-only and have the padlock badge "Recommended value". With own values a warning line shows under the choice.
+- The band diagram (`../widgets.md`, "Pressure band diagram") is between the choice and the three inputs. Its lines have the values of the wizard: the device values, or the pending ones. The inputs are in the order of the lines: maximum, target, minimum.
+- The diagram also shows what the Leakshield uses now, from its live sensors: the pressure as a marker, and a second value on each line whose live limit differs from the value of the wizard. The line under the diagram has the three live limits: "Now: minimum 215, target 265, maximum 465 mbar."
+- "Adaptive pressure" is `shield_flags` bit 3. The Leakshield then lowers the minimum and the target with the pump speed of the Feed. It keeps the stored distance between minimum and target and the stored maximum. So the switch never dims or locks the three values.
+- While the Leakshield does not answer, the diagram has the values of the wizard only.
 
 ## States
 
@@ -51,8 +67,12 @@ Each setting row has: the name, the verification badge, a caption, and the contr
 
 | Place | Text |
 |---|---|
-| Adaptive pressure | "The Leakshield computes the pressure from the pump speed and the flow of the Feed. Recommended." |
-| Expert values | "Not used while adaptive pressure is on." |
+| Pressure values | "The three values are a control band for SHIELD: the Leakshield keeps the pressure between the minimum and the maximum. No value raises an Alarm." |
+| Own values, warning | "With your own values the Leakshield can fail to protect the Loop. The recommended minimum is the maximum pressure of your pump." |
+| Maximum pressure | "Above this value the Leakshield opens its vent valve and releases vacuum." |
+| Target pressure | "The pressure that you want in SHIELD. The pump of the Leakshield builds the vacuum up to this value and stops." |
+| Minimum pressure | "Below this value the Leakshield starts its pump." |
+| Adaptive pressure | "The Leakshield lowers the minimum and the target with the pump speed of the Feed. The distance between minimum and target and the maximum stay as set here." |
 | Time-controlled | "The Leakshield builds the negative pressure at two times of the day, so that you choose when its pump makes noise." |
 | Automatic measurement | "The Leakshield measures the fill level after a change, for example when you open the reservoir. During the measurement the Loop has no leak protection." |
 | Standby | "After standby the PC sends no Feed yet. The Leakshield then uses these values." |

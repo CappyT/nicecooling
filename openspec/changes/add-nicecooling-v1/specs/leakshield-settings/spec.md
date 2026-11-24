@@ -13,6 +13,42 @@ nicecooling SHALL read the Leakshield settings from the device and show them. Th
 - **WHEN** a Leakshield is connected
 - **THEN** the user can read each of those settings, writable or not
 
+### Requirement: SHIELD pressure values are a control band
+The wizard SHALL present the minimum, the target and the maximum pressure of SHIELD as a control band and not as alarm limits. Each value SHALL have a caption with what the Leakshield does there: it starts its pump below the minimum, it builds the vacuum up to the target, and it opens its vent valve above the maximum.
+
+#### Scenario: Captions
+- **WHEN** the user opens the Pressure step
+- **THEN** each of the three values has a caption with the action of the Leakshield at that value
+
+### Requirement: Recommended values or own values
+The user SHALL choose between the recommended pressure values and own values. The choice SHALL be `shield_flags` bit 4: set for the recommended values, clear for own values. The three values SHALL be read-only with the recommended values.
+
+#### Scenario: Own values
+- **WHEN** the user selects own values in the wizard and applies the change
+- **THEN** the write clears bit 4 of `shield_flags` and the three values accept an edit
+
+#### Scenario: Recommended values
+- **WHEN** bit 4 of `shield_flags` is set
+- **THEN** the three values are read-only and the wizard says that they are the recommended values
+
+### Requirement: Adaptive pressure is its own switch
+Adaptive pressure SHALL be a switch on `shield_flags` bit 3. It SHALL NOT lock or dim the three pressure values, because the Leakshield keeps the stored distance between minimum and target and the stored maximum while it lowers the minimum and the target with the pump speed.
+
+#### Scenario: Adaptive pressure on
+- **WHEN** adaptive pressure is on
+- **THEN** the three values keep their look and stay editable with own values
+
+### Requirement: Band diagram with live values
+The Pressure step SHALL show a band diagram with the three lines maximum, target and minimum, the zone where the Leakshield releases vacuum and the zone where it builds vacuum. The lines SHALL carry the values of the wizard. The diagram SHALL show the live pressure and each live limit of the Leakshield that differs from the value of the wizard, and the step SHALL show one line of text with the three live limits.
+
+#### Scenario: Adaptive pressure lowers the limits
+- **WHEN** the stored values are 375, 425 and 465 mbar and the Leakshield reports the limits 215, 265 and 465 mbar
+- **THEN** the lines read 465, 425 and 375 mbar, the target and the minimum also show 265 and 215 mbar as the values in use now, and the text line reads minimum 215, target 265, maximum 465 mbar
+
+#### Scenario: Leakshield does not answer
+- **WHEN** the Leakshield does not answer
+- **THEN** the diagram shows the values of the wizard and no live value
+
 ### Requirement: No firmware update
 nicecooling SHALL NOT update the Leakshield firmware.
 

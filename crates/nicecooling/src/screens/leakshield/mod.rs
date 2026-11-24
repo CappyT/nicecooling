@@ -3,6 +3,7 @@
 
 pub mod alarms;
 pub mod alarms_view;
+pub mod band;
 pub mod charts;
 pub mod display;
 pub mod display_view;

@@ -14,6 +14,8 @@ use crate::screens::{FeedbackLine, ScreenInput, WriteOutcome};
 const SHIELD_FLAGS: &str = "shield_flags";
 const BIT_TIMER: u32 = 2;
 const BIT_ADAPTIVE: u32 = 8;
+/// Set: the Leakshield holds the recommended pressure values. Clear: the values of the user.
+const BIT_RECOMMENDED: u32 = 16;
 const BIT_STANDBY_PRESSURE: u32 = 32;
 /// The pump pressure above which the Leakshield can only work as a leak monitor, in mbar.
 const MONITOR_ONLY_PRESSURE: f64 = 470.0;
@@ -158,16 +160,16 @@ impl SettingsUi {
         self.set(data, field, FieldValue::Number(f64::from(mask)));
     }
 
-    /// The minimum, the target and the maximum of the expert values.
-    pub fn expert(&self, data: &LeakshieldData) -> Option<(f64, f64, f64)> {
+    /// The minimum, the target and the maximum of the SHIELD control band.
+    pub fn band(&self, data: &LeakshieldData) -> Option<(f64, f64, f64)> {
         let low = self.number(data, "shield_pressure_low")?;
         let working = self.number(data, "shield_pressure_working_range")?;
         let upper = self.number(data, "shield_pressure_max_range")?;
         Some((low, low + working, low + working + upper))
     }
 
-    fn set_expert(&mut self, data: &LeakshieldData, which: usize, value: f64) {
-        let Some((mut min, mut target, mut max)) = self.expert(data) else {
+    fn set_band(&mut self, data: &LeakshieldData, which: usize, value: f64) {
+        let Some((mut min, mut target, mut max)) = self.band(data) else {
             return;
         };
         match which {
@@ -239,13 +241,16 @@ impl SettingsUi {
             "standby_pressure" => {
                 self.set_bit(data, SHIELD_FLAGS, BIT_STANDBY_PRESSURE, text == "1")
             }
-            "expert_min" | "expert_target" | "expert_max" => {
+            "pressure_values" => {
+                self.set_bit(data, SHIELD_FLAGS, BIT_RECOMMENDED, text == "recommended");
+            }
+            "band_min" | "band_target" | "band_max" => {
                 if let Some(value) = parse(text) {
-                    let which = ["expert_min", "expert_target", "expert_max"]
+                    let which = ["band_min", "band_target", "band_max"]
                         .iter()
                         .position(|k| *k == key)
                         .unwrap_or(0);
-                    self.set_expert(data, which, value);
+                    self.set_band(data, which, value);
                 }
             }
             "timer_1" | "timer_2" => self.set_timer(data, usize::from(key == "timer_2"), text),
@@ -376,8 +381,59 @@ pub enum Control {
     Switch(bool),
     /// A read-only line.
     Info(String),
-    /// The three Modes: identifier, text, selected.
+    /// The choices of a setting as radio rows: identifier, text, selected.
     Radio(Vec<(String, String, bool)>),
+    /// The band diagram of the Pressure step.
+    Band(BandDiagram),
+}
+
+/// The lines of the band diagram, as parts of its height from the top: the maximum, the
+/// target and the minimum. The diagram is a scheme: the lines keep their place.
+pub const BAND_LINES: [f32; 3] = [0.25, 0.5, 0.75];
+
+/// One line of the band diagram.
+#[derive(Clone, Debug, PartialEq)]
+pub struct BandLine {
+    /// The value of the wizard: "Maximum 465 mbar".
+    pub label: String,
+    /// The value that the Leakshield uses now, when it differs: "now 215 mbar".
+    pub now: Option<String>,
+}
+
+/// The band diagram: what the Leakshield does above, in and below the control band.
+#[derive(Clone, Debug, PartialEq)]
+pub struct BandDiagram {
+    /// The zone above the maximum, the zone between the limits and the zone below the minimum.
+    pub zones: [String; 3],
+    /// The maximum, the target and the minimum, from the top.
+    pub lines: [BandLine; 3],
+    /// The live pressure: its place from the top of the diagram (0 to 1) and its text.
+    pub marker: Option<(f32, String)>,
+}
+
+/// The place of the live pressure in the band diagram, from the top (0 to 1). Between two
+/// lines the place follows the pressure. Outside the band it stays in the zone.
+pub fn marker_place(pressure: f64, min: f64, target: f64, max: f64) -> f32 {
+    let [top, middle, bottom] = BAND_LINES.map(f64::from);
+    // The part of `from..to` that `value` covers. A span without a width counts as 1 mbar.
+    let part = |value: f64, from: f64, to: f64| (value - from) / (to - from).max(1.0);
+    let place = if pressure >= max {
+        top - (middle - top) * part(pressure, max, 2.0 * max - target)
+    } else if pressure >= target {
+        middle - (middle - top) * part(pressure, target, max)
+    } else if pressure >= min {
+        bottom - (bottom - middle) * part(pressure, min, target)
+    } else {
+        bottom + (bottom - middle) * part(min, pressure, pressure + target - min)
+    };
+    place.clamp(0.06, 0.94) as f32
+}
+
+/// A line under a setting: an information, or a warning.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Note {
+    pub text: String,
+    pub warning: bool,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -403,6 +459,9 @@ pub struct Row {
     pub use_current: Option<String>,
     /// Dim: the setting does not apply now.
     pub dim: bool,
+    /// Another setting gives this value: the control takes no edit, and the badge says why.
+    pub fixed: bool,
+    pub note: Option<Note>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -524,7 +583,7 @@ impl SettingsModel {
             Step::Reservoir => reservoir_rows(&row_ctx),
             Step::Pump => pump_rows(&row_ctx, input, id),
             Step::Flow => flow_rows(&row_ctx, input, id),
-            Step::Pressure => pressure_rows(&row_ctx),
+            Step::Pressure => pressure_rows(&row_ctx, input),
             Step::Standby => standby_rows(&row_ctx),
             Step::Mode => mode_rows(&row_ctx),
             Step::Summary => Vec::new(),
@@ -643,6 +702,8 @@ impl RowCtx<'_> {
             }),
             use_current: None,
             dim: false,
+            fixed: false,
+            note: None,
         }
     }
 
@@ -664,10 +725,17 @@ impl RowCtx<'_> {
         row
     }
 
+    /// True when the pending value of a flags field differs from the device in `bits`.
+    fn bits_changed(&self, field: &str, bits: u32) -> bool {
+        let device = self.data.number(field).unwrap_or(0.0) as u32;
+        let new = self.ui.number(self.data, field).unwrap_or(0.0) as u32;
+        (device ^ new) & bits != 0
+    }
+
     fn switch(&self, key: &str, field: &str, bit: u32, label_key: &str) -> Row {
         let on = self.ui.number(self.data, field).unwrap_or(0.0) as u32 & bit != 0;
         let mut row = self.row(key, field, label_key, Control::Switch(on));
-        row.changed = self.ui.pending.contains_key(field);
+        row.changed = self.bits_changed(field, bit);
         row
     }
 
@@ -772,6 +840,8 @@ fn info_row(ctx: &RowCtx<'_>, key: &str, label_key: &str, text: String) -> Row {
         link: Some((ctx.locale.tr("leakshield.settings.open_loop"), Link::Loops)),
         use_current: None,
         dim: false,
+        fixed: false,
+        note: None,
     }
 }
 
@@ -813,10 +883,152 @@ fn flow_rows(ctx: &RowCtx<'_>, input: &ScreenInput<'_>, id: &str) -> Vec<Row> {
     )]
 }
 
-fn pressure_rows(ctx: &RowCtx<'_>) -> Vec<Row> {
+/// The band diagram: the values of the wizard on the lines, and the live values of the
+/// Leakshield next to them.
+fn band_diagram(ctx: &RowCtx<'_>, input: &ScreenInput<'_>) -> (BandDiagram, Option<String>) {
     let locale = ctx.locale;
-    let adaptive = ctx.ui.number(ctx.data, SHIELD_FLAGS).unwrap_or(0.0) as u32 & BIT_ADAPTIVE != 0;
-    let mut rows = vec![RowCtx::caption(
+    let ready = ctx.device.can_write();
+    let live = |name: &str| ctx.device.sensor(input, name).filter(|_| ready);
+    let set = ctx.ui.band(ctx.data);
+    let now = match (
+        live("pressure_low"),
+        live("pressure_setpoint"),
+        live("pressure_high"),
+    ) {
+        (Some(min), Some(target), Some(max)) => Some((min, target, max)),
+        _ => None,
+    };
+    let line = |name: &str, index: usize| {
+        let pick = |band: (f64, f64, f64)| [band.2, band.1, band.0][index];
+        let value = set.map(pick);
+        BandLine {
+            label: locale.fmt(
+                &format!("leakshield.settings.diagram.{name}"),
+                &[(
+                    "value",
+                    &value.map_or_else(|| "--".to_owned(), |v| compact(locale, v)),
+                )],
+            ),
+            // A difference under half a mbar is the rounding of the device.
+            now: now
+                .map(pick)
+                .filter(|now| value.is_none_or(|value| (now - value).abs() >= 0.5))
+                .map(|now| {
+                    locale.fmt(
+                        "leakshield.settings.diagram.now_value",
+                        &[("value", &compact(locale, now))],
+                    )
+                }),
+        }
+    };
+    let marker = live("pressure").and_then(|pressure| {
+        let (min, target, max) = now.or(set)?;
+        Some((
+            marker_place(pressure, min, target, max),
+            locale.fmt(
+                "leakshield.settings.diagram.marker",
+                &[("value", &compact(locale, pressure.round()))],
+            ),
+        ))
+    });
+    let now_line = now.map(|(min, target, max)| {
+        locale.fmt(
+            "leakshield.settings.diagram.now",
+            &[
+                ("min", &compact(locale, min)),
+                ("target", &compact(locale, target)),
+                ("max", &compact(locale, max)),
+            ],
+        )
+    });
+    let diagram = BandDiagram {
+        zones: ["above", "inside", "below"]
+            .map(|zone| locale.tr(&format!("leakshield.settings.diagram.{zone}"))),
+        lines: [line("maximum", 0), line("target", 1), line("minimum", 2)],
+        marker,
+    };
+    (diagram, now_line)
+}
+
+fn pressure_rows(ctx: &RowCtx<'_>, input: &ScreenInput<'_>) -> Vec<Row> {
+    let locale = ctx.locale;
+    let flags = ctx.ui.number(ctx.data, SHIELD_FLAGS).unwrap_or(0.0) as u32;
+    let own = flags & BIT_RECOMMENDED == 0;
+
+    // The two choices.
+    let mut values = ctx.row(
+        "pressure_values",
+        SHIELD_FLAGS,
+        "leakshield.settings.values",
+        Control::Radio(
+            [("recommended", !own), ("own", own)]
+                .iter()
+                .map(|(choice, selected)| {
+                    (
+                        (*choice).to_owned(),
+                        locale.tr(&format!("leakshield.settings.values_{choice}")),
+                        *selected,
+                    )
+                })
+                .collect(),
+        ),
+    );
+    values.caption = Some(locale.tr("leakshield.settings.values_text"));
+    values.changed = ctx.bits_changed(SHIELD_FLAGS, BIT_RECOMMENDED);
+    if own {
+        values.note = Some(Note {
+            text: locale.tr("leakshield.settings.values_own_warning"),
+            warning: true,
+        });
+    }
+    let mut rows = vec![values];
+
+    // The diagram, then the three values from its top line to its bottom line.
+    let (diagram, now_line) = band_diagram(ctx, input);
+    rows.push(Row {
+        key: "band".to_owned(),
+        label: locale.tr("leakshield.settings.diagram.title"),
+        caption: now_line,
+        badge: String::new(),
+        control: Control::Band(diagram),
+        writable: false,
+        reason: None,
+        error: None,
+        changed: false,
+        link: None,
+        use_current: None,
+        dim: false,
+        fixed: false,
+        note: None,
+    });
+    let band = ctx.ui.band(ctx.data);
+    for (key, field, value) in [
+        ("band_max", "shield_pressure_max_range", band.map(|b| b.2)),
+        (
+            "band_target",
+            "shield_pressure_working_range",
+            band.map(|b| b.1),
+        ),
+        ("band_min", "shield_pressure_low", band.map(|b| b.0)),
+    ] {
+        let mut row = ctx.row(
+            key,
+            field,
+            &format!("leakshield.settings.{key}"),
+            Control::Number {
+                text: value.map_or_else(String::new, |v| plain(locale, v)),
+                unit: "mbar".to_owned(),
+            },
+        );
+        row.caption = Some(locale.tr(&format!("leakshield.settings.{key}_text")));
+        // The recommended values are not for the user to edit.
+        if !own && row.writable {
+            row.fixed = true;
+            row.badge = locale.tr("leakshield.settings.recommended_value");
+        }
+        rows.push(row);
+    }
+    rows.push(RowCtx::caption(
         ctx.switch(
             "adaptive",
             SHIELD_FLAGS,
@@ -824,44 +1036,7 @@ fn pressure_rows(ctx: &RowCtx<'_>) -> Vec<Row> {
             "leakshield.settings.adaptive",
         ),
         Some(locale.tr("leakshield.settings.adaptive_text")),
-    )];
-    let expert = ctx.ui.expert(ctx.data);
-    for (index, (key, field, label)) in [
-        (
-            "expert_min",
-            "shield_pressure_low",
-            "leakshield.settings.expert_min",
-        ),
-        (
-            "expert_target",
-            "shield_pressure_working_range",
-            "leakshield.settings.expert_target",
-        ),
-        (
-            "expert_max",
-            "shield_pressure_max_range",
-            "leakshield.settings.expert_max",
-        ),
-    ]
-    .iter()
-    .enumerate()
-    {
-        let value = expert.map(|(min, target, max)| [min, target, max][index]);
-        let mut row = ctx.row(
-            key,
-            field,
-            label,
-            Control::Number {
-                text: value.map_or_else(String::new, |v| plain(locale, v)),
-                unit: "mbar".to_owned(),
-            },
-        );
-        row.dim = adaptive;
-        if index == 0 {
-            row.caption = Some(locale.tr("leakshield.settings.expert_text"));
-        }
-        rows.push(row);
-    }
+    ));
     let timer = ctx.ui.number(ctx.data, SHIELD_FLAGS).unwrap_or(0.0) as u32 & BIT_TIMER != 0;
     rows.push(RowCtx::caption(
         ctx.switch(

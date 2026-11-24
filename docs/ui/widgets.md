@@ -88,6 +88,19 @@ Comp: `comps/leakshield-overview.html`.
 - States: in range (tag "In range"), below the minimum or above the maximum (marker and value in `alarm` or `warning`, tag with the state), offline (no marker, "--").
 - No interaction. Tooltip with the four values.
 
+## Pressure band diagram
+
+Used by the Pressure step of the Leakshield wizard. It is a scheme, not a scale: the lines keep their place.
+
+- A plot 184 px high and, at its right, the values of its three lines.
+- Three horizontal lines at a quarter, a half and three quarters of the height: the maximum (1.5 px `fg`), the target (2 px `accent`) and the minimum (1.5 px `fg`).
+- The band between the maximum and the minimum has the `accent-tint` fill. The zones above the maximum and below the minimum have a 45 degree hatch in `fg-dim`.
+- Each zone has one line of 12 px text on a `card` plate at its left: "Vent valve open: releases vacuum" above the maximum, "Pump off, vent valve closed" in the band, "Pump on: builds vacuum up to the target" below the minimum. A text that does not fit truncates.
+- The value of a line is bold text at the right of the plot, on the height of the line: "Maximum 465 mbar". The target value is in `accent`. When the Leakshield uses another limit now, a caption under the value has it: "now 215 mbar".
+- The live pressure is an `fg` disc r 6 near the right edge of the plot, with the bold text "Now 398 mbar" on a `card` plate at its left. Between two lines its height follows the pressure between the two live limits. Outside the band it stays in the hatched zone.
+- Without a live pressure the diagram has no marker.
+- No interaction.
+
 ## LED timeline editor
 
 - Top row: one cell per LED, 28 px wide: 6 integrated LEDs, then the external LEDs. Each cell shows the live color. A gap separates the two groups.

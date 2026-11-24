@@ -13,11 +13,12 @@ use crate::model::Severity;
 use crate::screen_view::{InputKey, ScreenView};
 use crate::screens::controls::{Pick, act};
 use crate::screens::leakshield::TabState;
+use crate::screens::leakshield::band::band_diagram;
 use crate::screens::leakshield::parts::{field_badge, header, loading_card, radio_mark};
 use crate::screens::leakshield::settings::{Control, Link, Row, SettingsModel, Summary};
 use crate::screens::ui::{
-    TagKind, caption, card, card_header, card_row, cell, field_row, locked, modal, notice_row,
-    page, severity_icon, table_header, table_row, tag, wide_cell, write_line,
+    TagKind, caption, card, card_header, card_row, cell, field_row, heading, locked, modal,
+    notice_row, page, severity_icon, table_header, table_row, tag, wide_cell, write_line,
 };
 use crate::shell::Page;
 use crate::tokens::Palette;
@@ -273,7 +274,21 @@ impl ScreenView {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let view = cx.entity();
-        let enabled = row.writable && ready;
+        if let Control::Band(diagram) = &row.control {
+            return v_flex()
+                .debug_selector(|| "ls-row-band".to_owned())
+                .w_full()
+                .px(px(18.))
+                .py(px(12.))
+                .gap(px(9.))
+                .border_t_1()
+                .border_color(p.border)
+                .child(heading(row.label.clone()))
+                .child(band_diagram(diagram, p))
+                .children(row.caption.clone().map(|text| caption(text, p)))
+                .into_any_element();
+        }
+        let enabled = row.writable && ready && !row.fixed;
         let key = row.key.clone();
         let device = id.to_owned();
         let control: AnyElement = match &row.control {
@@ -362,8 +377,19 @@ impl ScreenView {
                 .text_color(p.fg_dim)
                 .child(text.clone())
                 .into_any_element(),
-            // The Modes are radio rows under the name of the setting.
-            Control::Radio(_) => div().into_any_element(),
+            // The choices are radio rows under the name of the setting.
+            Control::Radio(_) | Control::Band(_) => div().into_any_element(),
+        };
+        // A text shrinks and wraps. Every other control keeps its width.
+        let control = {
+            let name = format!("ls-control-{key}");
+            div()
+                .map(|control| match &row.control {
+                    Control::Info(_) => control.min_w_0(),
+                    _ => control.flex_none(),
+                })
+                .debug_selector(move || name)
+                .child(control)
         };
         let mut title = v_flex().flex_1().min_w_0().gap(px(3.)).child(
             h_flex()
@@ -375,7 +401,11 @@ impl ScreenView {
                         .child(row.label.clone()),
                 )
                 .when(!row.badge.is_empty(), |t| {
-                    t.child(field_badge(row.badge.clone(), row.writable, p))
+                    t.child(field_badge(
+                        row.badge.clone(),
+                        row.writable && !row.fixed,
+                        p,
+                    ))
                 }),
         );
         if let Some(text) = &row.caption {
@@ -405,7 +435,23 @@ impl ScreenView {
         if let Some(error) = &row.error {
             title = title.child(caption(error.clone(), p).text_color(p.alarm));
         }
+        if let Some(note) = &row.note {
+            let (name, color) = if note.warning {
+                (NcIcon::Warn, p.warning)
+            } else {
+                (NcIcon::Info, p.accent)
+            };
+            title = title.child(
+                h_flex()
+                    .items_start()
+                    .gap(px(4.))
+                    .child(small_icon(name, color).mt(px(2.)))
+                    .child(caption(note.text.clone(), p).text_color(p.fg)),
+            );
+        }
+        let row_name = format!("ls-row-{key}");
         let mut line = field_row(p)
+            .debug_selector(move || row_name)
             .when(row.dim, |l| l.opacity(0.5))
             .when(row.changed, |l| l.bg(p.accent_tint))
             .child(title)
@@ -419,6 +465,10 @@ impl ScreenView {
                     None,
                 )
                 .disabled(!enabled)
+                .debug_selector({
+                    let name = format!("ls-use-{}", row.key);
+                    move || name
+                })
                 .on_click(act(&view, move |this, _, cx| {
                     let mut ui = std::mem::take(&mut this.leakshield.settings);
                     this.with_input(cx, |input| ui.use_current(input, &device, &key));
@@ -439,6 +489,10 @@ impl ScreenView {
                     label.clone(),
                     p,
                 )
+                .debug_selector({
+                    let name = format!("ls-link-{}", row.key);
+                    move || name
+                })
                 .on_click(act(&view, move |this, _, cx| match &target {
                     Link::Loops => this.go(Page::Loops, cx),
                     Link::Fields(field) => this.leakshield.open_fields(Some(field)),

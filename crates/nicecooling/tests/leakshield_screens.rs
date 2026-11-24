@@ -3280,56 +3280,32 @@ fn leakshield_settings_states() {
         Control::Info("None. The Leakshield uses the pump speed only.".into())
     );
 
-    // The Pressure step: 127 has adaptive pressure and the timer on. The expert values dim.
+    // The Pressure step: the choices, the diagram and the values (`leakshield_wizard.rs`),
+    // then the two vacuum windows.
     ui.go(Step::Pressure);
     let model = settings(&state, &ui);
-    assert_eq!(model.rows[0].control, Control::Switch(true));
-    assert_eq!(
-        model.rows[0].caption.as_deref(),
-        Some(
-            "The Leakshield computes the pressure from the pump speed and the flow of the Feed. Recommended."
-        )
-    );
-    let expert: Vec<(&str, bool)> = model.rows[1..4]
+    assert_eq!(model.rows[0].key, "pressure_values");
+    let times: Vec<&Control> = model
+        .rows
         .iter()
-        .map(|r| {
-            (
-                match &r.control {
-                    Control::Number { text, .. } => text.as_str(),
-                    _ => "",
-                },
-                r.dim,
-            )
-        })
+        .filter(|r| r.key.starts_with("timer_"))
+        .map(|r| &r.control)
         .collect();
-    assert_eq!(expert, [("250", true), ("300", true), ("350", true)]);
     assert_eq!(
-        model.rows[1].caption.as_deref(),
-        Some("Not used while adaptive pressure is on.")
+        times,
+        [
+            &Control::Time {
+                text: "09:00".into()
+            },
+            &Control::Time {
+                text: "18:00".into()
+            }
+        ]
     );
-    assert_eq!(
-        model.rows[5].control,
-        Control::Time {
-            text: "09:00".into()
-        }
-    );
-    assert_eq!(
-        model.rows[6].control,
-        Control::Time {
-            text: "18:00".into()
-        }
-    );
-    // Turn adaptive pressure off: the expert values apply. A value out of range has an error.
-    ui.edit(&data, "adaptive", "0");
-    ui.edit(&data, "expert_min", "500");
-    let model = settings(&state, &ui);
-    assert_eq!(model.rows[0].control, Control::Switch(false));
-    assert!(!model.rows[1].dim);
-    assert_eq!(model.rows[1].error.as_deref(), Some("30 to 430 mbar."));
-    assert!(
-        !model.rows[1].writable,
-        "the pressure limits are read-only in the fixture"
-    );
+    // The pressure limits are read-only in the fixture: the reason shows, not the choice.
+    let minimum = model.rows.iter().find(|r| r.key == "band_min").unwrap();
+    assert!(!minimum.writable && !minimum.fixed);
+    assert_eq!(minimum.badge, "Read-only");
 
     // The Standby step.
     ui.go(Step::Standby);

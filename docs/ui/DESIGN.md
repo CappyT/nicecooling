@@ -379,6 +379,7 @@ Four SVG files on a 16 px grid, one color (`#2E3436`). The desktop recolors a sy
 | Action view: Measure fill level, Deaerate | `progress`, `Banner` |
 | Action view: Refill | Composite instruction card |
 | Leakshield Settings: wizard | `stepper`, settings form (`switch`, `select`, `input`), `button`s |
+| Leakshield Settings: Pressure step | `PressureBand` (custom) between the radio rows and the inputs |
 | Leakshield Settings: Summary | `DiffTable` (custom) and `WriteStatus` |
 | Leakshield Sensors | `table` with inline `input`, `SensorPicker` (custom), `select`, number `input` |
 | Leakshield Display: page grid and previews | `DisplayPreview` (custom) in a grid |
