@@ -148,6 +148,7 @@ pub fn init(cx: &mut App, mode: StartMode, backend: Backend) -> Entity<AppModel>
     } = backend;
     let locale = language.resolve();
     gpui_component::init(cx);
+    crate::shell_view::bind_keys(cx);
     gpui_component::set_locale(locale.code());
     // Closing the window hides it: only "Quit" ends the app.
     cx.set_quit_mode(QuitMode::Explicit);

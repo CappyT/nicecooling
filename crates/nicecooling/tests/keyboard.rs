@@ -322,3 +322,156 @@ fn a_sensor_picker_takes_the_keyboard(cx: &mut TestAppContext) {
     assert!(rig.inbox.try_recv().is_ok(), "the pick sends its command");
     assert_eq!(ring(&mut visual), Some(around(control)));
 }
+
+/// Two controls and a screen that takes Enter, under a dialog with two controls. Enter on
+/// the first control opens the dialog.
+struct UnderDialog {
+    open: bool,
+    /// The presses of the two controls under the scrim, then of the two in the dialog.
+    presses: [Rc<Cell<usize>>; 4],
+    screen_keys: Rc<Cell<usize>>,
+    root: gpui::FocusHandle,
+    stops: [gpui::FocusHandle; 4],
+}
+
+impl gpui::Render for UnderDialog {
+    fn render(
+        &mut self,
+        window: &mut gpui::Window,
+        cx: &mut gpui::Context<Self>,
+    ) -> impl IntoElement {
+        nicecooling::screens::ui::dialog_frame(window, cx);
+        let control = |index: usize| {
+            let presses = self.presses[index].clone();
+            div()
+                .id(("control", index))
+                .size(px(40.))
+                .track_focus(&self.stops[index])
+                .on_click(move |_, _, _| presses.set(presses.get() + 1))
+        };
+        let keys = self.screen_keys.clone();
+        let opens = cx.listener(|this, _, _, cx| {
+            this.open = true;
+            cx.notify();
+        });
+        div()
+            .size_full()
+            .track_focus(&self.root)
+            .on_key_down(move |event, _, _| {
+                if event.keystroke.key != "escape" {
+                    keys.set(keys.get() + 1);
+                }
+            })
+            .child(control(0).on_click(opens))
+            .child(control(1))
+            .children(self.open.then(|| {
+                nicecooling::screens::ui::modal(
+                    "Reset the counter?",
+                    "This cannot be undone.",
+                    Vec::new(),
+                    vec![control(2).into_any_element(), control(3).into_any_element()],
+                    &Palette::new(false),
+                )
+            }))
+    }
+}
+
+/// While a dialog is open the focus stays in it: Tab and Shift+Tab go through its controls,
+/// no key reaches a control or the screen under the scrim, and the control that opened the
+/// dialog has the focus again when it closes.
+#[gpui::test]
+fn a_dialog_keeps_the_focus(cx: &mut TestAppContext) {
+    let presses: [Rc<Cell<usize>>; 4] = Default::default();
+    let screen_keys = Rc::new(Cell::new(0));
+    let window = cx.add_window({
+        let (presses, screen_keys) = (presses.clone(), screen_keys.clone());
+        move |window, cx| {
+            let root = cx.focus_handle();
+            window.focus(&root, cx);
+            UnderDialog {
+                open: false,
+                presses,
+                screen_keys,
+                root,
+                stops: std::array::from_fn(|_| cx.focus_handle().tab_stop(true)),
+            }
+        }
+    });
+    let stops = window
+        .update(cx, |screen, _, _| screen.stops.clone())
+        .unwrap();
+    let mut visual = VisualTestContext::from_window(window.into(), cx);
+    let frame = |visual: &mut VisualTestContext| {
+        visual.run_until_parked();
+        visual.update(|window, cx| window.draw(cx).clear(cx));
+        visual.run_until_parked();
+        visual.update(|window, cx| window.draw(cx).clear(cx));
+    };
+    let focused = |visual: &mut VisualTestContext| {
+        visual.update(|window, _| stops.iter().position(|stop| stop.is_focused(window)))
+    };
+    frame(&mut visual);
+
+    // Enter on the first control opens the dialog: the focus leaves the control.
+    visual.update(|window, cx| window.focus_next(cx));
+    frame(&mut visual);
+    assert_eq!(focused(&mut visual), Some(0));
+    press(&mut visual, "enter");
+    frame(&mut visual);
+    assert!(visual.debug_bounds("modal-scrim").is_some(), "the dialog");
+    assert_eq!(focused(&mut visual), None, "the focus is in the dialog");
+    let (opened, screen) = (presses[0].get(), screen_keys.get());
+
+    // Tab and Shift+Tab stay in the dialog, and Enter presses only its controls.
+    let mut seen = std::collections::BTreeSet::new();
+    for key in ["tab"; 9].into_iter().chain(["shift-tab"; 9]) {
+        visual.simulate_keystrokes(key);
+        frame(&mut visual);
+        let stop = focused(&mut visual).expect("a control of the dialog");
+        assert!(stop >= 2, "{key} moved the focus under the scrim");
+        seen.insert(stop);
+        press(&mut visual, "enter");
+        frame(&mut visual);
+        visual.simulate_keystrokes("down alt-2 f10");
+    }
+    assert_eq!(seen.into_iter().collect::<Vec<_>>(), [2, 3]);
+    assert_eq!(
+        presses[0].get(),
+        opened,
+        "Enter reached the control that opened it"
+    );
+    assert_eq!(
+        presses[1].get(),
+        0,
+        "Enter reached a control under the scrim"
+    );
+    assert_eq!(
+        presses[2].get() + presses[3].get(),
+        18,
+        "the dialog takes Enter"
+    );
+    assert_eq!(
+        screen_keys.get(),
+        screen,
+        "a key reached the screen under the scrim"
+    );
+
+    // The dialog closes: the control that opened it has the focus again.
+    window
+        .update(cx, |screen, _, cx| {
+            screen.open = false;
+            cx.notify();
+        })
+        .unwrap();
+    let mut visual = VisualTestContext::from_window(window.into(), cx);
+    frame(&mut visual);
+    assert!(visual.debug_bounds("modal-scrim").is_none());
+    assert_eq!(focused(&mut visual), Some(0), "the focus is back");
+    visual.update(|window, cx| window.focus_next(cx));
+    frame(&mut visual);
+    assert_eq!(
+        focused(&mut visual),
+        Some(1),
+        "Tab moves on the screen again"
+    );
+}

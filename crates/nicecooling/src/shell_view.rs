@@ -20,6 +20,30 @@ use crate::screens::ui::Tip as _;
 use crate::shell::{Banner, BannerAction, BannerStyle, NavBadge, NavEntry, Page, ShellModel};
 use crate::tokens::Palette;
 
+gpui::actions!(nicecooling, [FocusNext, FocusPrev]);
+
+/// Tab and Shift+Tab in the shell. The component library binds them at its root: these
+/// bindings are deeper, so the shell can keep the focus in an open dialog.
+pub fn bind_keys(cx: &mut gpui::App) {
+    cx.bind_keys([
+        gpui::KeyBinding::new("tab", FocusNext, Some("Shell")),
+        gpui::KeyBinding::new("shift-tab", FocusPrev, Some("Shell")),
+    ]);
+}
+
+/// Move the focus to the next or the previous control. While a dialog is open, the focus
+/// stays in it.
+fn move_focus(back: bool, window: &mut Window, cx: &mut gpui::App) {
+    if crate::screens::ui::dialog_tab(back, window, cx) {
+        return;
+    }
+    if back {
+        window.focus_prev(cx);
+    } else {
+        window.focus_next(cx);
+    }
+}
+
 pub struct ShellView {
     model: Entity<AppModel>,
     commands: UnboundedSender<Command>,
@@ -30,6 +54,8 @@ pub struct ShellView {
     /// The Alarm whose countdown dialog the user hid with "Hide".
     countdown_hidden: Option<String>,
     countdown_focus: FocusHandle,
+    /// The focus of "Cancel poweroff" in the banner: it stays in the Tab order of a dialog.
+    banner_focus: FocusHandle,
     /// The Alarm that had the focus for its dialog: the focus moves once, when it opens.
     countdown_focused: Option<String>,
     /// The screen of every page.
@@ -75,6 +101,7 @@ impl ShellView {
             notices_open: false,
             countdown_hidden: None,
             countdown_focus: cx.focus_handle(),
+            banner_focus: cx.focus_handle().tab_stop(true),
             countdown_focused: None,
             bar_press: false,
         }
@@ -111,13 +138,6 @@ impl ShellView {
             let pages = self.model.read(cx).shell().pages();
             if let Some(page) = pages.get(number - 1) {
                 self.go(page.clone(), cx);
-            }
-        } else if keys.key == "tab" && !keys.modifiers.control && !keys.modifiers.alt {
-            // Tab and Shift+Tab move the focus through the controls.
-            if keys.modifiers.shift {
-                window.focus_prev(cx);
-            } else {
-                window.focus_next(cx);
             }
         } else if keys.key == "f10" {
             self.menu_open = !self.menu_open;
@@ -230,6 +250,13 @@ impl ShellView {
                 .font_weight(FontWeight::BOLD)
                 .label(label.clone())
                 .on_click(self.banner_action(action.clone(), cx));
+            let button = if matches!(action, BannerAction::CancelPoweroff { .. }) {
+                button
+                    .track_focus(&self.banner_focus)
+                    .debug_selector(|| "banner-cancel".to_owned())
+            } else {
+                button
+            };
             // On the Alarm field the button is white with dark red text.
             let on_alarm = ButtonCustomVariant::new(cx)
                 .color(gpui::white())
@@ -643,6 +670,19 @@ impl Render for ShellView {
         };
         let p = Palette::new(gpui_component::Theme::global(cx).is_dark());
 
+        let cancels = |banner: &Banner| {
+            matches!(
+                banner.button,
+                Some((_, BannerAction::CancelPoweroff { .. }))
+            )
+        };
+        let cancel_shown = shell.banners.iter().any(cancels)
+            || (self.notices_open && shell.more_notices.iter().any(cancels));
+        crate::screens::ui::set_dialog_extra(
+            cancel_shown.then_some(&self.banner_focus),
+            window,
+            cx,
+        );
         let mut banners = v_flex().flex_none();
         for (index, banner) in shell.banners.iter().enumerate() {
             let row = self.render_banner(index, banner, &p, cx).into_any_element();
@@ -704,10 +744,12 @@ impl Render for ShellView {
                     let _ = commands.send(command.clone());
                     let _ = cx;
                 },
-                move |_, cx| {
+                move |window, cx| {
                     let instance = instance.clone();
                     hide_view.update(cx, |this, cx| {
                         this.countdown_hidden = Some(instance);
+                        // The button that had the focus goes away: the keys go to the shell.
+                        window.focus(&this.focus, cx);
                         cx.notify();
                     });
                 },
@@ -725,6 +767,8 @@ impl Render for ShellView {
             .id("shell")
             .key_context("Shell")
             .track_focus(&self.focus)
+            .on_action(|_: &FocusNext, window, cx| move_focus(false, window, cx))
+            .on_action(|_: &FocusPrev, window, cx| move_focus(true, window, cx))
             .on_key_down(
                 cx.listener(|this, event: &KeyDownEvent, window, cx| {
                     this.on_key(event, window, cx)

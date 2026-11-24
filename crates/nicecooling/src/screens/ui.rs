@@ -1,13 +1,14 @@
 //! Small building blocks that the screens share. They paint with the tokens of `Palette`.
 
 use std::cell::Cell;
+use std::collections::HashMap;
 use std::rc::Rc;
 
 use gpui::prelude::*;
 use gpui::{
-    AnyElement, App, Bounds, BoxShadow, Div, ElementId, FocusHandle, FontWeight, Hsla,
-    KeyDownEvent, MouseDownEvent, Pixels, SharedString, Stateful, Window, deferred, div, point, px,
-    relative, rgba,
+    AnyElement, App, Bounds, BoxShadow, Div, ElementId, FocusHandle, FontWeight, Global, Hsla,
+    KeyDownEvent, MouseDownEvent, Pixels, SharedString, Stateful, Window, WindowId, deferred, div,
+    point, px, relative, rgba,
 };
 use gpui_component::tooltip::Tooltip;
 use gpui_component::{Icon, Sizable as _, h_flex, v_flex};
@@ -648,10 +649,159 @@ struct Scrim {
     dialog: AnyElement,
 }
 
+/// The dialog that is open in a window.
+struct OpenDialog {
+    /// The focus of the scrim: the controls of the dialog are in it.
+    scope: FocusHandle,
+    /// What had the focus when the dialog opened. It gets the focus back.
+    opener: Option<FocusHandle>,
+    /// True when this frame drew the dialog.
+    drawn: bool,
+    /// What had the focus at the start of the frame, when that was in the dialog.
+    held: Option<Option<FocusHandle>>,
+}
+
+/// The focus of the dialogs, by window. While a dialog is open, the focus stays in it.
+#[derive(Default)]
+struct DialogFocus {
+    open: HashMap<WindowId, OpenDialog>,
+    /// A control outside the dialog that stays in the Tab order: "Cancel poweroff" of the
+    /// banner, which draws over the scrim.
+    extra: HashMap<WindowId, FocusHandle>,
+}
+
+impl Global for DialogFocus {}
+
+/// The view that holds the dialogs calls this at the start of its render. When the frame
+/// ends without the dialog, the control that opened it gets the focus back.
+pub fn dialog_frame(window: &mut Window, cx: &mut App) {
+    let id = window.window_handle().window_id();
+    let focused = window.focused(cx);
+    let Some(open) = cx.default_global::<DialogFocus>().open.get_mut(&id) else {
+        return;
+    };
+    open.drawn = false;
+    let inside = focused
+        .as_ref()
+        .is_none_or(|focused| *focused == open.scope || open.scope.contains(focused, window));
+    open.held = inside.then_some(focused);
+    window.defer(cx, move |window, cx| {
+        let dialogs = cx.default_global::<DialogFocus>();
+        if dialogs.open.get(&id).is_some_and(|open| !open.drawn)
+            && let Some(closed) = dialogs.open.remove(&id)
+            && let Some(opener) = closed.opener
+            // A focus that the user moved out of the dialog stays where it is.
+            && closed.held.is_some_and(|held| held == window.focused(cx))
+        {
+            window.focus(&opener, cx);
+        }
+    });
+}
+
+/// Keep `control` in the Tab order of an open dialog, or take it out with `None`.
+pub fn set_dialog_extra(control: Option<&FocusHandle>, window: &Window, cx: &mut App) {
+    let id = window.window_handle().window_id();
+    let extra = &mut cx.default_global::<DialogFocus>().extra;
+    match control {
+        Some(control) => extra.insert(id, control.clone()),
+        None => extra.remove(&id),
+    };
+}
+
+/// Tab and Shift+Tab while a dialog is open: the focus goes through the controls of the
+/// dialog, then to the extra control, and starts again. Returns false when no dialog is
+/// open: the caller then moves the focus itself.
+pub fn dialog_tab(back: bool, window: &mut Window, cx: &mut App) -> bool {
+    let id = window.window_handle().window_id();
+    let dialogs = cx.default_global::<DialogFocus>();
+    let Some(scope) = dialogs.open.get(&id).map(|open| open.scope.clone()) else {
+        return false;
+    };
+    let extra = dialogs.extra.get(&id).cloned();
+    let inside = |window: &Window, cx: &App| {
+        window
+            .focused(cx)
+            .is_some_and(|focused| focused != scope && scope.contains(&focused, window))
+    };
+    // The first or the last control of the dialog. A dialog without a control keeps the
+    // focus on its scrim.
+    let edge = |last: bool, window: &mut Window, cx: &mut App| {
+        window.focus(&scope, cx);
+        let mut found = None;
+        for _ in 0..64 {
+            window.focus_next(cx);
+            if !inside(window, cx) {
+                break;
+            }
+            found = window.focused(cx);
+            if !last {
+                break;
+            }
+        }
+        window.focus(found.as_ref().unwrap_or(&scope), cx);
+    };
+    if extra.as_ref().is_some_and(|extra| extra.is_focused(window)) {
+        edge(back, window, cx);
+        return true;
+    }
+    if back {
+        window.focus_prev(cx);
+    } else {
+        window.focus_next(cx);
+    }
+    if !inside(window, cx) {
+        match &extra {
+            Some(extra) => window.focus(extra, cx),
+            None => edge(back, window, cx),
+        }
+    }
+    true
+}
+
 impl RenderOnce for Scrim {
-    fn render(self, window: &mut Window, _: &mut App) -> impl IntoElement {
+    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let size = window.viewport_size();
+        // The focus moves into the dialog when it opens.
+        let id = window.window_handle().window_id();
+        let focused = window.focused(cx);
+        let dialogs = cx.default_global::<DialogFocus>();
+        let scope = match dialogs.open.get_mut(&id) {
+            Some(open) => {
+                open.drawn = true;
+                open.scope.clone()
+            }
+            None => {
+                let scope = cx.focus_handle();
+                cx.default_global::<DialogFocus>().open.insert(
+                    id,
+                    OpenDialog {
+                        scope: scope.clone(),
+                        opener: focused,
+                        drawn: true,
+                        held: None,
+                    },
+                );
+                window.focus(&scope, cx);
+                scope
+            }
+        };
         div()
+            .track_focus(&scope)
+            // Tab stays in the dialog. A key that is not text stops here: the screen under
+            // the scrim does not get it. Escape goes on: it closes a list in the dialog.
+            .on_key_down(|event, window, cx| {
+                let keys = &event.keystroke;
+                let command =
+                    keys.modifiers.control || keys.modifiers.alt || keys.modifiers.platform;
+                if keys.key == "tab" && !command {
+                    dialog_tab(keys.modifiers.shift, window, cx);
+                    cx.stop_propagation();
+                } else if keys.key != "escape"
+                    && (command || (keys.key != "space" && keys.key.chars().count() != 1))
+                {
+                    cx.stop_propagation();
+                }
+            })
             .w(size.width)
             .h(size.height)
             .flex()

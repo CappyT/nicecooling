@@ -487,6 +487,7 @@ impl Render for ScreenView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let page = self.model.read(cx).page.clone();
         let p = Self::palette(cx);
+        crate::screens::ui::dialog_frame(window, cx);
         self.return_picker_focus(window, cx);
         self.focused = window.focused(cx);
         // Each page, and each tab of a Leakshield, keeps its own scroll position.
