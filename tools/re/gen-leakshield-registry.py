@@ -79,7 +79,7 @@ f("page_template", 73, "u8", E(*TEMPLATES), "low", "Page layout: 0 logo, 1 chart
 f("page_options", 74, "u8", B(0x03), "low", "Bit 0: show the page in standby. Bit 1: hide the page in normal operation.", **P)
 f("page_icons", 75, "u8[4]", T, "low", "Index into the icons of report 8, 255 none.", **P)
 f("page_names", 79, "u8[8]", T, "low", "Index into the names of report 8, 255 none.", **P)
-f("page_sources", 87, "u8[8]", T, "low", "Value source of each page slot, 255 none.", **P)
+f("page_sources", 87, "u8[8]", T, "low", "Value source of each page slot: the sensor index times 4, 255 none. A value of 80 or more has no sensor.", **P)
 f("page_precisions", 95, "u8[8]", T, "low", "Decimal places of each page slot.", **P)
 f("page_values", 103, "i16[8]", T, "low", "Template parameters of each page slot.", **P)
 f("standby_conditions", 533, "u8", B(0x0B), "safety", "Bit 0: standby without USB connection. Bit 1: standby on USB suspend. Bit 3: leave standby on alarm.")

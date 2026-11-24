@@ -251,7 +251,7 @@ aquasuite reads the struct, changes the fields of the user, and writes back ever
 | `page_options` | 74 | u8 | 10 x 46 |  | mask 0x3 |  | [3, 3, 3, 3, 3, 3, ...] | Bit 0: show the page in standby. Bit 1: hide the page in normal operation. |
 | `page_icons` | 75 | u8[4] | 10 x 46 |  | type only |  | [255, 255, 255, 255, 2, 255, ...] | Index into the icons of report 8, 255 none. |
 | `page_names` | 79 | u8[8] | 10 x 46 |  | type only |  | [255, 255, 255, 255, 255, 255, ...] | Index into the names of report 8, 255 none. |
-| `page_sources` | 87 | u8[8] | 10 x 46 |  | type only |  | [255, 255, 255, 255, 255, 255, ...] | Value source of each page slot, 255 none. |
+| `page_sources` | 87 | u8[8] | 10 x 46 |  | type only |  | [255, 255, 255, 255, 255, 255, ...] | Value source of each page slot: the sensor index times 4, 255 none. A value of 80 or more has no sensor. |
 | `page_precisions` | 95 | u8[8] | 10 x 46 |  | type only |  | [0, 0, 0, 0, 0, 0, ...] | Decimal places of each page slot. |
 | `page_values` | 103 | i16[8] | 10 x 46 |  | type only |  | [0, 100, 0, 100, 0, 100, ...] | Template parameters of each page slot. |
 | `standby_conditions` | 533 | u8 |  |  | mask 0xB |  | 11 | Bit 0: standby without USB connection. Bit 1: standby on USB suspend. Bit 3: leave standby on alarm. |

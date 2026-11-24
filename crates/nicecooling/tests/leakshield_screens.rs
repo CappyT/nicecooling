@@ -1430,6 +1430,181 @@ fn display(state: &AppState, ui: &DisplayUi) -> DisplayModel {
     DisplayModel::build(&en(state, &Feedback::default()), ui, LEAKSHIELD)
 }
 
+/// The pages of the reference device, bytes 73 + 46 n of its report 3.
+fn reference_pages(state: &mut AppState) {
+    let templates = [
+        "leakshield-state",
+        "values-1",
+        "chart",
+        "values-2",
+        "values-2",
+        "chart",
+        "value-and-bar",
+        "values-2",
+        "time",
+        "logo",
+    ];
+    set_field(
+        state,
+        "page_template",
+        FieldValue::TextList(templates.map(String::from).to_vec()),
+    );
+    let mut sources = vec![255.0; 80];
+    for (page, bytes) in [
+        (1, &[0.0][..]),
+        (2, &[0.0]),
+        (3, &[0.0, 12.0]),
+        (4, &[4.0, 8.0]),
+        (5, &[8.0]),
+        (6, &[4.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
+        (7, &[16.0, 20.0]),
+    ] {
+        sources[page * 8..page * 8 + bytes.len()].copy_from_slice(bytes);
+    }
+    set_field(state, "page_sources", FieldValue::List(sources));
+}
+
+#[test]
+fn a_page_source_byte_is_the_sensor_index_times_four() {
+    use nicecooling::screens::leakshield::display::{NO_SOURCE, source_byte, source_sensor};
+    assert_eq!(
+        [0.0, 4.0, 16.0, 20.0, 76.0, 79.0].map(source_sensor),
+        [0, 1, 4, 5, 19, 19]
+    );
+    // 80 or more has no sensor. 255 is none.
+    assert_eq!([80.0, 100.0, 255.0].map(source_sensor), [NO_SOURCE; 3]);
+    assert_eq!(
+        [0, 1, 5, 19, 255].map(source_byte),
+        [Some(0), Some(4), Some(20), Some(76), Some(255)]
+    );
+    assert_eq!([20, 21, 254].map(source_byte), [None; 3]);
+}
+
+#[test]
+fn the_display_reads_the_sources_of_the_reference_device() {
+    let mut state = with_leakshield();
+    reference_pages(&mut state);
+    let picked = |model: &DisplayModel| -> Vec<u8> {
+        model
+            .page
+            .rows
+            .iter()
+            .map(|row| row.sources.iter().find(|s| s.2).map_or(0, |s| s.0))
+            .collect()
+    };
+    let mut ui = DisplayUi::default();
+    // Page: the sensors that the report names (0 pressure, 1 fill level, 2 volume change,
+    // 3 pressure change, 4 pump speed, 5 flow).
+    for (page, sensors) in [
+        (1, vec![0]),
+        (2, vec![0]),
+        (3, vec![0, 3]),
+        (4, vec![1, 2]),
+        (5, vec![2]),
+        (6, vec![1]),
+        (7, vec![4, 5]),
+    ] {
+        ui.select(page);
+        assert_eq!(picked(&display(&state, &ui)), sensors, "page {}", page + 1);
+    }
+    let model = display(&state, &DisplayUi::default());
+    assert_eq!(
+        model.pages[4]
+            .lines
+            .iter()
+            .map(|l| l.0.as_str())
+            .collect::<Vec<_>>(),
+        ["Fill level", "Volume change"]
+    );
+    assert_eq!(
+        model.pages[7]
+            .lines
+            .iter()
+            .map(|l| l.0.as_str())
+            .collect::<Vec<_>>(),
+        ["Pump speed", "Flow"]
+    );
+    // No page of the reference device shows a Software sensor.
+    assert!(
+        model
+            .pages
+            .iter()
+            .all(|p| p.lines.iter().all(|l| !l.0.contains("Software")))
+    );
+}
+
+#[test]
+fn a_source_picked_in_the_app_is_written_as_the_sensor_index_times_four() {
+    let mut state = with_leakshield();
+    reference_pages(&mut state);
+    let feedback = Feedback::default();
+    let screen_input = en(&state, &feedback);
+    let mut ui = DisplayUi::default();
+    ui.select(7);
+    let written = |ui: &DisplayUi, slot: usize, sensor: u8| {
+        let Command::SetLeakshieldFields { fields, .. } = ui
+            .set_source(&screen_input, LEAKSHIELD, slot, sensor)
+            .expect("a command")
+        else {
+            panic!("a field write");
+        };
+        let FieldValue::List(sources) = &fields[0].1 else {
+            panic!("a list")
+        };
+        sources.clone()
+    };
+    // Volume change (sensor 2) in slot 0 of page 8: byte 8.
+    assert_eq!(written(&ui, 0, 2)[7 * 8..7 * 8 + 2], [8.0, 20.0]);
+    // Software sensor 3 (sensor 10) is byte 40. No source is 255.
+    assert_eq!(written(&ui, 1, 10)[7 * 8 + 1], 40.0);
+    assert_eq!(written(&ui, 1, 255)[7 * 8 + 1], 255.0);
+    // The device has 20 sensors.
+    assert!(ui.set_source(&screen_input, LEAKSHIELD, 0, 20).is_none());
+    // The written list reads back as the picked sensors.
+    let mut again = state.clone();
+    set_field(
+        &mut again,
+        "page_sources",
+        FieldValue::List(written(&ui, 1, 10)),
+    );
+    let model = display(&again, &ui);
+    let picked: Vec<u8> = model
+        .page
+        .rows
+        .iter()
+        .map(|row| row.sources.iter().find(|s| s.2).unwrap().0)
+        .collect();
+    assert_eq!(picked, [4, 10]);
+}
+
+#[test]
+fn the_sensors_tab_finds_the_pages_that_use_a_software_sensor() {
+    // Software sensor 3 is sensor 10: the byte 40 of page 3 in the fixture.
+    let model = SensorsModel::build(
+        &en(&with_leakshield(), &Feedback::default()),
+        &SensorsUi::default(),
+        LEAKSHIELD,
+    );
+    assert!(
+        model.software_rows[2]
+            .used_by
+            .contains(&"Used by display page 3".to_owned())
+    );
+    // A byte of 4 is the sensor 1, not a Software sensor.
+    let mut state = with_leakshield();
+    reference_pages(&mut state);
+    let model = SensorsModel::build(
+        &en(&state, &Feedback::default()),
+        &SensorsUi::default(),
+        LEAKSHIELD,
+    );
+    assert!(model.software_rows.iter().all(|row| {
+        row.used_by
+            .iter()
+            .all(|text| !text.contains("display page"))
+    }));
+}
+
 #[test]
 fn leakshield_display_states() {
     let state = with_leakshield();
@@ -1482,7 +1657,7 @@ fn leakshield_display_states() {
     set_field(&mut dangling, "page_sources", {
         let mut sources = vec![255.0; 80];
         sources[16] = 0.0;
-        sources[17] = 12.0;
+        sources[17] = 48.0;
         FieldValue::List(sources)
     });
     let model = display(&dangling, &ui);
@@ -1587,7 +1762,7 @@ fn leakshield_display_commands() {
     let FieldValue::List(sources) = &fields[0].1 else {
         panic!("a list")
     };
-    assert_eq!(sources[3 * 8 + 1], 4.0);
+    assert_eq!(sources[3 * 8 + 1], 16.0);
     // "Show in normal operation" is the bit that hides the page.
     let Command::SetLeakshieldFields { fields, .. } = ui
         .set_option(&screen_input, LEAKSHIELD, 2, true)

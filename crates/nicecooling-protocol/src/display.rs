@@ -29,7 +29,8 @@ pub struct Page {
     pub icons: [u8; 4],
     /// Index into the names of report 8, 255 for none.
     pub names: [u8; SLOTS],
-    /// Value source of each slot, 255 for none.
+    /// Value source of each slot: the sensor index times 4, 255 for none. A value of 80 or more
+    /// has no sensor.
     pub sources: [u8; SLOTS],
     pub precisions: [u8; SLOTS],
     pub values: [i16; SLOTS],

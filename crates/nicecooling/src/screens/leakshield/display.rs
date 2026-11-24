@@ -11,8 +11,31 @@ use crate::screens::{FeedbackLine, ScreenInput};
 pub const PAGES: usize = 10;
 /// The value slots of one page in `page_sources`.
 const SLOTS: usize = 8;
-/// "No template" and "no source" in the fields.
 const BRIGHTNESS: [&str; 4] = ["maximum", "mid", "low", "off"];
+
+/// "No source" as a sensor index and as a byte of `page_sources`.
+pub const NO_SOURCE: u8 = 255;
+/// The first byte of `page_sources` that no sensor uses: the device has 20 sensors.
+const SOURCE_LIMIT: u8 = 80;
+
+/// The sensor index of a byte of `page_sources`. The byte is the sensor index times 4. A byte of
+/// 80 or more has no sensor.
+pub fn source_sensor(byte: f64) -> u8 {
+    if (0.0..f64::from(SOURCE_LIMIT)).contains(&byte) {
+        byte as u8 / 4
+    } else {
+        NO_SOURCE
+    }
+}
+
+/// The byte of `page_sources` for a sensor index. `None` for an index that the device lacks.
+pub fn source_byte(sensor: u8) -> Option<u8> {
+    match sensor {
+        NO_SOURCE => Some(NO_SOURCE),
+        _ if sensor < SOURCE_LIMIT / 4 => Some(sensor * 4),
+        _ => None,
+    }
+}
 
 /// The name of an empty page in `page_template`.
 pub const NO_TEMPLATE: &str = "none";
@@ -97,7 +120,8 @@ impl DisplayUi {
         ))
     }
 
-    /// The source of one value of the selected page: an index of the device sensors.
+    /// The source of one value of the selected page: a sensor index, or `NO_SOURCE`. The field
+    /// holds the index times 4.
     pub fn set_source(
         &self,
         input: &ScreenInput<'_>,
@@ -110,7 +134,7 @@ impl DisplayUi {
         if slot >= SLOTS || !device.access("page_sources").writable {
             return None;
         }
-        *list.get_mut(self.page * SLOTS + slot)? = f64::from(source);
+        *list.get_mut(self.page * SLOTS + slot)? = f64::from(source_byte(source)?);
         Some(fields_command(
             id,
             "display:source",
@@ -383,7 +407,7 @@ impl DisplayModel {
                 .map(|slot| {
                     let index = source_list
                         .get(page * SLOTS + slot)
-                        .map_or(255, |v| *v as u8);
+                        .map_or(NO_SOURCE, |v| source_sensor(*v));
                     let (name, value, _) = sources.describe(index);
                     (name, optional_value(locale, value, &sources.unit(index)))
                 })
@@ -415,7 +439,7 @@ impl DisplayModel {
             .map(|slot| {
                 let index = source_list
                     .get(page * SLOTS + slot)
-                    .map_or(255, |v| *v as u8);
+                    .map_or(NO_SOURCE, |v| source_sensor(*v));
                 let (text, _, has_source) = sources.describe(index);
                 let mut choices: Vec<(u8, String, bool)> = DEVICE_SENSORS
                     .iter()
@@ -423,7 +447,11 @@ impl DisplayModel {
                     .chain(8..=19)
                     .map(|i| (i, sources.describe(i).0, i == index))
                     .collect();
-                choices.push((255, locale.tr("leakshield.display.no_source"), index == 255));
+                choices.push((
+                    NO_SOURCE,
+                    locale.tr("leakshield.display.no_source"),
+                    index == NO_SOURCE,
+                ));
                 let (_, value, _) = sources.describe(index);
                 ValueRow {
                     slot,

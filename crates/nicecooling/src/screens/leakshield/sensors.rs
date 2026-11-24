@@ -5,6 +5,7 @@ use crate::command::Command;
 use crate::i18n::Locale;
 use crate::model::{AppState, SensorInfo};
 use crate::screens::format::optional_value;
+use crate::screens::leakshield::display::source_sensor;
 use crate::screens::leakshield::{Device, TabState, write_line};
 use crate::screens::{FeedbackLine, ScreenInput};
 
@@ -70,7 +71,10 @@ pub fn used_by(data: &crate::model::LeakshieldData, slot: u16) -> Vec<UsedBy> {
     let mut users = Vec::new();
     if let Some(sources) = data.list("page_sources") {
         for (page, row) in sources.chunks(8).enumerate() {
-            if row.contains(&index) {
+            if row
+                .iter()
+                .any(|byte| f64::from(source_sensor(*byte)) == index)
+            {
                 users.push(UsedBy::Page(page + 1));
             }
         }

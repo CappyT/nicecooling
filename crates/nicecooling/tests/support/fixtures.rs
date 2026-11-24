@@ -381,10 +381,11 @@ pub fn leakshield_data() -> LeakshieldData {
             Low,
             {
                 let mut sources = vec![255.0; 80];
-                // Page 2 shows the pressure; page 3 shows the pressure and Software sensor 3.
+                // Page 2 shows the pressure; page 3 shows the pressure and Software sensor 3
+                // (sensor 10). A byte is the sensor index times 4.
                 sources[8] = 0.0;
                 sources[16] = 0.0;
-                sources[17] = 10.0;
+                sources[17] = 40.0;
                 list(sources)
             },
             true,
