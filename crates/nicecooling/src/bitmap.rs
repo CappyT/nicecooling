@@ -146,7 +146,13 @@ pub const DEFAULT_THRESHOLD: u8 = 50;
 pub fn import_png(bytes: &[u8], width: u16, height: u16) -> Result<Gray, ImportError> {
     use image::imageops::{self, FilterType};
 
-    let decoded = image::codecs::png::PngDecoder::new(std::io::Cursor::new(bytes))
+    // A PNG of a few kB can declare a picture of gigabytes: the decoder refuses it before it
+    // allocates anything.
+    let mut limits = image::Limits::default();
+    limits.max_image_width = Some(4096);
+    limits.max_image_height = Some(4096);
+    limits.max_alloc = Some(64 * 1024 * 1024);
+    let decoded = image::codecs::png::PngDecoder::with_limits(std::io::Cursor::new(bytes), limits)
         .and_then(image::DynamicImage::from_decoder)
         .map_err(|_| ImportError::NotPng)?
         .to_rgba8();
