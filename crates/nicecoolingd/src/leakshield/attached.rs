@@ -715,7 +715,14 @@ impl Attached {
     ) -> std::result::Result<Decision, Failure> {
         match ticket.await {
             Ok(Ok(done)) => {
-                self.apply(done.report1, now_unix());
+                if done.read {
+                    self.apply(done.report1, now_unix());
+                } else {
+                    // The rest of the report is older than the last poll.
+                    self.refresh(|state| {
+                        state.report1.active_profile = done.report1.active_profile
+                    });
+                }
                 Ok(done.decision)
             }
             Ok(Err(failure)) => Err(failure),

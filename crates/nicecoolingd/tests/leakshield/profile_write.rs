@@ -128,7 +128,9 @@ async fn profile_write_during_action_and_release() {
     apply_slot(&device, &slots(&rig), slot(2)).await.unwrap();
     assert_eq!(rig.sim.report3()[747], 2);
 
-    // The Mode is RELEASE and no Action runs.
+    // The Mode is RELEASE and no Action runs. The next request is older than the spacing window of
+    // 2 s, so it reads report 1.
+    tokio::time::sleep(Duration::from_millis(2001)).await;
     rig.sim.edit_report1(|r| r.mode = 3);
     rig.sim.edit_report1(|r| r.active_profile = 2);
     apply_slot(&device, &slots(&rig), slot(3)).await.unwrap();

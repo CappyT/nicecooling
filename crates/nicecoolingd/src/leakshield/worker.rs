@@ -76,11 +76,14 @@ pub struct ProfileRequest {
     pub serial: String,
 }
 
-/// How a Profile request ended. `report1` is the one that the decision read.
+/// How a Profile request ended. `report1` is the one that the decision used.
 #[derive(Debug)]
 pub struct ProfileDone {
     pub decision: Decision,
     pub report1: Report1,
+    /// The decision read `report1` from the device. Else it is the report that the worker knew,
+    /// and only its `active_profile` is current.
+    pub read: bool,
 }
 
 /// The result of a Profile request. A newer request that replaces it gives `Superseded`.
@@ -381,13 +384,41 @@ fn run_message(parts: &WorkerParts, message: Message, save: &mut Option<(Instant
     let _ = reply.send(result);
 }
 
-/// Reads report 1 and the stored slot now, and decides what the request does to the device.
+/// What the worker keeps between Profile requests: the spacing, and the report 1 that it knows.
+#[derive(Default)]
+struct ProfileState {
+    spacing: Spacing,
+    /// Report 1 as the worker last read it, or as its last good Profile write left it. Inside the
+    /// spacing window the worker decides on this one and reads no report 1: a read waits for the
+    /// next report of the device (every 500 ms) after any reader of the same node drained the
+    /// queue, and that wait delays the write that waits for its time. A job that is not a
+    /// Profile write changes the device without a decision, so it drops this report.
+    report1: Option<Report1>,
+    /// The last decision read `report1` from the device.
+    read: bool,
+}
+
+/// Reads the stored slot, and report 1 unless `ProfileState` holds one that is valid now. Decides
+/// what the request does to the device.
 fn decide_profile(
     parts: &WorkerParts,
     request: &ProfileRequest,
+    state: &mut ProfileState,
+    in_window: bool,
 ) -> Result<(Report1, Decision), Failure> {
-    let report1 =
-        blocking(|| parts.io.read_report1()).map_err(|e| Failure::Unreachable(e.to_string()))?;
+    let report1 = match state.report1.clone().filter(|_| in_window) {
+        Some(known) => {
+            state.read = false;
+            known
+        }
+        None => {
+            let fresh = blocking(|| parts.io.read_report1())
+                .map_err(|e| Failure::Unreachable(e.to_string()))?;
+            state.report1 = Some(fresh.clone());
+            state.read = true;
+            fresh
+        }
+    };
     let stored = request
         .slots
         .load(&request.leakshield, request.slot)
@@ -420,9 +451,9 @@ fn write_profile(
     report1: Report1,
     (report3, verified): (Box<Report3>, bool),
     save: &mut Option<(Instant, String)>,
-    spacing: &mut Spacing,
+    state: &mut ProfileState,
 ) {
-    spacing.wrote(Instant::now());
+    state.spacing.wrote(Instant::now());
     let job = Job::ProfileWrite {
         report1: report1.clone(),
         report3: (*report3).clone(),
@@ -451,6 +482,7 @@ fn write_profile(
             }
         }
     }
+    let read = state.read;
     let result = result
         .map(|_| ProfileDone {
             decision: if verified {
@@ -463,25 +495,32 @@ fn write_profile(
                 active_profile: request.slot.get(),
                 ..report1
             },
+            read,
         })
         .map_err(Failure::Write);
+    // A failed write may have changed the device: the next decision reads report 1.
+    state.report1 = result.as_ref().ok().map(|done| done.report1.clone());
     let _ = reply.send(result);
 }
 
 /// Ends a Profile request that is due: decides again, so that the write has the slot as it is
-/// now.
+/// now. The time is inside the spacing window, so the decision reads no report 1.
 fn finish_profile(
     parts: &WorkerParts,
     message: ProfileMessage,
     save: &mut Option<(Instant, String)>,
-    spacing: &mut Spacing,
+    state: &mut ProfileState,
 ) {
     let ProfileMessage { request, reply } = message;
-    match decide_profile(parts, &request) {
+    match decide_profile(parts, &request, state, true) {
         Ok((report1, decision)) => match writes(decision) {
-            Ok(write) => write_profile(parts, &request, reply, report1, write, save, spacing),
+            Ok(write) => write_profile(parts, &request, reply, report1, write, save, state),
             Err(decision) => {
-                let _ = reply.send(Ok(ProfileDone { decision, report1 }));
+                let _ = reply.send(Ok(ProfileDone {
+                    decision,
+                    report1,
+                    read: state.read,
+                }));
             }
         },
         Err(failure) => {
@@ -497,23 +536,29 @@ fn start_profile(
     message: ProfileMessage,
     waiting: &mut Option<(Instant, ProfileMessage)>,
     save: &mut Option<(Instant, String)>,
-    spacing: &mut Spacing,
+    state: &mut ProfileState,
 ) {
     if let Some((_, old)) = waiting.take() {
         let _ = old.reply.send(Err(Failure::Superseded));
     }
     let now = Instant::now();
-    match decide_profile(parts, &message.request) {
+    let timing = state.spacing.request(now);
+    let in_window = matches!(timing, Timing::WriteAt(_));
+    match decide_profile(parts, &message.request, state, in_window) {
         Ok((report1, decision)) => match writes(decision) {
-            Ok(write) => match spacing.request(now) {
+            Ok(write) => match timing {
                 Timing::WriteAt(at) if at > now => *waiting = Some((at, message)),
                 _ => {
                     let ProfileMessage { request, reply } = message;
-                    write_profile(parts, &request, reply, report1, write, save, spacing);
+                    write_profile(parts, &request, reply, report1, write, save, state);
                 }
             },
             Err(decision) => {
-                let _ = message.reply.send(Ok(ProfileDone { decision, report1 }));
+                let _ = message.reply.send(Ok(ProfileDone {
+                    decision,
+                    report1,
+                    read: state.read,
+                }));
             }
         },
         Err(failure) => {
@@ -526,7 +571,7 @@ async fn run(parts: WorkerParts, mut queue: mpsc::UnboundedReceiver<Queued>) {
     // The time of the save-settings command, and the backup that a failure points at.
     let mut save: Option<(Instant, String)> = None;
     // The spacing of the Profile writes, and the newest Profile request that waits.
-    let mut spacing = Spacing::default();
+    let mut profiles = ProfileState::default();
     let mut waiting: Option<(Instant, ProfileMessage)> = None;
     loop {
         let wake = [save.as_ref().map(|s| s.0), waiting.as_ref().map(|w| w.0)]
@@ -542,7 +587,7 @@ async fn run(parts: WorkerParts, mut queue: mpsc::UnboundedReceiver<Queued>) {
                     if waiting.as_ref().is_some_and(|w| w.0 <= now)
                         && let Some((_, message)) = waiting.take()
                     {
-                        finish_profile(&parts, message, &mut save, &mut spacing);
+                        finish_profile(&parts, message, &mut save, &mut profiles);
                     }
                     if save.as_ref().is_some_and(|s| s.0 <= now)
                         && let Some((_, backup)) = save.take()
@@ -570,20 +615,21 @@ async fn run(parts: WorkerParts, mut queue: mpsc::UnboundedReceiver<Queued>) {
                 // into that slot.
                 if let Some((at, old)) = waiting.take() {
                     tokio::time::sleep_until(at).await;
-                    finish_profile(&parts, old, &mut save, &mut spacing);
+                    finish_profile(&parts, old, &mut save, &mut profiles);
                 }
                 run_message(&parts, *message, &mut save);
+                profiles.report1 = None;
             }
             Queued::Stored(StoredMessage { request, reply }) => {
                 // As for a job: the Profile write that waits goes first.
                 if let Some((at, old)) = waiting.take() {
                     tokio::time::sleep_until(at).await;
-                    finish_profile(&parts, old, &mut save, &mut spacing);
+                    finish_profile(&parts, old, &mut save, &mut profiles);
                 }
                 let _ = reply.send(run_stored(&parts, request));
             }
             Queued::Profile(message) => {
-                start_profile(&parts, message, &mut waiting, &mut save, &mut spacing);
+                start_profile(&parts, message, &mut waiting, &mut save, &mut profiles);
             }
             Queued::CancelProfile => {
                 if let Some((_, old)) = waiting.take() {

@@ -1,12 +1,14 @@
 //! The spacing of the Profile writes in the write worker, with the clock of Tokio paused
 //! (task 7.5).
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use nicecooling_core::profile::Slot;
+use nicecooling_protocol::device::{BulkTransport, DeviceError, HidTransport};
 use nicecooling_protocol::report3::Report3;
-use nicecooling_protocol::sim::Request;
+use nicecooling_protocol::sim::{Request, SimDevice};
+use nicecoolingd::leakshield::DeviceIo;
 use nicecoolingd::leakshield::attached::Info;
 use nicecoolingd::leakshield::save_settings::SAVE_SETTINGS_DELAY;
 use nicecoolingd::leakshield::worker::{Job, ProfileRequest, WorkerParts, WriteWorker};
@@ -21,9 +23,13 @@ use crate::{LEAKSHIELD_ID, Rig, SERIAL};
 const DISPLAY_PAGE_TIME: usize = 63;
 
 fn start(rig: &Rig) -> WriteWorker {
+    start_with(rig, rig.io.clone())
+}
+
+fn start_with(rig: &Rig, io: DeviceIo) -> WriteWorker {
     let (events, _rx) = mpsc::unbounded_channel();
     WriteWorker::spawn(WorkerParts {
-        io: rig.io.clone(),
+        io,
         registry: Arc::clone(&rig.registry),
         backups: rig.backups(),
         last_known: Arc::clone(&rig.last_known),
@@ -137,6 +143,33 @@ async fn request_within_2s_waits_until_1500ms_after_last_write() {
     // The write goes out 1.5 s after the last profile write.
     assert_eq!(done - start, Duration::from_millis(1500));
     assert_eq!((writes(&rig), number), (2, 3));
+}
+
+fn report1_reads(rig: &Rig) -> usize {
+    rig.sim
+        .requests()
+        .iter()
+        .filter(|r| matches!(r, Request::ReadInput))
+        .count()
+}
+
+#[tokio::test(start_paused = true)]
+async fn requests_inside_the_window_read_no_report1() {
+    let rig = Rig::new("spacing-no-read");
+    let (worker, slots) = (start(&rig), slots(&rig));
+    submit(&rig, &worker, &slots, 2).await.unwrap();
+    let before = report1_reads(&rig);
+
+    // A write that waits, a request that replaces it, and a request that needs no write.
+    let first = worker.request_profile(request(&slots, 3));
+    let second = worker.request_profile(request(&slots, 4));
+    assert!(matches!(first.await.unwrap(), Err(Failure::Superseded)));
+    second.await.unwrap().unwrap();
+    let kept = worker.request_profile(request(&slots, 4)).await.unwrap();
+
+    assert!(matches!(kept.unwrap().decision, Decision::Keep));
+    assert_eq!(rig.sim.report3()[747], 4);
+    assert_eq!(report1_reads(&rig), before);
 }
 
 #[tokio::test(start_paused = true)]
@@ -284,4 +317,67 @@ async fn save_settings_4s_after_last_profile_write() {
     assert_eq!(rig.sim.commands().len(), 1);
     sleep(Duration::from_secs(20)).await;
     assert_eq!(rig.sim.commands().len(), 1);
+}
+
+/// The HID side of the simulated device with a slow read of report 1, as on the real device: it
+/// sends report 1 every 500 ms, and a read that finds the queue empty waits for the next one.
+/// It records the time of each report 3 write.
+struct SlowReport1 {
+    sim: SimDevice,
+    delay: Duration,
+    writes: Mutex<Vec<std::time::Instant>>,
+}
+
+impl HidTransport for SlowReport1 {
+    fn read_input(&self, timeout: Duration) -> Result<Vec<u8>, DeviceError> {
+        std::thread::sleep(self.delay);
+        self.sim.read_input(timeout)
+    }
+    fn get_feature(&self, id: u8, len: usize) -> Result<Vec<u8>, DeviceError> {
+        self.sim.get_feature(id, len)
+    }
+    fn set_feature(&self, report: &[u8]) -> Result<(), DeviceError> {
+        self.writes.lock().unwrap().push(std::time::Instant::now());
+        self.sim.set_feature(report)
+    }
+    fn write_output(&self, report: &[u8]) -> Result<(), DeviceError> {
+        self.sim.write_output(report)
+    }
+}
+
+/// Real time: a blocking read does not move the paused clock of Tokio.
+#[tokio::test]
+async fn a_slow_report1_read_does_not_delay_the_waiting_write() {
+    let rig = Rig::new("spacing-slow-read");
+    let hid = Arc::new(SlowReport1 {
+        sim: rig.sim.clone(),
+        delay: Duration::from_millis(400),
+        writes: Mutex::new(Vec::new()),
+    });
+    let bulk: Arc<dyn BulkTransport> = Arc::new(rig.sim.clone());
+    let worker = start_with(&rig, DeviceIo::new(hid.clone(), bulk));
+    let slots = slots(&rig);
+
+    // Three activations in one burst, as three calls of the D-Bus method do.
+    let tickets: Vec<_> = [2, 3, 4]
+        .map(|slot| worker.request_profile(request(&slots, slot)))
+        .into();
+    let mut results = Vec::new();
+    for ticket in tickets {
+        results.push(ticket.await.unwrap());
+    }
+
+    assert!(results[0].is_ok());
+    assert!(matches!(results[1], Err(Failure::Superseded)));
+    assert!(results[2].is_ok());
+    assert_eq!(rig.sim.report3()[747], 4);
+    let writes = hid.writes.lock().unwrap();
+    assert_eq!(writes.len(), 2);
+    // The second write goes out 1.5 s after the first one, with a margin of 0.2 s. The spacing
+    // counts from the start of the first write, which takes a backup before the report 3 write.
+    let gap = writes[1] - writes[0];
+    assert!(
+        gap >= Duration::from_millis(1300) && gap < Duration::from_millis(1700),
+        "the second write came {gap:?} after the first"
+    );
 }
