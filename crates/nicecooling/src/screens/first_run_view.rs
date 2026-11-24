@@ -4,7 +4,7 @@ use std::rc::Rc;
 
 use gpui::prelude::*;
 use gpui::{AnyElement, Context, Div, FontWeight, Window, div, px};
-use gpui_component::button::{Button, ButtonVariants as _};
+use gpui_component::button::ButtonVariants as _;
 use gpui_component::slider::Slider;
 use gpui_component::spinner::Spinner;
 use gpui_component::{Disableable as _, h_flex, v_flex};
@@ -80,18 +80,17 @@ impl ScreenView {
         let body = if let Some(offline) = &model.offline {
             card(p)
                 .child(text_row(offline.title.clone(), p).border_t_0())
-                .child(
-                    card_row(p).child(
-                        Button::new("first-run-retry")
-                            .label(offline.try_again.clone())
-                            .on_click(act(&view, |this, _, cx| {
-                                this.model.update(cx, |app, cx| {
-                                    app.retry();
-                                    cx.notify();
-                                });
-                            })),
-                    ),
-                )
+                .child(card_row(p).child(
+                    Self::button("first-run-retry", offline.try_again.clone()).on_click(act(
+                        &view,
+                        |this, _, cx| {
+                            this.model.update(cx, |app, cx| {
+                                app.retry();
+                                cx.notify();
+                            });
+                        },
+                    )),
+                ))
         } else {
             match model.step {
                 Step::Board => self.board_card(&model.board, p),
@@ -115,9 +114,9 @@ impl ScreenView {
             .border_t_1()
             .border_color(p.border)
             .child(
-                Button::new("first-run-skip")
+                Self::button("first-run-skip", footer.skip.clone())
                     .ghost()
-                    .label(footer.skip.clone())
+                    .debug_selector(|| "first-run-skip".to_owned())
                     .on_click(act(&view, |this, _, cx| {
                         this.first_run.step = Step::Board;
                         this.go(Page::Overview, cx);
@@ -126,9 +125,8 @@ impl ScreenView {
             .child(div().flex_1());
         if let Some(back) = &footer.back {
             buttons = buttons.child(
-                Button::new("first-run-back")
+                Self::button("first-run-back", back.clone())
                     .icon(text_icon(NcIcon::Left))
-                    .label(back.clone())
                     .on_click(act(&view, |this, _, cx| {
                         let state = this.state(cx);
                         this.first_run.back(&state);
@@ -137,9 +135,9 @@ impl ScreenView {
         }
         if let Some(next) = &footer.next {
             buttons = buttons.child(
-                Button::new("first-run-next")
+                Self::button("first-run-next", next.clone())
                     .primary()
-                    .label(next.clone())
+                    .debug_selector(|| "first-run-next".to_owned())
                     .child(text_icon(NcIcon::Right))
                     .disabled(!footer.next_enabled)
                     .on_click(act(&view, |this, _, cx| {
@@ -395,15 +393,14 @@ fn leakshield_card(step: &LeakshieldStep, p: &Palette, view: &gpui::Entity<Scree
     card = card.child(card_row(p).child(caption(step.text.clone(), p)));
     if let Some(label) = &step.open_fields {
         let device = step.id.clone();
-        card = card.child(
-            card_row(p).child(
-                Button::new("first-run-fields")
-                    .label(label.clone())
-                    .on_click(act(view, move |this, _, cx| {
-                        this.go(Page::Leakshield(device.clone()), cx);
-                    })),
-            ),
-        );
+        card = card.child(card_row(p).child(
+            ScreenView::button("first-run-fields", label.clone()).on_click(act(
+                view,
+                move |this, _, cx| {
+                    this.go(Page::Leakshield(device.clone()), cx);
+                },
+            )),
+        ));
     }
     card
 }
@@ -415,9 +412,8 @@ fn done_card(done: &DoneStep, p: &Palette, view: &gpui::Entity<ScreenView>) -> D
     }
     card = card.child(text_row(done.text.clone(), p));
     let mut buttons = h_flex().gap(px(8.)).child(
-        Button::new("first-run-overview")
+        ScreenView::button("first-run-overview", done.overview.clone())
             .primary()
-            .label(done.overview.clone())
             .on_click(act(view, |this, _, cx| {
                 this.first_run.step = Step::Board;
                 this.go(Page::Overview, cx);
@@ -426,8 +422,7 @@ fn done_card(done: &DoneStep, p: &Palette, view: &gpui::Entity<ScreenView>) -> D
     if let (Some(label), Some(page)) = (&done.wizard, &done.wizard_page) {
         let page = page.clone();
         buttons = buttons.child(
-            Button::new("first-run-wizard")
-                .label(label.clone())
+            ScreenView::button("first-run-wizard", label.clone())
                 .on_click(act(view, move |this, _, cx| this.go(page.clone(), cx))),
         );
     }

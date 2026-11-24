@@ -4,20 +4,21 @@ use std::rc::Rc;
 
 use gpui::prelude::*;
 use gpui::{AnyElement, Bounds, Context, FontWeight, SharedString, Window, canvas, div, px};
-use gpui_component::button::{Button, ButtonVariants as _};
-use gpui_component::input::Input;
+use gpui_component::button::ButtonVariants as _;
 use gpui_component::slider::Slider;
-use gpui_component::{Disableable as _, Sizable as _, h_flex, v_flex};
+use gpui_component::{Disableable as _, h_flex, v_flex};
 
-use crate::icons::{NcIcon, icon, text_icon};
+use crate::icons::{NcIcon, icon};
 use crate::model::Severity;
 use crate::screen_view::{InputKey, ScreenView, skeleton, with_screen_input};
+use crate::screens::controls::act;
 use crate::screens::format::plain;
 use crate::screens::loops::{Choice, LoopDetail, LoopRow, LoopsModel, LoopsState, PartRow};
 use crate::screens::sensors_view::PickRow;
 use crate::screens::ui::Tip as _;
 use crate::screens::ui::{
-    TagKind, caption, card, card_header, card_row, page, severity_icon, tag, write_line,
+    TagKind, caption, card, card_header, card_row, modal, page, select_trigger, severity_icon, tag,
+    with_menu, write_line,
 };
 use crate::tokens::Palette;
 use crate::widgets::calibration_editor::CalibrationEditorModel;
@@ -67,21 +68,18 @@ impl ScreenView {
                                     .font_weight(FontWeight::BOLD)
                                     .child(model.empty_title.clone()),
                             )
-                            .child(
-                                h_flex().child(
-                                    Button::new("loops-setup")
-                                        .label(model.empty_button.clone())
-                                        .on_click(move |_, _, cx| {
-                                            view.update(cx, |this, cx| {
-                                                let command = this.with_input(cx, |input| {
-                                                    this.loops.new_loop(input)
-                                                });
-                                                this.send(command);
-                                                cx.notify();
-                                            });
-                                        }),
+                            .child(h_flex().child(
+                                Self::button("loops-setup", model.empty_button.clone()).on_click(
+                                    move |_, _, cx| {
+                                        view.update(cx, |this, cx| {
+                                            let command = this
+                                                .with_input(cx, |input| this.loops.new_loop(input));
+                                            this.send(command);
+                                            cx.notify();
+                                        });
+                                    },
                                 ),
-                            ),
+                            )),
                     )
                     .into_any_element();
             }
@@ -91,10 +89,8 @@ impl ScreenView {
         let enabled = self.with_input(cx, |input| input.writes().enabled);
         let new_loop = {
             let view = view.clone();
-            Button::new("loop-new")
-                .small()
-                .icon(text_icon(NcIcon::Plus))
-                .label(locale.tr("loops.new"))
+            Self::small_button("loop-new", locale.tr("loops.new"), Some(NcIcon::Plus))
+                .debug_selector(|| "loop-new".to_owned())
                 .disabled(!enabled)
                 .on_click(move |_, _, cx| {
                     view.update(cx, |this, cx| {
@@ -194,10 +190,7 @@ impl ScreenView {
         let header = card_header(detail.name.clone(), p)
             .child({
                 let view = view.clone();
-                Button::new("loop-rename")
-                    .small()
-                    .ghost()
-                    .icon(text_icon(NcIcon::Pencil))
+                Self::icon_button("loop-rename", NcIcon::Pencil)
                     .disabled(!enabled)
                     .tip(if enabled {
                         locale.tr("loops.rename")
@@ -214,10 +207,7 @@ impl ScreenView {
             })
             .child({
                 let view = view.clone();
-                Button::new("loop-menu")
-                    .small()
-                    .ghost()
-                    .icon(text_icon(NcIcon::Menu))
+                Self::icon_button("loop-menu", NcIcon::Menu)
                     .tip(locale.tr("loops.menu"))
                     .on_click(move |_, _, cx| {
                         view.update(cx, |this, cx| {
@@ -235,20 +225,21 @@ impl ScreenView {
             let view = view.clone();
             preview = preview.child(
                 h_flex().justify_end().px(px(12.)).pb(px(6.)).child(
-                    Button::new("loop-delete")
-                        .small()
-                        .ghost()
-                        .icon(text_icon(NcIcon::Trash))
-                        .label(locale.tr("loops.delete_loop"))
-                        .disabled(!enabled)
-                        .tip(tooltip.clone())
-                        .on_click(move |_, _, cx| {
-                            view.update(cx, |this, cx| {
-                                this.open_picker = None;
-                                this.loops.delete_dialog = true;
-                                cx.notify();
-                            })
-                        }),
+                    Self::small_button(
+                        "loop-delete",
+                        locale.tr("loops.delete_loop"),
+                        Some(NcIcon::Trash),
+                    )
+                    .ghost()
+                    .disabled(!enabled)
+                    .tip(tooltip.clone())
+                    .on_click(move |_, _, cx| {
+                        view.update(cx, |this, cx| {
+                            this.open_picker = None;
+                            this.loops.delete_dialog = true;
+                            cx.notify();
+                        })
+                    }),
                 ),
             );
         }
@@ -371,64 +362,34 @@ impl ScreenView {
         }
         if let Some(dialog) = &detail.delete_dialog {
             let (cancel, confirm) = (view.clone(), view.clone());
-            let overlay = div()
-                .absolute()
-                .top_0()
-                .left_0()
-                .size_full()
-                .flex()
-                .justify_center()
-                .pt(px(120.))
-                .bg(gpui::black().opacity(0.4))
-                .child(
-                    v_flex()
-                        .w(px(440.))
-                        .h_auto()
-                        .p(px(18.))
-                        .gap(px(12.))
-                        .rounded(px(15.))
-                        .bg(p.card)
-                        .border_1()
-                        .border_color(p.border)
-                        .child(
-                            div()
-                                .text_size(px(18.))
-                                .font_weight(FontWeight::BOLD)
-                                .child(dialog.title.clone()),
-                        )
-                        .child(dialog.text.clone())
-                        .child(
-                            h_flex()
-                                .justify_end()
-                                .gap(px(8.))
-                                .child(
-                                    Button::new("delete-cancel")
-                                        .label(dialog.cancel.clone())
-                                        .on_click(move |_, _, cx| {
-                                            cancel.update(cx, |this, cx| {
-                                                this.loops.delete_dialog = false;
-                                                cx.notify();
-                                            })
-                                        }),
-                                )
-                                .child(
-                                    Button::new("delete-confirm")
-                                        .danger()
-                                        .label(dialog.confirm.clone())
-                                        .on_click(move |_, _, cx| {
-                                            confirm.update(cx, |this, cx| {
-                                                let state = this.state(cx);
-                                                if let Some(command) =
-                                                    this.loops.confirm_delete(&state)
-                                                {
-                                                    this.send(command);
-                                                }
-                                                cx.notify();
-                                            })
-                                        }),
-                                ),
-                        ),
-                );
+            let overlay = modal(
+                dialog.title.clone(),
+                dialog.text.clone(),
+                Vec::new(),
+                vec![
+                    Self::button("delete-cancel", dialog.cancel.clone())
+                        .on_click(move |_, _, cx| {
+                            cancel.update(cx, |this, cx| {
+                                this.loops.delete_dialog = false;
+                                cx.notify();
+                            })
+                        })
+                        .into_any_element(),
+                    Self::button("delete-confirm", dialog.confirm.clone())
+                        .danger()
+                        .on_click(move |_, _, cx| {
+                            confirm.update(cx, |this, cx| {
+                                let state = this.state(cx);
+                                if let Some(command) = this.loops.confirm_delete(&state) {
+                                    this.send(command);
+                                }
+                                cx.notify();
+                            })
+                        })
+                        .into_any_element(),
+                ],
+                p,
+            );
             column = column.child(overlay);
         }
         column.into_any_element()
@@ -447,53 +408,9 @@ impl ScreenView {
     ) -> AnyElement {
         let view = cx.entity();
         let key = format!("part-{name}");
-        let open = self.open_picker.as_deref() == Some(key.as_str());
-        let line = card_row(p)
-            .child(
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .truncate()
-                    .font_weight(FontWeight::BOLD)
-                    .child(row.label.clone()),
-            )
-            .child({
-                let view = view.clone();
-                let key = key.clone();
-                Button::new(SharedString::from(format!("{key}-button")))
-                    .small()
-                    .label(row.shown.clone())
-                    .child(text_icon(NcIcon::Down))
-                    .disabled(!enabled)
-                    .tip(tooltip.to_owned())
-                    .on_click(move |_, _, cx| {
-                        let key = key.clone();
-                        view.update(cx, |this, cx| {
-                            this.open_picker = if this.open_picker.as_deref() == Some(key.as_str())
-                            {
-                                None
-                            } else {
-                                Some(key)
-                            };
-                            cx.notify();
-                        })
-                    })
-            });
-        let mut column = v_flex().w_full().child(line);
-        if let Some(line_text) = &row.write_line {
-            column = column.child(card_row(p).child(write_line(line_text, p)));
-        }
-        if let Some(text) = &row.warning {
-            column = column.child(
-                card_row(p)
-                    .child(severity_icon(Severity::Warning, p))
-                    .child(text.clone()),
-            );
-        }
-        if let Some(text) = &row.note {
-            column = column.child(card_row(p).child(caption(text.clone(), p)));
-        }
-        if open {
+        let open = enabled && self.open_picker.as_deref() == Some(key.as_str());
+        // The sensor picker: the select, and the list in a popover under it.
+        let list = open.then(|| {
             let rows: Vec<PickRow> = row.choices.iter().map(pick_row).collect();
             let multiple = row.multiple;
             let name = name.to_owned();
@@ -520,12 +437,58 @@ impl ScreenView {
                 }
                 cx.notify();
             });
-            column = column.child(
+            self.picker_list(&key, rows, pick, p, window, cx)
+        });
+        let selector = format!("select-{key}");
+        let trigger = select_trigger(
+            SharedString::from(format!("{key}-button")),
+            row.shown.clone(),
+            None,
+            false,
+            enabled,
+            p.track,
+        )
+        .debug_selector(move || selector)
+        .tip(tooltip.to_owned())
+        .when(enabled, |trigger| {
+            let key = key.clone();
+            trigger.on_click(act(&view, move |this, _, _| {
+                this.open_picker = if this.open_picker.as_deref() == Some(key.as_str()) {
+                    None
+                } else {
+                    Some(key.clone())
+                };
+            }))
+        });
+        let line = card_row(p)
+            .child(
                 div()
-                    .px(px(18.))
-                    .pb(px(8.))
-                    .child(self.picker_list(&key, rows, pick, p, window, cx)),
+                    .flex_1()
+                    .min_w_0()
+                    .truncate()
+                    .font_weight(FontWeight::BOLD)
+                    .child(row.label.clone()),
+            )
+            .child(
+                // The list is wider than the select: it opens at the right edge.
+                div()
+                    .w(px(280.))
+                    .flex_none()
+                    .child(with_menu(trigger, list, Self::dismiss(&view)).w_full()),
             );
+        let mut column = v_flex().w_full().child(line);
+        if let Some(line_text) = &row.write_line {
+            column = column.child(card_row(p).child(write_line(line_text, p)));
+        }
+        if let Some(text) = &row.warning {
+            column = column.child(
+                card_row(p)
+                    .child(severity_icon(Severity::Warning, p))
+                    .child(text.clone()),
+            );
+        }
+        if let Some(text) = &row.note {
+            column = column.child(card_row(p).child(caption(text.clone(), p)));
         }
         column.into_any_element()
     }
@@ -548,37 +511,39 @@ impl ScreenView {
         header = header
             .child({
                 let view = view.clone();
-                Button::new(SharedString::from(format!("cal-preset-{loop_id}")))
-                    .small()
-                    .ghost()
-                    .label(model.preset_label.clone())
-                    .disabled(!enabled || model.presets.is_empty())
-                    .on_click(move |_, _, cx| {
-                        view.update(cx, |this, cx| {
-                            this.preset_menu_open = !this.preset_menu_open;
-                            cx.notify();
-                        })
+                Self::flat_button(
+                    SharedString::from(format!("cal-preset-{loop_id}")),
+                    model.preset_label.clone(),
+                )
+                .disabled(!enabled || model.presets.is_empty())
+                .on_click(move |_, _, cx| {
+                    view.update(cx, |this, cx| {
+                        this.preset_menu_open = !this.preset_menu_open;
+                        cx.notify();
                     })
+                })
             })
             .child({
                 let (view, loop_id) = (view.clone(), loop_id.clone());
-                Button::new(SharedString::from(format!("cal-add-{loop_id}")))
-                    .small()
-                    .label(model.add_label.clone())
-                    .disabled(!enabled)
-                    .on_click(move |_, _, cx| {
-                        let loop_id = loop_id.clone();
-                        view.update(cx, |this, cx| {
-                            let model = this.model.clone();
-                            let command = with_screen_input(&model, cx, |input| {
-                                this.loops.calibration.add_row(input, &loop_id)
-                            });
-                            if let Some(command) = command {
-                                this.send(command);
-                            }
-                            cx.notify();
-                        })
+                Self::small_button(
+                    SharedString::from(format!("cal-add-{loop_id}")),
+                    model.add_label.clone(),
+                    None,
+                )
+                .disabled(!enabled)
+                .on_click(move |_, _, cx| {
+                    let loop_id = loop_id.clone();
+                    view.update(cx, |this, cx| {
+                        let model = this.model.clone();
+                        let command = with_screen_input(&model, cx, |input| {
+                            this.loops.calibration.add_row(input, &loop_id)
+                        });
+                        if let Some(command) = command {
+                            this.send(command);
+                        }
+                        cx.notify();
                     })
+                })
             });
 
         let mut table = v_flex().w(px(300.)).gap(px(4.)).child(
@@ -615,27 +580,35 @@ impl ScreenView {
                     .when(model.plot.selected == Some(index), |row| {
                         row.bg(p.accent_tint)
                     })
-                    .child(div().w(px(110.)).child(Input::new(&x).disabled(!enabled)))
-                    .child(div().w(px(90.)).child(Input::new(&y).disabled(!enabled)))
                     .child(
-                        Button::new(SharedString::from(format!("cal-remove-{index}")))
-                            .ghost()
-                            .small()
-                            .icon(text_icon(NcIcon::X))
-                            .disabled(!enabled)
-                            .on_click(move |_, _, cx| {
-                                let loop_id = loop_id.clone();
-                                view.update(cx, |this, cx| {
-                                    let model = this.model.clone();
-                                    let command = with_screen_input(&model, cx, |input| {
-                                        this.loops.calibration.remove_row(input, &loop_id, index)
-                                    });
-                                    if let Some(command) = command {
-                                        this.send(command);
-                                    }
-                                    cx.notify();
-                                })
-                            }),
+                        div()
+                            .w(px(110.))
+                            .child(Self::mode_input(&x, "", enabled, false, true, p)),
+                    )
+                    .child(
+                        div()
+                            .w(px(90.))
+                            .child(Self::mode_input(&y, "", enabled, false, true, p)),
+                    )
+                    .child(
+                        Self::icon_button(
+                            SharedString::from(format!("cal-remove-{index}")),
+                            NcIcon::X,
+                        )
+                        .disabled(!enabled)
+                        .on_click(move |_, _, cx| {
+                            let loop_id = loop_id.clone();
+                            view.update(cx, |this, cx| {
+                                let model = this.model.clone();
+                                let command = with_screen_input(&model, cx, |input| {
+                                    this.loops.calibration.remove_row(input, &loop_id, index)
+                                });
+                                if let Some(command) = command {
+                                    this.send(command);
+                                }
+                                cx.notify();
+                            })
+                        }),
                     ),
             );
         }
@@ -652,18 +625,18 @@ impl ScreenView {
             for preset in &model.presets {
                 let (view, id) = (view.clone(), preset.id.clone());
                 menu = menu.child(
-                    Button::new(SharedString::from(format!("cal-preset-{}", preset.id)))
-                        .ghost()
-                        .small()
-                        .label(preset.name.clone())
-                        .on_click(move |_, _, cx| {
-                            let id = id.clone();
-                            view.update(cx, |this, cx| {
-                                this.loops.calibration.request_preset(&id);
-                                this.preset_menu_open = false;
-                                cx.notify();
-                            })
-                        }),
+                    Self::flat_button(
+                        SharedString::from(format!("cal-preset-{}", preset.id)),
+                        preset.name.clone(),
+                    )
+                    .on_click(move |_, _, cx| {
+                        let id = id.clone();
+                        view.update(cx, |this, cx| {
+                            this.loops.calibration.request_preset(&id);
+                            this.preset_menu_open = false;
+                            cx.notify();
+                        })
+                    }),
                 );
             }
             body = h_flex()
@@ -682,9 +655,7 @@ impl ScreenView {
                             .child(format!("{} {}", confirm.title, confirm.text)),
                     )
                     .child(
-                        Button::new("cal-confirm-cancel")
-                            .small()
-                            .label(confirm.cancel.clone())
+                        Self::small_button("cal-confirm-cancel", confirm.cancel.clone(), None)
                             .on_click(move |_, _, cx| {
                                 cancel.update(cx, |this, cx| {
                                     this.loops.calibration.cancel_preset();
@@ -693,10 +664,8 @@ impl ScreenView {
                             }),
                     )
                     .child(
-                        Button::new("cal-confirm-ok")
-                            .small()
+                        Self::small_button("cal-confirm-ok", confirm.confirm.clone(), None)
                             .primary()
-                            .label(confirm.confirm.clone())
                             .on_click(move |_, _, cx| {
                                 let loop_id = loop_id.clone();
                                 accept.update(cx, |this, cx| {

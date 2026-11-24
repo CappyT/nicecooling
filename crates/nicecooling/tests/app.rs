@@ -768,6 +768,76 @@ fn a_dialog_scrim_covers_the_whole_window(cx: &mut TestAppContext) {
     assert_eq!(pressed, 0, "the sidebar took a press under the dialog");
 }
 
+/// Loops and First run draw the shared widgets: the buttons of the design, and the sensor
+/// picker as a select with its list in a popover.
+#[gpui::test]
+fn loops_and_first_run_use_the_shared_widgets(cx: &mut TestAppContext) {
+    for file in ["screens/loops_view.rs", "screens/first_run_view.rs"] {
+        let sources = support::labels::sources();
+        let (_, text) = sources.iter().find(|(name, _)| name == file).expect(file);
+        for raw in ["Button::new(", "Input::new("] {
+            assert!(!text.contains(raw), "{file} draws a raw `{raw}`");
+        }
+    }
+
+    let (model, rig) = start(cx, StartMode::Normal);
+    let state = support::fixtures::full();
+    rig.events
+        .send(DaemonEvent::Snapshot(Box::new(state.snapshot.clone())))
+        .unwrap();
+    cx.run_until_parked();
+    let handle = cx.windows()[0];
+    cx.simulate_window_resize(handle, gpui::size(gpui::px(1100.), gpui::px(700.)));
+    let show = |cx: &mut TestAppContext, page: Page| {
+        cx.update(|cx| {
+            model.update(cx, |app, cx| {
+                app.page = page;
+                cx.notify();
+            });
+        });
+    };
+    let mut bounds = |cx: &mut TestAppContext, name: &'static str| {
+        cx.run_until_parked();
+        let mut visual = VisualTestContext::from_window(handle, cx);
+        visual.update(|window, cx| window.draw(cx).clear(cx));
+        visual.debug_bounds(name)
+    };
+
+    show(cx, Page::Loops);
+    let new_loop = bounds(cx, "loop-new").expect("the new Loop button");
+    assert_eq!(new_loop.size.height, gpui::px(28.), "a small button");
+    let select = bounds(cx, "select-part-pumps").expect("the Pump channel select");
+    assert_eq!(
+        select.size,
+        gpui::size(gpui::px(280.), gpui::px(34.)),
+        "the select of the design"
+    );
+    let next = bounds(cx, "select-part-flow").expect("the flow sensor select");
+    assert!(bounds(cx, "picker-part-pumps").is_none(), "closed");
+
+    // The list opens in a popover: it ends at the right edge of the select, stays in the
+    // window and does not move the row under it.
+    let mut visual = VisualTestContext::from_window(handle, cx);
+    visual.simulate_click(select.center(), gpui::Modifiers::none());
+    let list = bounds(cx, "picker-part-pumps").expect("the list of the picker");
+    assert_eq!(list.size.width, gpui::px(360.));
+    assert_eq!(list.right(), select.right());
+    assert!(list.top() >= select.bottom() && list.right() <= gpui::px(1100.));
+    assert_eq!(bounds(cx, "select-part-flow"), Some(next));
+    let mut visual = VisualTestContext::from_window(handle, cx);
+    visual.simulate_click(select.center(), gpui::Modifiers::none());
+    assert!(
+        bounds(cx, "picker-part-pumps").is_none(),
+        "the select closes it"
+    );
+
+    show(cx, Page::FirstRun);
+    for name in ["first-run-skip", "first-run-next"] {
+        let button = bounds(cx, name).unwrap_or_else(|| panic!("no button {name}"));
+        assert_eq!(button.size.height, gpui::px(34.), "{name}");
+    }
+}
+
 /// A tooltip draws outside the shell root, so it sets the tabular figures itself. No screen
 /// builds a tooltip another way: a gpui-component tooltip has no font features.
 #[test]

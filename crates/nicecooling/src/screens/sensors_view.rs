@@ -858,9 +858,11 @@ impl ScreenView {
                     ),
             );
         }
+        let selector = format!("picker-{key}");
         popover(p)
             .w(px(360.))
             .overflow_hidden()
+            .debug_selector(move || selector)
             .child(div().p(px(6.)).child(
                 Self::field_input(&search, None, false, p).prefix(icon(NcIcon::Search, p.fg_dim)),
             ))
