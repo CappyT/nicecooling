@@ -2,6 +2,8 @@
 
 use std::fmt;
 use std::io;
+use std::thread;
+use std::time::Duration;
 
 use nicecooling_protocol::access::{Access, ReadOnlyReason, WriteRefusal};
 use nicecooling_protocol::device::DeviceError;
@@ -201,6 +203,26 @@ pub fn take_backup(
         .map_err(WriteError::Backup)
 }
 
+/// fw 1022 stalls the feature read that follows a report 3 write: the read gets EPIPE while the
+/// device stores the report (measured with usbmon). The read-back waits and tries again.
+const READ_BACK_RETRY: Duration = Duration::from_millis(50);
+const READ_BACK_ATTEMPTS: u32 = 20;
+
+fn read_back(io: &DeviceIo) -> Result<Report3, DeviceError> {
+    let mut attempts = 1;
+    loop {
+        match io.read_report3() {
+            Err(DeviceError::Io(e))
+                if e.kind() == io::ErrorKind::BrokenPipe && attempts < READ_BACK_ATTEMPTS =>
+            {
+                attempts += 1;
+                thread::sleep(READ_BACK_RETRY);
+            }
+            other => return other,
+        }
+    }
+}
+
 /// Writes `report3` and reads it back. The read-back must match outside the volatile mask.
 fn write_and_verify(
     env: &WriteEnv<'_>,
@@ -211,7 +233,7 @@ fn write_and_verify(
     env.io
         .write_report3(report3)
         .map_err(|e| device_error(e, Some(backup)))?;
-    let read_back = match env.io.read_report3() {
+    let read_back = match read_back(env.io) {
         Ok(report) => report,
         // A report that does not decode has a bad CRC or size: the device holds something else.
         Err(DeviceError::BadReport(_)) => {

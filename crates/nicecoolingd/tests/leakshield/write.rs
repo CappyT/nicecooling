@@ -122,6 +122,23 @@ async fn volatile_byte_change_is_ok() {
 }
 
 #[tokio::test(start_paused = true)]
+async fn read_back_waits_out_the_stall_after_the_write() {
+    let rig = Rig::new("stall-after-write");
+    seed_last_known(&rig);
+    let (worker, _events) = start(&rig);
+
+    // fw 1022 answers the feature read right after a report 3 write with EPIPE.
+    rig.sim.stall_reads_after_write(3);
+    let written = worker.submit(write_job(&rig, 150)).await.unwrap();
+
+    assert_eq!(&written.report3.encode()[63..65], &150u16.to_be_bytes());
+    assert_eq!(
+        rig.last_known.lock().get().unwrap().encode(),
+        rig.sim.report3()
+    );
+}
+
+#[tokio::test(start_paused = true)]
 async fn unexpected_byte_change_returns_verify_failed_with_backup_id() {
     let rig = Rig::new("verify-failed");
     seed_last_known(&rig);

@@ -49,6 +49,10 @@ struct Faults {
     disconnect_after_set_feature: bool,
     /// Report 3 offset that the device increments on every feature read.
     volatile_offset: Option<usize>,
+    /// Feature reads that fail with EPIPE after each report 3 write.
+    stall_after_write: u32,
+    /// Feature reads that still fail with EPIPE.
+    stalled_reads: u32,
 }
 
 /// What the simulated bootloader does with the write of one chunk.
@@ -444,6 +448,12 @@ impl SimDevice {
         self.state().faults.volatile_offset = Some(offset);
     }
 
+    /// After each report 3 write, the next `reads` feature reads fail with EPIPE, as the control
+    /// endpoint of fw 1022 stalls a read right after the write.
+    pub fn stall_reads_after_write(&self, reads: u32) {
+        self.state().faults.stall_after_write = reads;
+    }
+
     fn connected(state: &State) -> Result<(), DeviceError> {
         if state.connected {
             Ok(())
@@ -470,6 +480,10 @@ impl HidTransport for SimDevice {
         Self::connected(&state)?;
         if state.in_bootloader() {
             return Err(io_error("the bootloader has no feature report to read"));
+        }
+        if state.faults.stalled_reads > 0 {
+            state.faults.stalled_reads -= 1;
+            return Err(DeviceError::Io(io::ErrorKind::BrokenPipe.into()));
         }
         if let (3, Some(offset)) = (id, state.faults.volatile_offset) {
             let mut report = Report3::decode(&state.report3).expect("valid report 3");
@@ -521,6 +535,7 @@ impl HidTransport for SimDevice {
                 let number = stored.bytes_at(REPORT3_STRUCT_END, 1)[0];
                 state.report3 = stored.encode();
                 state.edit_report1(|r| r.active_profile = number);
+                state.faults.stalled_reads = state.faults.stall_after_write;
             }
             REPORT8_ID => state.report8 = report.to_vec(),
             _ => return Err(io_error("report is not writable")),
