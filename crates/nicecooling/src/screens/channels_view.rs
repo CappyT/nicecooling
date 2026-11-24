@@ -69,14 +69,18 @@ impl ScreenView {
                             .child(model.empty_text.clone())
                             .child(
                                 h_flex().child(
-                                    Button::new("channels-settings")
-                                        .ghost()
-                                        .label(model.empty_link.clone())
-                                        .on_click(move |_, _, cx| {
+                                    Self::link_button(
+                                        "channels-settings",
+                                        model.empty_link.clone(),
+                                        p,
+                                    )
+                                    .on_click(
+                                        move |_, _, cx| {
                                             go.update(cx, |this, cx| {
                                                 this.go(crate::shell::Page::Settings, cx)
                                             })
-                                        }),
+                                        },
+                                    ),
                                 ),
                             ),
                     )

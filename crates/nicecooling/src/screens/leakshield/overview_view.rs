@@ -240,7 +240,7 @@ impl ScreenView {
         if let Some((text, link)) = &mode.read_only {
             card = card.child(
                 notice_row(text.clone(), false, p).child(
-                    Self::link_button("ls-open-fields-mode", link.clone())
+                    Self::link_button("ls-open-fields-mode", link.clone(), p)
                         .on_click(act(&view, |this, _, _| {
                             this.leakshield.open_fields(Some("default_mode"))
                         })),
@@ -259,12 +259,11 @@ impl ScreenView {
             card_row(p)
                 .child(div().flex_1().child(mode.refill.text.clone()))
                 .child(
-                    Self::link_button("ls-refill-steps", mode.refill.link.clone()).on_click(act(
-                        &view,
-                        |this, _, _| {
+                    Self::link_button("ls-refill-steps", mode.refill.link.clone(), p).on_click(
+                        act(&view, |this, _, _| {
                             this.leakshield.overview.confirm = Some(Confirm::RefillSteps);
-                        },
-                    )),
+                        }),
+                    ),
                 ),
         );
         card.into_any_element()

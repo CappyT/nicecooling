@@ -2,8 +2,8 @@
 
 use gpui::prelude::*;
 use gpui::{AnyElement, Bounds, Context, FontWeight, SharedString, Window, canvas, div, px};
-use gpui_component::button::{Button, ButtonVariants as _};
-use gpui_component::{Sizable as _, h_flex, v_flex};
+use gpui_component::button::Button;
+use gpui_component::{h_flex, v_flex};
 
 use crate::screen_view::{ScreenView, skeleton};
 use crate::screens::overview::{
@@ -104,15 +104,14 @@ impl ScreenView {
             })
             .children(first_leakshield.map(|id| {
                 let view = cx.entity();
-                card_row(p).child(
-                    Button::new("open-leakshield")
-                        .ghost()
-                        .small()
-                        .label(locale.tr("overview.open_leakshield"))
-                        .on_click(move |_, _, cx| {
-                            let id = id.clone();
-                            view.update(cx, |this, cx| this.go(Page::Leakshield(id), cx))
-                        }),
+                Self::link_row(
+                    "open-leakshield",
+                    locale.tr("overview.open_leakshield"),
+                    move |_, cx| {
+                        let id = id.clone();
+                        view.update(cx, |this, cx| this.go(Page::Leakshield(id), cx))
+                    },
+                    p,
                 )
             }));
         let temperatures = card(p)
@@ -147,14 +146,11 @@ impl ScreenView {
             )
             .child({
                 let view = cx.entity();
-                card_row(p).child(
-                    Button::new("open-profiles")
-                        .ghost()
-                        .small()
-                        .label(locale.tr("overview.open_profiles"))
-                        .on_click(move |_, _, cx| {
-                            view.update(cx, |this, cx| this.go(Page::Profiles, cx))
-                        }),
+                Self::link_row(
+                    "open-profiles",
+                    locale.tr("overview.open_profiles"),
+                    move |_, cx| view.update(cx, |this, cx| this.go(Page::Profiles, cx)),
+                    p,
                 )
             });
         content
@@ -200,17 +196,18 @@ impl ScreenView {
             header = header.child(caption(text.clone(), p));
         }
         header = header.child(
-            Button::new(("open-loop", index))
-                .ghost()
-                .small()
-                .label(locale.tr("overview.open_loop"))
-                .on_click(move |_, _, cx| {
-                    let loop_id = loop_id.clone();
-                    view.update(cx, |this, cx| {
-                        this.loops.select(&loop_id);
-                        this.go(Page::Loops, cx);
-                    })
-                }),
+            Self::link_button(
+                SharedString::from(format!("open-loop-{index}")),
+                locale.tr("overview.open_loop"),
+                p,
+            )
+            .on_click(move |_, _, cx| {
+                let loop_id = loop_id.clone();
+                view.update(cx, |this, cx| {
+                    this.loops.select(&loop_id);
+                    this.go(Page::Loops, cx);
+                })
+            }),
         );
         card(p)
             .child(header)

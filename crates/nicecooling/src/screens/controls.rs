@@ -9,8 +9,9 @@ use gpui::{
 use gpui_component::button::{Button, ButtonVariants as _};
 use gpui_component::{Disableable as _, Sizable as _, v_flex};
 
-use crate::icons::{NcIcon, text_icon};
+use crate::icons::{NcIcon, icon, text_icon};
 use crate::screen_view::ScreenView;
+use crate::screens::ui::card_row;
 use crate::tokens::Palette;
 
 pub(crate) type Pick = Rc<dyn Fn(&mut ScreenView, String, &mut Window, &mut Context<ScreenView>)>;
@@ -106,11 +107,54 @@ impl ScreenView {
         column.into_any_element()
     }
 
-    /// A ghost button, used for the small actions of a row.
+    /// A link of a card: accent, bold, no fill. It opens a page, a tab or a dialog.
     pub(crate) fn link_button(
+        id: impl Into<SharedString>,
+        label: impl Into<SharedString>,
+        p: &Palette,
+    ) -> Button {
+        // The text variant has no fill, no padding and no underline. The label has its own
+        // color, so a hover does not change it.
+        Button::new(id.into()).text().child(
+            div()
+                .text_color(p.accent)
+                .font_weight(FontWeight::BOLD)
+                .child(label.into()),
+        )
+    }
+
+    /// A flat button: no fill. It is for a secondary command of a row.
+    pub(crate) fn flat_button(
         id: impl Into<SharedString>,
         label: impl Into<SharedString>,
     ) -> Button {
         Button::new(id.into()).small().ghost().label(label.into())
+    }
+
+    /// A row of a card that opens a page: the link at the left and a chevron at the right.
+    /// A click anywhere in the row opens the page.
+    pub(crate) fn link_row(
+        id: &'static str,
+        label: impl Into<SharedString>,
+        open: impl Fn(&mut Window, &mut App) + 'static,
+        p: &Palette,
+    ) -> AnyElement {
+        let open = Rc::new(open);
+        let from_link = open.clone();
+        let hover = p.hover;
+        card_row(p)
+            .id(SharedString::from(format!("{id}-row")))
+            .cursor_pointer()
+            .hover(move |row| row.bg(hover))
+            .on_click(move |_, window, cx| open(window, cx))
+            .child(
+                Self::link_button(id, label, p).on_click(move |_, window, cx| {
+                    cx.stop_propagation();
+                    from_link(window, cx);
+                }),
+            )
+            .child(div().flex_1())
+            .child(icon(NcIcon::Right, p.fg_dim))
+            .into_any_element()
     }
 }

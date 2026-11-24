@@ -175,6 +175,7 @@ impl ScreenView {
                             Self::link_button(
                                 SharedString::from(format!("ls-open-sensors-{slot}")),
                                 selected.link.clone(),
+                                p,
                             )
                             .on_click(act(&view, |this, _, _| this.leakshield.tab = Tab::Sensors)),
                         ),

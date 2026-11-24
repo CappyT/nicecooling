@@ -278,6 +278,7 @@ Rules:
 - Suggested: `accent-bg` fill, `accent-fg` text. One per view at most.
 - Destructive: `alarm-bg` fill. Only for factory reset, delete and restore.
 - Flat: no fill. For secondary commands in a row.
+- Link: `accent` text, weight 700, no fill and no underline. It opens a page, a tab or a dialog. A card row that opens a page has the link at the left and a chevron at the right, and the whole row takes the click.
 - On the Alarm banner: white fill, text `#A51D2D`.
 
 ### Tags

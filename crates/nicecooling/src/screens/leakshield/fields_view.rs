@@ -76,7 +76,7 @@ impl ScreenView {
                     .child(model.summary.clone()),
             )
             .child(
-                Self::link_button("ls-fields-copy", model.copy_label.clone())
+                Self::flat_button("ls-fields-copy", model.copy_label.clone())
                     .on_click(act(&view, move |_, _, cx| {
                         cx.write_to_clipboard(ClipboardItem::new_string(copy.clone()))
                     })),

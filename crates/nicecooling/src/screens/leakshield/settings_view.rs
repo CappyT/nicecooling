@@ -351,6 +351,7 @@ impl ScreenView {
                 Self::link_button(
                     SharedString::from(format!("ls-link-{}", row.key)),
                     label.clone(),
+                    p,
                 )
                 .on_click(act(&view, move |this, _, cx| match &target {
                     Link::Loops => this.go(Page::Loops, cx),

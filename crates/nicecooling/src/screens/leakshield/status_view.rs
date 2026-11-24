@@ -185,7 +185,7 @@ impl ScreenView {
         // The events.
         let export = {
             let (view, id) = (view.clone(), id.to_owned());
-            Self::link_button("ls-status-export", model.events.export.clone()).on_click(
+            Self::flat_button("ls-status-export", model.events.export.clone()).on_click(
                 move |_, _, cx| {
                     let (view, id) = (view.clone(), id.clone());
                     let (info, events, locale) = view.read_with(cx, |this, cx| {

@@ -541,7 +541,7 @@ impl ScreenView {
             );
         }
         curves = curves.child(
-            Self::link_button("profile-open-channels", locale.tr("profiles.open"))
+            Self::link_button("profile-open-channels", locale.tr("profiles.open"), p)
                 .on_click(act(&view, |this, _, cx| this.go(Page::Channels, cx))),
         );
 
@@ -612,11 +612,10 @@ impl ScreenView {
             .map(|d| d.id.clone());
         if let Some(device) = device {
             leakshield = leakshield.child(
-                Self::link_button("profile-open-leakshield", locale.tr("profiles.open")).on_click(
-                    act(&view, move |this, _, cx| {
+                Self::link_button("profile-open-leakshield", locale.tr("profiles.open"), p)
+                    .on_click(act(&view, move |this, _, cx| {
                         this.go(Page::Leakshield(device.clone()), cx);
-                    }),
-                ),
+                    })),
             );
         }
         card = card.child(
@@ -910,14 +909,14 @@ impl ScreenView {
                     .items_center()
                     .child(div().flex_1().child(sentence.clone()))
                     .child(
-                        Self::link_button(
+                        Self::flat_button(
                             SharedString::from(format!("rule-edit-{index}")),
                             locale.tr("profiles.editor.edit"),
                         )
                         .on_click(act(&view, move |this, _, _| this.profiles.edit_rule(index))),
                     )
                     .child(
-                        Self::link_button(
+                        Self::flat_button(
                             SharedString::from(format!("rule-remove-{index}")),
                             locale.tr("profiles.editor.remove"),
                         )

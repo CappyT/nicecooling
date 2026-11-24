@@ -325,6 +325,7 @@ impl ScreenView {
                 Self::link_button(
                     SharedString::from(format!("response-reset-{}", row.key)),
                     locale.tr("alarms.reset"),
+                    p,
                 )
                 .on_click(act(&view, move |this, _, _| this.send(command.clone()))),
             );

@@ -161,7 +161,7 @@ impl ScreenView {
         if row.source.is_some() {
             let device = device.clone();
             line = line.child(
-                Self::link_button(
+                Self::flat_button(
                     SharedString::from(format!("ls-software-clear-{slot}")),
                     clear_label.to_owned(),
                 )
