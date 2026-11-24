@@ -280,7 +280,8 @@ fn overview_states() {
             ("--", BubbleState::Offline)
         );
     }
-    assert_eq!(card.diagram.bubble(Tag::Tt).unwrap().caption, "31.4 °C");
+    let tt = card.diagram.bubble(Tag::Tt).unwrap();
+    assert_eq!((tt.caption.as_str(), tt.unit.as_str()), ("last 31.4 °C", ""));
     assert!(offline.temperatures.iter().all(|t| t.value == "--"));
 
     // Daemon down: "Not live", "Last values", a row in Active Alarms and no Profile.

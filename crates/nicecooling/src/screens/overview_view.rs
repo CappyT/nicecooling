@@ -220,6 +220,7 @@ impl ScreenView {
                         &card_model.diagram,
                         p,
                         self.navigator(),
+                        cx,
                     )),
             )
             .into_any_element()

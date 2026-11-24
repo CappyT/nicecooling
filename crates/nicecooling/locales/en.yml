@@ -190,6 +190,7 @@ diagram:
     above_table: above table range
     below_flow: "below %{value} L/h"
     water: water
+    last: "last %{value}"
     pumps:
       one: "%{count} pump"
       other: "%{count} pumps"

@@ -228,6 +228,7 @@ impl ScreenView {
             &detail.diagram,
             p,
             self.navigator(),
+            cx,
         )));
 
         // Parts.

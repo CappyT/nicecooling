@@ -153,15 +153,20 @@ impl LoopDiagram {
                 }
             }
         };
-        // Offline: no number, and the last value is the caption.
+        // Offline: "--" without a unit, and the last value is the caption.
         let shown = |live_value: Option<f64>, unit: &str| -> (String, String) {
             match (live, live_value) {
                 (true, Some(v)) => (number(locale, v, unit), unit_text(unit).to_owned()),
-                _ => ("--".to_owned(), unit_text(unit).to_owned()),
+                _ => ("--".to_owned(), String::new()),
             }
         };
         let last_value_caption = |v: Option<f64>, unit: &str| -> String {
-            v.map_or_else(String::new, |v| value_text(locale, v, unit))
+            v.map_or_else(String::new, |v| {
+                locale.fmt(
+                    "diagram.caption.last",
+                    &[("value", &value_text(locale, v, unit))],
+                )
+            })
         };
         let age = |_: &str| -> String {
             sample.map_or_else(String::new, |s| {
@@ -514,8 +519,10 @@ use std::rc::Rc;
 
 use gpui::prelude::*;
 use gpui::{
-    App, Bounds, Div, FontWeight, Hsla, SharedString, Window, canvas, div, px, relative, size,
+    App, Bounds, Div, FontWeight, Hsla, Pixels, Point, SharedString, Window, canvas, div, px,
+    relative, size,
 };
+use gpui_component::ActiveTheme as _;
 use gpui_component::tooltip::Tooltip;
 
 use crate::tokens::Palette;
@@ -533,8 +540,98 @@ const FLOW: f32 = 0.58;
 const WATER: f32 = 0.80;
 const BLOCKS: f32 = 0.69;
 
-fn overlay(left: gpui::DefiniteLength, shift: f32, top: f32) -> Div {
-    div().absolute().left(left).ml(px(shift)).top(px(top))
+/// The y of the bubbles, the supply leg and the return leg.
+const BUBBLE_Y: f32 = 46.0;
+const SUPPLY_Y: f32 = 100.0;
+const RETURN_Y: f32 = 150.0;
+/// The outline of a part symbol and of a bubble.
+const OUTLINE: f32 = 1.5;
+
+/// Add the points of an arc of radius `r` around `(cx, cy)`. Angles are in degrees: 0 points
+/// right and 90 points down.
+fn arc(
+    points: &mut Vec<Point<Pixels>>,
+    o: Point<Pixels>,
+    c: (f32, f32),
+    r: f32,
+    from: f32,
+    to: f32,
+) {
+    let steps = ((to - from).abs() / 15.0).ceil().max(1.0) as usize;
+    for step in 1..=steps {
+        let angle = (from + (to - from) * step as f32 / steps as f32).to_radians();
+        points.push(at(o, c.0 + r * angle.cos(), c.1 + r * angle.sin()));
+    }
+}
+
+/// A rectangle `[x, y, width, height]` with an outline that is centered on its edge, as an
+/// SVG stroke is.
+fn outlined(
+    window: &mut Window,
+    o: Point<Pixels>,
+    [x, y, w, h]: [f32; 4],
+    r: f32,
+    fill: Hsla,
+    edge: Hsla,
+) {
+    let half = OUTLINE / 2.0;
+    let bounds = Bounds::new(
+        at(o, x - half, y - half),
+        size(px(w + OUTLINE), px(h + OUTLINE)),
+    );
+    rect(window, bounds, r + half, fill, Some((edge, OUTLINE, false)));
+}
+
+/// The circle of a bubble, around `o`.
+fn bubble_circle(window: &mut Window, o: Point<Pixels>, state: BubbleState, p: &BubbleColors) {
+    let center = at(o, 0.0, BUBBLE_Y);
+    let (fill, edge) = match state {
+        BubbleState::Normal => (p.card, p.fg),
+        BubbleState::Warning => (p.warning_bg, p.warning_bg),
+        BubbleState::Alarm => (p.alarm_bg, p.alarm_bg),
+        BubbleState::Offline => {
+            disc(window, center, 18.0, p.card, None);
+            let mut ring = vec![at(o, 18.0, BUBBLE_Y)];
+            arc(&mut ring, o, (0.0, BUBBLE_Y), 18.0, 0.0, 360.0);
+            polyline(window, &ring, OUTLINE, p.offline, Some((4.0, 3.0)));
+            return;
+        }
+    };
+    disc(
+        window,
+        center,
+        18.0 + OUTLINE / 2.0,
+        fill,
+        Some((edge, OUTLINE, false)),
+    );
+}
+
+#[derive(Clone, Copy)]
+struct BubbleColors {
+    card: Hsla,
+    fg: Hsla,
+    offline: Hsla,
+    warning_bg: Hsla,
+    alarm_bg: Hsla,
+}
+
+/// The symbol of a part on the supply leg.
+#[derive(Clone, Copy)]
+enum Symbol {
+    Pump,
+    Flow,
+    Water,
+}
+
+/// A slice of the diagram. The slices are a flex row: each one starts at the fraction of the
+/// width that `widgets.md` gives its part. A slice never gets narrower than its text, so in a
+/// narrow diagram the parts move to the right and no text reaches the next bubble.
+fn slice(basis: f32) -> Div {
+    div()
+        .relative()
+        .h_full()
+        .flex_shrink_1()
+        .flex_basis(relative(basis))
 }
 
 /// The diagram of one Loop. `on_open` gets the page of a clicked bubble.
@@ -542,147 +639,94 @@ pub fn element(
     diagram: &LoopDiagram,
     p: &Palette,
     on_open: impl Fn(Page, &mut Window, &mut App) + 'static,
+    cx: &App,
 ) -> Div {
     let on_open: OpenPage = Rc::new(on_open);
+    let mono = cx.theme().mono_font_family.clone();
     let has_leakshield = diagram.has_leakshield;
-    let level = diagram.fill_level;
-    let (has_pump, has_flow, has_water) = (diagram.has_pump, diagram.has_flow, diagram.has_water);
-    let colors = (p.water, p.air, p.fg, p.part, p.card, p.offline);
+    // The reservoir shows its level only while the value is live.
+    let level = diagram.fill_level.filter(|_| diagram.live);
+    let (water, air, fg, part, card) = (p.water, p.air, p.fg, p.part, p.card);
+    let box_edge = p.border_strong;
+    let bubble_colors = BubbleColors {
+        card: p.card,
+        fg: p.fg,
+        offline: p.offline,
+        warning_bg: p.warning_bg,
+        alarm_bg: p.alarm_bg,
+    };
+    let pt_state = diagram.bubble(Tag::Pt).map(|bubble| bubble.state);
 
-    let paint = canvas(
+    // The parts that do not move: the water path, the reservoir, the Leakshield and the box.
+    let base = canvas(
         |_, _, _| (),
-        move |bounds: Bounds<gpui::Pixels>, _, window, _| {
-            let (water, air, fg, part, card, offline) = colors;
+        move |bounds: Bounds<Pixels>, _, window, _| {
             let w = f32::from(bounds.size.width);
             let o = bounds.origin;
             let x0 = if has_leakshield { 88.0 } else { 34.0 };
-            let pump_x = (w * PUMP).round();
-            let flow_x = (w * FLOW).round();
-            let water_x = (w * WATER).round();
+            let right = w - 34.0;
 
             // The water path: the supply leg, the corner at the right, the return leg.
-            let mut loop_path = vec![at(o, x0, 100.0), at(o, w - 34.0, 100.0)];
-            for (dx, dy) in [(3.0, 1.0), (7.0, 3.0), (10.0, 10.0)] {
-                loop_path.push(at(o, w - 34.0 + dx, 100.0 + dy));
-            }
-            loop_path.push(at(o, w - 24.0, 140.0));
-            for (dx, dy) in [(0.0, 7.0), (3.0, 9.0), (-10.0, 10.0)] {
-                loop_path.push(at(o, w - 24.0 + dx, 140.0 + dy));
-            }
-            loop_path.push(at(o, x0, 150.0));
+            let mut path = vec![at(o, x0, SUPPLY_Y), at(o, right, SUPPLY_Y)];
+            arc(&mut path, o, (right, SUPPLY_Y + 10.0), 10.0, -90.0, 0.0);
+            path.push(at(o, right + 10.0, RETURN_Y - 10.0));
+            arc(&mut path, o, (right, RETURN_Y - 10.0), 10.0, 0.0, 90.0);
+            path.push(at(o, x0, RETURN_Y));
             if !has_leakshield {
-                for (dx, dy) in [(-7.0, 0.0), (-10.0, -10.0)] {
-                    loop_path.push(at(o, x0 + dx, 150.0 + dy));
-                }
-                loop_path.push(at(o, x0 - 10.0, 110.0));
-                loop_path.push(at(o, x0, 100.0));
+                arc(&mut path, o, (x0, RETURN_Y - 10.0), 10.0, 90.0, 180.0);
+                path.push(at(o, x0 - 10.0, SUPPLY_Y + 10.0));
+                arc(&mut path, o, (x0, SUPPLY_Y + 10.0), 10.0, 180.0, 270.0);
             }
-            polyline(window, &loop_path, 3.0, water, None);
-
-            // The flow arrows, one on each leg.
-            let arrow_x = ((pump_x + flow_x) / 2.0).round();
-            polyline(
-                window,
-                &[
-                    at(o, arrow_x - 6.0, 93.0),
-                    at(o, arrow_x + 6.0, 100.0),
-                    at(o, arrow_x - 6.0, 107.0),
-                ],
-                3.0,
-                water,
-                None,
-            );
-            polyline(
-                window,
-                &[
-                    at(o, pump_x - 52.0, 143.0),
-                    at(o, pump_x - 64.0, 150.0),
-                    at(o, pump_x - 52.0, 157.0),
-                ],
-                3.0,
-                water,
-                None,
-            );
+            polyline(window, &path, 3.0, water, None);
 
             if has_leakshield {
                 // The reservoir with its fill level, and the Leakshield capsule over it.
                 polyline(
                     window,
                     &[at(o, 56.0, 60.0), at(o, 56.0, 82.0)],
-                    1.5,
+                    2.0,
                     air,
-                    Some((4.0, 3.0)),
+                    Some((5.0, 4.0)),
                 );
-                let reservoir = Bounds::new(at(o, 24.0, 82.0), size(px(64.), px(78.)));
-                rect(window, reservoir, 4.0, part, Some((fg, 1.5, false)));
+                outlined(window, o, [24.0, 82.0, 64.0, 78.0], 4.0, part, fg);
                 if let Some(level) = level {
-                    let height = (76.0 * (level / 100.0).clamp(0.0, 1.0)) as f32;
+                    let height = (76.0 * (level / 100.0).clamp(0.0, 1.0)).round() as f32;
                     let fill = Bounds::new(at(o, 25.0, 159.0 - height), size(px(62.), px(height)));
                     rect(window, fill, 0.0, water.opacity(0.3), None);
                 }
-                let capsule = Bounds::new(at(o, 8.0, 32.0), size(px(96.), px(28.)));
-                rect(window, capsule, 14.0, part, Some((fg, 1.5, false)));
+                outlined(window, o, [8.0, 32.0, 96.0, 28.0], 14.0, part, fg);
                 polyline(
                     window,
-                    &[at(o, 104.0, 46.0), at(o, 114.0, 46.0)],
+                    &[at(o, 104.0, BUBBLE_Y), at(o, 114.0, BUBBLE_Y)],
                     1.0,
                     fg,
                     None,
                 );
+                if let Some(state) = pt_state {
+                    bubble_circle(window, at(o, 132.0, 0.0), state, &bubble_colors);
+                }
             }
 
             // Blocks and radiators: one dashed box that nicecooling does not measure.
-            let box_w = (w * 0.3).min(230.0);
-            let box_x = (w * BLOCKS - box_w / 2.0).round();
-            let blocks = Bounds::new(at(o, box_x, 138.0), size(px(box_w), px(24.)));
-            rect(window, blocks, 4.0, card, Some((offline, 1.0, true)));
-
-            if has_pump {
-                polyline(
-                    window,
-                    &[at(o, pump_x, 64.0), at(o, pump_x, 86.0)],
-                    1.0,
-                    fg,
-                    None,
-                );
-                disc(
-                    window,
-                    at(o, pump_x, 100.0),
-                    14.0,
-                    part,
-                    Some((fg, 1.5, false)),
-                );
-                polygon(
-                    window,
-                    &[
-                        at(o, pump_x - 5.0, 93.0),
-                        at(o, pump_x + 7.0, 100.0),
-                        at(o, pump_x - 5.0, 107.0),
-                    ],
-                    fg,
-                );
-            }
-            if has_flow {
-                polyline(
-                    window,
-                    &[at(o, flow_x, 64.0), at(o, flow_x, 89.0)],
-                    1.0,
-                    fg,
-                    None,
-                );
-                let sensor = Bounds::new(at(o, flow_x - 18.0, 89.0), size(px(36.), px(22.)));
-                rect(window, sensor, 3.0, part, Some((fg, 1.5, false)));
-            }
-            if has_water {
-                polyline(
-                    window,
-                    &[at(o, water_x, 64.0), at(o, water_x, 96.0)],
-                    1.0,
-                    fg,
-                    None,
-                );
-                disc(window, at(o, water_x, 100.0), 4.5, fg, None);
-            }
+            let box_w = (w * 0.3).min(230.0).round();
+            let x = (w * BLOCKS - box_w / 2.0).round();
+            let (top, bottom, far) = (138.0, 162.0, x + box_w);
+            rect(
+                window,
+                Bounds::new(at(o, x, top), size(px(box_w), px(bottom - top))),
+                4.0,
+                card,
+                None,
+            );
+            let mut edge = vec![at(o, x + 4.0, top), at(o, far - 4.0, top)];
+            arc(&mut edge, o, (far - 4.0, top + 4.0), 4.0, -90.0, 0.0);
+            edge.push(at(o, far, bottom - 4.0));
+            arc(&mut edge, o, (far - 4.0, bottom - 4.0), 4.0, 0.0, 90.0);
+            edge.push(at(o, x + 4.0, bottom));
+            arc(&mut edge, o, (x + 4.0, bottom - 4.0), 4.0, 90.0, 180.0);
+            edge.push(at(o, x, top + 4.0));
+            arc(&mut edge, o, (x + 4.0, top + 4.0), 4.0, 180.0, 270.0);
+            polyline(window, &edge, OUTLINE, box_edge, Some((5.0, 4.0)));
         },
     )
     .absolute()
@@ -692,151 +736,277 @@ pub fn element(
         .relative()
         .w_full()
         .h(px(HEIGHT))
+        .overflow_hidden()
+        .whitespace_nowrap()
         .text_size(px(12.))
-        .text_color(p.fg)
-        .child(paint);
+        .line_height(px(16.))
+        .text_color(p.fg_dim)
+        .child(base)
+        .child(
+            div()
+                .absolute()
+                .left(relative(BLOCKS))
+                .ml(px(-100.))
+                .top(px(142.))
+                .w(px(200.))
+                .text_center()
+                .child(diagram.labels.blocks.clone()),
+        );
 
-    if has_leakshield {
-        root = root
+    // The value and the caption of a bubble, `left` px after the start of its slice.
+    let text_of = |bubble: &Bubble, left: f32| {
+        let (value_color, caption_color) = match bubble.state {
+            BubbleState::Normal => (p.fg, p.fg_dim),
+            BubbleState::Warning => (p.fg, p.warning),
+            BubbleState::Alarm => (p.alarm, p.alarm),
+            BubbleState::Offline => (p.offline, p.fg_dim),
+        };
+        let marker = match bubble.state {
+            BubbleState::Alarm => Some((NcIcon::Alarm, p.alarm)),
+            BubbleState::Warning => Some((NcIcon::Warn, p.warning)),
+            _ if bubble.info => Some((NcIcon::Info, p.fg_dim)),
+            _ => None,
+        };
+        div()
+            .flex()
+            .flex_col()
+            .items_start()
+            .mt(px(26.))
+            .ml(px(left))
+            .mr(px(26.))
             .child(
-                overlay(px(8.).into(), 0.0, 32.0)
+                div()
+                    .flex()
+                    .items_baseline()
+                    .gap(px(4.))
+                    .text_size(px(16.))
+                    .line_height(px(22.))
+                    .font_weight(FontWeight::BOLD)
+                    .text_color(value_color)
+                    .child(bubble.value.clone())
+                    .children((!bubble.unit.is_empty()).then(|| {
+                        div()
+                            .text_size(px(12.))
+                            .font_weight(FontWeight::NORMAL)
+                            .text_color(p.fg_dim)
+                            .child(bubble.unit.clone())
+                    })),
+            )
+            .child(
+                div()
+                    .mt(px(1.))
+                    .flex()
+                    .items_center()
+                    .gap(px(4.))
+                    .text_color(caption_color)
+                    .children(marker.map(|(name, color): (NcIcon, Hsla)| small_icon(name, color)))
+                    .child(bubble.caption.clone()),
+            )
+    };
+    // The circle of a bubble takes the click and shows the tooltip. `x` is its center.
+    let tag_of = |index: usize, bubble: &Bubble, x: f32| {
+        let ink = match bubble.state {
+            BubbleState::Normal => p.fg,
+            BubbleState::Warning => p.warning_fg,
+            BubbleState::Alarm => p.alarm_fg,
+            BubbleState::Offline => p.offline,
+        };
+        let page = bubble.opens.clone();
+        let open = on_open.clone();
+        let tooltip: SharedString = bubble.tooltip.clone().into();
+        div()
+            .id(("bubble", index))
+            .absolute()
+            .left(px(x - 18.0))
+            .top(px(BUBBLE_Y - 18.0))
+            .size(px(36.))
+            .flex()
+            .items_center()
+            .justify_center()
+            .rounded_full()
+            .text_color(ink)
+            .font_family(mono.clone())
+            .font_weight(FontWeight::BOLD)
+            .cursor_pointer()
+            .tooltip(move |window, cx| Tooltip::new(tooltip.clone()).build(window, cx))
+            .on_click(move |_, window, cx| open(page.clone(), window, cx))
+            .child(bubble.tag.text())
+    };
+    let indexed = |tag: Tag| {
+        diagram
+            .bubbles
+            .iter()
+            .enumerate()
+            .find(|(_, bubble)| bubble.tag == tag)
+    };
+
+    // The first slice: the Leakshield with its bubble, or the text of a Loop without one.
+    let mut first = slice(PUMP);
+    if has_leakshield {
+        first = first
+            .child(
+                div()
+                    .absolute()
+                    .left(px(8.))
+                    .top(px(32.))
                     .w(px(96.))
                     .h(px(28.))
                     .flex()
                     .items_center()
                     .justify_center()
                     .font_weight(FontWeight::BOLD)
+                    .text_color(p.fg)
                     .child(diagram.labels.leakshield.clone()),
             )
-            .child(
-                overlay(px(24.).into(), 0.0, 112.0)
+            .children(level.map(|level| {
+                div()
+                    .absolute()
+                    .left(px(24.))
+                    .top(px(110.))
                     .w(px(64.))
                     .flex()
-                    .justify_center()
-                    .font_weight(FontWeight::BOLD)
-                    .children(diagram.fill_level.map(|v| format!("{v:.0} %"))),
-            )
-            .child(
-                overlay(px(24.).into(), 0.0, 130.0)
-                    .w(px(64.))
-                    .flex()
-                    .justify_center()
-                    .text_color(p.fg_dim)
-                    .child(diagram.labels.fill_level.clone()),
-            );
-    } else if let Some((title, text)) = &diagram.no_leakshield {
-        root = root
-            .child(
-                overlay(px(24.).into(), 0.0, 30.0)
-                    .font_weight(FontWeight::BOLD)
-                    .text_color(p.fg_dim)
-                    .child(title.clone()),
-            )
-            .child(overlay(px(24.).into(), 0.0, 48.0).child(text.clone()));
-    }
-
-    // Under the parts: the name of each part, and the dashed box.
-    let name_of = |tag: Tag| diagram.bubble(tag).map(|b| b.name.clone());
-    for (tag, frac) in [(Tag::St, PUMP), (Tag::Ft, FLOW), (Tag::Tt, WATER)] {
-        if let Some(name) = name_of(tag) {
-            root = root.child(
-                overlay(relative(frac), -70.0, 120.0)
-                    .w(px(140.))
-                    .text_center()
-                    .truncate()
-                    .child(name),
-            );
-        }
-    }
-    root = root.child(
-        overlay(relative(BLOCKS), -100.0, 142.0)
-            .w(px(200.))
-            .text_center()
-            .text_color(p.offline)
-            .child(diagram.labels.blocks.clone()),
-    );
-
-    for (index, bubble) in diagram.bubbles.iter().enumerate() {
-        // The fill level shows as text on the reservoir: it has no bubble of its own.
-        let left: gpui::DefiniteLength = match bubble.tag {
-            Tag::Pt => px(132.).into(),
-            Tag::St => relative(PUMP),
-            Tag::Ft => relative(FLOW),
-            Tag::Tt => relative(WATER),
-            Tag::Lt => continue,
-        };
-        let top = 46.0;
-        let (fill, ink, edge, value_color) = match bubble.state {
-            BubbleState::Normal => (p.card, p.fg, p.fg, p.fg),
-            BubbleState::Warning => (p.warning_bg, p.fg, p.fg, p.fg),
-            BubbleState::Alarm => (p.alarm_bg, p.alarm_fg, p.alarm_bg, p.alarm),
-            BubbleState::Offline => (p.card, p.offline, p.offline, p.offline),
-        };
-        let page = bubble.opens.clone();
-        let open = on_open.clone();
-        let tooltip: SharedString = bubble.tooltip.clone().into();
-        let circle = overlay(left, -18.0, top - 18.0)
-            .id(("bubble", index))
-            .size(px(36.))
-            .flex()
-            .items_center()
-            .justify_center()
-            .rounded_full()
-            .bg(fill)
-            .border_color(edge)
-            .when(bubble.state == BubbleState::Offline, |d| d.border_dashed())
-            .border_2()
-            .text_color(ink)
-            .font_family("monospace")
-            .font_weight(FontWeight::BOLD)
-            .cursor_pointer()
-            .tooltip(move |window, cx| Tooltip::new(tooltip.clone()).build(window, cx))
-            .on_click(move |_, window, cx| open(page.clone(), window, cx))
-            .child(bubble.tag.text());
-        root = root.child(circle);
-
-        let value_left = if bubble.tag == Tag::Pt { 158.0 } else { 26.0 };
-        let (anchor, shift_value): (gpui::DefiniteLength, f32) = if bubble.tag == Tag::Pt {
-            (px(value_left).into(), 0.0)
-        } else {
-            (left, value_left)
-        };
-        root = root.child(
-            overlay(anchor, shift_value, top - 20.0)
-                .flex()
-                .items_baseline()
-                .gap(px(4.))
-                .text_color(value_color)
-                .child(
-                    div()
-                        .text_size(px(16.))
-                        .font_weight(FontWeight::BOLD)
-                        .child(bubble.value.clone()),
-                )
-                .child(
-                    div()
-                        .text_color(p.fg_dim)
-                        .font_weight(FontWeight::NORMAL)
-                        .child(bubble.unit.clone()),
-                ),
-        );
-        if !bubble.caption.is_empty() || bubble.info {
-            let marker = match bubble.state {
-                BubbleState::Alarm => Some((NcIcon::Alarm, p.alarm)),
-                BubbleState::Warning => Some((NcIcon::Warn, p.warning)),
-                _ if bubble.info => Some((NcIcon::Info, p.fg_dim)),
-                _ => None,
-            };
-            root = root.child(
-                overlay(anchor, shift_value, top + 3.0)
-                    .flex()
-                    .gap(px(4.))
-                    .text_color(p.fg_dim)
+                    .flex_col()
                     .items_center()
-                    .children(marker.map(|(name, color): (NcIcon, Hsla)| small_icon(name, color)))
-                    .child(bubble.caption.clone()),
-            );
+                    .gap(px(2.))
+                    .child(
+                        div()
+                            .font_weight(FontWeight::BOLD)
+                            .text_color(p.fg)
+                            .child(format!("{level:.0} %")),
+                    )
+                    .child(diagram.labels.fill_level.clone())
+            }));
+        if let Some((index, bubble)) = indexed(Tag::Pt) {
+            first = first
+                .child(tag_of(index, bubble, 132.0))
+                .child(text_of(bubble, 158.0));
         }
+    } else if let Some((title, text)) = &diagram.no_leakshield {
+        first = first.child(
+            div()
+                .mt(px(31.))
+                .ml(px(24.))
+                .mr(px(26.))
+                .child(div().font_weight(FontWeight::BOLD).child(title.clone()))
+                .child(div().mt(px(2.)).child(text.clone())),
+        );
     }
+
+    // The slices of the pump, the flow sensor and the water temperature. Each part is at the
+    // left edge of its slice.
+    let mut row = div()
+        .absolute()
+        .top_0()
+        .left_0()
+        .size_full()
+        .flex()
+        .child(first);
+    let parts = [
+        (Tag::St, Symbol::Pump, diagram.has_pump, FLOW - PUMP),
+        (Tag::Ft, Symbol::Flow, diagram.has_flow, WATER - FLOW),
+        (Tag::Tt, Symbol::Water, diagram.has_water, 1.0 - WATER),
+    ];
+    for (tag, symbol, present, basis) in parts {
+        let found = indexed(tag);
+        let state = found.map(|(_, bubble)| bubble.state);
+        let mut part_slice = slice(basis).child(
+            canvas(
+                |_, _, _| (),
+                move |bounds: Bounds<Pixels>, _, window, _| {
+                    let o = bounds.origin;
+                    let span = f32::from(bounds.size.width);
+                    if matches!(symbol, Symbol::Pump) {
+                        // The flow arrows, one on each leg.
+                        let middle = (span / 2.0).round();
+                        polyline(
+                            window,
+                            &[
+                                at(o, middle - 6.0, SUPPLY_Y - 7.0),
+                                at(o, middle + 6.0, SUPPLY_Y),
+                                at(o, middle - 6.0, SUPPLY_Y + 7.0),
+                            ],
+                            3.0,
+                            water,
+                            None,
+                        );
+                        polyline(
+                            window,
+                            &[
+                                at(o, -40.0, RETURN_Y - 7.0),
+                                at(o, -52.0, RETURN_Y),
+                                at(o, -40.0, RETURN_Y + 7.0),
+                            ],
+                            3.0,
+                            water,
+                            None,
+                        );
+                    }
+                    if !present {
+                        return;
+                    }
+                    let leader_end = match symbol {
+                        Symbol::Pump => 86.0,
+                        Symbol::Flow => 89.0,
+                        Symbol::Water => 96.0,
+                    };
+                    polyline(
+                        window,
+                        &[at(o, 0.0, 64.0), at(o, 0.0, leader_end)],
+                        1.0,
+                        fg,
+                        None,
+                    );
+                    match symbol {
+                        Symbol::Pump => {
+                            disc(
+                                window,
+                                at(o, 0.0, SUPPLY_Y),
+                                14.0 + OUTLINE / 2.0,
+                                part,
+                                Some((fg, OUTLINE, false)),
+                            );
+                            polygon(
+                                window,
+                                &[
+                                    at(o, -5.0, SUPPLY_Y - 7.0),
+                                    at(o, 7.0, SUPPLY_Y),
+                                    at(o, -5.0, SUPPLY_Y + 7.0),
+                                ],
+                                fg,
+                            );
+                        }
+                        Symbol::Flow => {
+                            outlined(window, o, [-18.0, 89.0, 36.0, 22.0], 3.0, part, fg);
+                        }
+                        Symbol::Water => disc(window, at(o, 0.0, SUPPLY_Y), 4.5, fg, None),
+                    }
+                    if let Some(state) = state {
+                        bubble_circle(window, o, state, &bubble_colors);
+                    }
+                },
+            )
+            .absolute()
+            .top_0()
+            .left_0()
+            .size_full(),
+        );
+        if let Some((index, bubble)) = found {
+            part_slice = part_slice
+                .child(tag_of(index, bubble, 0.0))
+                .child(
+                    div()
+                        .absolute()
+                        .left(px(-70.))
+                        .top(px(116.))
+                        .w(px(140.))
+                        .text_center()
+                        .truncate()
+                        .child(bubble.name.clone()),
+                )
+                .child(text_of(bubble, 26.0));
+        }
+        row = row.child(part_slice);
+    }
+    root = root.child(row);
     root
 }

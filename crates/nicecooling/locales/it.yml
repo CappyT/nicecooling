@@ -190,6 +190,7 @@ diagram:
     above_table: oltre la tabella
     below_flow: "sotto %{value} L/h"
     water: acqua
+    last: "ultimo %{value}"
     pumps:
       one: "%{count} pompa"
       other: "%{count} pompe"

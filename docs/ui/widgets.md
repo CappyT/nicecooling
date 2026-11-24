@@ -33,6 +33,8 @@ Draws one Loop from the Loop model. It never draws a part that the model does no
 - Tags: PT pressure, ST pump speed, FT flow, TT water temperature, LT fill level.
 - A Loop without a Leakshield: no reservoir, no capsule, no PT bubble. The legs close at the left with a 10 px corner. The top left shows "No Leakshield" and "Pressure is not measured."
 - A Loop without a flow sensor or a water temperature sensor: that part and its bubble are absent. The other parts keep their place.
+- Narrow diagram: a part never gets closer to the part at its left than the value and the caption of that part need. The pump, the flow sensor and the water temperature then move to the right of their fractions, so no text reaches the next bubble. With a Leakshield the four values need about 570 px.
+- A bubble without a live value shows "--" without a unit, and its caption is the last value: "last 298 mbar". The reservoir then shows no fill level.
 - More than one Pump channel: one pump symbol, and the ST bubble shows the lowest speed. The caption says "2 pumps".
 - Bubble states: normal, Warning (amber fill, triangle icon before the caption), Alarm (red fill, white tag, octagon icon, value in `alarm`), offline (dashed outline, value "--").
 - Out-of-range flag: a flow above the last Calibration table point has a normal bubble and an information icon before the caption "above table range". It is a note on the value. It is not a Warning, so it has no amber and no entry in Active Alarms.

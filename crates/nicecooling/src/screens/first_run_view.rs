@@ -219,6 +219,7 @@ impl ScreenView {
             &step.diagram,
             p,
             self.navigator(),
+            cx,
         )));
         card.into_any_element()
     }
