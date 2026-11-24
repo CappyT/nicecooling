@@ -309,8 +309,8 @@ pub fn show_window(cx: &mut App, model: &Entity<AppModel>, commands: &UnboundedS
         let _ = handle.update(cx, |_, window, _| window.activate_window());
         return;
     }
-    // The header bar of the shell is the title bar of the window: these options give the
-    // window no system title bar where the platform allows it.
+    // The header bar of the shell is the title bar of the window. These options leave the
+    // decorations to the platform: a compositor that draws its own title bar adds it above.
     let options = gpui_component::TitleBar::window_options();
     let model = model.clone();
     let commands = commands.clone();
