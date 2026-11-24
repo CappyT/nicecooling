@@ -72,10 +72,11 @@ Tabs: Overview, Settings, Sensors, Display, Lighting, Alarms, Status, System, Fi
   - Deaerate: two progress bars (current cycle, overall).
   - Refill: an instruction card, not a button: start Refill with the device button with the PC in standby.
 - Settings wizard (stepper), also usable to edit single steps:
-  - Reservoir: model list or custom total volume, air volume at maximum and minimum fill level, automatic fill-level measurement toggle.
-  - Pump: pump type list or custom maximum pressure and maximum speed; speed source is the Loop's Pump channel.
+  - Reservoir: reservoir type list, where a known type sets the total volume and the air volumes at maximum and minimum fill level, or custom values; automatic fill-level measurement toggle.
+  - Pump: pump type list, where a known type sets the maximum pressure, the maximum speed and the start speed, or custom values; "more than one pump" toggle; read-only pump pressure at the current speed; speed source is the Loop's Pump channel.
   - Flow: source is the Loop's flow sensor.
-  - Pressure: adaptive pressure toggle, expert values, time-controlled vacuum generation with two times.
+  - Pressure: recommended values or own values for the control band of SHIELD (minimum, target, maximum), band diagram with the live pressure and the live limits, adaptive pressure toggle, time-controlled vacuum generation with two times.
+  - Loop: height difference of the Loop.
   - Standby: default speed and flow, reduced vacuum toggle and value.
   - Mode.
   - Summary: table of changes with notes and warnings; Apply.
@@ -127,6 +128,7 @@ These have no gpui-component equivalent and need a design spec of their own:
 - Curve editor (XY plot with draggable points, operating point, floor zone).
 - Calibration table editor (table bound to a plot).
 - Pressure gauge (current against minimum, target and maximum).
+- Pressure band diagram (what the Leakshield does below, in and above the control band).
 - LED timeline editor for RGBpx.
 - Display page preview and logo conversion preview.
 - Leakshield schematic.

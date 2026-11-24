@@ -21,7 +21,7 @@ Each setting row has: the name, the verification badge, a caption, and the contr
 | Flow | "Flow source": read-only text "Flow sensor of Main loop: Water Flow, 115 L/h" with "Open Loop". Without a flow sensor: "None. The Leakshield uses the pump speed only." |
 | Pressure | "Pressure values": the radio rows "Recommended values" and "My own values". The band diagram. "Maximum pressure", "Target pressure", "Minimum pressure" in mbar, each with a caption. "Adaptive pressure": switch. "Time-controlled vacuum generation": switch and two times. See "Pressure step" |
 | Loop | "Height difference" (cm), 0 to 200. Above 100 cm a warning line shows under it |
-| Standby | "Default pump speed" (rpm) and "Default flow" (L/h), each with the button "Use the current value". "Reduced vacuum in standby": switch and a value in mbar |
+| Standby | "Default pump speed" (rpm), 1000 to 10000, and "Default flow" (L/h), 30 to 500, each with the button "Use the current value". "Reduced vacuum in standby": switch. "Pressure in standby" (mbar): 30 to the minimum pressure, editable only with the switch on |
 | Mode | The three Modes as radio rows with their captions |
 | Summary | The diff table (see `../widgets.md`), notes and warnings above it, and the button "Apply 5 changes" |
 
@@ -54,7 +54,7 @@ A known type writes its numbers into the pending changes when the user selects i
 | aquatube | 160 | 50 | 100 |
 | aquabox | 114 | 50 | 80 |
 
-- The start speed of a pump preset goes to the field of "Assumed pump speed" on the Standby step. It stays editable there.
+- The start speed of a pump preset goes to "Default pump speed" on the Standby step. It stays editable there.
 - A type that is not in the tables, as "undefined" after a factory reset, shows as the first choice of its select. Its numbers accept an edit.
 
 ## Pump step
@@ -98,6 +98,12 @@ The wizard corrects a value of the band. It shows no error for it:
 
 "Height difference" is `loop_height`, in whole cm. The wizard corrects a value outside 0 to 200 cm. The Leakshield adds the static pressure of this height to the pump pressure. The recommended pressure values do not count the height, so above 100 cm the step warns and points to own values.
 
+## Standby step
+
+- The wizard corrects "Default pump speed" to 1000 to 10000 rpm and "Default flow" to 30 to 500 L/h, in whole numbers. "Use the current value" takes the same correction. The caption of each value has its range.
+- "Reduced vacuum in standby" is `shield_flags` bit 5. "Pressure in standby" is `shield_pressure_low_standby`. The wizard keeps it in 30 mbar to the minimum pressure of the control band, and a lower minimum pressure lowers it.
+- With the switch off, the input of "Pressure in standby" is dim and takes no edit. Its caption says which switch to turn on.
+
 ## States
 
 | State | What the user sees |
@@ -108,7 +114,7 @@ The wizard corrects a value of the band. It shows no error for it:
 | Read-only field | Dashed field, padlock, "Read-only", and the reason: "Not a Verified field: this Safety field has no Verification write yet." with "Open Fields" |
 | Unknown firmware | Banner 3 of the shell. Every field is read-only. Per-field reasons are hidden |
 | Not authorized | A user outside `wheel` gets the polkit dialog on Apply when the Mode step holds RELEASE |
-| Value out of range | The input has a red outline. Caption: "80 to 450 mbar." The next button stays active, and the Summary lists the error and disables "Apply" |
+| Value out of range | Only for a reservoir volume, the maximum speed and the maximum pressure of the pump, when the Leakshield cannot store the number. The input has a red outline and a caption with the range. The next button stays active, and the Summary lists the error and disables "Apply". The wizard corrects every other number to its range and shows no error |
 | Applying | Each row of the diff table shows its write status. "Apply" becomes "Applying 2 of 5" |
 | Write failed | The row has the `alarm-tint` ground and the text "Write failed: the read-back does not match." The writes stop. Button "Restore the backup", and "Keep the current state" |
 | Applied | Success row: "5 settings written and verified." The changes go into the active Profile |
@@ -144,4 +150,6 @@ The wizard corrects a value of the band. It shows no error for it:
 | Time-controlled | "The Leakshield builds the negative pressure at two times of the day, so that you choose when its pump makes noise." |
 | Automatic measurement | "The Leakshield measures the fill level after a change, for example when you open the reservoir. During the measurement the Loop has no leak protection." |
 | Standby | "After standby the PC sends no Feed yet. The Leakshield then uses these values." |
+| Reduced vacuum in standby | "In standby the pump of the Loop does not run. The Leakshield can then hold a lower minimum pressure, so that its own pump runs less." |
+| Pressure in standby | "The minimum pressure in standby: 30 mbar to the minimum pressure, 375 mbar." With the switch off: "Turn on "Reduced vacuum in standby" to set it." |
 | Pending card | "The wizard writes nothing before you select Apply on the Summary step. Then each write has four steps: Backup saved, Written, Read back, Verified: only the expected bytes changed." |

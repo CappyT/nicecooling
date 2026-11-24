@@ -20,8 +20,6 @@ const BIT_STANDBY_PRESSURE: u32 = 32;
 const PUMP_FLAGS: &str = "pump_flags";
 /// The Loop has more than one pump in a row: their pressures add up.
 const BIT_TWO_PUMPS: u32 = 2;
-/// The range of the height difference of the Loop in cm.
-const LOOP_HEIGHT_RANGE: (f64, f64) = (0.0, 200.0);
 /// Above this height in cm the recommended pressure values can be too low.
 const LOOP_HEIGHT_WARNING: f64 = 100.0;
 /// The highest pump pressure that the Leakshield can protect against, in mbar: the highest
@@ -151,16 +149,26 @@ pub struct SettingsUi {
     pub kept: bool,
 }
 
-/// The range of a number field, in the unit of the field.
+/// The range of a number field that shows an error for a value outside it, in the unit of
+/// the field: what the Leakshield can store.
 pub fn range_of(field: &str) -> Option<(f64, f64)> {
     Some(match field {
         "reservoir_total_volume"
         | "reservoir_air_volume_full"
         | "reservoir_air_volume_empty"
-        | "pump_max_speed"
-        | "pump_start_speed" => (0.0, 32767.0),
-        "pump_max_pressure" | "pump_start_flow" => (0.0, 3276.7),
-        "shield_pressure_low_standby" => (30.0, 430.0),
+        | "pump_max_speed" => (0.0, 32767.0),
+        "pump_max_pressure" => (0.0, 3276.7),
+        _ => return None,
+    })
+}
+
+/// The range of a whole number field that the wizard corrects: a value outside it becomes
+/// the nearest limit.
+pub fn corrected_range(field: &str) -> Option<(f64, f64)> {
+    Some(match field {
+        "loop_height" => (0.0, 200.0),
+        "pump_start_speed" => (1000.0, 10000.0),
+        "pump_start_flow" => (30.0, 500.0),
         _ => return None,
     })
 }
@@ -493,10 +501,20 @@ impl SettingsUi {
                 }
             }
             "two_pumps" => self.set_bit(data, PUMP_FLAGS, BIT_TWO_PUMPS, text == "1"),
-            "loop_height" => {
-                if let Some(value) = parse(text) {
-                    let (min, max) = LOOP_HEIGHT_RANGE;
-                    self.set(data, key, FieldValue::Number(value.round().clamp(min, max)));
+            // The minimum in standby is never above the minimum.
+            "shield_pressure_low_standby" => {
+                if let (Some(value), Some(mut band)) = (parse(text), self.band(data)) {
+                    band.set_standby(value.round());
+                    self.set(data, key, FieldValue::Number(band.standby));
+                }
+            }
+            field if corrected_range(field).is_some() => {
+                if let (Some(value), Some((min, max))) = (parse(text), corrected_range(field)) {
+                    self.set(
+                        data,
+                        field,
+                        FieldValue::Number(value.round().clamp(min, max)),
+                    );
                 }
             }
             field if range_of(field).is_some() => {
@@ -535,7 +553,7 @@ impl SettingsUi {
                 }),
         };
         if let Some(value) = value {
-            self.set(data, field, FieldValue::Number(value.round()));
+            self.edit(data, field, &value.to_string());
         }
     }
 
@@ -701,6 +719,8 @@ pub struct Row {
     pub dim: bool,
     /// Another setting gives this value: the control takes no edit, and the badge says why.
     pub fixed: bool,
+    /// The switch of this value is off: the control takes no edit.
+    pub off: bool,
     pub note: Option<Note>,
 }
 
@@ -954,6 +974,7 @@ impl RowCtx<'_> {
             action: None,
             dim: false,
             fixed: false,
+            off: false,
             note: None,
         }
     }
@@ -1216,6 +1237,7 @@ fn info_row(ctx: &RowCtx<'_>, key: &str, label_key: &str, text: String) -> Row {
         action: None,
         dim: false,
         fixed: false,
+        off: false,
         note: None,
     }
 }
@@ -1417,6 +1439,7 @@ fn pressure_rows(ctx: &RowCtx<'_>, input: &ScreenInput<'_>) -> Vec<Row> {
         action: None,
         dim: false,
         fixed: false,
+        off: false,
         note: None,
     });
     for (key, field, value, range) in [
@@ -1523,7 +1546,7 @@ fn loop_rows(ctx: &RowCtx<'_>) -> Vec<Row> {
     height.caption = Some(format!(
         "{} {}",
         locale.tr("leakshield.settings.loop_height_text"),
-        range_text(locale, LOOP_HEIGHT_RANGE, "cm")
+        range_text(locale, (0.0, 200.0), "cm")
     ));
     if ctx
         .ui
@@ -1546,18 +1569,26 @@ fn standby_rows(ctx: &RowCtx<'_>) -> Vec<Row> {
         "leakshield.settings.default_speed",
     );
     speed.use_current = Some(locale.tr("leakshield.settings.use_current"));
-    speed.caption = Some(locale.tr("leakshield.settings.standby_text"));
+    speed.caption = Some(format!(
+        "{} {}",
+        locale.tr("leakshield.settings.standby_text"),
+        range_text(locale, (1000.0, 10000.0), "rpm")
+    ));
     let mut flow = ctx.number(
         "pump_start_flow",
         "pump_start_flow",
         "leakshield.settings.default_flow",
     );
     flow.use_current = Some(locale.tr("leakshield.settings.use_current"));
-    let reduced = ctx.switch(
-        "standby_pressure",
-        SHIELD_FLAGS,
-        BIT_STANDBY_PRESSURE,
-        "leakshield.settings.reduced_vacuum",
+    flow.caption = Some(range_text(locale, (30.0, 500.0), "L/h"));
+    let reduced = RowCtx::caption(
+        ctx.switch(
+            "standby_pressure",
+            SHIELD_FLAGS,
+            BIT_STANDBY_PRESSURE,
+            "leakshield.settings.reduced_vacuum",
+        ),
+        Some(locale.tr("leakshield.settings.reduced_vacuum_text")),
     );
     let on = matches!(reduced.control, Control::Switch(true));
     let mut value = ctx.number(
@@ -1565,7 +1596,20 @@ fn standby_rows(ctx: &RowCtx<'_>) -> Vec<Row> {
         "shield_pressure_low_standby",
         "leakshield.settings.reduced_value",
     );
-    value.dim = !on;
+    // The value is for the switch above it. Its upper limit is the minimum pressure.
+    value.off = !on;
+    value.caption = Some(if on {
+        let minimum = ctx.ui.band(ctx.data).map_or(Band::MIN_RANGE.1, |b| b.min);
+        locale.fmt(
+            "leakshield.settings.reduced_value_text",
+            &[
+                ("min", &compact(locale, Band::MIN_RANGE.0)),
+                ("max", &compact(locale, minimum)),
+            ],
+        )
+    } else {
+        locale.tr("leakshield.settings.reduced_value_off")
+    });
     vec![speed, flow, reduced, value]
 }
 

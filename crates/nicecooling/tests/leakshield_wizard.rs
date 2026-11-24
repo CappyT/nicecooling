@@ -1040,6 +1040,118 @@ fn the_loop_step_has_the_height_difference() {
     assert!(summary.apply_enabled && summary.errors.is_empty());
 }
 
+#[test]
+fn the_standby_step_corrects_its_numbers_to_their_ranges() {
+    // The device: start speed 2500 rpm, start flow 130 L/h, standby minimum 80 mbar.
+    let state = device();
+    let data = data_of(&state);
+    let mut ui = SettingsUi::default();
+    let model = step(&state, &ui, Step::Standby);
+    assert!(
+        row(&model, "pump_start_speed")
+            .caption
+            .as_deref()
+            .unwrap()
+            .ends_with("1\u{a0}000 to 10\u{a0}000 rpm.")
+    );
+    assert_eq!(
+        row(&model, "pump_start_flow").caption.as_deref(),
+        Some("30 to 500 L/h.")
+    );
+
+    // The assumed pump speed: 1000 to 10000 rpm.
+    ui.edit(&data, "pump_start_speed", "500");
+    assert_eq!(pending(&ui, "pump_start_speed"), Some(1000.0));
+    ui.edit(&data, "pump_start_speed", "32000");
+    assert_eq!(pending(&ui, "pump_start_speed"), Some(10000.0));
+    ui.edit(&data, "pump_start_speed", "3200,4");
+    assert_eq!(pending(&ui, "pump_start_speed"), Some(3200.0));
+    // The assumed flow: 30 to 500 L/h.
+    ui.edit(&data, "pump_start_flow", "0");
+    assert_eq!(pending(&ui, "pump_start_flow"), Some(30.0));
+    ui.edit(&data, "pump_start_flow", "3000");
+    assert_eq!(pending(&ui, "pump_start_flow"), Some(500.0));
+    let model = step(&state, &ui, Step::Standby);
+    assert!(model.rows.iter().all(|row| row.error.is_none()));
+    assert!(
+        step(&state, &ui, Step::Summary)
+            .summary
+            .unwrap()
+            .errors
+            .is_empty()
+    );
+
+    // "Use the current value" takes the same correction: the Pump channel runs at 2 840 rpm.
+    let mut slow = device();
+    for sample in [&mut slow.sensors, &mut slow.last_sensors]
+        .into_iter()
+        .flatten()
+    {
+        sample
+            .sensors
+            .iter_mut()
+            .find(|s| s.0 == "nct6798_fan6")
+            .unwrap()
+            .1 = 600.0;
+    }
+    let mut ui = SettingsUi::default();
+    ui.use_current(
+        &input(&slow, &Feedback::default(), EN),
+        LEAKSHIELD,
+        "pump_start_speed",
+    );
+    assert_eq!(pending(&ui, "pump_start_speed"), Some(1000.0));
+}
+
+#[test]
+fn the_standby_minimum_stays_at_or_below_the_minimum_and_needs_its_switch() {
+    // The device: minimum 250 mbar, standby minimum 80 mbar, bit 5 of `shield_flags` set.
+    let state = own_values();
+    let data = data_of(&state);
+    let mut ui = SettingsUi::default();
+    let model = step(&state, &ui, Step::Standby);
+    assert_eq!(
+        row(&model, "standby_pressure").control,
+        Control::Switch(true)
+    );
+    let value = row(&model, "shield_pressure_low_standby");
+    assert!(!value.off && !value.dim);
+    assert_eq!(number_text(value), "80");
+    assert_eq!(
+        value.caption.as_deref(),
+        Some("The minimum pressure in standby: 30 mbar to the minimum pressure, 250 mbar.")
+    );
+
+    // 30 mbar to the minimum.
+    ui.edit(&data, "shield_pressure_low_standby", "10");
+    assert_eq!(pending(&ui, "shield_pressure_low_standby"), Some(30.0));
+    ui.edit(&data, "shield_pressure_low_standby", "400");
+    assert_eq!(pending(&ui, "shield_pressure_low_standby"), Some(250.0));
+    // A lower minimum takes the standby minimum with it.
+    ui.edit(&data, "band_min", "200");
+    assert_eq!(pending(&ui, "shield_pressure_low_standby"), Some(200.0));
+    let model = step(&state, &ui, Step::Standby);
+    let value = row(&model, "shield_pressure_low_standby");
+    assert_eq!(number_text(value), "200");
+    assert!(value.caption.as_deref().unwrap().ends_with("200 mbar."));
+    assert!(value.error.is_none());
+
+    // Without "Reduced vacuum in standby" the value takes no edit.
+    ui.edit(&data, "standby_pressure", "0");
+    assert_eq!(pending(&ui, "shield_flags"), Some(79.0), "111 without 32");
+    let model = step(&state, &ui, Step::Standby);
+    assert_eq!(
+        row(&model, "standby_pressure").control,
+        Control::Switch(false)
+    );
+    let value = row(&model, "shield_pressure_low_standby");
+    assert!(value.off);
+    assert_eq!(
+        value.caption.as_deref(),
+        Some("Turn on \"Reduced vacuum in standby\" to set it.")
+    );
+}
+
 mod layout {
     use gpui::{AppContext as _, Bounds, Pixels, TestAppContext, VisualTestContext, px};
     use nicecooling::app::{self, Backend, StartMode};

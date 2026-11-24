@@ -11,7 +11,7 @@ use gpui_component::{Disableable as _, Sizable as _, h_flex, v_flex};
 use crate::icons::{NcIcon, icon, small_icon, text_icon};
 use crate::model::Severity;
 use crate::screen_view::{InputKey, ScreenView};
-use crate::screens::controls::{Pick, act};
+use crate::screens::controls::{FieldMode, Pick, act};
 use crate::screens::leakshield::TabState;
 use crate::screens::leakshield::band::band_diagram;
 use crate::screens::leakshield::parts::{field_badge, header, loading_card, radio_mark};
@@ -291,7 +291,13 @@ impl ScreenView {
                 .children(row.caption.clone().map(|text| caption(text, p)))
                 .into_any_element();
         }
-        let enabled = row.writable && ready && !row.fixed;
+        let enabled = row.writable && ready && !row.fixed && !row.off;
+        // A value whose switch is off is dim. A value that takes no write is dashed.
+        let mode = if row.off {
+            FieldMode::Off
+        } else {
+            FieldMode::from(enabled)
+        };
         let key = row.key.clone();
         let device = id.to_owned();
         let control: AnyElement = match &row.control {
@@ -333,7 +339,7 @@ impl ScreenView {
                     .child(Self::mode_input(
                         &input,
                         unit,
-                        enabled,
+                        mode,
                         row.error.is_some(),
                         false,
                         p,
@@ -354,7 +360,7 @@ impl ScreenView {
                     .child(Self::mode_input(
                         &input,
                         "",
-                        enabled,
+                        mode,
                         row.error.is_some(),
                         false,
                         p,

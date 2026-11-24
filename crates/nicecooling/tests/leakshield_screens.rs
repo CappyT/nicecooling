@@ -3317,7 +3317,9 @@ fn leakshield_settings_states() {
     );
     assert_eq!(
         model.rows[0].caption.as_deref(),
-        Some("After standby the PC sends no Feed yet. The Leakshield then uses these values.")
+        Some(
+            "After standby the PC sends no Feed yet. The Leakshield then uses these values. 1\u{a0}000 to 10\u{a0}000 rpm."
+        )
     );
     ui.use_current(
         &en(&state, &Feedback::default()),
@@ -3552,7 +3554,6 @@ fn leakshield_settings_labels() {
             "Step 4 of 8",
             "Applying 2 of 5",
             "5 settings written and verified.",
-            "80 to 450 mbar.",
             "Automatic fill-level measurement",
             "Automatic fill-level measurement releases the pressure for a short time.",
             "The Leakshield measures the fill level after a change, for example when you open the reservoir. During the measurement the Loop has no leak protection.",

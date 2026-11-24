@@ -64,6 +64,25 @@ The wizard SHALL have a step "Loop" after the Pressure step with the height diff
 - **WHEN** the user sets the height difference to 250 cm
 - **THEN** the pending change holds 200 cm
 
+### Requirement: Ranges of the Standby step
+The wizard SHALL correct the assumed pump speed to 1000 to 10000 rpm and the assumed flow to 30 to 500 l/h. It SHALL keep the standby minimum pressure in 30 mbar to the minimum pressure of the control band. The standby minimum pressure SHALL accept an edit only while the option for a lower vacuum in standby, `shield_flags` bit 5, is on.
+
+#### Scenario: Speed out of range
+- **WHEN** the user sets the assumed pump speed to 500 rpm
+- **THEN** the pending change holds 1000 rpm and the wizard shows no error
+
+#### Scenario: Standby minimum above the minimum
+- **WHEN** the minimum pressure is 250 mbar and the user sets the standby minimum to 400 mbar
+- **THEN** the pending change holds 250 mbar
+
+#### Scenario: Minimum lowered under the standby minimum
+- **WHEN** the standby minimum is 250 mbar and the user sets the minimum pressure to 200 mbar
+- **THEN** the standby minimum is 200 mbar
+
+#### Scenario: Option off
+- **WHEN** bit 5 of `shield_flags` is clear
+- **THEN** the standby minimum takes no edit and its caption names the option to turn on
+
 ### Requirement: SHIELD pressure values are a control band
 The wizard SHALL present the minimum, the target and the maximum pressure of SHIELD as a control band and not as alarm limits. Each value SHALL have a caption with what the Leakshield does there: it starts its pump below the minimum, it builds the vacuum up to the target, and it opens its vent valve above the maximum.
 
