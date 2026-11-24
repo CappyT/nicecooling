@@ -9,7 +9,7 @@ use gpui_component::input::Input;
 use gpui_component::slider::Slider;
 use gpui_component::{Disableable as _, Sizable as _, h_flex, v_flex};
 
-use crate::icons::{NcIcon, text_icon};
+use crate::icons::{NcIcon, icon, text_icon};
 use crate::model::Severity;
 use crate::screen_view::{InputKey, ScreenView, skeleton, with_screen_input};
 use crate::screens::format::plain;
@@ -88,13 +88,11 @@ impl ScreenView {
         }
 
         let enabled = self.with_input(cx, |input| input.writes().enabled);
-        let mut list = v_flex().w(px(292.)).flex_none().gap(px(6.));
-        for (index, row) in model.rows.iter().enumerate() {
-            list = list.child(self.loop_row(index, row, p, cx));
-        }
-        list = list.child({
+        let new_loop = {
             let view = view.clone();
             Button::new("loop-new")
+                .small()
+                .icon(text_icon(NcIcon::Plus))
                 .label(locale.tr("loops.new"))
                 .disabled(!enabled)
                 .on_click(move |_, _, cx| {
@@ -104,7 +102,14 @@ impl ScreenView {
                         cx.notify();
                     })
                 })
-        });
+        };
+        let mut list = card(p)
+            .w(px(292.))
+            .flex_none()
+            .child(card_header(locale.tr("nav.loops"), p).child(new_loop));
+        for (index, row) in model.rows.iter().enumerate() {
+            list = list.child(self.loop_row(index, model.rows.len(), row, p, cx));
+        }
         content = content.child(
             h_flex()
                 .w_full()
@@ -124,20 +129,25 @@ impl ScreenView {
     fn loop_row(
         &mut self,
         index: usize,
+        count: usize,
         row: &LoopRow,
         p: &Palette,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let view = cx.entity();
         let id = row.id.clone();
-        v_flex()
+        let (hover, last) = (p.hover, index + 1 == count);
+        card_row(p)
             .id(("loop-row", index))
-            .px(px(12.))
-            .py(px(6.))
-            .rounded(px(9.))
             .cursor_pointer()
-            .when(row.selected, |line| line.bg(p.selected))
-            .hover(|line| line.bg(p.hover))
+            .when(last, |line| line.rounded_b(px(12.)))
+            .map(|line| {
+                if row.selected {
+                    line.bg(p.accent_tint)
+                } else {
+                    line.hover(move |line| line.bg(hover))
+                }
+            })
             .on_click(move |_, _, cx| {
                 let id = id.clone();
                 view.update(cx, |this, cx| {
@@ -146,8 +156,22 @@ impl ScreenView {
                     cx.notify();
                 })
             })
-            .child(div().font_weight(FontWeight::BOLD).child(row.name.clone()))
-            .child(caption(row.caption.clone(), p))
+            .child(
+                v_flex()
+                    .flex_1()
+                    .min_w_0()
+                    .child(
+                        div()
+                            .truncate()
+                            .font_weight(FontWeight::BOLD)
+                            .child(row.name.clone()),
+                    )
+                    // On the tint of the selected row a caption has the text color.
+                    .child(
+                        caption(row.caption.clone(), p)
+                            .when(row.selected, |caption| caption.text_color(p.fg)),
+                    ),
+            )
             .into_any_element()
     }
 
@@ -163,21 +187,22 @@ impl ScreenView {
         let enabled = detail.editable;
         let tooltip = detail.disabled_reason.clone().unwrap_or_default();
 
-        let mut header = h_flex().w_full().gap(px(12.)).items_center().child(
-            div()
-                .flex_1()
-                .text_size(px(18.))
-                .font_weight(FontWeight::BOLD)
-                .child(detail.name.clone()),
-        );
-        header = header
+        // The first card: the name with the rename button, the menu, and the diagram.
+        let menu_key = "loop-menu";
+        let menu_open = self.open_picker.as_deref() == Some(menu_key);
+        let header = card_header(detail.name.clone(), p)
             .child({
                 let view = view.clone();
                 Button::new("loop-rename")
                     .small()
-                    .label(locale.tr("loops.rename"))
+                    .ghost()
+                    .icon(text_icon(NcIcon::Pencil))
                     .disabled(!enabled)
-                    .tooltip(tooltip.clone())
+                    .tooltip(if enabled {
+                        locale.tr("loops.rename")
+                    } else {
+                        tooltip.clone()
+                    })
                     .on_click(move |_, _, cx| {
                         view.update(cx, |this, cx| {
                             let state = this.state(cx);
@@ -188,22 +213,46 @@ impl ScreenView {
             })
             .child({
                 let view = view.clone();
-                Button::new("loop-delete")
+                Button::new("loop-menu")
                     .small()
                     .ghost()
-                    .label(locale.tr("loops.delete_loop"))
-                    .disabled(!enabled)
+                    .icon(text_icon(NcIcon::Menu))
+                    .tooltip(locale.tr("loops.menu"))
                     .on_click(move |_, _, cx| {
                         view.update(cx, |this, cx| {
-                            this.loops.delete_dialog = true;
+                            this.open_picker = if this.open_picker.as_deref() == Some(menu_key) {
+                                None
+                            } else {
+                                Some(menu_key.to_owned())
+                            };
                             cx.notify();
                         })
                     })
             });
-
-        let mut column = v_flex().flex_1().min_w_0().gap(px(12.)).child(header);
+        let mut preview = card(p).child(header);
+        if menu_open {
+            let view = view.clone();
+            preview = preview.child(
+                h_flex().justify_end().px(px(12.)).pb(px(6.)).child(
+                    Button::new("loop-delete")
+                        .small()
+                        .ghost()
+                        .icon(text_icon(NcIcon::Trash))
+                        .label(locale.tr("loops.delete_loop"))
+                        .disabled(!enabled)
+                        .tooltip(tooltip.clone())
+                        .on_click(move |_, _, cx| {
+                            view.update(cx, |this, cx| {
+                                this.open_picker = None;
+                                this.loops.delete_dialog = true;
+                                cx.notify();
+                            })
+                        }),
+                ),
+            );
+        }
         if let Some((_, name)) = self.loops.rename.clone() {
-            column = column.child(self.rename_popover(
+            preview = preview.child(self.rename_popover(
                 InputKey::LoopRename,
                 &name,
                 locale.tr("sensors.rename_placeholder"),
@@ -212,24 +261,29 @@ impl ScreenView {
                 cx,
             ));
         }
+        preview = preview.child(loop_diagram::element(
+            &detail.diagram,
+            p,
+            self.navigator(),
+            cx,
+        ));
+
+        let mut column = v_flex().flex_1().min_w_0().gap(px(12.));
         if let Some(text) = &detail.alarm {
             column = column.child(
                 h_flex()
                     .px(px(18.))
                     .py(px(10.))
+                    .gap(px(12.))
                     .rounded(px(12.))
                     .bg(p.alarm_bg)
                     .text_color(p.alarm_fg)
                     .font_weight(FontWeight::BOLD)
-                    .child(text.clone()),
+                    .child(icon(NcIcon::Alarm, p.alarm_fg).flex_none())
+                    .child(div().flex_1().min_w_0().child(text.clone())),
             );
         }
-        column = column.child(card(p).p(px(18.)).child(loop_diagram::element(
-            &detail.diagram,
-            p,
-            self.navigator(),
-            cx,
-        )));
+        column = column.child(preview);
 
         // Parts.
         let mut parts = card(p).child(card_header(detail.parts_title.clone(), p));
@@ -393,10 +447,12 @@ impl ScreenView {
         let view = cx.entity();
         let key = format!("part-{name}");
         let open = self.open_picker.as_deref() == Some(key.as_str());
-        let mut line = card_row(p)
+        let line = card_row(p)
             .child(
                 div()
-                    .w(px(160.))
+                    .flex_1()
+                    .min_w_0()
+                    .truncate()
                     .font_weight(FontWeight::BOLD)
                     .child(row.label.clone()),
             )
@@ -406,6 +462,7 @@ impl ScreenView {
                 Button::new(SharedString::from(format!("{key}-button")))
                     .small()
                     .label(row.shown.clone())
+                    .child(text_icon(NcIcon::Down))
                     .disabled(!enabled)
                     .tooltip(tooltip.to_owned())
                     .on_click(move |_, _, cx| {
@@ -421,10 +478,10 @@ impl ScreenView {
                         })
                     })
             });
-        if let Some(line_text) = &row.write_line {
-            line = line.child(write_line(line_text, p));
-        }
         let mut column = v_flex().w_full().child(line);
+        if let Some(line_text) = &row.write_line {
+            column = column.child(card_row(p).child(write_line(line_text, p)));
+        }
         if let Some(text) = &row.warning {
             column = column.child(
                 card_row(p)
