@@ -81,6 +81,39 @@ fn the_chart_sums_the_durations_of_a_local_day_and_ends_today() {
     assert_eq!(bars[13].label, "24");
 }
 
+/// A refill belongs to the day of the zone of the user, not to the UTC day.
+#[test]
+fn a_refill_late_in_the_evening_belongs_to_its_day_in_the_zone() {
+    use nicecooling::screens::leakshield::overview::day_bars_in;
+    let rome = chrono::FixedOffset::east_opt(3600).unwrap();
+    let utc = |h, m| {
+        chrono::Utc
+            .with_ymd_and_hms(2026, 11, 20, h, m, 0)
+            .unwrap()
+            .timestamp_micros() as u64
+    };
+    // 23:30 UTC on the 20th is 00:30 on the 21st in the zone.
+    let refills = [RefillEntry {
+        time_us: utc(23, 30),
+        duration_s: 12,
+        pump_turns: 10,
+        volume_ml: 5.0,
+    }];
+    let now = utc(23, 45);
+    let in_zone = day_bars_in(&rome, &refills, now);
+    let last = in_zone.last().unwrap();
+    assert_eq!(
+        (last.date.to_string().as_str(), last.seconds),
+        ("2026-11-21", 12)
+    );
+    let in_utc = day_bars_in(&chrono::Utc, &refills, now);
+    let last = in_utc.last().unwrap();
+    assert_eq!(
+        (last.date.to_string().as_str(), last.seconds),
+        ("2026-11-20", 12)
+    );
+}
+
 #[test]
 fn a_day_has_a_cap_and_three_classes() {
     let bars = day_bars(

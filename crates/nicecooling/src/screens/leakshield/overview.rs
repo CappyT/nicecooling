@@ -1,6 +1,6 @@
 //! The Overview tab and the Action views (`docs/ui/screens/leakshield-overview.md`).
 
-use chrono::{Local, NaiveDate, TimeZone as _};
+use chrono::{Local, NaiveDate, TimeZone};
 use nicecooling_core::loops::tach_sensor;
 
 use crate::command::Command;
@@ -118,9 +118,8 @@ pub struct DayBar {
     pub level: DayLevel,
 }
 
-fn local_date(us: u64) -> Option<NaiveDate> {
-    Local
-        .timestamp_micros(i64::try_from(us).ok()?)
+fn date_in<Tz: TimeZone>(zone: &Tz, us: u64) -> Option<NaiveDate> {
+    zone.timestamp_micros(i64::try_from(us).ok()?)
         .single()
         .map(|time| time.date_naive())
 }
@@ -128,7 +127,12 @@ fn local_date(us: u64) -> Option<NaiveDate> {
 /// The pump runtime of the last `RUNTIME_DAYS` local days: the durations of the refills of each
 /// day added, with at most `DAY_CAP_S` for a day. The last bar is the day of `now_us`.
 pub fn day_bars(refills: &[RefillEntry], now_us: u64) -> Vec<DayBar> {
-    let Some(today) = local_date(now_us) else {
+    day_bars_in(&Local, refills, now_us)
+}
+
+/// `day_bars` with the days of `zone`.
+pub fn day_bars_in<Tz: TimeZone>(zone: &Tz, refills: &[RefillEntry], now_us: u64) -> Vec<DayBar> {
+    let Some(today) = date_in(zone, now_us) else {
         return Vec::new();
     };
     (0..RUNTIME_DAYS)
@@ -137,7 +141,7 @@ pub fn day_bars(refills: &[RefillEntry], now_us: u64) -> Vec<DayBar> {
         .map(|date| {
             let total: u64 = refills
                 .iter()
-                .filter(|refill| local_date(refill.time_us) == Some(date))
+                .filter(|refill| date_in(zone, refill.time_us) == Some(date))
                 .map(|refill| u64::from(refill.duration_s))
                 .sum();
             let seconds = total.min(u64::from(DAY_CAP_S)) as u32;
