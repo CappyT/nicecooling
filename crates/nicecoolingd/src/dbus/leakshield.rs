@@ -12,11 +12,10 @@ use zbus::object_server::SignalEmitter;
 use zbus::{Connection, OwnedObjectPath, OwnedVariant, Variant, interface};
 
 use super::field_value::{field_value, variant_of};
-use super::hub::{Hub, LoopView};
+use super::hub::Hub;
 use super::{object, optional_object};
 use crate::alarms::proposals;
 use crate::leakshield::DeviceEvent;
-use crate::leakshield::action::{self, LoopPumps};
 use crate::leakshield::attached::{Attached, Info};
 use crate::leakshield::backup::BackupSet;
 use crate::leakshield::software_sensors::{Assignment, SLOT_COUNT};
@@ -230,23 +229,7 @@ impl Leakshield {
     ) -> Result<()> {
         self.authorize(connection, &header, "StartAction", None)
             .await?;
-        let id = self.device.id();
-        self.device.start_action(action, || {
-            let hub = &self.hub;
-            let loops: Vec<LoopView> = hub
-                .loop_ids()
-                .iter()
-                .filter_map(|l| hub.loop_view(l))
-                .collect();
-            action::refill_blocked(
-                &id,
-                loops.iter().map(|l| LoopPumps {
-                    leakshield: l.leakshield.as_deref(),
-                    pump_channels: &l.pump_channels,
-                }),
-                |sensor| hub.sensor(sensor).and_then(|s| s.value),
-            )
-        })
+        self.device.start_action(action)
     }
 
     async fn cancel_action(

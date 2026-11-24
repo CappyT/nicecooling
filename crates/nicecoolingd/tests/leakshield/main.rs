@@ -2,7 +2,6 @@
 //! clock, Mode and Action, and the D-Bus API, all on the simulated device. No test touches a real device, `/dev`, `/sys` or the USB bus.
 
 mod access;
-mod action;
 mod api;
 mod backup;
 mod clock;

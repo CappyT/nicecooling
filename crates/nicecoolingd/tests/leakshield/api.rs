@@ -185,7 +185,7 @@ async fn set_fields_writes_the_field_and_reads_it_back() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn start_action_refill_returns_pump_running() {
+async fn start_action_refill_starts_while_the_pump_runs() {
     let mut rig = Rig::start().await;
     rig.sim.edit_report1(|r| r.mode = 1);
     rig.tick_in_background();
@@ -213,16 +213,7 @@ async fn start_action_refill_returns_pump_running() {
         .unwrap();
     until(async || (fan1.value().await.unwrap() > 0.0).then_some(())).await;
 
-    let error = proxy.start_action("refill").await.unwrap_err();
-    assert_eq!(error_name(&error), format!("{ERR}.PumpRunning"));
-    assert!(rig.sim.commands().is_empty());
-
-    // The pump stops: the Refill starts.
-    // The fake tree makes `fan1_input` read-only: replace the file.
-    let fan1_file = rig.fake.attr_path("nct6798", "fan1_input");
-    std::fs::remove_file(&fan1_file).unwrap();
-    std::fs::write(&fan1_file, "0\n").unwrap();
-    until(async || (fan1.value().await.unwrap() == 0.0).then_some(())).await;
+    assert!(fan1.value().await.unwrap() > 0.0);
     proxy.start_action("refill").await.unwrap();
     assert_eq!(rig.sim.commands().pop().map(|c| c.parameter), Some(7));
 }

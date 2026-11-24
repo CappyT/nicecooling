@@ -1,10 +1,12 @@
 // Install path: /usr/share/polkit-1/rules.d/50-nicecooling.rules
-// The action `critical` has no rule: it always asks for the administrator password.
+// `critical` has the same rule as `write`: a local, active wheel member does not give a password.
 polkit.addRule(function(action, subject) {
     if (!subject.isInGroup("wheel")) {
         return polkit.Result.NOT_HANDLED;
     }
-    if (action.id == "io.github.cappyt.NiceCooling1.write" && subject.local && subject.active) {
+    if ((action.id == "io.github.cappyt.NiceCooling1.write" ||
+         action.id == "io.github.cappyt.NiceCooling1.critical") &&
+        subject.local && subject.active) {
         return polkit.Result.YES;
     }
     if (action.id == "io.github.cappyt.NiceCooling1.cancel-poweroff" && subject.local) {

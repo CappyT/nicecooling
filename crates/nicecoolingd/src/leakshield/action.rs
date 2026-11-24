@@ -55,31 +55,6 @@ pub fn interpret(report_mode: i16, last_mode: Option<Mode>) -> (Option<Mode>, Op
     }
 }
 
-/// A Loop as the Refill check sees it: its Leakshield and its Pump channels.
-pub struct LoopPumps<'a> {
-    pub leakshield: Option<&'a str>,
-    pub pump_channels: &'a [String],
-}
-
-/// True while a Pump channel of a Loop of this Leakshield reads above 0 rpm or has no tach value
-/// (fail closed). A Pump channel `<chip>_pwmN` reads as the sensor `<chip>_fanN`. `value_of`
-/// gives the value of a sensor, or `None` when it has no value. Pumps of other Loops do not count.
-pub fn refill_blocked<'a>(
-    leakshield: &str,
-    loops: impl IntoIterator<Item = LoopPumps<'a>>,
-    value_of: impl Fn(&str) -> Option<f64>,
-) -> bool {
-    loops
-        .into_iter()
-        .filter(|l| l.leakshield == Some(leakshield))
-        .flat_map(|l| l.pump_channels)
-        .any(|channel| {
-            super::feed::tach_sensor(channel)
-                .and_then(|tach| value_of(&tach))
-                .is_none_or(|rpm| rpm > 0.0)
-        })
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

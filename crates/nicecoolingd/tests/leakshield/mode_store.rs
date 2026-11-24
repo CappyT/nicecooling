@@ -32,10 +32,6 @@ fn stored(slots: &SlotStore, n: u32) -> Report3 {
     slots.load(LEAKSHIELD_ID, slot(n)).unwrap().unwrap().report3
 }
 
-fn never() -> bool {
-    false
-}
-
 fn report3_reads(rig: &Rig) -> usize {
     rig.sim
         .requests()
@@ -174,7 +170,7 @@ async fn an_action_stores_nothing() {
     let before: Vec<Report3> = (1..=4).map(|n| stored(&slots, n)).collect();
     rig.sim.clear_requests();
 
-    device.start_action("measure-fill-level", never).unwrap();
+    device.start_action("measure-fill-level").unwrap();
     sleep(Duration::from_secs(120)).await;
 
     assert_eq!(report3_reads(&rig), 0);

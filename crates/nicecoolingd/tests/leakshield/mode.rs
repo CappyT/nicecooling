@@ -21,10 +21,6 @@ fn quiet(rig: &Rig) {
     rig.sim.edit_report1(|r| r.mode = 1);
 }
 
-fn never() -> bool {
-    false
-}
-
 #[tokio::test]
 async fn each_mode() {
     let rig = Rig::new("mode-each");
@@ -63,7 +59,7 @@ async fn each_action() {
         ("test", 6),
         ("refill", 7),
     ] {
-        device.start_action(action, never).unwrap();
+        device.start_action(action).unwrap();
         assert_eq!(
             rig.sim.commands().pop(),
             Some(Report2::new(SET_MODE, code)),
@@ -72,7 +68,7 @@ async fn each_action() {
         assert_eq!(device.info().running_action, action);
         rig.sim.finish_action();
     }
-    let error = device.start_action("Test", never).unwrap_err();
+    let error = device.start_action("Test").unwrap_err();
     assert_eq!(
         error.dbus_name(),
         "io.github.cappyt.NiceCooling1.Error.InvalidArgument"
@@ -87,7 +83,7 @@ async fn return_to_mode_after_action() {
     let device = rig.attached();
     device.set_mode("monitor", &slots(&rig)).unwrap();
 
-    device.start_action("test", never).unwrap();
+    device.start_action("test").unwrap();
     // The Mode stays known while the Action runs.
     assert_eq!(
         (device.info().mode, device.info().running_action),
@@ -121,7 +117,7 @@ async fn cancel_action_sends_command_12_code_0() {
     let rig = Rig::new("cancel");
     quiet(&rig);
     let device = rig.attached();
-    device.start_action("deaerate", never).unwrap();
+    device.start_action("deaerate").unwrap();
 
     device.cancel_action().unwrap();
 
@@ -137,7 +133,7 @@ async fn cancel_action_not_supported_when_registry_lacks_command() {
     let rig = Rig::with_registry("cancel-missing", registry);
     quiet(&rig);
     let device = rig.attached();
-    device.start_action("deaerate", never).unwrap();
+    device.start_action("deaerate").unwrap();
 
     let error = device.cancel_action().unwrap_err();
 
@@ -155,7 +151,7 @@ async fn unknown_firmware_refuses_mode_and_action() {
 
     for error in [
         device.set_mode("monitor", &slots(&rig)).unwrap_err(),
-        device.start_action("test", never).unwrap_err(),
+        device.start_action("test").unwrap_err(),
         device.cancel_action().unwrap_err(),
         device.sync_clock().unwrap_err(),
     ] {

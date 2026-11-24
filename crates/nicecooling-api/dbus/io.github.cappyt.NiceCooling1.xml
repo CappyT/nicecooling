@@ -291,7 +291,6 @@
       <annotation name="io.github.cappyt.NiceCooling1.Authorization" value="write-or-critical"/>
       <arg name="mode" type="s" direction="in"/>
     </method>
-    <!-- refill fails with PumpRunning while a Pump channel of the Loop reads above 0 rpm or has no tach value. -->
     <method name="StartAction">
       <annotation name="io.github.cappyt.NiceCooling1.Authorization" value="write"/>
       <arg name="action" type="s" direction="in"/>

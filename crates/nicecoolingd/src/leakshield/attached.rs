@@ -574,20 +574,13 @@ impl Attached {
         Ok(())
     }
 
-    /// `refill_blocked` tells whether a Pump channel of the Loop of this Leakshield runs. It is
-    /// asked only for a Refill.
-    pub fn start_action(&self, action: &str, refill_blocked: impl FnOnce() -> bool) -> Result<()> {
+    /// Starts an Action in any pump state. The app warns before a Refill while the pump runs.
+    pub fn start_action(&self, action: &str) -> Result<()> {
         let action = Action::parse(action).ok_or_else(|| {
             Error::invalid(format!(
                 "{action:?} is not test, measure-fill-level, deaerate or refill"
             ))
         })?;
-        if action == Action::Refill && refill_blocked() {
-            return Err(Error::PumpRunning(
-                "a Pump channel of the Loop reads above 0 rpm or has no tach value: start the Refill with the device button while the PC is in standby"
-                    .into(),
-            ));
-        }
         self.send(
             mode::set_mode_command(&self.registry, action.code()),
             COMMAND_DELAY,

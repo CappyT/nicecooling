@@ -16,7 +16,6 @@ pub enum Error {
     DefaultProfile(String),
     ReadOnly(String),
     NotVerified(String),
-    PumpRunning(String),
     Busy(String),
     DeviceChanged(String),
     VerifyFailed(String),
