@@ -15,6 +15,10 @@ const BRIGHTNESS: [&str; 4] = ["maximum", "mid", "low", "off"];
 
 /// "No source" as a sensor index and as a byte of `page_sources`.
 pub const NO_SOURCE: u8 = 255;
+/// `display_page_time` of 30 s or more turns the automatic page change off.
+const PAGE_TIME_OFF: f64 = 30.0;
+/// The interval that "Automatic page change" writes when it has no earlier value.
+const PAGE_TIME_ON: f64 = 29.0;
 /// The first byte of `page_sources` that no sensor uses: the device has 20 sensors.
 const SOURCE_LIMIT: u8 = 80;
 
@@ -82,6 +86,8 @@ pub struct DisplayUi {
     pub page: usize,
     /// The template gallery is open.
     pub gallery: bool,
+    /// The interval before the user turned the automatic page change off, in seconds.
+    pub last_interval: Option<f64>,
 }
 
 impl DisplayUi {
@@ -198,16 +204,49 @@ pub fn set_brightness(
     ))
 }
 
+/// The interval of the automatic page change. The device takes 1 to 29 s: a longer time is the
+/// same as the switch off, so the value is cut to the range.
 pub fn set_interval(input: &ScreenInput<'_>, id: &str, seconds: f64) -> Option<Command> {
     let device = Device::new(input, id);
-    if !device.access("display_page_time").writable || !(0.0..=6553.0).contains(&seconds) {
+    if !device.access("display_page_time").writable || !seconds.is_finite() {
         return None;
     }
-    Some(fields_command(
+    Some(page_time_command(id, seconds.clamp(1.0, PAGE_TIME_ON)))
+}
+
+fn page_time_command(id: &str, seconds: f64) -> Command {
+    fields_command(
         id,
         "display:interval",
         vec![("display_page_time".into(), FieldValue::Number(seconds))],
-    ))
+    )
+}
+
+impl DisplayUi {
+    /// The switch "Automatic page change". Off writes 30 s. On writes the interval from before,
+    /// or 29 s.
+    pub fn set_auto_page(
+        &mut self,
+        input: &ScreenInput<'_>,
+        id: &str,
+        on: bool,
+    ) -> Option<Command> {
+        let device = Device::new(input, id);
+        if !device.access("display_page_time").writable {
+            return None;
+        }
+        if on {
+            let seconds = self.last_interval.unwrap_or(PAGE_TIME_ON);
+            return Some(page_time_command(id, seconds.clamp(1.0, PAGE_TIME_ON)));
+        }
+        if let Some(current) = device
+            .number("display_page_time")
+            .filter(|v| (1.0..PAGE_TIME_OFF).contains(v))
+        {
+            self.last_interval = Some(current);
+        }
+        Some(page_time_command(id, PAGE_TIME_OFF))
+    }
 }
 
 fn brightness_of(device: &Device<'_>, field: &str) -> Option<&'static str> {
@@ -281,8 +320,11 @@ pub struct SettingsCard {
     pub brightness: Vec<Choice>,
     pub auto_page: Switch,
     pub interval_label: String,
+    pub interval_text: String,
     pub interval: String,
+    /// The interval is writable while the automatic page change is on.
     pub interval_writable: bool,
+    pub rotate: Switch,
     pub invert: Switch,
     pub auto_invert: Switch,
     pub auto_invert_text: String,
@@ -526,6 +568,7 @@ impl DisplayModel {
             }
         };
         let interval = device.number("display_page_time");
+        let auto_page = interval.is_some_and(|v| v < PAGE_TIME_OFF);
         let settings = SettingsCard {
             title: locale.tr("leakshield.display.settings"),
             brightness: vec![
@@ -538,10 +581,16 @@ impl DisplayModel {
                     "leakshield.display.brightness_idle",
                 ),
             ],
-            auto_page: flag("leakshield.display.auto_page", flags & 1 == 0),
+            auto_page: Switch {
+                label: locale.tr("leakshield.display.auto_page"),
+                on: auto_page,
+                writable: device.access("display_page_time").writable,
+            },
             interval_label: locale.tr("leakshield.display.interval"),
+            interval_text: locale.tr("leakshield.display.interval_text"),
             interval: interval.map_or_else(String::new, |v| plain(locale, v)),
-            interval_writable: device.access("display_page_time").writable,
+            interval_writable: auto_page && device.access("display_page_time").writable,
+            rotate: flag("leakshield.display.rotate", flags & 1 != 0),
             invert: flag("leakshield.display.invert", flags & 4 != 0),
             auto_invert: flag("leakshield.display.auto_invert", flags & 8 == 0),
             auto_invert_text: locale.tr("leakshield.display.auto_invert_text"),

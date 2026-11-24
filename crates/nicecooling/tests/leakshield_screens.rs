@@ -1681,11 +1681,13 @@ fn leakshield_display_states() {
     assert_eq!(settings.brightness[0].options.len(), 4);
     assert!(
         settings.auto_page.on
+            && !settings.rotate.on
             && !settings.invert.on
             && settings.auto_invert.on
             && !settings.standby.on
     );
     assert_eq!(settings.interval, "10");
+    assert!(settings.interval_writable);
     assert_eq!(
         settings.auto_invert_text,
         "The display inverts half of the time. This slows the wear of the OLED pixels."
@@ -1805,7 +1807,7 @@ fn leakshield_display_commands() {
     );
     assert!(set_brightness(&screen_input, LEAKSHIELD, "display_brightness_idle", "dark").is_none());
     assert!(set_interval(&screen_input, LEAKSHIELD, 15.0).is_some());
-    assert!(set_interval(&screen_input, LEAKSHIELD, -1.0).is_none());
+    assert!(set_interval(&screen_input, LEAKSHIELD, f64::NAN).is_none());
     // A read-only device sends nothing.
     let unknown = unknown_firmware();
     let unknown_input = en(&unknown, &feedback);
@@ -1826,10 +1828,123 @@ fn leakshield_display_commands() {
     assert_eq!(grid.page, 0);
 }
 
+fn interval_write(command: Option<Command>) -> Option<f64> {
+    let Some(Command::SetLeakshieldFields { fields, .. }) = command else {
+        return None;
+    };
+    let [(id, FieldValue::Number(seconds))] = &fields[..] else {
+        panic!("one number: {fields:?}");
+    };
+    assert_eq!(id, "display_page_time");
+    Some(*seconds)
+}
+
+#[test]
+fn the_automatic_page_change_is_the_page_time_below_30_s() {
+    use nicecooling::screens::leakshield::display::set_interval;
+    let feedback = Feedback::default();
+    let with_time = |seconds: f64, flags: f64| {
+        tweak(|state| {
+            set_field(state, "display_page_time", FieldValue::Number(seconds));
+            set_field(state, "display_flags", FieldValue::Number(flags));
+        })
+    };
+    // 29 s is on. 30 s and more is off. The interval is writable only while it is on.
+    for (seconds, on) in [
+        (1.0, true),
+        (29.0, true),
+        (29.9, true),
+        (30.0, false),
+        (50.0, false),
+    ] {
+        let state = with_time(seconds, 0.0);
+        let settings = display(&state, &DisplayUi::default()).settings;
+        assert_eq!(settings.auto_page.on, on, "{seconds} s");
+        assert_eq!(settings.interval_writable, on, "{seconds} s");
+    }
+    // The flags do not change it: bit 0 rotates the content.
+    let state = with_time(10.0, 15.0);
+    let settings = display(&state, &DisplayUi::default()).settings;
+    assert!(settings.auto_page.on && settings.rotate.on);
+    let state = with_time(30.0, 0.0);
+    assert!(!display(&state, &DisplayUi::default()).settings.rotate.on);
+
+    // Off writes 30 s. On writes 29 s, or the interval from before.
+    let mut ui = DisplayUi::default();
+    let state = with_time(10.0, 0.0);
+    assert_eq!(
+        interval_write(ui.set_auto_page(&en(&state, &feedback), LEAKSHIELD, false)),
+        Some(30.0)
+    );
+    let off = with_time(30.0, 0.0);
+    assert_eq!(
+        interval_write(ui.set_auto_page(&en(&off, &feedback), LEAKSHIELD, true)),
+        Some(10.0)
+    );
+    let mut fresh = DisplayUi::default();
+    assert_eq!(
+        interval_write(fresh.set_auto_page(&en(&off, &feedback), LEAKSHIELD, true)),
+        Some(29.0)
+    );
+    // The switch does not write the rotation bit.
+    let Some(Command::SetLeakshieldFields { fields, .. }) =
+        fresh.set_auto_page(&en(&off, &feedback), LEAKSHIELD, true)
+    else {
+        panic!("a field write");
+    };
+    assert!(fields.iter().all(|(id, _)| id != "display_flags"));
+
+    // The interval is cut to 1 to 29 s.
+    let input = en(&state, &feedback);
+    for (typed, written) in [
+        (15.0, 15.0),
+        (0.0, 1.0),
+        (-4.0, 1.0),
+        (45.0, 29.0),
+        (2.5, 2.5),
+    ] {
+        assert_eq!(
+            interval_write(set_interval(&input, LEAKSHIELD, typed)),
+            Some(written)
+        );
+    }
+    assert!(set_interval(&input, LEAKSHIELD, f64::NAN).is_none());
+    // A read-only field sends nothing.
+    let unknown = unknown_firmware();
+    let mut ui = DisplayUi::default();
+    assert!(
+        ui.set_auto_page(&en(&unknown, &feedback), LEAKSHIELD, false)
+            .is_none()
+    );
+}
+
+#[test]
+fn the_rotate_switch_is_bit_0_of_the_display_flags() {
+    use nicecooling::screens::leakshield::display::set_flag;
+    let feedback = Feedback::default();
+    let state = tweak(|state| set_field(state, "display_flags", FieldValue::Number(12.0)));
+    let input = en(&state, &feedback);
+    let flags = |command: Option<Command>| {
+        let Some(Command::SetLeakshieldFields { fields, .. }) = command else {
+            panic!("a field write");
+        };
+        fields[0].1.clone()
+    };
+    assert_eq!(
+        flags(set_flag(&input, LEAKSHIELD, 1, true)),
+        FieldValue::Number(13.0)
+    );
+    let rotated = tweak(|state| set_field(state, "display_flags", FieldValue::Number(13.0)));
+    assert!(display(&rotated, &DisplayUi::default()).settings.rotate.on);
+    assert_eq!(
+        flags(set_flag(&en(&rotated, &feedback), LEAKSHIELD, 1, false)),
+        FieldValue::Number(12.0)
+    );
+}
+
 #[test]
 fn leakshield_display_labels() {
-    // The daemon has no logo upload, no 180 degree rotation, no separate switch for the display
-    // off when inactive (the brightness "Off" does it) and no sensor in a page icon.
+    // The daemon has no logo upload, no separate switch for the display off when inactive (the brightness "Off" does it) and no sensor in a page icon.
     let missing = labels::missing_labels(
         "leakshield-display.md",
         &[
@@ -1839,7 +1954,6 @@ fn leakshield_display_labels() {
             "Choose an image",
             "Use a PNG, JPEG or BMP image.",
             "Writing the logo, 60 %",
-            "Rotate 180 degrees",
             "Display off when inactive",
         ],
     );

@@ -240,13 +240,13 @@ aquasuite reads the struct, changes the fields of the user, and writes back ever
 | `pump_start_flow` | 21 | i16 |  | 0.1 | 0 to 3276.7 l/h | 100.0 | 1300 | Flow that the device assumes without a Feed value ("start flow"). |
 | `sensor_log_interval` | 23 | u8 | 20 x 2 |  | codes 0-7 |  | [1, 1, 1, 1, 1, 1, ...] | Log interval of each device sensor: 0 0.5 s, 1 1 s, 2 5 s, 3 10 s, 4 30 s, 5 1 min, 6 5 min, 7 10 min. |
 | `sensor_unit` | 24 | u8 | 20 x 2 |  | codes 0-47 |  | [0, 0, 0, 0, 3, 12, ...] | Unit code of each device sensor (unit code table). The Feed pump speed and flow use sensors 4 and 5, so the unit sets their scale. |
-| `display_page_time` | 63 | u16 |  | 0.1 | 0 to 6553.5 s |  | 100 | Time that each display page shows. |
+| `display_page_time` | 63 | u16 |  | 0.1 | 0 to 6553.5 s |  | 100 | Time that each display page shows. 30 s and more: no automatic page change; aquasuite offers 1 to 29 s. |
 | `display_brightness_active` | 65 | u8 |  |  | codes 0-3 |  | 2 | 0 maximum, 1 mid, 2 low, 3 off. |
 | `display_brightness_idle` | 66 | u8 |  |  | codes 0-3 |  | 2 | 0 maximum, 1 mid, 2 low, 3 off. |
 | `display_idle_delay` | 67 | u16 |  |  | type only | 2400 | 3100 | Delay before the display goes idle. aquasuite always writes 2400. Unit not defined in the code. |
 | `clock_flags` | 69 | u8 |  |  | mask 0x7 |  | 1 | Bit 0: daylight saving time on. Bit 1: 12 h format. Bit 2: daylight saving region US (clear: EU). |
 | `clock_timezone` | 70 | i16 |  | 0.1 | -12 to 14 h |  | 10 | Time zone offset of the device local time. |
-| `display_flags` | 72 | u8 |  |  | mask 0xF |  | 0 | Bit 0: rotation off. Bit 1: display standby allowed. Bit 2: invert. Bit 3: automatic invert off. |
+| `display_flags` | 72 | u8 |  |  | mask 0xF |  | 0 | Bit 0: rotate the display content by 180 degrees. Bit 1: display standby allowed. Bit 2: invert. Bit 3: automatic invert off. |
 | `page_template` | 73 | u8 | 10 x 46 |  | codes 0-13, 255 |  | [13, 2, 1, 3, 3, 1, ...] | Page layout: 0 logo, 1 chart, 2-6 values, 7 time, 8-10 bars, 11 value and bar, 12 value and time, 13 Leakshield state, 255 none. |
 | `page_options` | 74 | u8 | 10 x 46 |  | mask 0x3 |  | [3, 3, 3, 3, 3, 3, ...] | Bit 0: show the page in standby. Bit 1: hide the page in normal operation. |
 | `page_icons` | 75 | u8[4] | 10 x 46 |  | type only |  | [255, 255, 255, 255, 2, 255, ...] | Index into the icons of report 8, 255 none. |

@@ -1062,6 +1062,8 @@ leakshield:
       off: "Off"
     auto_page: "Automatic page change"
     interval: "Interval"
+    interval_text: "From 1 to 29 s."
+    rotate: "Rotate 180 degrees"
     invert: "Invert"
     auto_invert: "Automatic invert"
     auto_invert_text: "The display inverts half of the time. This slows the wear of the OLED pixels."

@@ -295,8 +295,26 @@ impl ScreenView {
             window,
             cx,
         );
+        settings_card = settings_card
+            .child(self.auto_page_row(&settings.auto_page, id, p, cx))
+            .child(
+                field_row(p)
+                    .child(name_column(
+                        &settings.interval_label,
+                        Some(&settings.interval_text),
+                        p,
+                    ))
+                    .child(div().w(px(104.)).flex_none().child(Self::mode_input(
+                        &interval,
+                        "s",
+                        settings.interval_writable,
+                        false,
+                        false,
+                        p,
+                    ))),
+            );
         for (key, toggle, bit, invert) in [
-            ("auto_page", &settings.auto_page, 1u32, true),
+            ("rotate", &settings.rotate, 1u32, false),
             ("invert", &settings.invert, 4, false),
             ("auto_invert", &settings.auto_invert, 8, true),
             ("standby", &settings.standby, 2, false),
@@ -308,20 +326,6 @@ impl ScreenView {
             };
             settings_card =
                 settings_card.child(self.flag_row(key, toggle, text, id, bit, invert, p, cx));
-            if key == "auto_page" {
-                settings_card = settings_card.child(
-                    field_row(p)
-                        .child(name_column(&settings.interval_label, None, p))
-                        .child(div().w(px(104.)).flex_none().child(Self::mode_input(
-                            &interval,
-                            "s",
-                            settings.interval_writable,
-                            false,
-                            false,
-                            p,
-                        ))),
-                );
-            }
         }
         if let Some(line) = &settings.write_line {
             settings_card = settings_card.child(card_row(p).child(write_line(line, p)));
@@ -430,6 +434,39 @@ impl ScreenView {
                             let command = this.with_input(cx, |input| {
                                 this.leakshield.display.set_option(input, &device, bit, on)
                             });
+                            if let Some(command) = command {
+                                this.send(command);
+                            }
+                        });
+                    }),
+            )
+            .into_any_element()
+    }
+
+    /// The switch "Automatic page change": off is 30 s in `display_page_time`.
+    fn auto_page_row(
+        &mut self,
+        toggle: &Toggle,
+        device: &str,
+        p: &Palette,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let view = cx.entity();
+        let device = device.to_owned();
+        field_row(p)
+            .child(name_column(&toggle.label, None, p))
+            .child(
+                Switch::new("ls-flag-auto_page")
+                    .large()
+                    .checked(toggle.on)
+                    .disabled(!toggle.writable)
+                    .on_click(move |on, _, cx| {
+                        let (on, device) = (*on, device.clone());
+                        view.update(cx, |this, cx| {
+                            let mut ui = std::mem::take(&mut this.leakshield.display);
+                            let command =
+                                this.with_input(cx, |input| ui.set_auto_page(input, &device, on));
+                            this.leakshield.display = ui;
                             if let Some(command) = command {
                                 this.send(command);
                             }

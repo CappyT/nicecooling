@@ -13,7 +13,7 @@ The Leakshield has a 128x64 OLED display with 10 pages. The tab sets the content
    - One row per value of the template: a picker limited to device sensors 0 to 5 and Software sensors 8 to 19 (the device keeps the sensor index times 4 in `page_sources`), and an icon select where the template has an icon.
    - With the "Logo" template: "Choose an image" and the logo conversion preview.
    - "Show in normal operation": switch. "Show in standby": switch.
-3. Card "Display settings": "Brightness" (slider, percent), "Brightness when inactive" (slider), "Display off when inactive" (switch), "Automatic page change" (switch) and "Interval" (seconds), "Rotate 180 degrees" (switch), "Invert" (switch), "Automatic invert" (switch), "Off in standby" (switch).
+3. Card "Display settings": "Brightness" (slider, percent), "Brightness when inactive" (slider), "Display off when inactive" (switch), "Automatic page change" (switch) and "Interval" (1 to 29 seconds), "Rotate 180 degrees" (switch), "Invert" (switch), "Automatic invert" (switch), "Off in standby" (switch).
 
 ## Template gallery
 
@@ -34,6 +34,8 @@ A dialog, 640 px wide: a grid of previews with the template names, 4 per row. A 
 | Alarm | Not used. The device shows its own alarm page |
 
 ## Interactions
+
+- "Automatic page change" is on while `display_page_time` is below 30 s. The switch off writes 30 s. The switch on writes the interval from before, or 29 s. "Interval" takes 1 to 29 s and is disabled while the switch is off. "Rotate 180 degrees" is bit 0 of `display_flags`.
 
 - A click on a preview selects the page. Arrow keys move in the grid. Enter opens the template gallery.
 - Each change is a Leakshield write with write status in its row. Sliders write when the drag ends.
