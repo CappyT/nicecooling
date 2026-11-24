@@ -2,12 +2,12 @@
 
 Comp: `../comps/leakshield-wizard.html` (step 4, 1280x800; also 1100x700 in `../comps/shots/`).
 
-The Settings tab is a wizard with seven steps. The user can also open one step directly to change one setting.
+The Settings tab is a wizard with eight steps. The user can also open one step directly to change one setting.
 
 ## Layout
 
-1. Stepper card: Reservoir, Pump, Flow, Pressure, Standby, Mode, Summary. A done step has a check. A click on a step opens it.
-2. Step card: title, "Step 4 of 7", one row per setting, then the footer with "Cancel" at the left and the back and next buttons at the right. The back and next buttons carry the name of their step.
+1. Stepper card: Reservoir, Pump, Flow, Pressure, Loop, Standby, Mode, Summary. A done step has a check. A click on a step opens it.
+2. Step card: title, "Step 4 of 8", one row per setting, then the footer with "Cancel" at the left and the back and next buttons at the right. The back and next buttons carry the name of their step.
 3. "Pending changes" card, under the step card: each changed setting with its old and new value, and the write path.
 
 Each setting row has: the name, the verification badge, a caption, and the control at the right.
@@ -20,6 +20,7 @@ Each setting row has: the name, the verification badge, a caption, and the contr
 | Pump | "Pump": select with the known types and "Custom". "Maximum pressure" (mbar), "Maximum speed" (rpm): read-only with a known type. "More than one pump": switch. "Pump pressure now" and "Speed limit": read-only texts. "Speed source": read-only text "Pump channel of Main loop: Waterpump" with the link "Open Loop" |
 | Flow | "Flow source": read-only text "Flow sensor of Main loop: Water Flow, 115 L/h" with "Open Loop". Without a flow sensor: "None. The Leakshield uses the pump speed only." |
 | Pressure | "Pressure values": the radio rows "Recommended values" and "My own values". The band diagram. "Maximum pressure", "Target pressure", "Minimum pressure" in mbar, each with a caption. "Adaptive pressure": switch. "Time-controlled vacuum generation": switch and two times. See "Pressure step" |
+| Loop | "Height difference" (cm), 0 to 200. Above 100 cm a warning line shows under it |
 | Standby | "Default pump speed" (rpm) and "Default flow" (L/h), each with the button "Use the current value". "Reduced vacuum in standby": switch and a value in mbar |
 | Mode | The three Modes as radio rows with their captions |
 | Summary | The diff table (see `../widgets.md`), notes and warnings above it, and the button "Apply 5 changes" |
@@ -93,6 +94,10 @@ The wizard corrects a value of the band. It shows no error for it:
 - The caption of each value ends with its range: "30 to 430 mbar."
 - A value at a limit has an information line under its caption: the maximum at the target plus 30, the target at the minimum plus 20, the minimum at 30 or at 430.
 
+## Loop step
+
+"Height difference" is `loop_height`, in whole cm. The wizard corrects a value outside 0 to 200 cm. The Leakshield adds the static pressure of this height to the pump pressure. The recommended pressure values do not count the height, so above 100 cm the step warns and points to own values.
+
 ## States
 
 | State | What the user sees |
@@ -135,6 +140,7 @@ The wizard corrects a value of the band. It shows no error for it:
 | Target at its distance | "The target is as close to the minimum as the Leakshield accepts: 20 mbar." |
 | Minimum at 30 or 430 mbar | "This is the lowest minimum that the Leakshield accepts.", "This is the highest minimum that the Leakshield accepts." |
 | Adaptive pressure | "The Leakshield lowers the minimum and the target with the pump speed of the Feed. The distance between minimum and target and the maximum stay as set here." |
+| Height difference | "The height from the lowest point of the Loop to its highest point. The Leakshield adds the pressure of this water column to the pump pressure. The default is 30 cm." Above 100 cm: "Above 100 cm the recommended pressure values can be too low. Set your own values on the Pressure step." |
 | Time-controlled | "The Leakshield builds the negative pressure at two times of the day, so that you choose when its pump makes noise." |
 | Automatic measurement | "The Leakshield measures the fill level after a change, for example when you open the reservoir. During the measurement the Loop has no leak protection." |
 | Standby | "After standby the PC sends no Feed yet. The Leakshield then uses these values." |

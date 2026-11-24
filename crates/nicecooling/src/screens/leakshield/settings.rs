@@ -1,4 +1,4 @@
-//! The Settings tab, a wizard with seven steps (`docs/ui/screens/leakshield-settings.md`).
+//! The Settings tab, a wizard with eight steps (`docs/ui/screens/leakshield-settings.md`).
 //! The wizard writes nothing before "Apply". Every edit goes into a list of pending changes.
 
 use std::collections::BTreeMap;
@@ -20,6 +20,10 @@ const BIT_STANDBY_PRESSURE: u32 = 32;
 const PUMP_FLAGS: &str = "pump_flags";
 /// The Loop has more than one pump in a row: their pressures add up.
 const BIT_TWO_PUMPS: u32 = 2;
+/// The range of the height difference of the Loop in cm.
+const LOOP_HEIGHT_RANGE: (f64, f64) = (0.0, 200.0);
+/// Above this height in cm the recommended pressure values can be too low.
+const LOOP_HEIGHT_WARNING: f64 = 100.0;
 /// The highest pump pressure that the Leakshield can protect against, in mbar: the highest
 /// minimum of the control band.
 const PROTECT_LIMIT: f64 = 430.0;
@@ -95,17 +99,19 @@ pub enum Step {
     Pump,
     Flow,
     Pressure,
+    Loop,
     Standby,
     Mode,
     Summary,
 }
 
 impl Step {
-    pub const ALL: [Step; 7] = [
+    pub const ALL: [Step; 8] = [
         Step::Reservoir,
         Step::Pump,
         Step::Flow,
         Step::Pressure,
+        Step::Loop,
         Step::Standby,
         Step::Mode,
         Step::Summary,
@@ -121,6 +127,7 @@ impl Step {
             Self::Pump => "leakshield.settings.step.pump",
             Self::Flow => "leakshield.settings.step.flow",
             Self::Pressure => "leakshield.settings.step.pressure",
+            Self::Loop => "leakshield.settings.step.loop",
             Self::Standby => "leakshield.settings.step.standby",
             Self::Mode => "leakshield.settings.step.mode",
             Self::Summary => "leakshield.settings.step.summary",
@@ -156,6 +163,15 @@ pub fn range_of(field: &str) -> Option<(f64, f64)> {
         "shield_pressure_low_standby" => (30.0, 430.0),
         _ => return None,
     })
+}
+
+/// The unit of a field of the wizard.
+fn unit(field: &str) -> &'static str {
+    if field == "loop_height" {
+        "cm"
+    } else {
+        unit_of(field)
+    }
 }
 
 /// The fields of `range_of` without a scale. The daemon refuses a fraction for them.
@@ -477,6 +493,12 @@ impl SettingsUi {
                 }
             }
             "two_pumps" => self.set_bit(data, PUMP_FLAGS, BIT_TWO_PUMPS, text == "1"),
+            "loop_height" => {
+                if let Some(value) = parse(text) {
+                    let (min, max) = LOOP_HEIGHT_RANGE;
+                    self.set(data, key, FieldValue::Number(value.round().clamp(min, max)));
+                }
+            }
             field if range_of(field).is_some() => {
                 if let Some(value) = parse(text) {
                     let value = if is_whole(field) {
@@ -760,7 +782,7 @@ pub struct SettingsModel {
 }
 
 fn field_value_text(locale: Locale, field: &str, value: Option<&FieldValue>) -> String {
-    let unit = unit_of(field);
+    let unit = unit(field);
     match value {
         Some(FieldValue::Number(n)) if unit.is_empty() => compact(locale, *n),
         Some(FieldValue::Number(n)) => format!("{} {unit}", compact(locale, *n)),
@@ -804,6 +826,7 @@ impl SettingsModel {
             Step::Pump => pump_rows(&row_ctx, input, id),
             Step::Flow => flow_rows(&row_ctx, input, id),
             Step::Pressure => pressure_rows(&row_ctx, input),
+            Step::Loop => loop_rows(&row_ctx),
             Step::Standby => standby_rows(&row_ctx),
             Step::Mode => mode_rows(&row_ctx),
             Step::Summary => Vec::new(),
@@ -943,7 +966,7 @@ impl RowCtx<'_> {
             label_key,
             Control::Number {
                 text: value.map_or_else(String::new, |v| plain(self.locale, v)),
-                unit: crate::screens::format::unit_text(unit_of(field)).to_owned(),
+                unit: crate::screens::format::unit_text(unit(field)).to_owned(),
             },
         )
     }
@@ -1429,14 +1452,7 @@ fn pressure_rows(ctx: &RowCtx<'_>, input: &ScreenInput<'_>) -> Vec<Row> {
         row.caption = Some(format!(
             "{} {}",
             locale.tr(&format!("leakshield.settings.{key}_text")),
-            locale.fmt(
-                "leakshield.range",
-                &[
-                    ("min", &compact(locale, range.0)),
-                    ("max", &compact(locale, range.1)),
-                    ("unit", "mbar"),
-                ],
-            )
+            range_text(locale, range, "mbar")
         ));
         row.note = band.and_then(|band| band_note(locale, key, band));
         // The recommended values are not for the user to edit.
@@ -1483,6 +1499,43 @@ fn pressure_rows(ctx: &RowCtx<'_>, input: &ScreenInput<'_>) -> Vec<Row> {
         rows.push(row);
     }
     rows
+}
+
+/// The text of a range with its unit: "0 to 200 cm."
+fn range_text(locale: Locale, range: (f64, f64), unit: &str) -> String {
+    locale.fmt(
+        "leakshield.range",
+        &[
+            ("min", &compact(locale, range.0)),
+            ("max", &compact(locale, range.1)),
+            ("unit", unit),
+        ],
+    )
+}
+
+fn loop_rows(ctx: &RowCtx<'_>) -> Vec<Row> {
+    let locale = ctx.locale;
+    let mut height = ctx.number(
+        "loop_height",
+        "loop_height",
+        "leakshield.settings.loop_height",
+    );
+    height.caption = Some(format!(
+        "{} {}",
+        locale.tr("leakshield.settings.loop_height_text"),
+        range_text(locale, LOOP_HEIGHT_RANGE, "cm")
+    ));
+    if ctx
+        .ui
+        .number(ctx.data, "loop_height")
+        .is_some_and(|height| height > LOOP_HEIGHT_WARNING)
+    {
+        height.note = Some(Note {
+            text: locale.tr("leakshield.settings.loop_height_warning"),
+            warning: true,
+        });
+    }
+    vec![height]
 }
 
 fn standby_rows(ctx: &RowCtx<'_>) -> Vec<Row> {

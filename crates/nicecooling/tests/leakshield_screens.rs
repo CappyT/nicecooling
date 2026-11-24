@@ -3192,6 +3192,7 @@ fn leakshield_settings_states() {
             "Pump",
             "Flow",
             "Pressure",
+            "Loop",
             "Standby",
             "Mode",
             "Summary"
@@ -3199,7 +3200,7 @@ fn leakshield_settings_states() {
     );
     assert_eq!(
         (model.title.as_str(), model.counter.as_str()),
-        ("Reservoir", "Step 1 of 7")
+        ("Reservoir", "Step 1 of 8")
     );
     assert!(model.stepper[0].current && !model.stepper[0].done);
     assert_eq!(model.no_changes.as_deref(), Some("No change yet."));
@@ -3251,7 +3252,7 @@ fn leakshield_settings_states() {
     // The Pump step: the custom values and the speed source.
     ui.go(Step::Pump);
     let model = settings(&state, &ui);
-    assert_eq!(model.counter, "Step 2 of 7");
+    assert_eq!(model.counter, "Step 2 of 8");
     assert!(model.stepper[0].done && model.stepper[1].current);
     let source = model.rows.last().unwrap();
     assert_eq!(source.key, "pump_source");
@@ -3548,7 +3549,7 @@ fn leakshield_settings_labels() {
     let missing = labels::missing_labels(
         "leakshield-settings.md",
         &[
-            "Step 4 of 7",
+            "Step 4 of 8",
             "Applying 2 of 5",
             "5 settings written and verified.",
             "80 to 450 mbar.",
@@ -3565,7 +3566,7 @@ fn leakshield_settings_labels() {
         &SettingsUi::default(),
         LEAKSHIELD,
     );
-    assert_eq!(italian.counter, "Passo 1 di 7");
+    assert_eq!(italian.counter, "Passo 1 di 8");
     assert_eq!(
         italian.no_changes.as_deref(),
         Some("Ancora nessuna modifica.")

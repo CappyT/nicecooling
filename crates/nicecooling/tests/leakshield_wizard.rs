@@ -969,6 +969,77 @@ fn the_pump_step_has_a_speed_and_pressure_helper() {
     );
 }
 
+#[test]
+fn the_loop_step_has_the_height_difference() {
+    let state = device();
+    let data = data_of(&state);
+    let mut ui = SettingsUi::default();
+    assert_eq!(Step::ALL.len(), 8);
+    assert_eq!(Step::ALL[4], Step::Loop, "after the Pressure step");
+    let model = step(&state, &ui, Step::Loop);
+    assert_eq!(
+        (model.title.as_str(), model.counter.as_str()),
+        ("Loop", "Step 5 of 8")
+    );
+    assert_eq!(
+        (
+            model.back.as_ref().map(|b| b.1.as_str()),
+            model.next.as_ref().map(|n| n.1.as_str())
+        ),
+        (Some("Pressure"), Some("Standby"))
+    );
+    assert_eq!(model.rows.len(), 1);
+    let height = row(&model, "loop_height");
+    assert_eq!(height.label, "Height difference");
+    assert_eq!(
+        height.control,
+        Control::Number {
+            text: "30".into(),
+            unit: "cm".into()
+        }
+    );
+    let caption = height.caption.as_deref().unwrap();
+    assert!(caption.contains("The default is 30 cm.") && caption.ends_with("0 to 200 cm."));
+    assert!(height.note.is_none() && height.writable);
+
+    // 100 cm has no warning. Above it the warning shows.
+    ui.edit(&data, "loop_height", "100");
+    assert!(
+        row(&step(&state, &ui, Step::Loop), "loop_height")
+            .note
+            .is_none()
+    );
+    ui.edit(&data, "loop_height", "101");
+    assert_eq!(pending(&ui, "loop_height"), Some(101.0));
+    let model = step(&state, &ui, Step::Loop);
+    assert_eq!(
+        row(&model, "loop_height")
+            .note
+            .as_ref()
+            .map(|n| (n.text.as_str(), n.warning)),
+        Some((
+            "Above 100 cm the recommended pressure values can be too low. Set your own values on the Pressure step.",
+            true
+        ))
+    );
+    assert_eq!(
+        model
+            .pending
+            .iter()
+            .map(|c| (c.name.as_str(), c.old.as_str(), c.new.as_str()))
+            .collect::<Vec<_>>(),
+        [("Loop height", "30 cm", "101 cm")]
+    );
+    // The wizard corrects a height outside 0 to 200 cm. The warning never blocks Apply.
+    ui.edit(&data, "loop_height", "250");
+    assert_eq!(pending(&ui, "loop_height"), Some(200.0));
+    ui.edit(&data, "loop_height", "-5");
+    assert_eq!(pending(&ui, "loop_height"), Some(0.0));
+    ui.edit(&data, "loop_height", "150");
+    let summary = step(&state, &ui, Step::Summary).summary.unwrap();
+    assert!(summary.apply_enabled && summary.errors.is_empty());
+}
+
 mod layout {
     use gpui::{AppContext as _, Bounds, Pixels, TestAppContext, VisualTestContext, px};
     use nicecooling::app::{self, Backend, StartMode};
@@ -1113,6 +1184,7 @@ mod layout {
         ui.pending.insert("shield_flags".into(), Number(111.0));
         // Two pumps with their warning, and the warning of a pump above the limit.
         ui.pending.insert("pump_flags".into(), Number(2.0));
+        ui.pending.insert("loop_height".into(), Number(150.0));
     }
 
     #[gpui::test]

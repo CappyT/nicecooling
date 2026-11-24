@@ -53,6 +53,17 @@ The Pump step SHALL show, read-only, the pressure of the pump at the current spe
 - **WHEN** the pump has 4800 rpm and 375 mbar and the Pump channel runs at 2840 rpm
 - **THEN** the helper shows about 131 mbar
 
+### Requirement: Loop step with the height difference
+The wizard SHALL have a step "Loop" after the Pressure step with the height difference of the Loop, `loop_height`, in whole cm from 0 to 200. The wizard SHALL correct a value outside this range. Above 100 cm the step SHALL warn that the recommended pressure values can be too low. The warning SHALL NOT disable "Apply".
+
+#### Scenario: Height of 101 cm
+- **WHEN** the user sets the height difference to 101 cm
+- **THEN** the step shows the warning and "Apply" stays enabled
+
+#### Scenario: Height out of range
+- **WHEN** the user sets the height difference to 250 cm
+- **THEN** the pending change holds 200 cm
+
 ### Requirement: SHIELD pressure values are a control band
 The wizard SHALL present the minimum, the target and the maximum pressure of SHIELD as a control band and not as alarm limits. Each value SHALL have a caption with what the Leakshield does there: it starts its pump below the minimum, it builds the vacuum up to the target, and it opens its vent valve above the maximum.
 
