@@ -468,6 +468,51 @@ impl Leakshield {
         self.device.set_display_logo(image).await
     }
 
+    /// Slot, scale and offset of the 12 Software sensor slots. A slot carries the value of its
+    /// sensor times the scale plus the offset, in the unit of the sensor.
+    #[zbus(out_args("scales"))]
+    async fn get_software_sensor_scales(&self) -> Vec<(u16, f64, f64)> {
+        self.device.software_slots().scales()
+    }
+
+    async fn set_software_sensor_scale(
+        &self,
+        #[zbus(connection)] connection: &Connection,
+        #[zbus(header)] header: Header<'_>,
+        slot: u16,
+        scale: f64,
+        offset: f64,
+    ) -> Result<()> {
+        self.authorize(connection, &header, "SetSoftwareSensorScale", None)
+            .await?;
+        if !scale.is_finite() || !offset.is_finite() {
+            return Err(nicecooling_api::Error::invalid(
+                "the scale and the offset are finite numbers",
+            ));
+        }
+        self.device
+            .software_slots()
+            .set_scale(slot, scale, offset)
+            .map_err(|_| {
+                nicecooling_api::Error::invalid(format!(
+                    "slot {slot} is not between 1 and {SLOT_COUNT}"
+                ))
+            })?;
+        self.hub
+            .remember_software_scale(&self.device.id(), slot, scale, offset);
+        Ok(())
+    }
+
+    /// The sensors that a Software sensor slot can carry: those whose unit the device knows.
+    #[zbus(out_args("sensors"))]
+    async fn get_software_sensor_sources(&self) -> Vec<OwnedObjectPath> {
+        self.hub
+            .software_sensor_sources()
+            .iter()
+            .map(|id| object(Kind::Sensor, id))
+            .collect()
+    }
+
     #[zbus(out_args("backups"))]
     async fn list_backups(&self) -> Result<Vec<(String, u64, String, u16, String)>> {
         Ok(self

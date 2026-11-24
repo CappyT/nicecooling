@@ -75,6 +75,13 @@ impl Default for ProfilesState {
     }
 }
 
+/// The scale and the offset of a Software sensor slot.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct SlotScale {
+    pub scale: f64,
+    pub offset: f64,
+}
+
 /// `state.json`.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
@@ -90,6 +97,9 @@ pub struct DaemonState {
     pub rule_groups: Vec<RuleGroupDef>,
     /// Leakshield id -> Software sensor slot (1 to 12) -> sensor id.
     pub software_sensors: BTreeMap<String, BTreeMap<u16, String>>,
+    /// Leakshield id -> Software sensor slot -> scale and offset. A slot with the default (scale 1,
+    /// offset 0) has no entry.
+    pub software_sensor_scales: BTreeMap<String, BTreeMap<u16, SlotScale>>,
     pub profiles: ProfilesState,
 }
 
@@ -105,6 +115,7 @@ impl Default for DaemonState {
             alarm_responses: BTreeMap::new(),
             rule_groups: Vec::new(),
             software_sensors: BTreeMap::new(),
+            software_sensor_scales: BTreeMap::new(),
             profiles: ProfilesState::default(),
         }
     }

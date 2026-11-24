@@ -425,7 +425,7 @@ The Feed message goes to bulk endpoint 0x02 of interface 0 (P8). It has 51 bytes
 | 33 | 16 | Unit code of each slot |
 | 49 | 2 | CRC-16/USB over bytes 0-48, big-endian |
 
-aquasuite fills each slot from a sensor that the user links, with a scale and an offset. It sends the message once per cycle of its device service, when the user has set up the 16 slots. The fw1022 dump and the kernel driver map slot 0 to the pump speed (unit 3, rpm) and slot 1 to the flow (unit 12, l/h with 1 decimal place). The Leakshield computes the loop pressure from them.
+aquasuite fills each slot from a sensor that the user links, with a scale and an offset. The value of a slot is the value of the sensor times the scale plus the offset (default 1 and 0), in the unit of the sensor. A sensor with no value gives no value. The unit code then sets the decimal places of the raw number. It sends the message once per cycle of its device service, when the user has set up the 16 slots. The fw1022 dump and the kernel driver map slot 0 to the pump speed (unit 3, rpm) and slot 1 to the flow (unit 12, l/h with 1 decimal place). The Leakshield computes the loop pressure from them.
 
 The out-of-tree driver also sends the Feed message. It must not run next to the daemon, because the device then gets two Feed messages from two sources.
 

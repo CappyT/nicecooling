@@ -35,7 +35,8 @@ use crate::snapshot::{self, BiosSnapshot};
 use crate::state::profiles::DEFAULT_PROFILE;
 use crate::state::{
     CalibrationDef, ControlKind, DaemonState, PERSIST_DELAY, Persister, ProfileChannel,
-    ProfileFile, ProfileSet, STATE_FILE, SlotStore, StateStore, profile_file, tick_config,
+    ProfileFile, ProfileSet, STATE_FILE, SlotScale, SlotStore, StateStore, profile_file,
+    tick_config,
 };
 
 /// The default Pump floor of a new Loop, in percent.
@@ -429,10 +430,19 @@ impl Inner {
     /// Puts the stored Software sensors into the slots of a Leakshield. A sensor that does not
     /// exist (now) or has a unit without a device unit code leaves its slot empty.
     fn restore_software_sensors(&self, device: &LeakshieldInfo) {
+        let slots = device.software_slots();
+        for (slot, scaling) in self
+            .state
+            .software_sensor_scales
+            .get(&device.id())
+            .into_iter()
+            .flatten()
+        {
+            let _ = slots.set_scale(*slot, scaling.scale, scaling.offset);
+        }
         let Some(stored) = self.state.software_sensors.get(&device.id()) else {
             return;
         };
-        let slots = device.software_slots();
         for (slot, sensor) in stored {
             let assignment = self
                 .sensor_view(sensor)
@@ -810,6 +820,42 @@ impl Hub {
             }
         }
         self.persister.changed();
+    }
+
+    /// Records the scale and the offset of a Software sensor slot in `state.json`. The default
+    /// (scale 1, offset 0) removes the entry.
+    pub fn remember_software_scale(&self, leakshield: &str, slot: u16, scale: f64, offset: f64) {
+        {
+            let mut inner = self.inner();
+            let slots = inner
+                .state
+                .software_sensor_scales
+                .entry(leakshield.to_owned())
+                .or_default();
+            if scale == 1.0 && offset == 0.0 {
+                slots.remove(&slot);
+            } else {
+                slots.insert(slot, SlotScale { scale, offset });
+            }
+            if slots.is_empty() {
+                inner.state.software_sensor_scales.remove(leakshield);
+            }
+        }
+        self.persister.changed();
+    }
+
+    /// The sensors that a Software sensor slot can carry: those whose unit has a device unit code.
+    pub fn software_sensor_sources(&self) -> Vec<String> {
+        let inner = self.inner();
+        inner
+            .sensor_ids()
+            .into_iter()
+            .filter(|id| {
+                inner
+                    .sensor_view(id)
+                    .is_some_and(|view| Assignment::new(id, &view.unit).is_some())
+            })
+            .collect()
     }
 
     pub fn set_connection(&self, connection: zbus::Connection) {

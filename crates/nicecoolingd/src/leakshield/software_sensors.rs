@@ -1,5 +1,6 @@
 //! The 12 Software sensors of a Leakshield: Feed message slots 4 to 15. A slot links a sensor of
-//! the daemon, and each Feed message carries its value. The API numbers the slots from 1.
+//! the daemon, and each Feed message carries its value times the scale of the slot plus its
+//! offset, as aquasuite computes it. The API numbers the slots from 1.
 
 use std::collections::BTreeMap;
 use std::sync::Mutex;
@@ -35,6 +36,38 @@ pub fn device_unit(unit: &str) -> Option<(u8, u8)> {
     })
 }
 
+/// The scale and the offset of a slot. The default leaves the value as it is.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Scaling {
+    pub scale: f64,
+    pub offset: f64,
+}
+
+impl Default for Scaling {
+    fn default() -> Self {
+        Self {
+            scale: 1.0,
+            offset: 0.0,
+        }
+    }
+}
+
+impl Scaling {
+    pub fn is_default(&self) -> bool {
+        *self == Self::default()
+    }
+
+    fn apply(&self, value: f64) -> f64 {
+        value * self.scale + self.offset
+    }
+}
+
+#[derive(Debug, Default)]
+struct Slots {
+    sensors: [Option<Assignment>; SLOT_COUNT],
+    scalings: [Scaling; SLOT_COUNT],
+}
+
 impl Assignment {
     /// `None` when the unit of the sensor has no device unit code.
     pub fn new(sensor: &str, unit: &str) -> Option<Self> {
@@ -57,7 +90,7 @@ impl Assignment {
 pub struct NoSuchSlot;
 
 #[derive(Debug, Default)]
-pub struct SoftwareSlots(Mutex<[Option<Assignment>; SLOT_COUNT]>);
+pub struct SoftwareSlots(Mutex<Slots>);
 
 fn index(slot: u16) -> Result<usize, NoSuchSlot> {
     match usize::from(slot) {
@@ -67,9 +100,15 @@ fn index(slot: u16) -> Result<usize, NoSuchSlot> {
 }
 
 impl SoftwareSlots {
-    /// `None` clears the slot.
+    /// `None` clears the slot. Its scale and offset stay.
     pub fn assign(&self, slot: u16, assignment: Option<Assignment>) -> Result<(), NoSuchSlot> {
-        self.0.lock().unwrap()[index(slot)?] = assignment;
+        self.0.lock().unwrap().sensors[index(slot)?] = assignment;
+        Ok(())
+    }
+
+    /// Sets the scale and the offset of a slot. The caller checks that both are finite.
+    pub fn set_scale(&self, slot: u16, scale: f64, offset: f64) -> Result<(), NoSuchSlot> {
+        self.0.lock().unwrap().scalings[index(slot)?] = Scaling { scale, offset };
         Ok(())
     }
 
@@ -78,19 +117,36 @@ impl SoftwareSlots {
         self.0
             .lock()
             .unwrap()
+            .sensors
             .iter()
             .enumerate()
             .map(|(i, a)| (i as u16 + 1, a.as_ref().map(|a| a.sensor.clone())))
             .collect()
     }
 
+    /// Slot number, scale and offset, for all 12 slots.
+    pub fn scales(&self) -> Vec<(u16, f64, f64)> {
+        self.0
+            .lock()
+            .unwrap()
+            .scalings
+            .iter()
+            .enumerate()
+            .map(|(i, s)| (i as u16 + 1, s.scale, s.offset))
+            .collect()
+    }
+
     /// Puts the value of each assigned sensor into its slot. A sensor without a value leaves the
     /// slot at "no value".
     pub fn fill(&self, message: &mut FeedMessage, values: &BTreeMap<String, f64>) {
-        for (i, assignment) in self.0.lock().unwrap().iter().enumerate() {
+        let slots = self.0.lock().unwrap();
+        for (i, assignment) in slots.sensors.iter().enumerate() {
             let slot = FIRST_FEED_SLOT + i;
             match assignment {
-                Some(a) => match values.get(&a.sensor).and_then(|&v| a.raw(v)) {
+                Some(a) => match values
+                    .get(&a.sensor)
+                    .and_then(|&v| a.raw(slots.scalings[i].apply(v)))
+                {
                     Some(raw) => message.set(slot, raw, a.unit_code),
                     None => message.clear(slot),
                 },

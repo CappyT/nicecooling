@@ -46,6 +46,7 @@ The daemon creates the files of the four slots of a Leakshield when it first rea
 | `alarm_responses` | object | Map from key to `{"response", "delay_s"}`. The key `<event>` is the default of the event. The key `<event>@<source>` is the override of a `leakshield.*` event for the Leakshield `<source>`. A key without an entry uses the next step of the resolution (`api.md`, Alarm response per Leakshield). A state file without `@` keys loads as before. |
 | `rule_groups` | array | Ordered, the first group has the highest priority: `{"id", "profile", "enabled", "rules": [{"kind", "params"}]}` with the kinds and keys of `api.md`. |
 | `software_sensors` | object | Map from Leakshield id to a map from slot number ("1" to "12") to the sensor id in that slot. An empty slot has no entry. |
+| `software_sensor_scales` | object | Map from Leakshield id to a map from slot number ("1" to "12") to `{"scale", "offset"}`. A slot with scale 1 and offset 0 has no entry. A state file without this key loads with the default for every slot. |
 | `profiles` | object | `{"default": "profile_default", "active": <profile id>, "cause": "default"|"rule"|"manual", "immediate_switching": false, "rule_delay_s": 30, "dwell_s": 300}`. |
 
 ### `profiles/<id>/profile.json`

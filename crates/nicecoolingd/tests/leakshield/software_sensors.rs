@@ -228,3 +228,170 @@ async fn software_sensor_assignment_survives_a_daemon_restart() {
         ]
     );
 }
+
+#[test]
+fn scale_and_offset_apply_before_the_unit_scale() {
+    let slots = Arc::new(SoftwareSlots::default());
+    slots.assign(1, Some(temperature("water_temp"))).unwrap();
+    slots.assign(2, Some(temperature("air_temp"))).unwrap();
+    // Slot 1: 2 x value + 5. Slot 2 keeps the default scale 1 and offset 0.
+    slots.set_scale(1, 2.0, 5.0).unwrap();
+
+    let message = feed(&slots, &[("water_temp", 10.0), ("air_temp", 22.0)]);
+
+    // (10 x 2 + 5) degC with 2 decimals.
+    assert_eq!(message.value(4), 2500);
+    assert_eq!(message.value(5), 2200);
+    assert_eq!(
+        slots.scales()[..3],
+        [(1, 2.0, 5.0), (2, 1.0, 0.0), (3, 1.0, 0.0)]
+    );
+}
+
+#[test]
+fn a_value_that_the_offset_pushes_out_of_range_sends_no_value() {
+    let slots = Arc::new(SoftwareSlots::default());
+    slots.assign(1, Some(temperature("water_temp"))).unwrap();
+    slots.set_scale(1, 1.0, 400.0).unwrap();
+
+    // 430 degC does not fit the slot (2 decimals). A sensor with no value stays without one.
+    assert_eq!(feed(&slots, &[("water_temp", 30.0)]).value(4), NO_VALUE);
+    assert_eq!(feed(&slots, &[]).value(4), NO_VALUE);
+    assert!(slots.set_scale(0, 1.0, 0.0).is_err());
+    assert!(slots.set_scale(13, 1.0, 0.0).is_err());
+}
+
+#[test]
+fn scale_and_offset_stay_when_the_sensor_changes() {
+    let slots = Arc::new(SoftwareSlots::default());
+    slots.set_scale(3, 0.5, -1.0).unwrap();
+    slots.assign(3, Some(temperature("water_temp"))).unwrap();
+    slots.assign(3, None).unwrap();
+    assert_eq!(slots.scales()[2], (3, 0.5, -1.0));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn scale_and_offset_over_the_bus_reach_the_feed_message() {
+    let mut rig = Rig::start().await;
+    let proxy = leakshield(&rig).await;
+    let scales = proxy.get_software_sensor_scales().await.unwrap();
+    assert_eq!(scales.len(), 12);
+    assert!(
+        scales
+            .iter()
+            .all(|&(_, scale, offset)| (scale, offset) == (1.0, 0.0))
+    );
+
+    proxy
+        .set_software_sensor(3, &path(Kind::Sensor, "k10temp_temp1"))
+        .await
+        .unwrap();
+    proxy.set_software_sensor_scale(3, 0.0, 50.0).await.unwrap();
+    assert_eq!(
+        proxy.get_software_sensor_scales().await.unwrap()[2],
+        (3, 0.0, 50.0)
+    );
+
+    let hub = rig.daemon.as_ref().unwrap().hub.clone();
+    hub.set_loop_leakshield("loop_1", &object_path(Kind::Leakshield, LEAKSHIELD))
+        .unwrap();
+    rig.tick_in_background();
+    let value = loop {
+        let last = rig.sim.bulk_messages().last().cloned();
+        if let Some(message) = last.and_then(|m| FeedMessage::decode(&m).ok())
+            && message.value(6) != NO_VALUE
+        {
+            break message.value(6);
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    };
+    // Scale 0 and offset 50: the slot carries 50 degC whatever the sensor reads.
+    assert_eq!(value, 5000);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn scale_and_offset_errors_over_the_bus() {
+    let rig = Rig::start().await;
+    let proxy = leakshield(&rig).await;
+    for (slot, scale, offset) in [
+        (0, 1.0, 0.0),
+        (13, 1.0, 0.0),
+        (1, f64::NAN, 0.0),
+        (1, 1.0, f64::INFINITY),
+    ] {
+        let error = proxy
+            .set_software_sensor_scale(slot, scale, offset)
+            .await
+            .unwrap_err();
+        assert_eq!(
+            error_name(&error),
+            format!("{ERR}.InvalidArgument"),
+            "{slot} {scale} {offset}"
+        );
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn scale_and_offset_survive_a_daemon_restart() {
+    let rig = Rig::start().await;
+    let proxy = leakshield(&rig).await;
+    proxy.set_software_sensor_scale(4, 1.8, 32.0).await.unwrap();
+    // The default values leave no entry.
+    proxy.set_software_sensor_scale(5, 2.0, 0.0).await.unwrap();
+    proxy.set_software_sensor_scale(5, 1.0, 0.0).await.unwrap();
+    rig.daemon.as_ref().unwrap().hub.flush_now();
+
+    let state = std::fs::read_to_string(rig.state.join("state.json")).unwrap();
+    let state: serde_json::Value = serde_json::from_str(&state).unwrap();
+    assert_eq!(
+        state["software_sensor_scales"][LEAKSHIELD],
+        serde_json::json!({"4": {"scale": 1.8, "offset": 32.0}})
+    );
+
+    let restarted = daemon::start(&rig.options, Arc::new(TokioClock::new()), NoPing)
+        .await
+        .unwrap();
+    let devices = restarted.fleet.all();
+    assert_eq!(devices[0].software_slots().scales()[3], (4, 1.8, 32.0));
+    assert_eq!(devices[0].software_slots().scales()[4], (5, 1.0, 0.0));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_source_list_has_only_sensors_whose_unit_the_device_knows() {
+    let rig = Rig::start().await;
+    let proxy = leakshield(&rig).await;
+
+    let sources = proxy.get_software_sensor_sources().await.unwrap();
+
+    let has = |id: &str| sources.iter().any(|p| *p == path(Kind::Sensor, id));
+    assert!(has("k10temp_temp1") && has("nct6798_fan1"));
+    // The air volume of the Leakshield is in ml: the device has no such unit.
+    assert!(!has(&format!("{LEAKSHIELD}_air_volume")));
+    // Every source takes an assignment.
+    for source in &sources {
+        proxy.set_software_sensor(1, source).await.unwrap();
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn setting_scale_and_offset_asks_write() {
+    if std::fs::read_to_string("/proc/self/status")
+        .unwrap()
+        .lines()
+        .find_map(|l| l.strip_prefix("Uid:"))
+        .is_some_and(|l| l.split_whitespace().next() == Some("0"))
+    {
+        return;
+    }
+    let rig = Rig::start().await;
+    let proxy = leakshield(&rig).await;
+
+    proxy.get_software_sensor_scales().await.unwrap();
+    proxy.get_software_sensor_sources().await.unwrap();
+    assert!(rig.authorizer.calls().is_empty());
+    proxy.set_software_sensor_scale(1, 2.0, 1.0).await.unwrap();
+    assert_eq!(
+        rig.authorizer.calls(),
+        [(nicecooling_api::authz_map::Action::Write, false)]
+    );
+}

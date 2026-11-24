@@ -59,6 +59,13 @@ pub trait Leakshield {
     /// The logo. The image has 128 x 64 pixels.
     fn set_display_logo(&self, width: u16, height: u16, rows: &[u8]) -> zbus::Result<()>;
 
+    /// (slot 1 to 12, scale, offset) for all 12 Software sensor slots.
+    fn get_software_sensor_scales(&self) -> zbus::Result<Vec<(u16, f64, f64)>>;
+    /// A slot carries value x scale + offset, in the unit of its sensor.
+    fn set_software_sensor_scale(&self, slot: u16, scale: f64, offset: f64) -> zbus::Result<()>;
+    /// The sensors whose unit the device knows.
+    fn get_software_sensor_sources(&self) -> zbus::Result<Vec<OwnedObjectPath>>;
+
     /// (field id, risk class safety|low, value, writable, reason)
     fn get_fields(&self) -> zbus::Result<Vec<(String, String, OwnedValue, bool, String)>>;
     fn set_fields(&self, fields: HashMap<&str, Value<'_>>) -> zbus::Result<()>;

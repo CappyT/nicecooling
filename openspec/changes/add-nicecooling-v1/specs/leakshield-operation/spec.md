@@ -83,6 +83,20 @@ The daemon SHALL write values into the 12 Software sensor slots of the Leakshiel
 - **WHEN** the user assigns the water temperature to a Software sensor slot
 - **THEN** the slot carries that value on each update
 
+The daemon SHALL give each slot a scale and an offset (default 1 and 0). A slot SHALL carry the value of its sensor times the scale plus the offset. The daemon SHALL keep both over a restart. It SHALL offer only sensors whose unit the device knows as the source of a slot.
+
+#### Scenario: Scale and offset
+- **WHEN** a slot has the scale 2 and the offset 5 and its sensor reads 10 degC
+- **THEN** the slot carries 25 degC
+
+#### Scenario: Result out of range
+- **WHEN** the result does not fit the slot, or the sensor has no value
+- **THEN** the slot carries no value
+
+#### Scenario: Source list
+- **WHEN** a client asks for the sources of a Software sensor slot
+- **THEN** the list holds the sensors with a unit that has a device unit code and no sensor in ml
+
 ### Requirement: Device status and events
 The daemon SHALL decode the Leakshield sensor report each tick and expose pressure, fill level, Mode, running Action, Warnings and Alarms.
 

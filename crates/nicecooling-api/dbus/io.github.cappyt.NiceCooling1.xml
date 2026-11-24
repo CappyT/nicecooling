@@ -394,6 +394,25 @@
       <arg name="height" type="q" direction="in"/>
       <arg name="rows" type="ay" direction="in"/>
     </method>
+    <!-- (slot 1 to 12, scale, offset) for all 12 slots. The default is scale 1 and offset 0. -->
+    <method name="GetSoftwareSensorScales">
+      <annotation name="io.github.cappyt.NiceCooling1.Authorization" value="read"/>
+      <arg name="scales" type="a(qdd)" direction="out"/>
+    </method>
+    <!-- The slot carries the value of its sensor times scale plus offset, in the unit of the sensor, before the device scale of the unit.
+         Scale and offset stay when SetSoftwareSensor changes or clears the sensor. A slot outside 1 to 12 and a number that is not finite
+         fail with InvalidArgument. -->
+    <method name="SetSoftwareSensorScale">
+      <annotation name="io.github.cappyt.NiceCooling1.Authorization" value="write"/>
+      <arg name="slot" type="q" direction="in"/>
+      <arg name="scale" type="d" direction="in"/>
+      <arg name="offset" type="d" direction="in"/>
+    </method>
+    <!-- The sensors that SetSoftwareSensor takes: those whose unit has a device unit code. -->
+    <method name="GetSoftwareSensorSources">
+      <annotation name="io.github.cappyt.NiceCooling1.Authorization" value="read"/>
+      <arg name="sensors" type="ao" direction="out"/>
+    </method>
     <!-- (backup id, time us, sha256 hex, firmware, reason first|before-write|manual|import) -->
     <method name="ListBackups">
       <annotation name="io.github.cappyt.NiceCooling1.Authorization" value="read"/>
