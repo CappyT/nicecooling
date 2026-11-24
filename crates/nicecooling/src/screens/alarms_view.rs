@@ -10,6 +10,7 @@ use gpui_component::tooltip::Tooltip;
 use gpui_component::{Sizable as _, h_flex, v_flex};
 
 use crate::command::Command;
+use crate::icons::{NcIcon, icon};
 use crate::model::{Response, Severity};
 use crate::screen_view::{InputKey, ScreenView, skeleton};
 use crate::screens::alarms::{
@@ -49,7 +50,7 @@ impl ScreenView {
         if let Some(text) = &active.empty {
             active_card = active_card.child(
                 card_row(p)
-                    .child(div().text_color(p.success).child("\u{2713}"))
+                    .child(icon(NcIcon::Check, p.success))
                     .child(text.clone()),
             );
         } else {

@@ -304,6 +304,10 @@ See `widgets.md`, "Loop diagram". 168 px high. Reservoir and Leakshield at the l
 
 Sources and exports are in `icons/`. `icons/preview.html` shows them; `icons/preview-light.png` and `icons/preview-dark.png` are its renders.
 
+### Interface icons
+
+The icons of the sidebar, the severity states, the padlock and the chevrons are in `crates/nicecooling/assets/nc/`: one SVG per icon on a 16 px grid, stroke 1.5 px or filled. They have the shapes of the sprite in `comps/nc.js`. The app embeds them and draws each one in the color of its token.
+
 ### App icon
 
 `icons/nicecooling.svg`, drawn on a 128 px grid. It is the Loop diagram as an object: a blue water loop, and on its top leg an instrument bubble that holds a drop.

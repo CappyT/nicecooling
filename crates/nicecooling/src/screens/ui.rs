@@ -2,8 +2,9 @@
 
 use gpui::prelude::*;
 use gpui::{AnyElement, Div, FontWeight, Hsla, SharedString, div, px};
-use gpui_component::{h_flex, v_flex};
+use gpui_component::{Sizable as _, h_flex, v_flex};
 
+use crate::icons::{NcIcon, icon, small_icon};
 use crate::model::Severity;
 use crate::screens::FeedbackLine;
 use crate::tokens::Palette;
@@ -92,13 +93,21 @@ pub fn card_row(p: &Palette) -> Div {
         .border_color(p.border)
 }
 
-/// The text of the severity icon: a triangle for a Warning, an octagon for an Alarm.
+/// The severity icon: a triangle for a Warning, an octagon for an Alarm.
 pub fn severity_icon(severity: Severity, p: &Palette) -> Div {
-    let (glyph, color): (&str, Hsla) = match severity {
-        Severity::Warning => ("\u{25B2}", p.warning),
-        Severity::Alarm => ("\u{2B22}", p.alarm),
+    let (name, color): (NcIcon, Hsla) = match severity {
+        Severity::Warning => (NcIcon::Warn, p.warning),
+        Severity::Alarm => (NcIcon::Alarm, p.alarm),
     };
-    div().text_color(color).text_size(px(12.)).child(glyph)
+    div().flex_none().child(icon(name, color))
+}
+
+/// The padlock of a field that is read-only, and its text.
+pub fn locked(text: impl Into<SharedString>, p: &Palette) -> Div {
+    h_flex()
+        .gap(px(4.))
+        .child(small_icon(NcIcon::Lock, p.fg_dim))
+        .child(text.into())
 }
 
 /// The write feedback next to a control: check or octagon, and the text.
@@ -109,7 +118,17 @@ pub fn write_line(line: &FeedbackLine, p: &Palette) -> Div {
         .items_center()
         .text_size(px(12.))
         .text_color(color)
-        .child(if line.failure { "\u{2B22}" } else { "\u{2713}" })
+        .child(
+            icon(
+                if line.failure {
+                    NcIcon::Alarm
+                } else {
+                    NcIcon::Check
+                },
+                color,
+            )
+            .with_size(px(14.)),
+        )
         .child(line.text.clone())
 }
 
@@ -162,10 +181,10 @@ pub fn modal(
 pub fn notice_row(text: impl Into<SharedString>, warning: bool, p: &Palette) -> Div {
     card_row(p)
         .bg(if warning { p.warning_tint } else { p.selected })
-        .child(
-            div()
-                .text_color(if warning { p.warning } else { p.fg_dim })
-                .child(if warning { "\u{25B2}" } else { "\u{2139}" }),
-        )
+        .child(if warning {
+            icon(NcIcon::Warn, p.warning)
+        } else {
+            icon(NcIcon::Info, p.fg_dim)
+        })
         .child(div().flex_1().child(text.into()))
 }

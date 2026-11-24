@@ -7,6 +7,7 @@ use gpui_component::switch::Switch;
 use gpui_component::{Sizable as _, v_flex};
 
 use crate::i18n::Language;
+use crate::icons::{NcIcon, icon};
 use crate::screen_view::{ScreenView, skeleton};
 use crate::screens::controls::{Pick, act};
 use crate::screens::settings::{Change, ConnectionKind, InfoRow, SettingsModel, SwitchRow};
@@ -105,10 +106,14 @@ impl ScreenView {
                     .font_weight(FontWeight::BOLD)
                     .child(connection.label.clone()),
             )
-            .child(div().text_color(color).child(match connection.kind {
-                ConnectionKind::Down => "\u{2B22}",
-                _ => "\u{25CF}",
-            }))
+            .child(match connection.kind {
+                ConnectionKind::Down => icon(NcIcon::Alarm, color).into_any_element(),
+                _ => div()
+                    .size(px(8.))
+                    .rounded_full()
+                    .bg(color)
+                    .into_any_element(),
+            })
             .child(div().flex_1().child(connection.value.clone()));
         if let Some(text) = &connection.try_again {
             connection_row = connection_row.child(

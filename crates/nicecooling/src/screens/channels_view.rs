@@ -12,6 +12,7 @@ use gpui_component::input::Input;
 use gpui_component::slider::Slider;
 use gpui_component::{Disableable as _, Selectable as _, Sizable as _, h_flex, v_flex};
 
+use crate::icons::{NcIcon, icon, small_icon};
 use crate::model::Severity;
 use crate::screen_view::{Drag, InputKey, ScreenView, skeleton};
 use crate::screens::channels::{
@@ -198,12 +199,14 @@ impl ScreenView {
                 .child(row.line2.clone()),
         );
         let rpm = match &row.no_signal {
-            Some(text) => div()
+            Some(text) => h_flex()
                 .w(px(70.))
-                .text_right()
+                .justify_end()
+                .gap(px(3.))
                 .text_size(px(11.))
                 .text_color(p.offline)
-                .child(format!("\u{25CC} {text}")),
+                .child(small_icon(NcIcon::Off, p.offline))
+                .child(text.clone()),
             None => div().w(px(70.)).text_right().child(row.rpm.clone()),
         };
         h_flex()
@@ -408,7 +411,7 @@ impl ScreenView {
                         })
                     }
                 })
-                .child(if open { "\u{25BE}" } else { "\u{25B8}" })
+                .child(icon(if open { NcIcon::Down } else { NcIcon::Right }, p.fg))
                 .child(
                     div()
                         .font_weight(FontWeight::BOLD)

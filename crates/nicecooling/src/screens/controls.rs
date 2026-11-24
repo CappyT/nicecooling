@@ -9,6 +9,7 @@ use gpui::{
 use gpui_component::button::{Button, ButtonVariants as _};
 use gpui_component::{Disableable as _, Sizable as _, v_flex};
 
+use crate::icons::{NcIcon, icon};
 use crate::screen_view::ScreenView;
 use crate::tokens::Palette;
 
@@ -51,7 +52,8 @@ impl ScreenView {
         let mut column = v_flex().gap(px(2.)).child(
             Button::new(SharedString::from(format!("select-{key}")))
                 .small()
-                .label(format!("{shown}  \u{25BE}"))
+                .label(shown.to_owned())
+                .child(icon(NcIcon::Down, p.fg))
                 .disabled(!enabled)
                 .tooltip(tooltip.to_owned())
                 .on_click(act(&view, move |this, _, _| {

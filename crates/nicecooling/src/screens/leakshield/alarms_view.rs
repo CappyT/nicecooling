@@ -10,6 +10,7 @@ use gpui_component::slider::Slider;
 use gpui_component::switch::Switch;
 use gpui_component::{Disableable as _, Sizable as _, h_flex, v_flex};
 
+use crate::icons::{NcIcon, icon};
 use crate::model::Response;
 use crate::screen_view::{InputKey, ScreenView, skeleton};
 use crate::screens::controls::{Pick, act};
@@ -18,7 +19,7 @@ use crate::screens::leakshield::TabState;
 use crate::screens::leakshield::alarms::{AlarmsModel, EventRow, RecommendationKind};
 use crate::screens::leakshield::sensors_view::header_row;
 use crate::screens::ui::{
-    caption, card, card_header, card_row, notice_row, page, severity_icon, write_line,
+    caption, card, card_header, card_row, locked, notice_row, page, severity_icon, write_line,
 };
 use crate::tokens::Palette;
 
@@ -69,7 +70,7 @@ impl ScreenView {
                     RecommendationKind::Warning => notice_row(item.text.clone(), true, p),
                     RecommendationKind::Information => notice_row(item.text.clone(), false, p),
                     RecommendationKind::Success => card_row(p)
-                        .child(div().text_color(p.success).child("\u{2713}"))
+                        .child(icon(NcIcon::Check, p.success))
                         .child(div().flex_1().child(item.text.clone())),
                 };
                 if let Some((label, command)) = item.button.clone() {
@@ -164,7 +165,11 @@ impl ScreenView {
                         .child(div().text_color(p.fg_dim).child(ctl.unit.clone())),
                 );
             if let Some(reason) = &ctl.reason {
-                threshold = threshold.child(caption(format!("\u{1F512} {reason}"), p));
+                threshold = threshold.child(
+                    locked(reason.clone(), p)
+                        .text_size(px(12.))
+                        .text_color(p.fg_dim),
+                );
             }
             if let Some(error) = &ctl.error {
                 threshold = threshold.child(div().text_color(p.alarm).child(error.clone()));

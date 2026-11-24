@@ -11,7 +11,9 @@ use crate::screens::controls::{Pick, act};
 use crate::screens::leakshield::fields::{
     FieldRow, FieldsModel, FieldsState, Filter, Verification,
 };
-use crate::screens::ui::{TagKind, caption, card, card_header, card_row, notice_row, page, tag};
+use crate::screens::ui::{
+    TagKind, caption, card, card_header, card_row, locked, notice_row, page, tag,
+};
 use crate::tokens::Palette;
 
 impl ScreenView {
@@ -211,10 +213,12 @@ impl ScreenView {
                 div()
                     .w(px(90.))
                     .font_weight(FontWeight::BOLD)
-                    .child(if row.writable {
-                        row.access_text.clone()
-                    } else {
-                        format!("\u{1F512} {}", row.access_text)
+                    .map(|access| {
+                        if row.writable {
+                            access.child(row.access_text.clone())
+                        } else {
+                            access.child(locked(row.access_text.clone(), p))
+                        }
                     }),
             );
         let mut column = v_flex().w_full().child(line);

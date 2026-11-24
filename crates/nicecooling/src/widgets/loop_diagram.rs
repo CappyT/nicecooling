@@ -1,6 +1,7 @@
 //! The model of the Loop diagram (`docs/ui/widgets.md`): what the diagram draws, from the
 //! Loop and the live values. It never holds a part that the Loop does not have.
 
+use crate::icons::{NcIcon, small_icon};
 use crate::model::{AlarmEntry, ChannelInfo, LoopInfo, Severity};
 use crate::screens::ScreenInput;
 use crate::screens::format::{clock, number, optional_value, unit_text, value_text};
@@ -821,22 +822,20 @@ pub fn element(
         );
         if !bubble.caption.is_empty() || bubble.info {
             let marker = match bubble.state {
-                BubbleState::Alarm => Some(("\u{2B22}", p.alarm)),
-                BubbleState::Warning => Some(("\u{25B2}", p.warning)),
-                _ if bubble.info => Some(("\u{24D8}", p.fg_dim)),
+                BubbleState::Alarm => Some((NcIcon::Alarm, p.alarm)),
+                BubbleState::Warning => Some((NcIcon::Warn, p.warning)),
+                _ if bubble.info => Some((NcIcon::Info, p.fg_dim)),
                 _ => None,
             };
-            root =
-                root.child(
-                    overlay(anchor, shift_value, top + 3.0)
-                        .flex()
-                        .gap(px(4.))
-                        .text_color(p.fg_dim)
-                        .children(marker.map(|(glyph, color): (&str, Hsla)| {
-                            div().text_color(color).child(glyph)
-                        }))
-                        .child(bubble.caption.clone()),
-                );
+            root = root.child(
+                overlay(anchor, shift_value, top + 3.0)
+                    .flex()
+                    .gap(px(4.))
+                    .text_color(p.fg_dim)
+                    .items_center()
+                    .children(marker.map(|(name, color): (NcIcon, Hsla)| small_icon(name, color)))
+                    .child(bubble.caption.clone()),
+            );
         }
     }
     root

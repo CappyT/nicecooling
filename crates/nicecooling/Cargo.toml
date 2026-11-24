@@ -12,6 +12,7 @@ workspace = true
 nicecooling-api.workspace = true
 nicecooling-core.workspace = true
 gpui-component.workspace = true
+gpui-kit-assets.workspace = true
 gpui-pre.workspace = true
 gpui-pre-platform.workspace = true
 ksni.workspace = true

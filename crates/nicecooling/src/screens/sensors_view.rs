@@ -10,6 +10,7 @@ use gpui_component::switch::Switch;
 use gpui_component::{Disableable as _, Selectable as _, Sizable as _, h_flex, v_flex};
 
 use crate::command::Command;
+use crate::icons::{NcIcon, icon, small_icon};
 use crate::model::Severity;
 use crate::screen_view::{InputKey, ScreenView, skeleton};
 use crate::screens::sensors::{
@@ -210,7 +211,10 @@ impl ScreenView {
                         })
                     }
                 })
-                .child(if folded { "\u{25B8}" } else { "\u{25BE}" })
+                .child(icon(
+                    if folded { NcIcon::Right } else { NcIcon::Down },
+                    p.fg,
+                ))
                 .child(
                     div()
                         .font_weight(FontWeight::BOLD)
@@ -269,10 +273,7 @@ impl ScreenView {
             .w(px(110.))
             .justify_end()
             .gap(px(4.))
-            .children(
-                row.no_value
-                    .then(|| div().text_color(p.offline).child("\u{25CC}")),
-            )
+            .children(row.no_value.then(|| small_icon(NcIcon::Off, p.offline)))
             .child(
                 div()
                     .font_weight(FontWeight::BOLD)
@@ -600,7 +601,7 @@ impl ScreenView {
                     Button::new(SharedString::from(format!("source-remove-{slot}")))
                         .ghost()
                         .small()
-                        .label("\u{2715}")
+                        .icon(icon(NcIcon::X, p.fg))
                         .on_click(move |_, _, cx| {
                             view.update(cx, |this, cx| {
                                 if let Some(editor) = this.sensors.editor.as_mut() {

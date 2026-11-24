@@ -218,3 +218,33 @@ fn start_mode_reads_the_background_flag() {
         StartMode::Normal
     );
 }
+
+/// Every icon of the app loads from the asset source as an SVG, and the icons that the
+/// gpui-component controls draw load from it too.
+#[test]
+fn the_asset_source_has_every_icon() {
+    use gpui::AssetSource as _;
+    use gpui_component::IconNamed as _;
+    use nicecooling::icons::{Assets, NcIcon};
+
+    for icon in NcIcon::ALL {
+        let path = icon.path();
+        let svg = Assets
+            .load(&path)
+            .expect("load")
+            .unwrap_or_else(|| panic!("no asset {path}"));
+        let text = std::str::from_utf8(&svg).expect("text");
+        assert!(text.starts_with("<svg ") && text.contains("viewBox=\"0 0 16 16\""));
+    }
+    for path in [
+        "icons/loader.svg",
+        "icons/window-close.svg",
+        "icons/check.svg",
+    ] {
+        assert!(
+            Assets.load(path).expect("load").is_some(),
+            "no asset {path}"
+        );
+    }
+    assert!(Assets.list("nc/").expect("list").len() == NcIcon::ALL.len());
+}

@@ -55,7 +55,9 @@ fn main() {
         language,
         settings,
     };
-    gpui_platform::application().run(move |cx| {
-        app::init(cx, mode, backend);
-    });
+    gpui_platform::application()
+        .with_assets(nicecooling::icons::Assets)
+        .run(move |cx| {
+            app::init(cx, mode, backend);
+        });
 }

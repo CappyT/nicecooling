@@ -4,6 +4,7 @@ use std::rc::Rc;
 
 use gpui::prelude::*;
 use gpui::{AnyElement, Context, FontWeight, SharedString, Window, div, hsla, px};
+use gpui_component::IconName;
 use gpui_component::button::{Button, ButtonVariants as _};
 use gpui_component::{Disableable as _, Sizable as _, h_flex, v_flex};
 
@@ -349,17 +350,17 @@ impl ScreenView {
             cx,
         );
         let mut buttons = h_flex().gap(px(4.));
-        for (name, label, dx, dl) in [
-            ("ls-led-left", "\u{25C0}", -1isize, 0isize),
-            ("ls-led-right", "\u{25B6}", 1, 0),
-            ("ls-led-shorter", "-", 0, -1),
-            ("ls-led-longer", "+", 0, 1),
+        for (name, glyph, dx, dl) in [
+            ("ls-led-left", IconName::ChevronLeft, -1isize, 0isize),
+            ("ls-led-right", IconName::ChevronRight, 1, 0),
+            ("ls-led-shorter", IconName::Minus, 0, -1),
+            ("ls-led-longer", IconName::Plus, 0, 1),
         ] {
             let device = id.to_owned();
             buttons = buttons.child(
                 Button::new(name)
                     .small()
-                    .label(label)
+                    .icon(glyph)
                     .disabled(!enabled)
                     .on_click(act(&view, move |this, _, cx| {
                         let mut ui = std::mem::take(&mut this.leakshield.lighting);
@@ -371,15 +372,15 @@ impl ScreenView {
                     })),
             );
         }
-        for (name, label, delta) in [
-            ("ls-led-up", "\u{25B2}", -1isize),
-            ("ls-led-down", "\u{25BC}", 1),
+        for (name, glyph, delta) in [
+            ("ls-led-up", IconName::ChevronUp, -1isize),
+            ("ls-led-down", IconName::ChevronDown, 1),
         ] {
             let device = id.to_owned();
             buttons = buttons.child(
                 Button::new(name)
                     .small()
-                    .label(label)
+                    .icon(glyph)
                     .disabled(!enabled)
                     .on_click(act(&view, move |this, _, cx| {
                         let mut ui = std::mem::take(&mut this.leakshield.lighting);

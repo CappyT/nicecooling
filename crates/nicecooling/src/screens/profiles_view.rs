@@ -14,6 +14,7 @@ use gpui_component::switch::Switch;
 use gpui_component::{Disableable as _, Sizable as _, h_flex, v_flex};
 
 use crate::app_settings::HINT_IMMEDIATE_SWITCHING;
+use crate::icons::{NcIcon, icon};
 use crate::model::Rule;
 use crate::screen_view::{InputKey, ScreenView, skeleton};
 use crate::screens::controls::{Pick, act};
@@ -115,7 +116,7 @@ impl ScreenView {
                         .child(caption(row.caption.clone(), p)),
                 );
             if row.release {
-                line = line.child(div().text_color(p.warning).child("\u{25B2}"));
+                line = line.child(icon(NcIcon::Warn, p.warning));
             }
             if row.active {
                 line = line.child(tag(locale.tr("profiles.tag.active"), TagKind::Accent, p));
@@ -448,7 +449,7 @@ impl ScreenView {
                 Button::new("profile-menu")
                     .small()
                     .ghost()
-                    .label("\u{22EF}")
+                    .icon(icon(NcIcon::Menu, p.fg))
                     .on_click(act(&view, |this, _, _| {
                         this.profiles.menu_open = !this.profiles.menu_open;
                     })),
@@ -823,7 +824,7 @@ impl ScreenView {
                     });
                 }
             })
-            .child(div().text_color(p.fg_dim).child("\u{2807}"))
+            .child(icon(NcIcon::Grip, p.fg_dim))
             .child(
                 div()
                     .w(px(20.))
@@ -831,7 +832,7 @@ impl ScreenView {
                     .child(row.number.to_string()),
             )
             .child(rules)
-            .child(div().text_color(p.fg_dim).child("\u{2192}"))
+            .child(icon(NcIcon::Right, p.fg_dim))
             .child(
                 div()
                     .w(px(130.))

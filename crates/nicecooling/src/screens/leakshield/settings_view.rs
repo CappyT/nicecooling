@@ -9,6 +9,7 @@ use gpui_component::input::Input;
 use gpui_component::switch::Switch;
 use gpui_component::{Disableable as _, Sizable as _, h_flex, v_flex};
 
+use crate::icons::{NcIcon, icon};
 use crate::model::Severity;
 use crate::screen_view::{InputKey, ScreenView, skeleton};
 use crate::screens::controls::{Pick, act};
@@ -16,7 +17,8 @@ use crate::screens::leakshield::TabState;
 use crate::screens::leakshield::sensors_view::header_row;
 use crate::screens::leakshield::settings::{Control, Link, Row, SettingsModel, Summary};
 use crate::screens::ui::{
-    caption, card, card_header, card_row, modal, notice_row, page, severity_icon, write_line,
+    caption, card, card_header, card_row, locked, modal, notice_row, page, severity_icon,
+    write_line,
 };
 use crate::shell::Page;
 use crate::tokens::Palette;
@@ -76,9 +78,7 @@ impl ScreenView {
                             cx.notify();
                         });
                     })
-                    .when(item.done, |s| {
-                        s.child(div().text_color(p.success).child("\u{2713}"))
-                    })
+                    .when(item.done, |s| s.child(icon(NcIcon::Check, p.success)))
                     .child(item.label.clone()),
             );
         }
@@ -116,7 +116,8 @@ impl ScreenView {
                 footer = footer.child(
                     Button::new("ls-wizard-back")
                         .small()
-                        .label(format!("\u{2190} {label}"))
+                        .icon(icon(NcIcon::Left, p.fg))
+                        .label(label.clone())
                         .on_click(act(&view, move |this, _, _| {
                             this.leakshield.settings.go(step)
                         })),
@@ -128,7 +129,8 @@ impl ScreenView {
                     Button::new("ls-wizard-next")
                         .small()
                         .primary()
-                        .label(format!("{label} \u{2192}"))
+                        .label(label.clone())
+                        .child(icon(NcIcon::Right, p.alarm_fg))
                         .on_click(act(&view, move |this, _, _| {
                             this.leakshield.settings.go(step)
                         })),
@@ -304,10 +306,12 @@ impl ScreenView {
                         div()
                             .text_size(px(12.))
                             .text_color(if row.writable { p.success } else { p.fg_dim })
-                            .child(if row.writable {
-                                row.badge.clone()
-                            } else {
-                                format!("\u{1F512} {}", row.badge)
+                            .map(|badge| {
+                                if row.writable {
+                                    badge.child(row.badge.clone())
+                                } else {
+                                    badge.child(locked(row.badge.clone(), p))
+                                }
                             }),
                     )
                 }),
@@ -392,9 +396,9 @@ impl ScreenView {
         }
         for row in &summary.rows {
             let name = if row.padlock {
-                format!("\u{1F512} {}", row.name)
+                locked(row.name.clone(), p)
             } else {
-                row.name.clone()
+                div().child(row.name.clone())
             };
             column = column.child(
                 card_row(p)
@@ -419,7 +423,7 @@ impl ScreenView {
         if let Some(text) = &summary.success {
             column = column.child(
                 card_row(p)
-                    .child(div().text_color(p.success).child("\u{2713}"))
+                    .child(icon(NcIcon::Check, p.success))
                     .child(text.clone()),
             );
         }
