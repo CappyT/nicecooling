@@ -2,19 +2,25 @@
 
 use gpui::prelude::*;
 use gpui::{AnyElement, Context, FontWeight, SharedString, Window, div, px};
-use gpui_component::button::Button;
-use gpui_component::input::Input;
-use gpui_component::{Disableable as _, Sizable as _, h_flex, v_flex};
+use gpui_component::{Disableable as _, h_flex, v_flex};
 
 use crate::model::Severity;
 use crate::screen_view::{InputKey, ScreenView, skeleton};
 use crate::screens::controls::{Pick, act};
 use crate::screens::leakshield::TabState;
+use crate::screens::leakshield::parts::{field_input, small_button, table_row};
 use crate::screens::leakshield::sensors::{SensorsModel, SoftwareRow, set_source};
 use crate::screens::ui::{
-    caption, card, card_header, card_row, modal, page, severity_icon, write_line,
+    caption, card, card_header, cell, label, modal, page, severity_icon, table_header, write_line,
 };
 use crate::tokens::Palette;
+
+/// The widths of the table columns.
+const NUMBER: f32 = 34.0;
+const VALUE: f32 = 110.0;
+const KIND: f32 = 120.0;
+const SLOT_NAME: f32 = 170.0;
+const UNIT: f32 = 60.0;
 
 impl ScreenView {
     pub(crate) fn render_ls_sensors(
@@ -43,7 +49,14 @@ impl ScreenView {
 
         let mut device = card(p)
             .child(card_header(model.device_title.clone(), p))
-            .child(header_row(&model.device_columns, &[40., 0., 120., 120.], p));
+            .child(
+                table_header(
+                    &model.device_columns,
+                    &[Some(NUMBER), None, Some(VALUE), Some(KIND)],
+                    p,
+                )
+                .border_t_0(),
+            );
         for row in &model.device_rows {
             let input = self.input(
                 InputKey::Ls(format!("sensor-name:{}", row.sensor)),
@@ -52,16 +65,26 @@ impl ScreenView {
                 window,
                 cx,
             );
-            let mut line = card_row(p)
+            // An inline input of a table row is 28 px high.
+            let name = field_input(&input, "", row.enabled, false, 0., p, window, cx)
+                .w_full()
+                .h(px(28.))
+                .rounded(px(7.));
+            let mut line = table_row(p)
                 .text_color(if row.dim { p.fg_dim } else { p.fg })
-                .child(div().w(px(40.)).child(row.number.to_string()))
                 .child(
-                    div()
-                        .flex_1()
-                        .child(Input::new(&input).disabled(!row.enabled)),
+                    cell(NUMBER)
+                        .text_color(p.fg_dim)
+                        .child(row.number.to_string()),
                 )
-                .child(div().w(px(120.)).text_right().child(row.value.clone()))
-                .child(div().w(px(120.)).child(row.kind.clone()));
+                .child(div().flex_1().min_w_0().child(name))
+                .child(
+                    cell(VALUE)
+                        .text_right()
+                        .font_weight(FontWeight::BOLD)
+                        .child(row.value.clone()),
+                )
+                .child(cell(KIND).text_color(p.fg_dim).child(row.kind.clone()));
             if let Some(line_text) = &row.write_line {
                 line = line.child(write_line(line_text, p));
             }
@@ -70,16 +93,21 @@ impl ScreenView {
 
         let mut software = card(p)
             .child(card_header(model.software_title.clone(), p))
-            .child(header_row(
-                &model.software_columns,
-                &[40., 150., 260., 70., 110.],
-                p,
-            ));
+            .child(
+                table_header(
+                    &model.software_columns,
+                    &[Some(NUMBER), Some(SLOT_NAME), None, Some(UNIT), Some(VALUE)],
+                    p,
+                )
+                .border_t_0(),
+            );
         for row in &model.software_rows {
             software = software.child(self.software_row(row, &model.clear_label, p, cx));
         }
-        software = software.child(card_row(p).child(caption(model.caption.clone(), p)));
-        content = content.child(device).child(software);
+        content = content
+            .child(device)
+            .child(software)
+            .child(caption(model.caption.clone(), p).px(px(6.)));
 
         let mut root = div().relative().w_full().child(content);
         if let Some(dialog) = &model.dialog {
@@ -90,14 +118,10 @@ impl ScreenView {
                 dialog.text.clone(),
                 Vec::new(),
                 vec![
-                    Button::new("ls-sensors-clear-cancel")
-                        .small()
-                        .label(dialog.cancel.clone())
+                    small_button("ls-sensors-clear-cancel", dialog.cancel.clone())
                         .on_click(act(&cancel, |this, _, _| this.leakshield.sensors.cancel()))
                         .into_any_element(),
-                    Button::new("ls-sensors-clear-confirm")
-                        .small()
-                        .label(dialog.confirm.clone())
+                    small_button("ls-sensors-clear-confirm", dialog.confirm.clone())
                         .on_click(act(&confirm, move |this, _, _| {
                             if let Some(command) = this.leakshield.sensors.confirm_clear(&id) {
                                 this.send(command);
@@ -138,21 +162,26 @@ impl ScreenView {
             cx,
         );
         let mut name = v_flex()
-            .w(px(150.))
-            .child(div().font_weight(FontWeight::BOLD).child(row.name.clone()));
+            .w(px(SLOT_NAME))
+            .flex_none()
+            .min_w_0()
+            .child(label(row.name.clone()).font_weight(FontWeight::BOLD));
         for text in &row.used_by {
             name = name.child(caption(text.clone(), p));
         }
-        let mut line = card_row(p)
-            .child(div().w(px(40.)).child(slot.to_string()))
+        let mut line = table_row(p)
+            .min_h(px(if row.used_by.is_empty() { 36. } else { 48. }))
+            .child(cell(NUMBER).text_color(p.fg_dim).child(slot.to_string()))
             .child(name)
-            .child(div().w(px(260.)).child(select))
-            .child(div().w(px(70.)).child(row.unit.clone()))
+            .child(div().flex_1().min_w_0().child(select))
+            .child(cell(UNIT).text_color(p.fg_dim).child(row.unit.clone()))
             .child(
                 h_flex()
-                    .w(px(110.))
+                    .w(px(VALUE))
+                    .flex_none()
                     .gap(px(6.))
                     .justify_end()
+                    .font_weight(FontWeight::BOLD)
                     .when_some(row.warning.clone(), |value, _| {
                         value.child(severity_icon(Severity::Warning, p))
                     })
@@ -184,24 +213,4 @@ impl ScreenView {
         }
         line.into_any_element()
     }
-}
-
-/// The captions of a table: a width of 0 takes the rest of the row.
-pub(crate) fn header_row(names: &[String], widths: &[f32], p: &Palette) -> AnyElement {
-    let mut line = h_flex()
-        .h(px(32.))
-        .px(px(18.))
-        .gap(px(12.))
-        .items_center()
-        .text_size(px(12.))
-        .font_weight(FontWeight::BOLD)
-        .text_color(p.fg_dim);
-    for (name, width) in names.iter().zip(widths) {
-        line = line.child(if *width == 0.0 {
-            div().flex_1().child(name.clone())
-        } else {
-            div().w(px(*width)).child(name.clone())
-        });
-    }
-    line.into_any_element()
 }
