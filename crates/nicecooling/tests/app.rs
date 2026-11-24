@@ -355,6 +355,15 @@ fn a_long_event_name_stays_in_its_cell(cx: &mut TestAppContext) {
         }
     }
     assert_eq!(checked, 2, "the rows of the alarm response table");
+    // The Event cell keeps room for a name of `docs/ui/screens/alarms.md`.
+    let event = visual
+        .debug_bounds("response-event-cell")
+        .expect("event cell");
+    assert!(
+        event.size.width >= gpui::px(160.),
+        "Event cell is {:?} wide at 1100x700",
+        event.size.width
+    );
     let titles: Vec<_> = rows
         .responses
         .groups

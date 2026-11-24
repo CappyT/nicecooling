@@ -287,15 +287,17 @@ impl ScreenView {
         );
         let line = card_row(p)
             .child(
-                wide_cell().child(
-                    h_flex()
-                        .gap(px(6.))
-                        .child(severity_icon(row.severity, p))
-                        .child(label(row.title.clone()).debug_selector({
-                            let key = row.key.clone();
-                            move || format!("response-title-{key}")
-                        })),
-                ),
+                event_cell()
+                    .debug_selector(|| "response-event-cell".to_owned())
+                    .child(
+                        h_flex()
+                            .gap(px(6.))
+                            .child(severity_icon(row.severity, p))
+                            .child(label(row.title.clone()).debug_selector({
+                                let key = row.key.clone();
+                                move || format!("response-title-{key}")
+                            })),
+                    ),
             )
             .child(cell(SOURCE).child(group.to_owned()).debug_selector({
                 let key = row.key.clone();
@@ -399,9 +401,9 @@ const EVENT_MIN: f32 = 160.;
 const ACTIVE: [f32; 5] = [0., 150., 70., 150., 170.];
 const HISTORY: [f32; 5] = [124., 0., 140., 100., 200.];
 const SOURCE: f32 = 170.;
-const RESPONSE: f32 = 200.;
-const DELAY: f32 = 80.;
-const NOTES: f32 = 150.;
+const RESPONSE: f32 = 190.;
+const DELAY: f32 = 72.;
+const NOTES: f32 = 140.;
 const RESPONSE_COLUMNS: [Option<f32>; 4] = [
     None,
     Some(SOURCE),
