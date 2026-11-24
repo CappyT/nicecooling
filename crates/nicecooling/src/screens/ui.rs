@@ -186,13 +186,16 @@ pub fn locked(text: impl Into<SharedString>, p: &Palette) -> Div {
         .child(text.into())
 }
 
-/// The write feedback next to a control: check or octagon, and the text.
+/// The write feedback next to a control: check or octagon, and the text. The text takes the
+/// width that is left and wraps there.
 pub fn write_line(line: &FeedbackLine, p: &Palette) -> Div {
     let color = if line.failure { p.alarm } else { p.fg_dim };
     h_flex()
+        .min_w_0()
         .gap(px(6.))
-        .items_center()
+        .items_start()
         .text_size(px(12.))
+        .line_height(px(16.))
         .text_color(color)
         .child(
             icon(
@@ -203,9 +206,15 @@ pub fn write_line(line: &FeedbackLine, p: &Palette) -> Div {
                 },
                 color,
             )
-            .with_size(px(14.)),
+            .with_size(px(14.))
+            .mt(px(1.)),
         )
-        .child(line.text.clone())
+        .child(
+            div()
+                .min_w_0()
+                .debug_selector(|| "write-line-text".to_owned())
+                .child(line.text.clone()),
+        )
 }
 
 /// The ground of a page: 12 px at the top, 24 px at the sides, 12 px between the cards.

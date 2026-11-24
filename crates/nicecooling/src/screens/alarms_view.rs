@@ -308,10 +308,12 @@ impl ScreenView {
                     .flex_none()
                     .child(Input::new(&delay).disabled(!row.delay_enabled)),
             );
-        // The notes of the row: the overlap mark, "Reset" and the write feedback.
-        let mut notes = h_flex().w(px(NOTES)).flex_none().min_w_0().gap(px(6.));
+        // The notes of the row: the overlap mark and "Reset", then the write feedback under
+        // them. The feedback wraps in the cell.
+        let mut marks = h_flex().gap(px(6.));
+        let has_marks = row.overlap.is_some() || row.reset.is_some();
         if let Some(text) = row.overlap.clone() {
-            notes = notes.child(
+            marks = marks.child(
                 div()
                     .id(SharedString::from(format!("response-overlap-{}", row.key)))
                     .tooltip(move |window, cx| Tooltip::new(text.clone()).build(window, cx))
@@ -319,7 +321,7 @@ impl ScreenView {
             );
         }
         if let Some(command) = row.reset.clone() {
-            notes = notes.child(
+            marks = marks.child(
                 Self::link_button(
                     SharedString::from(format!("response-reset-{}", row.key)),
                     locale.tr("alarms.reset"),
@@ -327,9 +329,14 @@ impl ScreenView {
                 .on_click(act(&view, move |this, _, _| this.send(command.clone()))),
             );
         }
-        if let Some(write) = &row.write_line {
-            notes = notes.child(write_line(write, p));
-        }
+        let notes = v_flex()
+            .w(px(NOTES))
+            .flex_none()
+            .min_w_0()
+            .gap(px(3.))
+            .debug_selector(|| "response-notes".to_owned())
+            .children(has_marks.then_some(marks))
+            .children(row.write_line.as_ref().map(|write| write_line(write, p)));
         let mut column = v_flex().w_full().child(line.child(notes));
         if let Some(text) = &row.delay_warning {
             column = column.child(

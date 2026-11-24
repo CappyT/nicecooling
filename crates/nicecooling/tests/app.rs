@@ -16,6 +16,10 @@ struct Rig {
 }
 
 fn backend() -> (Backend, Rig) {
+    backend_in(Language::English)
+}
+
+fn backend_in(language: Language) -> (Backend, Rig) {
     let runtime = tokio::runtime::Runtime::new().expect("runtime");
     let (events, events_rx) = broadcast::channel(64);
     let (commands, inbox) = mpsc::unbounded_channel();
@@ -25,7 +29,7 @@ fn backend() -> (Backend, Rig) {
         inbox,
         client: None,
         runtime: runtime.handle().clone(),
-        language: Language::English,
+        language,
         settings: Default::default(),
     };
     (
@@ -416,5 +420,65 @@ fn history_event_cell_has_room_at_minimum_size(cx: &mut TestAppContext) {
         cell.size.width >= gpui::px(160.),
         "Event cell is {:?} wide at 1100x700",
         cell.size.width
+    );
+}
+
+/// The write feedback of an alarm response row stays in its cell and wraps there. The Italian
+/// failure line is the longest one.
+#[gpui::test]
+fn a_failed_response_write_wraps_in_its_cell(cx: &mut TestAppContext) {
+    use nicecooling::command::response_feedback_key;
+    use nicecooling::model::ResponseRule;
+    use nicecooling::screens::WriteOutcome;
+
+    let (backend, rig) = backend_in(Language::Italian);
+    let model = cx.update(|cx| app::init(cx, StartMode::Normal, backend));
+    cx.run_until_parked();
+    let mut state = online();
+    // An overridden rule shows "Reset" next to the feedback.
+    state.snapshot.responses = vec![ResponseRule {
+        event: "leakshield.leak-alarm".into(),
+        source: String::new(),
+        response: Response::Poweroff,
+        delay_s: 30,
+        overridden: true,
+    }];
+    rig.events
+        .send(DaemonEvent::Snapshot(Box::new(state.snapshot.clone())))
+        .unwrap();
+    cx.run_until_parked();
+    cx.update(|cx| {
+        model.update(cx, |app, cx| {
+            app.page = Page::Alarms;
+            app.feedback.set(
+                response_feedback_key("leakshield.leak-alarm", ""),
+                WriteOutcome::Refused {
+                    error: "InvalidArgument".into(),
+                },
+            );
+            cx.notify();
+        });
+    });
+    let handle = cx.windows()[0];
+    cx.simulate_window_resize(handle, gpui::size(gpui::px(1100.), gpui::px(700.)));
+    cx.run_until_parked();
+    let mut visual = VisualTestContext::from_window(handle, cx);
+    visual.update(|window, cx| window.draw(cx).clear(cx));
+    let text = visual.debug_bounds("write-line-text").expect("feedback");
+    let notes = visual.debug_bounds("response-notes").expect("notes cell");
+    let content = visual.debug_bounds("shell-content").expect("content");
+    assert!(
+        text.left() >= notes.left() && text.right() <= notes.right(),
+        "the feedback is at {:?} to {:?}, its cell at {:?} to {:?}",
+        text.left(),
+        text.right(),
+        notes.left(),
+        notes.right()
+    );
+    assert!(notes.right() <= content.right() - gpui::px(24.));
+    assert!(
+        text.size.height > gpui::px(16.),
+        "the feedback wraps: {:?}",
+        text.size.height
     );
 }
