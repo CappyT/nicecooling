@@ -6,9 +6,9 @@ use gpui::prelude::*;
 use gpui::{
     AnyElement, App, ClickEvent, Context, Entity, FontWeight, Hsla, SharedString, Window, div, px,
 };
+use gpui_component::Sizable as _;
 use gpui_component::button::{Button, ButtonVariants as _};
 use gpui_component::input::{Input, InputState};
-use gpui_component::{Disableable as _, Sizable as _, v_flex};
 
 use crate::icons::{NcIcon, icon, text_icon};
 use crate::screen_view::ScreenView;
@@ -34,80 +34,28 @@ pub(crate) fn act(
 /// One choice of a select: identifier, text and whether it is the current one.
 pub(crate) type Choice = (String, String, bool);
 
-impl ScreenView {
-    /// A select: a button with the shown text. A click opens the list of choices under it.
-    #[allow(clippy::too_many_arguments)]
-    pub(crate) fn select(
-        &mut self,
-        key: &str,
-        shown: &str,
-        choices: Vec<Choice>,
-        enabled: bool,
-        tooltip: &str,
-        pick: Pick,
-        p: &Palette,
-        cx: &mut Context<Self>,
-    ) -> AnyElement {
-        let view = cx.entity();
-        let open = self.open_picker.as_deref() == Some(key);
-        let name = key.to_owned();
-        let mut column = v_flex().gap(px(2.)).child(
-            Button::new(SharedString::from(format!("select-{key}")))
-                .small()
-                .label(shown.to_owned())
-                .child(text_icon(NcIcon::Down))
-                .disabled(!enabled)
-                .tooltip(tooltip.to_owned())
-                .on_click(act(&view, move |this, _, _| {
-                    this.open_picker = if this.open_picker.as_deref() == Some(name.as_str()) {
-                        None
-                    } else {
-                        Some(name.clone())
-                    };
-                })),
-        );
-        if open && enabled {
-            let mut list = v_flex()
-                .min_w(px(180.))
-                .rounded(px(9.))
-                .bg(p.card)
-                .border_1()
-                .border_color(p.border)
-                .p(px(4.));
-            for (index, (id, text, selected)) in choices.into_iter().enumerate() {
-                let pick = pick.clone();
-                let view = view.clone();
-                let hover = p.hover;
-                let marked = p.accent_tint;
-                list = list.child(
-                    div()
-                        .id(SharedString::from(format!("choice-{key}-{index}")))
-                        .h(px(30.))
-                        .px(px(10.))
-                        .flex()
-                        .items_center()
-                        .rounded(px(6.))
-                        .cursor_pointer()
-                        .hover(move |row| row.bg(hover))
-                        .when(selected, move |row| {
-                            row.bg(marked).font_weight(FontWeight::BOLD)
-                        })
-                        .on_click(move |_, window, cx| {
-                            let (id, pick) = (id.clone(), pick.clone());
-                            view.update(cx, |this, cx| {
-                                this.open_picker = None;
-                                pick(this, id, window, cx);
-                                cx.notify();
-                            });
-                        })
-                        .child(text),
-                );
-            }
-            column = column.child(list);
-        }
-        column.into_any_element()
-    }
+/// What an input takes: a value, nothing because it does not apply now, or nothing because
+/// its field is read-only.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum FieldMode {
+    Editable,
+    /// The setting does not apply now: the input is dim.
+    Off,
+    /// The field takes no write: no fill and a dashed outline.
+    ReadOnly,
+}
 
+impl From<bool> for FieldMode {
+    fn from(writable: bool) -> Self {
+        if writable {
+            Self::Editable
+        } else {
+            Self::ReadOnly
+        }
+    }
+}
+
+impl ScreenView {
     /// A select with the look of the design: the `ground` fill, the text at the left and a
     /// chevron at the right. It takes the width of its container. The list of choices opens
     /// in a popover under it.
@@ -204,6 +152,31 @@ impl ScreenView {
                     .child(unit),
             ),
             None => input,
+        }
+    }
+
+    /// A `field_input` in the look of its mode. `invalid` gives it the red outline of a value
+    /// out of range.
+    pub(crate) fn mode_input(
+        state: &Entity<InputState>,
+        unit: &str,
+        mode: impl Into<FieldMode>,
+        invalid: bool,
+        small: bool,
+        p: &Palette,
+    ) -> Input {
+        let mode = mode.into();
+        let unit = (!unit.is_empty()).then(|| SharedString::from(unit.to_owned()));
+        let input = Self::field_input(state, unit, small, p).disabled(mode != FieldMode::Editable);
+        match mode {
+            FieldMode::ReadOnly => input
+                .bg(gpui::transparent_black())
+                .border_dashed()
+                .border_color(p.border_strong)
+                .text_color(p.fg_dim),
+            FieldMode::Off => input.opacity(0.5),
+            FieldMode::Editable if invalid => input.border_color(p.alarm),
+            FieldMode::Editable => input,
         }
     }
 

@@ -260,7 +260,7 @@ impl ScreenView {
         p: &Palette,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let select = self.select(
+        let select = self.select_field(
             key,
             &row.shown,
             row.choices
@@ -274,7 +274,8 @@ impl ScreenView {
                 })
                 .collect(),
             enabled,
-            "",
+            false,
+            p.track,
             pick,
             p,
             cx,
@@ -289,7 +290,7 @@ impl ScreenView {
                         .font_weight(FontWeight::BOLD)
                         .child(row.label.clone()),
                 )
-                .child(select),
+                .child(div().w(px(280.)).flex_none().child(select)),
         );
         if let Some(text) = &row.warning {
             column = column.child(notice_row(text.clone(), true, p));

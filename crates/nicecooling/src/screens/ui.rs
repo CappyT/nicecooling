@@ -286,6 +286,25 @@ pub fn card_header(title: impl Into<SharedString>, _p: &Palette) -> Div {
         .child(heading(title).flex_1().min_w_0())
 }
 
+/// The header of a card whose title has a tag or a caption next to it. The title keeps its
+/// width. The caller adds the tag, then a caption that takes the rest of the row.
+pub fn title_header(title: impl Into<SharedString>) -> Div {
+    h_flex()
+        .min_h(px(40.))
+        .pl(px(18.))
+        .pr(px(12.))
+        .py(px(6.))
+        .gap(px(9.))
+        .flex_none()
+        .whitespace_nowrap()
+        .child(
+            div()
+                .flex_none()
+                .font_weight(FontWeight::BOLD)
+                .child(title.into()),
+        )
+}
+
 /// A row of a card: a 1 px line above it, and 18 px side padding.
 pub fn card_row(p: &Palette) -> Div {
     h_flex()
@@ -295,6 +314,31 @@ pub fn card_row(p: &Palette) -> Div {
         .py(px(6.))
         .gap(px(12.))
         .items_center()
+        .border_t_1()
+        .border_color(p.border)
+}
+
+/// A row of a settings form: 52 px, a 1 px line above it. The name and its caption go at the
+/// left, the control at the right.
+pub fn field_row(p: &Palette) -> Div {
+    h_flex()
+        .w_full()
+        .min_h(px(52.))
+        .px(px(18.))
+        .py(px(8.))
+        .gap(px(18.))
+        .border_t_1()
+        .border_color(p.border)
+}
+
+/// A row of a table: 36 px, a 1 px line above it, and the gaps of `table_header`.
+pub fn table_row(p: &Palette) -> Div {
+    h_flex()
+        .w_full()
+        .min_h(px(36.))
+        .px(px(18.))
+        .py(px(3.))
+        .gap(px(12.))
         .border_t_1()
         .border_color(p.border)
 }

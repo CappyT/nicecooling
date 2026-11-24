@@ -23,7 +23,7 @@ use crate::screens::format::plain;
 use crate::screens::sensors_view::PickRow;
 use crate::screens::ui::{
     TagKind, caption, card, card_row, heading, modal, page, seg, seg_item, select_trigger,
-    severity_icon, tag, with_popover, write_line,
+    severity_icon, table_row, tag, with_popover, write_line,
 };
 use crate::tokens::Palette;
 use crate::widgets::paint::{at, hatch, polyline};
@@ -549,9 +549,7 @@ impl ScreenView {
             }
             for (temperature, duty) in &detail.bios.rows {
                 body = body.child(
-                    card_row(p)
-                        .min_h(px(36.))
-                        .py(px(0.))
+                    table_row(p)
                         .child(div().w(px(120.)).child(temperature.clone()))
                         .child(div().flex_1().child(duty.clone())),
                 );

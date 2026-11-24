@@ -12,9 +12,8 @@ use crate::screen_view::{InputKey, ScreenView, skeleton};
 use crate::screens::controls::{Pick, act};
 use crate::screens::leakshield::TabState;
 use crate::screens::leakshield::lighting::{Hsv, LightingModel, ToolbarButton};
-use crate::screens::leakshield::parts::{field_input, field_row, small_button};
 use crate::screens::ui::{
-    caption, card, card_header, card_row, modal, notice_row, page, write_line,
+    caption, card, card_header, card_row, field_row, modal, notice_row, page, write_line,
 };
 use crate::tokens::Palette;
 use gpui_component::slider::Slider;
@@ -35,9 +34,13 @@ fn toolbar(
     handler: impl Fn(&mut ScreenView, &mut Context<ScreenView>) + 'static,
     view: &gpui::Entity<ScreenView>,
 ) -> Button {
-    let mut b = small_button(SharedString::from(id.to_owned()), button.label.clone())
-        .disabled(!button.enabled)
-        .on_click(act(view, move |this, _, cx| handler(this, cx)));
+    let mut b = ScreenView::small_button(
+        SharedString::from(id.to_owned()),
+        button.label.clone(),
+        None,
+    )
+    .disabled(!button.enabled)
+    .on_click(act(view, move |this, _, cx| handler(this, cx)));
     if let Some(tooltip) = &button.tooltip {
         b = b.tooltip(tooltip.clone());
     }
@@ -181,7 +184,7 @@ impl ScreenView {
                     .items_center()
                     .child(text.clone())
                     .child(
-                        small_button("ls-led-add-first", button.clone()).on_click(act(
+                        Self::small_button("ls-led-add-first", button.clone(), None).on_click(act(
                             &view,
                             move |this, _, cx| {
                                 let mut ui = std::mem::take(&mut this.leakshield.lighting);
@@ -211,7 +214,7 @@ impl ScreenView {
         if let Some((text, button)) = &model.undo {
             let device = id.to_owned();
             content = content.child(card(p).child(notice_row(text.clone(), false, p).child(
-                small_button("ls-led-undo", button.clone()).on_click(act(
+                Self::small_button("ls-led-undo", button.clone(), None).on_click(act(
                     &view,
                     move |this, _, _| {
                         if let Some(command) = this.leakshield.lighting.undo(&device) {
@@ -282,15 +285,13 @@ impl ScreenView {
                 String::new(),
                 vec![list.into_any_element()],
                 vec![
-                    small_button("ls-effect-cancel", picker.cancel.clone())
+                    Self::small_button("ls-effect-cancel", picker.cancel.clone(), None)
                         .on_click(act(&cancel, |this, _, _| {
                             this.leakshield.lighting.effect_picker = None
                         }))
                         .into_any_element(),
-                    Button::new("ls-effect-use")
-                        .small()
+                    Self::small_button("ls-effect-use", picker.confirm.clone(), None)
                         .primary()
-                        .label(picker.confirm.clone())
                         .on_click(act(&confirm, move |this, _, cx| {
                             let mut ui = std::mem::take(&mut this.leakshield.lighting);
                             let command =
@@ -332,7 +333,7 @@ impl ScreenView {
                 .child(name(&panel.effect_label))
                 .child(div().flex_none().child(panel.effect.clone()))
                 .child(
-                    small_button("ls-effect-change", panel.change.clone())
+                    Self::small_button("ls-effect-change", panel.change.clone(), None)
                         .disabled(!enabled)
                         .on_click(act(&view, |this, _, _| {
                             this.leakshield.lighting.effect_picker = Some("fixed-color".to_owned())
@@ -401,8 +402,18 @@ impl ScreenView {
             field_row(p)
                 .child(name(&panel.range_label))
                 .child(buttons)
-                .child(field_input(&first, "", enabled, false, 70., p, window, cx))
-                .child(field_input(&count, "", enabled, false, 70., p, window, cx)),
+                .child(
+                    div()
+                        .w(px(70.))
+                        .flex_none()
+                        .child(Self::mode_input(&first, "", enabled, false, false, p)),
+                )
+                .child(
+                    div()
+                        .w(px(70.))
+                        .flex_none()
+                        .child(Self::mode_input(&count, "", enabled, false, false, p)),
+                ),
         );
         for (index, (label, value)) in [
             (&panel.speed_label, panel.speed),
@@ -458,7 +469,12 @@ impl ScreenView {
                             .border_color(p.border)
                             .bg(color(*value)),
                     )
-                    .child(field_input(&hue, "°", enabled, false, 80., p, window, cx)),
+                    .child(
+                        div()
+                            .w(px(80.))
+                            .flex_none()
+                            .child(Self::mode_input(&hue, "°", enabled, false, false, p)),
+                    ),
             );
         }
         body = body.child(field_row(p).child(name(&panel.color_label)).child(colors));
@@ -490,8 +506,22 @@ impl ScreenView {
             .iter()
             .find(|(_, _, selected)| *selected)
             .map_or_else(String::new, |(_, text, _)| text.clone());
-        let select = self.select("ls-led-source", &shown, options, enabled, "", pick, p, cx);
-        body = body.child(field_row(p).child(name(&panel.driven_label)).child(select));
+        let select = self.select_field(
+            "ls-led-source",
+            &shown,
+            options,
+            enabled,
+            false,
+            p.track,
+            pick,
+            p,
+            cx,
+        );
+        body = body.child(
+            field_row(p)
+                .child(name(&panel.driven_label))
+                .child(div().w(px(240.)).flex_none().child(select)),
+        );
         body.into_any_element()
     }
 }

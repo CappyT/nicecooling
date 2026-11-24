@@ -14,7 +14,9 @@ use crate::screens::overview::{
     AlarmRow, KeyTemperature, LoopCard, OverviewModel, OverviewState, PressureCard, RowTone,
     TagTone,
 };
-use crate::screens::ui::{TagKind, caption, card, card_row, icon_tag, page, severity_icon, tag};
+use crate::screens::ui::{
+    TagKind, caption, card, card_row, icon_tag, page, severity_icon, tag, title_header,
+};
 use crate::shell::Page;
 use crate::tokens::Palette;
 use crate::widgets::loop_diagram;
@@ -89,7 +91,7 @@ impl ScreenView {
             .leakshields
             .first()
             .map(|device| device.id.clone());
-        let mut alarms_header = header(locale.tr("overview.alarms_title"));
+        let mut alarms_header = title_header(locale.tr("overview.alarms_title"));
         if let Some((count, tone)) = model.alarm_count {
             let kind = match tone {
                 RowTone::Alarm => TagKind::Alarm,
@@ -135,7 +137,7 @@ impl ScreenView {
             }));
         let temperatures = card(p)
             .flex_1()
-            .child(header(locale.tr("overview.temperatures_title")))
+            .child(title_header(locale.tr("overview.temperatures_title")))
             .children(model.temperatures.iter().map(|t| temperature_row(t, p, cx)));
         let profile_tag = model.profile.tag.clone().map(|text| {
             let kind = if model.profile.tag_accent {
@@ -147,7 +149,7 @@ impl ScreenView {
         });
         let profile = card(p)
             .flex_1()
-            .child(header(locale.tr("overview.profile_title")))
+            .child(title_header(locale.tr("overview.profile_title")))
             .child(
                 card_row(p).child(
                     v_flex()
@@ -203,7 +205,7 @@ impl ScreenView {
         let loop_id = card_model.id.clone();
         let view = cx.entity();
         // The header: the name, the Mode tag, the caption, and the link at the right.
-        let mut top = header(card_model.name.clone());
+        let mut top = title_header(card_model.name.clone());
         if let Some(mode) = &card_model.mode_tag {
             top = top.child(match mode.tone {
                 // A Mode name is in capitals and bold.
@@ -395,7 +397,7 @@ impl ScreenView {
                     .child(text.clone()),
             );
         }
-        let mut top = header(card_model.title.clone())
+        let mut top = title_header(card_model.title.clone())
             .child(caption(card_model.subtitle.clone(), p).flex_1().truncate());
         if let Some(text) = &card_model.change {
             top = top.child(caption(text.clone(), p).flex_none());
@@ -432,25 +434,6 @@ impl ScreenView {
             })
             .unwrap_or_default()
     }
-}
-
-/// The header of a card whose title has a tag or a caption next to it. The title keeps its
-/// width. The caller adds the tag, then a caption that takes the rest of the row.
-fn header(title: impl Into<SharedString>) -> gpui::Div {
-    h_flex()
-        .min_h(px(40.))
-        .pl(px(18.))
-        .pr(px(12.))
-        .py(px(6.))
-        .gap(px(9.))
-        .flex_none()
-        .whitespace_nowrap()
-        .child(
-            div()
-                .flex_none()
-                .font_weight(FontWeight::BOLD)
-                .child(title.into()),
-        )
 }
 
 /// A row of 30 px: the name of the sensor and its value. A sensor without a value is dim.

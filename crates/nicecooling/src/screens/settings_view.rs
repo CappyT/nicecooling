@@ -1,7 +1,7 @@
 //! The window of the Settings screen: one card for each group, one row for each setting.
 
 use gpui::prelude::*;
-use gpui::{AnyElement, Context, Div, Window, div, px};
+use gpui::{AnyElement, Context, Window, div, px};
 use gpui_component::switch::Switch;
 use gpui_component::{h_flex, v_flex};
 
@@ -10,7 +10,9 @@ use crate::icons::{NcIcon, icon};
 use crate::screen_view::{ScreenView, skeleton};
 use crate::screens::controls::{Pick, act};
 use crate::screens::settings::{Change, ConnectionKind, InfoRow, SettingsModel, SwitchRow};
-use crate::screens::ui::{caption, card, card_header, card_row, label, notice_row, page};
+use crate::screens::ui::{
+    caption, card, card_header, card_row, field_row, label, notice_row, page,
+};
 use crate::tokens::Palette;
 
 impl ScreenView {
@@ -214,11 +216,6 @@ impl ScreenView {
         });
         cx.notify();
     }
-}
-
-/// A row of the settings form: 18 px between the name and the control.
-fn field_row(p: &Palette) -> Div {
-    card_row(p).gap(px(18.))
 }
 
 /// A row with a fact: the name at the left, the value at the right.

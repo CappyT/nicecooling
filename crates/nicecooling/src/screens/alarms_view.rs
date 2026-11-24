@@ -18,7 +18,7 @@ use crate::screens::alarms::{
 use crate::screens::controls::{Pick, act};
 use crate::screens::ui::{
     caption, card, card_header, card_row, cell, heading, label, page, severity_icon, table_header,
-    wrap_cell, write_line,
+    table_row, wrap_cell, write_line,
 };
 use crate::tokens::Palette;
 
@@ -147,16 +147,9 @@ impl ScreenView {
     ) -> AnyElement {
         let view = cx.entity();
         let page_target = row.open.clone();
-        let line = h_flex()
+        let line = table_row(p)
             .id(("alarm-active", index))
-            .w_full()
-            .min_h(px(36.))
-            .px(px(18.))
             .py(px(6.))
-            .gap(px(12.))
-            .items_center()
-            .border_t_1()
-            .border_color(p.border)
             .when(page_target.is_some(), |line| {
                 line.cursor_pointer().hover(|line| line.bg(p.hover))
             })
@@ -292,9 +285,7 @@ impl ScreenView {
             window,
             cx,
         );
-        let line = card_row(p)
-            .min_h(px(36.))
-            .py(px(3.))
+        let line = table_row(p)
             .child(
                 event_cell()
                     .debug_selector(|| "response-event-cell".to_owned())
@@ -366,16 +357,9 @@ impl ScreenView {
         view: &gpui::Entity<ScreenView>,
     ) -> AnyElement {
         let sensor = row.sensor.clone();
-        h_flex()
+        table_row(p)
             .id(("alarm-history", index))
-            .w_full()
-            .min_h(px(36.))
-            .px(px(18.))
             .py(px(6.))
-            .gap(px(12.))
-            .items_center()
-            .border_t_1()
-            .border_color(p.border)
             .cursor_pointer()
             .hover(|line| line.bg(p.hover))
             .on_click(act(view, move |this, _, cx| match sensor.clone() {

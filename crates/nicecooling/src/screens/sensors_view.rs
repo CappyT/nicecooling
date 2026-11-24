@@ -18,7 +18,7 @@ use crate::screens::sensors::{
     SensorsState,
 };
 use crate::screens::ui::{
-    caption, card, heading, page, popover, seg, seg_item, select_trigger, severity_icon,
+    caption, card, heading, page, popover, seg, seg_item, select_trigger, severity_icon, table_row,
     with_popover,
 };
 use crate::tokens::Palette;
@@ -429,16 +429,8 @@ impl ScreenView {
                 cx,
             )
         });
-        let mut line = h_flex()
+        let mut line = table_row(p)
             .id(SharedString::from(format!("sensor-{}", row.id)))
-            .w_full()
-            .min_h(px(36.))
-            .px(px(18.))
-            .py(px(3.))
-            .gap(px(12.))
-            .items_center()
-            .border_t_1()
-            .border_color(p.border)
             .text_color(ink)
             .when(row.selected, |line| line.bg(p.accent_tint))
             .when(!row.selected, |line| line.hover(|line| line.bg(p.hover)))

@@ -4,7 +4,7 @@ use gpui::prelude::*;
 use gpui::{AnyElement, ClipboardItem, Context, FontWeight, SharedString, Window, div, px};
 use gpui_component::{h_flex, v_flex};
 
-use crate::icons::{NcIcon, icon, text_icon};
+use crate::icons::{NcIcon, icon};
 
 use crate::model::FieldRisk;
 use crate::screen_view::{InputKey, ScreenView, skeleton};
@@ -12,9 +12,8 @@ use crate::screens::controls::{Pick, act};
 use crate::screens::leakshield::fields::{
     FieldRow, FieldsModel, FieldsState, Filter, Verification,
 };
-use crate::screens::leakshield::parts::{field_input, small_button, table_row};
 use crate::screens::ui::{
-    TagKind, caption, card, cell, label, locked, notice_row, page, table_header, tag,
+    TagKind, caption, card, cell, label, locked, notice_row, page, table_header, table_row, tag,
 };
 use crate::tokens::Palette;
 
@@ -50,7 +49,7 @@ impl ScreenView {
                 _ => Filter::All,
             };
         });
-        let filter = self.select(
+        let filter = self.select_field(
             "ls-fields-filter",
             &model.filter_label,
             model
@@ -66,7 +65,8 @@ impl ScreenView {
                 })
                 .collect(),
             true,
-            "",
+            false,
+            p.track,
             pick,
             p,
             cx,
@@ -76,11 +76,10 @@ impl ScreenView {
             .w_full()
             .gap(px(12.))
             .items_start()
-            .child(
-                field_input(&search, "", true, false, 220., p, window, cx)
-                    .child(div().pr(px(10.)).child(icon(NcIcon::Search, p.fg_dim))),
-            )
-            .child(filter)
+            .child(div().w(px(220.)).flex_none().child(
+                Self::field_input(&search, None, false, p).prefix(icon(NcIcon::Search, p.fg_dim)),
+            ))
+            .child(div().w(px(200.)).flex_none().child(filter))
             .child(
                 h_flex().h(px(34.)).flex_1().min_w_0().child(
                     div()
@@ -91,11 +90,14 @@ impl ScreenView {
                 ),
             )
             .child(
-                small_button("ls-fields-copy", model.copy_label.clone())
-                    .icon(text_icon(NcIcon::Copy))
-                    .on_click(act(&view, move |_, _, cx| {
-                        cx.write_to_clipboard(ClipboardItem::new_string(copy.clone()))
-                    })),
+                Self::small_button(
+                    "ls-fields-copy",
+                    model.copy_label.clone(),
+                    Some(NcIcon::Copy),
+                )
+                .on_click(act(&view, move |_, _, cx| {
+                    cx.write_to_clipboard(ClipboardItem::new_string(copy.clone()))
+                })),
             );
 
         let mut content = page().child(header);

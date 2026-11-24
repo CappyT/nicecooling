@@ -6,16 +6,16 @@ use gpui::prelude::*;
 use gpui::{AnyElement, Context, FontWeight, SharedString, Window, div, px};
 use gpui_component::slider::Slider;
 use gpui_component::switch::Switch;
+use gpui_component::tooltip::Tooltip;
 use gpui_component::{Disableable as _, Sizable as _, h_flex, v_flex};
 
 use crate::icons::{NcIcon, icon};
 use crate::model::Response;
 use crate::screen_view::{InputKey, ScreenView, skeleton};
-use crate::screens::controls::{Pick, act};
+use crate::screens::controls::{FieldMode, Pick, act};
 use crate::screens::format::plain;
 use crate::screens::leakshield::TabState;
 use crate::screens::leakshield::alarms::{AlarmsModel, EventRow, RecommendationKind};
-use crate::screens::leakshield::parts::{FieldMode, field_input, small_button};
 use crate::screens::ui::{
     caption, card, card_header, card_row, locked, notice_row, page, severity_icon, table_header,
     write_line,
@@ -53,7 +53,7 @@ impl ScreenView {
             let view = cx.entity();
             let command = reset.command.clone();
             let mut row = notice_row(reset.text.clone(), true, p).child(
-                small_button("ls-reset-alarms", reset.label.clone())
+                Self::small_button("ls-reset-alarms", reset.label.clone(), None)
                     .disabled(!reset.enabled)
                     .on_click(act(&view, move |this, _, _| this.send(command.clone()))),
             );
@@ -76,9 +76,13 @@ impl ScreenView {
                 };
                 if let Some((label, command)) = item.button.clone() {
                     row = row.child(
-                        small_button(SharedString::from(format!("ls-rec-{index}")), label)
-                            .disabled(model.state != TabState::Ready)
-                            .on_click(act(&view, move |this, _, _| this.send(command.clone()))),
+                        Self::small_button(
+                            SharedString::from(format!("ls-rec-{index}")),
+                            label,
+                            None,
+                        )
+                        .disabled(model.state != TabState::Ready)
+                        .on_click(act(&view, move |this, _, _| this.send(command.clone()))),
                     );
                 }
                 if let Some(line) = &item.write_line {
@@ -157,16 +161,14 @@ impl ScreenView {
             );
             threshold = threshold
                 .child(Slider::new(&slider).disabled(!(ctl.writable && ready)))
-                .child(field_input(
+                .child(div().w(px(110.)).flex_none().child(Self::mode_input(
                     &input,
                     &ctl.unit,
                     ctl.writable && ready,
                     ctl.error.is_some(),
-                    110.,
+                    false,
                     p,
-                    window,
-                    cx,
-                ));
+                )));
             if let Some(reason) = &ctl.reason {
                 threshold = threshold.child(
                     locked(reason.clone(), p)
@@ -200,17 +202,32 @@ impl ScreenView {
                 .iter()
                 .find(|(_, _, selected)| *selected)
                 .map_or_else(String::new, |(_, text, _)| text.clone());
-            let select = self.select(
+            let select = self.select_field(
                 &format!("ls-device-{}", row.event),
                 &shown,
                 ctl.options.clone(),
                 ctl.writable && ready,
-                ctl.reason.as_deref().unwrap_or(""),
+                false,
+                p.track,
                 pick,
                 p,
                 cx,
             );
-            device_column = device_column.child(select);
+            // The reason of a read-only field is the tooltip of its select.
+            let reason = ctl.reason.clone();
+            device_column = device_column.child(
+                div()
+                    .id(SharedString::from(format!(
+                        "ls-device-reason-{}",
+                        row.event
+                    )))
+                    .when_some(reason, |select, reason| {
+                        select.tooltip(move |window, cx| {
+                            Tooltip::new(reason.clone()).build(window, cx)
+                        })
+                    })
+                    .child(select),
+            );
             if let Some(sound) = &row.sound {
                 let device = device.to_owned();
                 let event = event.clone();
@@ -267,7 +284,7 @@ impl ScreenView {
             .iter()
             .find(|(_, _, selected)| *selected)
             .map_or_else(String::new, |(_, text, _)| text.clone());
-        let select = self.select(
+        let select = self.select_field(
             &format!("ls-response-{}", response.event),
             &shown,
             response
@@ -276,7 +293,8 @@ impl ScreenView {
                 .map(|(option, text, selected)| (option.id().to_owned(), text.clone(), *selected))
                 .collect(),
             self.with_input(cx, |input| input.writes().enabled),
-            "",
+            false,
+            p.track,
             pick,
             p,
             cx,
@@ -293,7 +311,7 @@ impl ScreenView {
             .flex_none()
             .gap(px(6.))
             .child(select)
-            .child(field_input(
+            .child(div().w(px(90.)).flex_none().child(Self::mode_input(
                 &delay,
                 "s",
                 if response.delay_enabled {
@@ -302,11 +320,9 @@ impl ScreenView {
                     FieldMode::Off
                 },
                 false,
-                90.,
+                false,
                 p,
-                window,
-                cx,
-            ));
+            )));
         if let Some(text) = &response.delay_warning {
             response_column = response_column.child(caption(text.clone(), p).text_color(p.warning));
         }

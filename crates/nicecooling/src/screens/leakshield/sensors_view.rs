@@ -8,10 +8,10 @@ use crate::model::Severity;
 use crate::screen_view::{InputKey, ScreenView, skeleton};
 use crate::screens::controls::{Pick, act};
 use crate::screens::leakshield::TabState;
-use crate::screens::leakshield::parts::{field_input, small_button, table_row};
 use crate::screens::leakshield::sensors::{SensorsModel, SoftwareRow, set_source};
 use crate::screens::ui::{
-    caption, card, card_header, cell, label, modal, page, severity_icon, table_header, write_line,
+    caption, card, card_header, cell, label, modal, page, severity_icon, table_header, table_row,
+    write_line,
 };
 use crate::tokens::Palette;
 
@@ -66,10 +66,10 @@ impl ScreenView {
                 cx,
             );
             // An inline input of a table row is 28 px high.
-            let name = field_input(&input, "", row.enabled, false, 0., p, window, cx)
-                .w_full()
-                .h(px(28.))
-                .rounded(px(7.));
+            let name =
+                div()
+                    .w_full()
+                    .child(Self::mode_input(&input, "", row.enabled, false, true, p));
             let mut line = table_row(p)
                 .text_color(if row.dim { p.fg_dim } else { p.fg })
                 .child(
@@ -118,10 +118,10 @@ impl ScreenView {
                 dialog.text.clone(),
                 Vec::new(),
                 vec![
-                    small_button("ls-sensors-clear-cancel", dialog.cancel.clone())
+                    Self::small_button("ls-sensors-clear-cancel", dialog.cancel.clone(), None)
                         .on_click(act(&cancel, |this, _, _| this.leakshield.sensors.cancel()))
                         .into_any_element(),
-                    small_button("ls-sensors-clear-confirm", dialog.confirm.clone())
+                    Self::small_button("ls-sensors-clear-confirm", dialog.confirm.clone(), None)
                         .on_click(act(&confirm, move |this, _, _| {
                             if let Some(command) = this.leakshield.sensors.confirm_clear(&id) {
                                 this.send(command);
@@ -151,12 +151,13 @@ impl ScreenView {
                 this.send(set_source(&device, slot, &sensor));
             })
         };
-        let select = self.select(
+        let select = self.select_field(
             &format!("ls-software-{slot}"),
             &row.source_text,
             row.choices.clone(),
             row.enabled,
-            "",
+            true,
+            p.track,
             pick,
             p,
             cx,

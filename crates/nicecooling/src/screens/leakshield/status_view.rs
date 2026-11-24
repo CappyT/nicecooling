@@ -7,11 +7,11 @@ use gpui_component::{h_flex, v_flex};
 use crate::screen_view::ScreenView;
 use crate::screens::format::clock_minutes;
 use crate::screens::leakshield::charts::{Reference, TimeChart, bands, time_chart};
-use crate::screens::leakshield::parts::{header, loading_card, small_button};
+use crate::screens::leakshield::parts::{header, loading_card};
 use crate::screens::leakshield::status::{StatusModel, Tile, export_to};
 use crate::screens::leakshield::{TabState, schematic};
 use crate::screens::ui::{
-    caption, card, card_header, cell, page, severity_icon, table_header, wide_cell,
+    caption, card, card_header, cell, page, severity_icon, table_header, table_row, wide_cell,
 };
 use crate::shell::Page;
 use crate::tokens::Palette;
@@ -183,7 +183,7 @@ impl ScreenView {
         // The events.
         let export = {
             let (view, id) = (view.clone(), id.to_owned());
-            small_button("ls-status-export", model.events.export.clone()).on_click(
+            Self::small_button("ls-status-export", model.events.export.clone(), None).on_click(
                 move |_, _, cx| {
                     let (view, id) = (view.clone(), id.clone());
                     let (info, events, locale) = view.read_with(cx, |this, cx| {
@@ -239,14 +239,8 @@ impl ScreenView {
             let view = view.clone();
             let opens = row.opens_alarms;
             events = events.child(
-                h_flex()
+                table_row(p)
                     .id(SharedString::from(format!("ls-event-{index}")))
-                    .w_full()
-                    .min_h(px(36.))
-                    .px(px(18.))
-                    .gap(px(12.))
-                    .border_t_1()
-                    .border_color(p.border)
                     .text_color(if dim { p.fg_dim } else { p.fg })
                     .when(opens, |line| {
                         line.cursor_pointer().hover(|line| line.bg(p.hover))

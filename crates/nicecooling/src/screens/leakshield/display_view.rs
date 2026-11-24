@@ -12,12 +12,14 @@ use crate::screens::controls::{Pick, act};
 use crate::screens::leakshield::display::{
     DisplayModel, PageCard, Switch as Toggle, set_brightness, set_flag,
 };
-use crate::screens::leakshield::parts::{field_input, field_row, small_button};
 use crate::screens::leakshield::{Tab, TabState};
 use crate::screens::ui::{
-    caption, card, card_header, card_row, modal, notice_row, page, write_line,
+    caption, card, card_header, card_row, field_row, modal, notice_row, page, write_line,
 };
 use crate::tokens::Palette;
+
+/// The width of a select in a row of a card.
+const SELECT: f32 = 240.0;
 
 impl ScreenView {
     pub(crate) fn render_ls_display(
@@ -133,12 +135,13 @@ impl ScreenView {
                         .child(selected.template_name.clone()),
                 )
                 .child(
-                    small_button(
+                    Self::small_button(
                         "ls-template-change",
                         selected
                             .choose
                             .clone()
                             .unwrap_or_else(|| selected.change.clone()),
+                        None,
                     )
                     .on_click(act(&view, |this, _, _| {
                         this.leakshield.display.gallery = true
@@ -162,7 +165,7 @@ impl ScreenView {
                     }
                 })
             };
-            let select = self.select(
+            let select = self.select_field(
                 &format!("ls-source-{slot}"),
                 &row.source_text,
                 row.sources
@@ -170,7 +173,8 @@ impl ScreenView {
                     .map(|(index, text, current)| (index.to_string(), text.clone(), *current))
                     .collect(),
                 true,
-                "",
+                false,
+                p.track,
                 pick,
                 p,
                 cx,
@@ -183,7 +187,7 @@ impl ScreenView {
                         .font_weight(FontWeight::BOLD)
                         .child(row.label.clone()),
                 )
-                .child(select)
+                .child(div().w(px(SELECT)).flex_none().child(select))
                 .child(
                     div()
                         .flex_1()
@@ -267,12 +271,13 @@ impl ScreenView {
                     }
                 })
             };
-            let select = self.select(
+            let select = self.select_field(
                 &format!("ls-{}", choice.field),
                 &choice.shown,
                 choice.options.clone(),
                 choice.writable,
-                "",
+                false,
+                p.track,
                 pick,
                 p,
                 cx,
@@ -280,7 +285,7 @@ impl ScreenView {
             settings_card = settings_card.child(
                 field_row(p)
                     .child(name_column(&choice.label, None, p))
-                    .child(select),
+                    .child(div().w(px(SELECT)).flex_none().child(select)),
             );
         }
         let interval = self.input(
@@ -307,16 +312,14 @@ impl ScreenView {
                 settings_card = settings_card.child(
                     field_row(p)
                         .child(name_column(&settings.interval_label, None, p))
-                        .child(field_input(
+                        .child(div().w(px(104.)).flex_none().child(Self::mode_input(
                             &interval,
                             "s",
                             settings.interval_writable,
                             false,
-                            104.,
+                            false,
                             p,
-                            window,
-                            cx,
-                        )),
+                        ))),
                 );
             }
         }
@@ -359,9 +362,10 @@ impl ScreenView {
                 for (template, name) in chunk {
                     let (device, template) = (id.to_owned(), template.clone());
                     row = row.child(
-                        small_button(
+                        Self::small_button(
                             SharedString::from(format!("ls-gallery-{template}")),
                             name.clone(),
+                            None,
                         )
                         .on_click(act(&view, move |this, _, cx| {
                             let mut ui = std::mem::take(&mut this.leakshield.display);
@@ -382,9 +386,10 @@ impl ScreenView {
                 String::new(),
                 vec![grid.into_any_element()],
                 vec![
-                    small_button(
+                    Self::small_button(
                         "ls-gallery-close",
                         self.model.read(cx).locale.tr("leakshield.cancel"),
+                        None,
                     )
                     .on_click(act(&close, |this, _, _| {
                         this.leakshield.display.gallery = false

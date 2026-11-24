@@ -3,8 +3,7 @@
 use chrono::{Local, TimeZone as _};
 use gpui::prelude::*;
 use gpui::{AnyElement, Context, FontWeight, SharedString, Window, div, px};
-use gpui_component::button::{Button, ButtonVariants as _};
-use gpui_component::input::Input;
+use gpui_component::button::ButtonVariants as _;
 use gpui_component::progress::Progress;
 use gpui_component::tooltip::Tooltip;
 use gpui_component::{Disableable as _, h_flex, v_flex};
@@ -22,11 +21,10 @@ use crate::screens::leakshield::charts::{
 use crate::screens::leakshield::overview::{
     ActionView, ChartRange, Confirm, GaugeState, ModeCard, OverviewModel, TestSource,
 };
-use crate::screens::leakshield::parts::{
-    button, header, loading_card, segment, segmented, small_button, state_tag,
-};
+use crate::screens::leakshield::parts::{header, loading_card, state_tag};
 use crate::screens::ui::{
-    caption, card, card_header, card_row, modal, notice_row, page, severity_icon, write_line,
+    caption, card, card_header, card_row, modal, notice_row, page, seg, seg_item, severity_icon,
+    write_line,
 };
 use crate::tokens::Palette;
 
@@ -171,7 +169,7 @@ impl ScreenView {
             let (cancel, confirm) = (view.clone(), view.clone());
             let id = id.to_owned();
             let mut buttons = vec![
-                small_button("ls-dialog-cancel", dialog.cancel.clone())
+                Self::small_button("ls-dialog-cancel", dialog.cancel.clone(), None)
                     .on_click(act(&cancel, |this, _, _| {
                         this.leakshield.overview.cancel_dialog()
                     }))
@@ -179,7 +177,7 @@ impl ScreenView {
             ];
             if let Some(label) = &dialog.confirm {
                 buttons.push(
-                    small_button("ls-dialog-confirm", label.clone())
+                    Self::small_button("ls-dialog-confirm", label.clone(), None)
                         .on_click(act(&confirm, move |this, _, _| {
                             if let Some(command) = this.leakshield.overview.confirm(&id) {
                                 this.send(command);
@@ -212,10 +210,10 @@ impl ScreenView {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let view = cx.entity();
-        let mut selector = segmented(p);
+        let mut selector = seg(p);
         for choice in &mode.buttons {
             let (device, name) = (id.to_owned(), choice.mode.clone());
-            let mut item = segment(
+            let mut item = seg_item(
                 SharedString::from(format!("ls-mode-{}", choice.mode)),
                 choice.label.clone(),
                 choice.selected,
@@ -248,18 +246,17 @@ impl ScreenView {
             .gap(px(6.));
         if let Some(cancel) = &mode.cancel {
             let device = id.to_owned();
-            actions = actions.child(button("ls-action-cancel", cancel.clone()).on_click(act(
-                &view,
-                move |this, _, _| {
+            actions = actions.child(Self::button("ls-action-cancel", cancel.clone()).on_click(
+                act(&view, move |this, _, _| {
                     this.send(crate::command::Command::CancelLeakshieldAction {
                         leakshield: device.clone(),
                     });
-                },
-            )));
+                }),
+            ));
         } else {
             for action in &mode.actions {
                 let (device, name) = (id.to_owned(), action.action.clone());
-                let mut item = button(
+                let mut item = Self::button(
                     SharedString::from(format!("ls-action-{}", action.action)),
                     action.label.clone(),
                 )
@@ -437,11 +434,11 @@ impl ScreenView {
                 .map(|time| (time as f64, time_label(time, range, false))),
         );
         x_labels.push((now as f64, model.charts.now.clone()));
-        let mut ranges = segmented(p);
+        let mut ranges = seg(p);
         for (range, label, selected) in &model.charts.ranges {
             let range = *range;
             ranges = ranges.child(
-                segment(
+                seg_item(
                     SharedString::from(format!("ls-range-{range:?}")),
                     label.clone(),
                     *selected,
@@ -522,13 +519,12 @@ impl ScreenView {
                 let mut body = v_flex()
                     .p(px(18.))
                     .gap(px(10.))
-                    .child(
-                        h_flex()
-                            .gap(px(8.))
-                            .items_center()
-                            .child(div().w(px(100.)).child(Input::new(&input)))
-                            .child(div().text_color(p.fg_dim).child("mbar")),
-                    )
+                    .child(div().w(px(124.)).child(Self::field_input(
+                        &input,
+                        Some("mbar".into()),
+                        false,
+                        p,
+                    )))
                     .child(caption(text.clone(), p));
                 if let Some(error) = error {
                     body = body.child(div().text_color(p.alarm).child(error.clone()));
@@ -537,9 +533,8 @@ impl ScreenView {
                     h_flex()
                         .gap(px(8.))
                         .child(
-                            Button::new("ls-test-start")
+                            Self::button("ls-test-start", start.clone())
                                 .primary()
-                                .label(start.clone())
                                 .disabled(error.is_some())
                                 .on_click(act(&view, move |this, _, cx| {
                                     let mut ui = std::mem::take(&mut this.leakshield.overview);
@@ -552,8 +547,7 @@ impl ScreenView {
                                 })),
                         )
                         .child(
-                            Button::new("ls-test-cancel")
-                                .label(cancel.clone())
+                            Self::button("ls-test-cancel", cancel.clone())
                                 .on_click(act(&view, |this, _, _| {
                                     this.leakshield.overview.cancel_test_setup()
                                 })),
@@ -605,9 +599,10 @@ impl ScreenView {
                     .child(source_label.clone());
                 for (kind, label, selected) in sources {
                     let kind = *kind;
-                    let mut button = small_button(
+                    let mut button = Self::small_button(
                         SharedString::from(format!("ls-source-{kind:?}")),
                         label.clone(),
+                        None,
                     )
                     .on_click(act(&view, move |this, _, _| {
                         this.leakshield.overview.source = kind;
@@ -629,26 +624,22 @@ impl ScreenView {
                             .child(choices)
                             .child(div().flex_1())
                             .child(
-                                small_button("ls-test-reference", reference.clone()).on_click(act(
-                                    &view,
-                                    move |this, _, _| {
+                                Self::small_button("ls-test-reference", reference.clone(), None)
+                                    .on_click(act(&view, move |this, _, _| {
                                         this.leakshield.overview.reference = current;
-                                    },
-                                )),
+                                    })),
                             )
-                            .child(small_button("ls-test-zoom", reset_zoom.clone()))
+                            .child(Self::small_button("ls-test-zoom", reset_zoom.clone(), None))
                             .child({
                                 let device = device.clone();
-                                small_button("ls-test-cancel-run", cancel.clone()).on_click(act(
-                                    &view,
-                                    move |this, _, _| {
+                                Self::small_button("ls-test-cancel-run", cancel.clone(), None)
+                                    .on_click(act(&view, move |this, _, _| {
                                         this.send(
                                             crate::command::Command::CancelLeakshieldAction {
                                                 leakshield: device.clone(),
                                             },
                                         );
-                                    },
-                                ))
+                                    }))
                             }),
                     )
                     .child(div().px(px(18.)).pb(px(12.)).child(time_chart(

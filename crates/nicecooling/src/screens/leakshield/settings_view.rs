@@ -4,7 +4,7 @@ use std::rc::Rc;
 
 use gpui::prelude::*;
 use gpui::{AnyElement, Context, FontWeight, SharedString, Window, div, px};
-use gpui_component::button::{Button, ButtonVariants as _};
+use gpui_component::button::ButtonVariants as _;
 use gpui_component::switch::Switch;
 use gpui_component::{Disableable as _, Sizable as _, h_flex, v_flex};
 
@@ -13,13 +13,11 @@ use crate::model::Severity;
 use crate::screen_view::{InputKey, ScreenView};
 use crate::screens::controls::{Pick, act};
 use crate::screens::leakshield::TabState;
-use crate::screens::leakshield::parts::{
-    button, field_badge, field_input, field_row, header, loading_card, radio_mark, small_button,
-};
+use crate::screens::leakshield::parts::{field_badge, header, loading_card, radio_mark};
 use crate::screens::leakshield::settings::{Control, Link, Row, SettingsModel, Summary};
 use crate::screens::ui::{
-    TagKind, caption, card, card_header, card_row, cell, locked, modal, notice_row, page,
-    severity_icon, table_header, tag, wide_cell, write_line,
+    TagKind, caption, card, card_header, card_row, cell, field_row, locked, modal, notice_row,
+    page, severity_icon, table_header, table_row, tag, wide_cell, write_line,
 };
 use crate::shell::Page;
 use crate::tokens::Palette;
@@ -127,7 +125,7 @@ impl ScreenView {
                 .border_t_1()
                 .border_color(p.border);
             footer = footer.child(
-                button("ls-wizard-cancel", model.cancel.clone())
+                Self::button("ls-wizard-cancel", model.cancel.clone())
                     .ghost()
                     .on_click(act(&view, |this, _, _| {
                         this.leakshield.settings.request_discard()
@@ -137,7 +135,7 @@ impl ScreenView {
             if let Some((step, label)) = &model.back {
                 let step = *step;
                 footer = footer.child(
-                    button("ls-wizard-back", label.clone())
+                    Self::button("ls-wizard-back", label.clone())
                         .icon(text_icon(NcIcon::Left))
                         .on_click(act(&view, move |this, _, _| {
                             this.leakshield.settings.go(step)
@@ -147,7 +145,7 @@ impl ScreenView {
             if let Some((step, label)) = &model.next {
                 let step = *step;
                 footer = footer.child(
-                    button("ls-wizard-next", label.clone())
+                    Self::button("ls-wizard-next", label.clone())
                         .primary()
                         .child(text_icon(NcIcon::Right))
                         .on_click(act(&view, move |this, _, _| {
@@ -247,15 +245,13 @@ impl ScreenView {
                 String::new(),
                 Vec::new(),
                 vec![
-                    small_button("ls-discard-keep", keep.clone())
+                    Self::small_button("ls-discard-keep", keep.clone(), None)
                         .on_click(act(&keep_view, |this, _, _| {
                             this.leakshield.settings.keep_editing()
                         }))
                         .into_any_element(),
-                    Button::new("ls-discard-confirm")
-                        .small()
+                    Self::small_button("ls-discard-confirm", discard.clone(), None)
                         .danger()
-                        .label(discard.clone())
                         .on_click(act(&discard_view, |this, _, _| {
                             this.leakshield.settings.discard()
                         }))
@@ -288,16 +284,22 @@ impl ScreenView {
                         this.settings_edit(&device, &key, &choice, cx)
                     })
                 };
-                self.select(
+                let select = self.select_field(
                     &format!("ls-setting-{key}"),
                     shown,
                     options.clone(),
                     enabled,
-                    "",
+                    false,
+                    p.track,
                     pick,
                     p,
                     cx,
-                )
+                );
+                div()
+                    .w(px(240.))
+                    .flex_none()
+                    .child(select)
+                    .into_any_element()
             }
             Control::Number { text, unit } => {
                 let input = self.input(
@@ -307,17 +309,18 @@ impl ScreenView {
                     window,
                     cx,
                 );
-                field_input(
-                    &input,
-                    unit,
-                    enabled,
-                    row.error.is_some(),
-                    124.,
-                    p,
-                    window,
-                    cx,
-                )
-                .into_any_element()
+                div()
+                    .w(px(124.))
+                    .flex_none()
+                    .child(Self::mode_input(
+                        &input,
+                        unit,
+                        enabled,
+                        row.error.is_some(),
+                        false,
+                        p,
+                    ))
+                    .into_any_element()
             }
             Control::Time { text } => {
                 let input = self.input(
@@ -327,7 +330,17 @@ impl ScreenView {
                     window,
                     cx,
                 );
-                field_input(&input, "", enabled, row.error.is_some(), 78., p, window, cx)
+                div()
+                    .w(px(78.))
+                    .flex_none()
+                    .child(Self::mode_input(
+                        &input,
+                        "",
+                        enabled,
+                        row.error.is_some(),
+                        false,
+                        p,
+                    ))
                     .into_any_element()
             }
             Control::Switch(on) => {
@@ -400,13 +413,17 @@ impl ScreenView {
         if let Some(label) = &row.use_current {
             let (device, key) = (device.clone(), row.key.clone());
             line = line.child(
-                small_button(SharedString::from(format!("ls-use-{key}")), label.clone())
-                    .disabled(!enabled)
-                    .on_click(act(&view, move |this, _, cx| {
-                        let mut ui = std::mem::take(&mut this.leakshield.settings);
-                        this.with_input(cx, |input| ui.use_current(input, &device, &key));
-                        this.leakshield.settings = ui;
-                    })),
+                Self::small_button(
+                    SharedString::from(format!("ls-use-{key}")),
+                    label.clone(),
+                    None,
+                )
+                .disabled(!enabled)
+                .on_click(act(&view, move |this, _, cx| {
+                    let mut ui = std::mem::take(&mut this.leakshield.settings);
+                    this.with_input(cx, |input| ui.use_current(input, &device, &key));
+                    this.leakshield.settings = ui;
+                })),
             );
         }
         // The link to the Fields tab is after the reason. Without a reason it is in the row.
@@ -507,9 +524,7 @@ impl ScreenView {
                 div().child(row.name.clone())
             };
             column = column.child(
-                card_row(p)
-                    .min_h(px(36.))
-                    .py(px(3.))
+                table_row(p)
                     .child(wide_cell().child(name))
                     .child(cell(140.).text_color(p.fg_dim).child(row.now.clone()))
                     .child(
@@ -540,16 +555,14 @@ impl ScreenView {
                 .child(div().flex_1().child(failed.text.clone()));
             if let Some(command) = failed.restore_command.clone() {
                 row = row.child(
-                    Button::new("ls-wizard-restore")
-                        .small()
+                    Self::small_button("ls-wizard-restore", failed.restore.clone(), None)
                         .danger()
-                        .label(failed.restore.clone())
                         .disabled(!ready)
                         .on_click(act(&view, move |this, _, _| this.send(command.clone()))),
                 );
             }
             row = row.child(
-                small_button("ls-wizard-keep", failed.keep.clone())
+                Self::small_button("ls-wizard-keep", failed.keep.clone(), None)
                     .on_click(act(&view, |this, _, _| {
                         this.leakshield.settings.kept = true
                     })),
@@ -559,7 +572,7 @@ impl ScreenView {
         let device = id.to_owned();
         column = column.child(
             card_row(p).child(div().flex_1()).child(
-                button("ls-wizard-apply", summary.apply.clone())
+                Self::button("ls-wizard-apply", summary.apply.clone())
                     .primary()
                     .disabled(!summary.apply_enabled)
                     .on_click(act(&view, move |this, _, cx| {
