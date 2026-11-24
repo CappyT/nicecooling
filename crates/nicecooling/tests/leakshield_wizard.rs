@@ -927,10 +927,11 @@ fn a_pump_preset_writes_its_speeds_and_its_pressure() {
     assert_eq!(pending(&ui, "shield_pressure_low"), Some(350.0));
     assert_eq!(pending(&ui, "shield_pressure_max_range"), Some(40.0));
 
-    // The preset with a start speed above its maximum speed.
+    // The table of this preset has a start speed above its maximum speed: the start speed is cut
+    // to the maximum speed.
     ui.edit(&data, "pump_model", "ddc-325");
     assert_eq!(pending(&ui, "pump_max_speed"), Some(4850.0));
-    assert_eq!(pending(&ui, "pump_start_speed"), Some(5500.0));
+    assert_eq!(pending(&ui, "pump_start_speed"), Some(4850.0));
     assert_eq!(pending(&ui, "pump_max_pressure"), Some(530.0));
     assert_eq!(pending(&ui, "shield_pressure_low"), Some(430.0));
 
@@ -1229,8 +1230,9 @@ fn the_standby_step_corrects_its_numbers_to_their_ranges() {
     // The assumed pump speed: 1000 to 10000 rpm.
     ui.edit(&data, "pump_start_speed", "500");
     assert_eq!(pending(&ui, "pump_start_speed"), Some(1000.0));
+    // Above the range and above the maximum speed of the pump (4800 rpm): the maximum speed.
     ui.edit(&data, "pump_start_speed", "32000");
-    assert_eq!(pending(&ui, "pump_start_speed"), Some(10000.0));
+    assert_eq!(pending(&ui, "pump_start_speed"), Some(4800.0));
     ui.edit(&data, "pump_start_speed", "3200,4");
     assert_eq!(pending(&ui, "pump_start_speed"), Some(3200.0));
     // The assumed flow: 30 to 500 L/h.
@@ -1522,5 +1524,97 @@ mod layout {
     fn the_wizard_steps_fit_at_1280_in_italian(cx: &mut TestAppContext) {
         check(cx, Language::Italian, 1280., untouched);
         check(cx, Language::Italian, 1280., edited);
+    }
+}
+
+// aquasuite sets MaxSpeed first and its StartSpeed setter cuts the start speed to the
+// maximum speed (DlgLeakshieldAssistantModel.cs:817-835, :2037-2045). DDC 3.25 has the table
+// row (start 5500, max 4850), so aquasuite writes 4850 as the start speed.
+#[test]
+fn the_ddc_325_preset_keeps_the_start_speed_at_the_maximum_speed() {
+    let state = device();
+    let data = data_of(&state);
+    let mut ui = SettingsUi::default();
+    ui.edit(&data, "pump_model", "ddc-325");
+    let value = |field: &str| pending(&ui, field).or_else(|| data.number(field)).unwrap();
+    assert_eq!(value("pump_max_speed"), 4850.0);
+    assert!(
+        value("pump_start_speed") <= value("pump_max_speed"),
+        "start speed {} above the maximum speed {}",
+        value("pump_start_speed"),
+        value("pump_max_speed")
+    );
+}
+
+// the wizard keeps a whole `shield_flags` mask in its pending changes. A bit that another
+// tab writes after the edit (the buzzer switches of the Alarms tab) goes back with "Apply".
+#[test]
+fn apply_keeps_a_shield_flags_bit_that_the_alarms_tab_wrote() {
+    let mut state = device();
+    let mut ui = SettingsUi::default();
+    // Adaptive pressure off: bit 3 of 127.
+    ui.edit(&data_of(&state), "adaptive", "0");
+    // The Alarms tab turns the buzzer off (bit 7), and the next refresh shows 255.
+    set_field(&mut state, "shield_flags", FieldValue::Number(255.0));
+    let feedback = Feedback::default();
+    let command = ui
+        .apply(&input(&state, &feedback, EN), LEAKSHIELD)
+        .expect("a write");
+    let nicecooling::command::Command::SetLeakshieldFields { fields, .. } = command else {
+        panic!("a field write");
+    };
+    let flags = fields
+        .iter()
+        .find(|(field, _)| field == "shield_flags")
+        .map(|(_, value)| value.clone());
+    assert_eq!(
+        flags,
+        Some(FieldValue::Number(247.0)),
+        "bit 7 must stay set"
+    );
+}
+
+// every sequence of edits keeps the band in the device ranges and the distances.
+#[test]
+fn the_limiter_holds_its_rules_for_every_edit() {
+    let mut seed: u64 = 0x9E37_79B9_7F4A_7C15;
+    let mut next = || {
+        seed ^= seed << 13;
+        seed ^= seed >> 7;
+        seed ^= seed << 17;
+        (seed % 700) as f64 - 100.0
+    };
+    let mut band = Band {
+        min: 375.0,
+        target: 425.0,
+        max: 465.0,
+        standby: 80.0,
+    };
+    for _ in 0..20_000 {
+        let value = next();
+        match (value as i64).rem_euclid(4) {
+            0 => band.set_min(value),
+            1 => band.set_target(value),
+            2 => band.set_max(value),
+            _ => band.set_standby(value),
+        }
+        assert!((30.0..=430.0).contains(&band.min), "{band:?}");
+        assert!((50.0..=450.0).contains(&band.target), "{band:?}");
+        assert!((80.0..=500.0).contains(&band.max), "{band:?}");
+        assert!(band.target >= band.min + 20.0, "{band:?}");
+        assert!(band.max >= band.target + 30.0, "{band:?}");
+        assert!((30.0..=band.min).contains(&band.standby), "{band:?}");
+        assert!(band.target - band.min <= 420.0 && band.max - band.target <= 450.0);
+    }
+    for pressure in [0.0, 10.0, 120.0, 375.0, 430.0, 450.0, 530.0, 1000.0] {
+        for two in [false, true] {
+            let b = Band::recommended(pressure, two);
+            assert!((30.0..=430.0).contains(&b.min) && b.max <= 500.0, "{b:?}");
+            assert!(
+                b.target >= b.min + 20.0 && b.max >= b.target + 30.0,
+                "{b:?}"
+            );
+            assert!(b.standby <= 80.0 && b.standby <= b.min, "{b:?}");
+        }
     }
 }

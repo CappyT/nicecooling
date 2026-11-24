@@ -14,7 +14,7 @@ nicecooling SHALL read the Leakshield settings from the device and show them. Th
 - **THEN** the user can read each of those settings, writable or not
 
 ### Requirement: Presets write their numbers
-A pump preset SHALL write the maximum speed, the start speed and the maximum pressure of the pump type into the pending changes. A reservoir preset SHALL write the total volume and the two air volumes of the reservoir type. With a preset these numbers SHALL be read-only in the wizard. The choice "Custom" SHALL keep the numbers and open them for an edit. `docs/ui/screens/leakshield-settings.md` has the tables of the presets.
+A pump preset SHALL write the maximum speed, the start speed and the maximum pressure of the pump type into the pending changes. The start speed SHALL never be above the maximum speed: the wizard cuts it to the maximum speed after a preset and after an edit of either speed. A switch of the wizard changes one bit of a flag field: "Apply" SHALL write that bit onto the value that the device holds at that time, so a bit that another screen changed in the meantime stays. A reservoir preset SHALL write the total volume and the two air volumes of the reservoir type. With a preset these numbers SHALL be read-only in the wizard. The choice "Custom" SHALL keep the numbers and open them for an edit. `docs/ui/screens/leakshield-settings.md` has the tables of the presets.
 
 #### Scenario: Pump preset
 - **WHEN** the user selects the pump type DDC-1T

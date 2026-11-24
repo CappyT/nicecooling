@@ -138,6 +138,10 @@ pub struct SettingsUi {
     pub step: Step,
     /// The changes that wait for "Apply", by field id.
     pub pending: BTreeMap<String, FieldValue>,
+    /// The bits of a flag field that the user changed: the mask of the bits and their new state.
+    /// "Apply" puts them on the mask that the device holds then, so a bit that another screen
+    /// wrote in the meantime stays.
+    bits: BTreeMap<String, (u32, u32)>,
     /// "Cancel" asks "Discard 2 changes?".
     pub confirm_discard: bool,
     pub show_unchanged: bool,
@@ -350,9 +354,46 @@ impl SettingsUi {
     }
 
     fn set_bit(&mut self, data: &LeakshieldData, field: &str, bit: u32, on: bool) {
-        let mask = self.number(data, field).unwrap_or(0.0) as u32;
-        let mask = if on { mask | bit } else { mask & !bit };
-        self.set(data, field, FieldValue::Number(f64::from(mask)));
+        let (mask, state) = self.bits.entry(field.to_owned()).or_default();
+        *mask |= bit;
+        *state = if on { *state | bit } else { *state & !bit };
+        self.applied = None;
+        self.rebase(data);
+    }
+
+    /// Put the changed bits of each flag field on the mask that the device holds now.
+    fn rebase(&mut self, data: &LeakshieldData) {
+        let mut same = Vec::new();
+        for (field, (mask, state)) in &self.bits {
+            let Some(FieldValue::Number(device)) = data.field(field).map(|f| &f.value) else {
+                continue;
+            };
+            let device = *device as u32;
+            let new = (device & !mask) | state;
+            if new == device {
+                self.pending.remove(field);
+                same.push(field.clone());
+            } else {
+                self.pending
+                    .insert(field.clone(), FieldValue::Number(f64::from(new)));
+            }
+        }
+        for field in same {
+            self.bits.remove(&field);
+        }
+    }
+
+    /// The start speed of the pump is never above its maximum speed.
+    fn keep_start_speed(&mut self, data: &LeakshieldData) {
+        let (Some(start), Some(max)) = (
+            self.number(data, "pump_start_speed"),
+            self.number(data, "pump_max_speed"),
+        ) else {
+            return;
+        };
+        if start > max {
+            self.set(data, "pump_start_speed", FieldValue::Number(max));
+        }
     }
 
     /// The control band of SHIELD: the device values with the pending changes.
@@ -474,6 +515,13 @@ impl SettingsUi {
     /// An edit of a control: a number or a time as text, a choice by identifier, a switch as
     /// "1" or "0". `key` is the identifier of the row.
     pub fn edit(&mut self, data: &LeakshieldData, key: &str, text: &str) {
+        self.edit_field(data, key, text);
+        if matches!(key, "pump_model" | "pump_max_speed" | "pump_start_speed") {
+            self.keep_start_speed(data);
+        }
+    }
+
+    fn edit_field(&mut self, data: &LeakshieldData, key: &str, text: &str) {
         match key {
             "adaptive" => self.set_bit(data, SHIELD_FLAGS, BIT_ADAPTIVE, text == "1"),
             "vacuum_timer" => self.set_bit(data, SHIELD_FLAGS, BIT_TIMER, text == "1"),
@@ -573,6 +621,7 @@ impl SettingsUi {
 
     pub fn discard(&mut self) {
         self.pending.clear();
+        self.bits.clear();
         self.confirm_discard = false;
         self.applied = None;
         self.step = Step::Reservoir;
@@ -585,7 +634,7 @@ impl SettingsUi {
     /// "Apply": one write of every change that the device accepts.
     pub fn apply(&mut self, input: &ScreenInput<'_>, id: &str) -> Option<Command> {
         let device = Device::new(input, id);
-        device.data?;
+        self.rebase(device.data?);
         if !device.can_write() {
             return None;
         }
@@ -616,10 +665,14 @@ impl SettingsUi {
 
     /// After a write: clear the changes that the device took.
     pub fn reconcile(&mut self, input: &ScreenInput<'_>, id: &str) {
+        if let Some(data) = Device::new(input, id).data {
+            self.rebase(data);
+        }
         let Some(count) = self.applying else { return };
         match input.feedback.get(&format!("ls:{id}:wizard")) {
             Some(WriteOutcome::Applied { .. }) => {
                 self.pending.clear();
+                self.bits.clear();
                 self.applying = None;
                 self.applied = Some(count);
             }

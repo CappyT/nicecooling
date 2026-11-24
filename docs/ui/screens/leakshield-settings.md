@@ -54,7 +54,7 @@ A known type writes its numbers into the pending changes when the user selects i
 | aquatube | 160 | 50 | 100 |
 | aquabox | 114 | 50 | 80 |
 
-- The start speed of a pump preset goes to "Default pump speed" on the Standby step. It stays editable there.
+- The start speed of a pump preset goes to "Default pump speed" on the Standby step. It stays editable there. It is never above the maximum speed: the wizard cuts it to the maximum speed.
 - A type that is not in the tables, as "undefined" after a factory reset, shows as the first choice of its select. Its numbers accept an edit.
 
 ## Pump step
