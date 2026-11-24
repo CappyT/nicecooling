@@ -1,9 +1,9 @@
-//! The window of the Alarms screen, and the countdown dialog that shows over every page.
+//! The window of the Alarms screen.
 
 use std::rc::Rc;
 
 use gpui::prelude::*;
-use gpui::{AnyElement, Context, Div, FocusHandle, FontWeight, SharedString, Window, div, px};
+use gpui::{AnyElement, Context, Div, FontWeight, SharedString, Window, div, px};
 use gpui_component::button::{Button, ButtonVariants as _};
 use gpui_component::tooltip::Tooltip;
 use gpui_component::{h_flex, v_flex};
@@ -13,12 +13,12 @@ use crate::icons::{NcIcon, icon};
 use crate::model::{Response, Severity};
 use crate::screen_view::{InputKey, ScreenView, skeleton};
 use crate::screens::alarms::{
-    ActiveRow, AlarmsModel, AlarmsState, CountdownDialog, HistoryRow, ResponseGroup, ResponseRow,
+    ActiveRow, AlarmsModel, AlarmsState, HistoryRow, ResponseGroup, ResponseRow,
 };
 use crate::screens::controls::{Pick, act};
 use crate::screens::ui::{
-    caption, card, card_header, card_row, cell, heading, label, modal, page, severity_icon,
-    table_header, wrap_cell, write_line,
+    caption, card, card_header, card_row, cell, heading, label, page, severity_icon, table_header,
+    wrap_cell, write_line,
 };
 use crate::tokens::Palette;
 
@@ -433,67 +433,4 @@ fn event_name(text: impl Into<SharedString>) -> Div {
 /// The widths of a table header: the cell at `event` takes the rest of the row.
 fn columns(widths: [f32; 5], event: usize) -> [Option<f32>; 5] {
     std::array::from_fn(|index| (index != event).then_some(widths[index]))
-}
-
-/// The countdown dialog: 440 px over the scrim, with the focus on "Cancel poweroff".
-pub fn countdown_overlay(
-    dialog: &CountdownDialog,
-    focus: &FocusHandle,
-    on_cancel: impl Fn(&mut gpui::Window, &mut gpui::App) + 'static,
-    on_hide: impl Fn(&mut gpui::Window, &mut gpui::App) + 'static,
-    p: &Palette,
-) -> AnyElement {
-    let mut body: Vec<AnyElement> = vec![
-        div()
-            .text_size(px(40.))
-            .font_weight(FontWeight::BOLD)
-            .text_color(p.alarm)
-            .child(dialog.seconds.to_string())
-            .into_any_element(),
-        caption(dialog.seconds_label.clone(), p).into_any_element(),
-        div()
-            .h(px(6.))
-            .w_full()
-            .rounded_full()
-            .bg(p.track)
-            .child(
-                div()
-                    .h(px(6.))
-                    .w(gpui::relative(dialog.fraction))
-                    .rounded_full()
-                    .bg(p.alarm_bg),
-            )
-            .into_any_element(),
-    ];
-    for (label, value) in &dialog.rows {
-        body.push(
-            h_flex()
-                .gap(px(8.))
-                .child(div().w(px(110.)).text_color(p.fg_dim).child(label.clone()))
-                .child(div().flex_1().child(value.clone()))
-                .into_any_element(),
-        );
-    }
-    if let Some(text) = &dialog.more {
-        body.push(caption(text.clone(), p).into_any_element());
-    }
-    let mut buttons: Vec<AnyElement> = Vec::new();
-    if !dialog.ended {
-        buttons.push(
-            Button::new("countdown-hide")
-                .label(dialog.hide.clone())
-                .on_click(move |_, window, cx| on_hide(window, cx))
-                .into_any_element(),
-        );
-        buttons.push(
-            Button::new("countdown-cancel")
-                .danger()
-                .track_focus(focus)
-                .label(dialog.cancel.clone())
-                .on_click(move |_, window, cx| on_cancel(window, cx))
-                .into_any_element(),
-        );
-        body.push(caption(dialog.hint.clone(), p).into_any_element());
-    }
-    modal(dialog.title.clone(), dialog.text.clone(), body, buttons, p).into_any_element()
 }
