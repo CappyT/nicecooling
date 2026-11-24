@@ -2,8 +2,9 @@
 
 use gpui::prelude::*;
 use gpui::{AnyElement, ClipboardItem, Context, FontWeight, SharedString, Window, div, px};
-use gpui_component::input::Input;
 use gpui_component::{h_flex, v_flex};
+
+use crate::icons::{NcIcon, icon, text_icon};
 
 use crate::model::FieldRisk;
 use crate::screen_view::{InputKey, ScreenView, skeleton};
@@ -11,10 +12,17 @@ use crate::screens::controls::{Pick, act};
 use crate::screens::leakshield::fields::{
     FieldRow, FieldsModel, FieldsState, Filter, Verification,
 };
+use crate::screens::leakshield::parts::{field_input, small_button, table_row};
 use crate::screens::ui::{
-    TagKind, caption, card, card_header, card_row, locked, notice_row, page, tag,
+    TagKind, caption, card, cell, label, locked, notice_row, page, table_header, tag,
 };
 use crate::tokens::Palette;
+
+/// The widths of the table columns.
+const VALUE: f32 = 110.0;
+const RISK: f32 = 136.0;
+const VERIFICATION: f32 = 196.0;
+const ACCESS: f32 = 92.0;
 
 impl ScreenView {
     pub(crate) fn render_ls_fields(
@@ -65,18 +73,26 @@ impl ScreenView {
         );
         let copy = model.copy_text.clone();
         let header = h_flex()
+            .w_full()
             .gap(px(12.))
-            .items_center()
-            .child(div().w(px(260.)).child(Input::new(&search)))
+            .items_start()
+            .child(
+                field_input(&search, "", true, false, 220., p, window, cx)
+                    .child(div().pr(px(10.)).child(icon(NcIcon::Search, p.fg_dim))),
+            )
             .child(filter)
             .child(
-                div()
-                    .flex_1()
-                    .text_color(p.fg_dim)
-                    .child(model.summary.clone()),
+                h_flex().h(px(34.)).flex_1().min_w_0().child(
+                    div()
+                        .min_w_0()
+                        .truncate()
+                        .text_color(p.fg_dim)
+                        .child(model.summary.clone()),
+                ),
             )
             .child(
-                Self::flat_button("ls-fields-copy", model.copy_label.clone())
+                small_button("ls-fields-copy", model.copy_label.clone())
+                    .icon(text_icon(NcIcon::Copy))
                     .on_click(act(&view, move |_, _, cx| {
                         cx.write_to_clipboard(ClipboardItem::new_string(copy.clone()))
                     })),
@@ -106,12 +122,34 @@ impl ScreenView {
                 );
             }
             FieldsState::Ready => {
-                let mut table = card(p).child(columns(&model.columns, p));
+                let mut table = card(p).child(
+                    table_header(
+                        &model.columns,
+                        &[
+                            None,
+                            Some(VALUE),
+                            Some(RISK),
+                            Some(VERIFICATION),
+                            Some(ACCESS),
+                        ],
+                        p,
+                    )
+                    .border_t_0(),
+                );
                 for group in &model.groups {
+                    // A group row: the name of the setting group on the `hover` ground.
                     table = table.child(
-                        card_header(group.title.clone(), p)
-                            .bg(p.selected)
-                            .h(px(30.)),
+                        h_flex()
+                            .w_full()
+                            .h(px(30.))
+                            .px(px(18.))
+                            .border_t_1()
+                            .border_color(p.border)
+                            .bg(p.hover)
+                            .text_size(px(12.))
+                            .font_weight(FontWeight::BOLD)
+                            .text_color(p.fg_dim)
+                            .child(group.title.clone()),
                     );
                     for row in &group.rows {
                         table = table.child(self.field_row(row, model.dim, p, cx));
@@ -120,11 +158,17 @@ impl ScreenView {
                 content = content.child(table);
             }
         }
-        content = content.child(caption(model.risk_help.clone(), p)).children(
-            model
-                .verification_help
-                .iter()
-                .map(|text| caption(text.clone(), p)),
+        content = content.child(
+            v_flex()
+                .px(px(6.))
+                .gap(px(3.))
+                .child(caption(model.risk_help.clone(), p))
+                .children(
+                    model
+                        .verification_help
+                        .iter()
+                        .map(|text| caption(text.clone(), p)),
+                ),
         );
 
         let ids = model.row_ids();
@@ -156,20 +200,18 @@ impl ScreenView {
         let view = cx.entity();
         let id = row.id.clone();
         let ink = if dim { p.fg_dim } else { p.fg };
-        let verified = row.verification == Verification::VerificationWritePassed;
-        let line = h_flex()
+        let (badge, badge_color) = match row.verification {
+            Verification::VerificationWritePassed => (NcIcon::ShieldOk, p.success),
+            Verification::PlausibleRead => (NcIcon::Eye, p.fg_dim),
+            Verification::CodeDefined => (NcIcon::Code, p.fg_dim),
+        };
+        let line = table_row(p)
             .id(SharedString::from(format!("ls-field-{}", row.id)))
-            .w_full()
-            .min_h(px(40.))
-            .px(px(18.))
-            .py(px(4.))
-            .gap(px(12.))
-            .items_center()
-            .border_t_1()
-            .border_color(p.border)
+            .min_h(px(48.))
             .text_color(ink)
             .cursor_pointer()
             .when(row.selected, |line| line.bg(p.accent_tint))
+            .when(!row.selected, |line| line.hover(|line| line.bg(p.hover)))
             .on_click({
                 let focus = self.ls_focus.clone();
                 move |_, window, cx| {
@@ -184,16 +226,23 @@ impl ScreenView {
                 }
             })
             .child(
-                v_flex().flex_1().child(row.name.clone()).child(
-                    div()
-                        .font_family("monospace")
-                        .text_size(px(11.))
-                        .text_color(p.fg_dim)
-                        .child(row.id.clone()),
-                ),
+                v_flex()
+                    .flex_1()
+                    .min_w_0()
+                    .child(label(row.name.clone()))
+                    .child(
+                        div()
+                            .truncate()
+                            .font_family("monospace")
+                            .text_size(px(12.))
+                            .line_height(px(16.))
+                            // Never `fg-dim` on a tint.
+                            .text_color(if row.selected { p.fg } else { p.fg_dim })
+                            .child(row.id.clone()),
+                    ),
             )
-            .child(div().w(px(180.)).child(row.value.clone()))
-            .child(div().w(px(110.)).child(tag(
+            .child(cell(VALUE).child(row.value.clone()))
+            .child(div().w(px(RISK)).flex_none().child(tag(
                 row.risk_text.clone(),
                 if row.risk == FieldRisk::Safety {
                     TagKind::Warning
@@ -203,47 +252,39 @@ impl ScreenView {
                 p,
             )))
             .child(
-                div()
-                    .w(px(200.))
+                h_flex()
+                    .w(px(VERIFICATION))
+                    .flex_none()
+                    .min_w_0()
+                    .gap(px(4.))
                     .text_size(px(12.))
-                    .text_color(if verified { p.success } else { p.fg_dim })
-                    .child(row.verification_text.clone()),
+                    .text_color(badge_color)
+                    .child(icon(badge, badge_color))
+                    .child(label(row.verification_text.clone())),
             )
-            .child(
-                div()
-                    .w(px(90.))
-                    .font_weight(FontWeight::BOLD)
-                    .map(|access| {
-                        if row.writable {
-                            access.child(row.access_text.clone())
-                        } else {
-                            access.child(locked(row.access_text.clone(), p))
-                        }
-                    }),
-            );
+            .child(cell(ACCESS).map(|access| {
+                if row.writable {
+                    access.child(row.access_text.clone())
+                } else {
+                    access
+                        .text_color(p.fg_dim)
+                        .child(locked(row.access_text.clone(), p))
+                }
+            }));
         let mut column = v_flex().w_full().child(line);
         if let Some(text) = &row.explanation {
-            column = column.child(card_row(p).bg(p.selected).child(text.clone()));
+            column = column.child(
+                h_flex()
+                    .w_full()
+                    .px(px(18.))
+                    .py(px(9.))
+                    .gap(px(9.))
+                    .items_start()
+                    .bg(p.hover)
+                    .child(icon(NcIcon::Info, p.fg_dim))
+                    .child(div().flex_1().min_w_0().child(text.clone())),
+            );
         }
         column.into_any_element()
     }
-}
-
-fn columns(names: &[String], p: &Palette) -> AnyElement {
-    let widths = [None, Some(180.), Some(110.), Some(200.), Some(90.)];
-    let mut line = h_flex()
-        .h(px(36.))
-        .px(px(18.))
-        .gap(px(12.))
-        .items_center()
-        .text_size(px(12.))
-        .font_weight(FontWeight::BOLD)
-        .text_color(p.fg_dim);
-    for (name, width) in names.iter().zip(widths) {
-        line = line.child(match width {
-            Some(width) => div().w(px(width)).child(name.clone()),
-            None => div().flex_1().child(name.clone()),
-        });
-    }
-    line.into_any_element()
 }
