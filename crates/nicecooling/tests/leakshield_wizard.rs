@@ -1322,7 +1322,7 @@ fn the_standby_minimum_stays_at_or_below_the_minimum_and_needs_its_switch() {
 }
 
 mod layout {
-    use gpui::{AppContext as _, Bounds, Pixels, TestAppContext, VisualTestContext, px};
+    use gpui::{AppContext as _, Bounds, Modifiers, Pixels, TestAppContext, VisualTestContext, px};
     use nicecooling::app::{self, Backend, StartMode};
     use nicecooling::i18n::Language;
     use nicecooling::model::DaemonEvent;
@@ -1332,14 +1332,18 @@ mod layout {
     use nicecooling::screens::{Feedback, ScreenInput};
     use tokio::sync::{broadcast, mpsc};
 
-    use super::{LEAKSHIELD, NOW_US, device};
+    use super::{LEAKSHIELD, NOW_US, device, pending};
 
     /// The sidebar of the shell: the page is this much narrower than the window.
     const SIDEBAR: f32 = 220.0;
 
-    /// Every row of every step ends inside its card, and the parts of the band diagram keep
-    /// their place. `edit` makes the state of the wizard that the step shows.
-    fn check(cx: &mut TestAppContext, language: Language, width: f32, edit: fn(&mut SettingsUi)) {
+    /// The Settings tab of the Leakshield of the fixture, in a window of `width` with the
+    /// sidebar. The second part keeps the backend of the app alive.
+    fn open(
+        cx: &mut TestAppContext,
+        language: Language,
+        width: f32,
+    ) -> (gpui::WindowHandle<ScreenView>, impl Sized + use<>) {
         let runtime = tokio::runtime::Runtime::new().expect("runtime");
         let (events, events_rx) = broadcast::channel(64);
         let (commands, inbox) = mpsc::unbounded_channel();
@@ -1361,7 +1365,7 @@ mod layout {
             .send(DaemonEvent::Sensors(state.sensors.clone().unwrap()))
             .unwrap();
         cx.run_until_parked();
-        let (view_commands, _inbox) = mpsc::unbounded_channel();
+        let (view_commands, inbox) = mpsc::unbounded_channel();
         let window = cx.update(|cx| {
             cx.open_window(gpui::WindowOptions::default(), |_, cx| {
                 cx.new(|cx| ScreenView::new(model.clone(), view_commands.clone(), cx))
@@ -1372,8 +1376,18 @@ mod layout {
         window
             .update(cx, |view, _, cx| {
                 view.show_leakshield_tab(LEAKSHIELD, Tab::Settings, cx);
-                edit(&mut view.leakshield_ui().settings);
             })
+            .unwrap();
+        (window, (runtime, events, commands, inbox))
+    }
+
+    /// Every row of every step ends inside its card, and the parts of the band diagram keep
+    /// their place. `edit` makes the state of the wizard that the step shows.
+    fn check(cx: &mut TestAppContext, language: Language, width: f32, edit: fn(&mut SettingsUi)) {
+        let (window, _backend) = open(cx, language, width);
+        let state = device();
+        window
+            .update(cx, |view, _, _| edit(&mut view.leakshield_ui().settings))
             .unwrap();
         let locale = language.resolve();
         let tag = format!("{language:?} {width}");
@@ -1484,6 +1498,71 @@ mod layout {
             }
         }
         cx.update(|cx| cx.quit());
+    }
+
+    /// A number that the user types goes into the draft on each way out of its input, and
+    /// Escape puts the old number back. gpui sends `Blur` in an active window only.
+    fn leave_an_input(cx: &mut TestAppContext, active: bool) {
+        const FIELD: &str = "reservoir_total_volume";
+        let (window, _backend) = open(cx, Language::English, 1280.);
+        let show = |cx: &mut VisualTestContext, step: Step| {
+            window
+                .update(cx, |view, _, cx| {
+                    view.leakshield_ui().settings.go(step);
+                    cx.notify();
+                })
+                .unwrap();
+            cx.run_until_parked();
+        };
+        let draft = |cx: &mut VisualTestContext| {
+            cx.run_until_parked();
+            window
+                .update(cx, |view, _, _| {
+                    pending(&view.leakshield_ui().settings, FIELD)
+                })
+                .unwrap()
+        };
+        let type_number = |cx: &mut VisualTestContext, number: &str| {
+            let input = cx.debug_bounds("ls-control-reservoir_total_volume");
+            cx.simulate_click(input.expect("the input").center(), Modifiers::none());
+            cx.simulate_keystrokes("ctrl-a");
+            cx.simulate_input(number);
+        };
+        let mut visual = VisualTestContext::from_window(window.into(), cx);
+        if active {
+            visual.update(|window, _| window.activate_window());
+        }
+        show(&mut visual, Step::Reservoir);
+        assert_eq!(visual.update(|window, _| window.is_window_active()), active);
+
+        type_number(&mut visual, "271");
+        assert_eq!(draft(&mut visual), None, "typing commits nothing");
+        // Tab: the shell calls `focus_next` for it.
+        visual.update(|window, cx| window.focus_next(cx));
+        assert_eq!(draft(&mut visual), Some(271.0), "the focus moved on");
+
+        // After Escape the input has the old number: Enter commits that one.
+        type_number(&mut visual, "280");
+        visual.simulate_keystrokes("escape enter");
+        assert_eq!(draft(&mut visual), Some(271.0), "Escape drops the text");
+        visual.update(|window, cx| window.focus_next(cx));
+        assert_eq!(draft(&mut visual), Some(271.0), "nothing is left to commit");
+
+        // A press on a button moves no focus. The next step takes the input off the screen.
+        type_number(&mut visual, "290");
+        show(&mut visual, Step::Pump);
+        assert_eq!(draft(&mut visual), Some(290.0), "the input left the screen");
+        cx.update(|cx| cx.quit());
+    }
+
+    #[gpui::test]
+    fn a_typed_number_commits_when_its_input_loses_the_focus(cx: &mut TestAppContext) {
+        leave_an_input(cx, true);
+    }
+
+    #[gpui::test]
+    fn a_typed_number_commits_in_a_window_that_is_not_active(cx: &mut TestAppContext) {
+        leave_an_input(cx, false);
     }
 
     fn untouched(_: &mut SettingsUi) {}

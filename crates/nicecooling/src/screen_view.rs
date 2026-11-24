@@ -7,8 +7,8 @@ use std::rc::Rc;
 
 use gpui::prelude::*;
 use gpui::{
-    AnyElement, App, Bounds, Context, Entity, Focusable as _, Pixels, Render, SharedString, Window,
-    div, px,
+    AnyElement, App, Bounds, Context, Entity, Focusable as _, KeyDownEvent, Pixels, Render,
+    SharedString, Window, div, px,
 };
 use gpui_component::input::{InputEvent, InputState};
 use gpui_component::slider::{SliderEvent, SliderState};
@@ -102,6 +102,13 @@ pub struct ScreenView {
     /// The focus of the Channels list: Up and Down move the selection.
     pub(crate) channels_focus: Option<gpui::FocusHandle>,
     pub(crate) inputs: HashMap<InputKey, Entity<InputState>>,
+    /// The input with text that the user typed and did not commit. It keeps that text
+    /// without the focus, until the commit that the end of the frame starts.
+    pub(crate) edited: Option<InputKey>,
+    /// True when this frame has `edited` with the focus.
+    edited_focused: bool,
+    /// The input that Escape puts back to the value of the model.
+    reverted: Option<InputKey>,
     pub(crate) sliders: HashMap<String, Entity<SliderState>>,
     /// The sliders that the user drags now: they keep their value until the release.
     pub(crate) busy_sliders: BTreeSet<String>,
@@ -182,6 +189,9 @@ impl ScreenView {
             closing_press: None,
             preset_menu_open: false,
             select_focus: HashMap::new(),
+            edited: None,
+            edited_focused: false,
+            reverted: None,
             focused: None,
             picker_cursor: None,
             picker_keys: None,
@@ -266,7 +276,8 @@ impl ScreenView {
     }
 
     /// The text input of `key`. It starts with `value`. While it has no focus it follows
-    /// `value`, so a drag or a daemon answer changes the text.
+    /// `value`, so a drag or a daemon answer changes the text. Text that the user typed
+    /// stays until its commit.
     pub(crate) fn input(
         &mut self,
         key: InputKey,
@@ -275,13 +286,19 @@ impl ScreenView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Entity<InputState> {
-        if let Some(state) = self.inputs.get(&key) {
+        if let Some(state) = self.inputs.get(&key).cloned() {
             let focused = state.read(cx).focus_handle(cx).is_focused(window);
-            if !focused && state.read(cx).value().as_ref() != value {
+            let edited = self.edited.as_ref() == Some(&key);
+            self.edited_focused |= edited && focused;
+            let reverted = self.reverted.as_ref() == Some(&key);
+            if reverted {
+                self.reverted = None;
+            }
+            if (reverted || !(focused || edited)) && state.read(cx).value().as_ref() != value {
                 let value = value.to_owned();
                 state.update(cx, |input, cx| input.set_value(value, window, cx));
             }
-            return state.clone();
+            return state;
         }
         let initial = value.to_owned();
         let placeholder = placeholder.to_owned();
@@ -512,9 +529,23 @@ impl Render for ScreenView {
                 content
             }
         };
+        // A focus change draws a frame before gpui sends `Blur`, and a window that is not
+        // active gets no `Blur`. So the frame that has the edited input without the focus,
+        // or not at all, starts the commit.
+        if self.edited.is_some() && !std::mem::take(&mut self.edited_focused) {
+            cx.defer_in(window, Self::leave_input);
+        }
         v_flex()
             .size_full()
             .text_color(cx.theme().foreground)
+            .on_key_down(cx.listener(|this, event: &KeyDownEvent, _, cx| {
+                if event.keystroke.key == "escape"
+                    && let Some(key) = this.edited.take()
+                {
+                    this.reverted = Some(key);
+                    cx.notify();
+                }
+            }))
             .children(strip)
             .child(
                 v_flex()

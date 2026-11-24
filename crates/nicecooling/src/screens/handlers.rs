@@ -16,18 +16,36 @@ impl ScreenView {
         parse(self.inputs.get(key)?.read(cx).value().as_ref())
     }
 
+    /// Commit the text of the edited input, as its `Blur` does.
+    pub(crate) fn leave_input(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(key) = self.edited.clone()
+            && let Some(state) = self.inputs.get(&key).cloned()
+        {
+            self.on_input(&key, &state, &InputEvent::Blur, window, cx);
+        }
+    }
+
     pub(crate) fn on_input(
         &mut self,
         key: &InputKey,
         state: &Entity<InputState>,
         event: &InputEvent,
-        _window: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         let value = state.read(cx).value().to_string();
         let enter = matches!(event, InputEvent::PressEnter { .. });
-        let commits = enter || matches!(event, InputEvent::Blur);
         let changes = matches!(event, InputEvent::Change);
+        // `Blur` commits typed text only, and once: `leave_input` and gpui both send it.
+        let edited = self.edited.as_ref() == Some(key);
+        let commits = enter || (edited && matches!(event, InputEvent::Blur));
+        if changes && !edited {
+            // A fast user types here before a frame committed the input that they left.
+            self.leave_input(window, cx);
+            self.edited = Some(key.clone());
+        } else if commits && edited {
+            self.edited = None;
+        }
         match key {
             InputKey::SensorSearch if changes => self.sensors.search = value,
             InputKey::SensorRename => {
