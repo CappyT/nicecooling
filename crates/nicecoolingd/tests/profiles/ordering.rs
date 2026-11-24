@@ -32,8 +32,16 @@ async fn close_activations_leave_the_device_on_the_slot_of_the_active_profile() 
     for round in 0..6 {
         hub.activate_profile("profile_2", Cause::Manual).unwrap();
         hub.activate_profile("profile_3", Cause::Manual).unwrap();
-        // The second write goes out 1.5 s after the first.
-        tokio::time::sleep(Duration::from_millis(1800)).await;
+        // The second write goes out 1.5 s after the first. Wait until no write came for 1.6 s, so
+        // that a loaded test host does not cut the round short.
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(8);
+        loop {
+            let writes = feature_writes(&rig);
+            tokio::time::sleep(Duration::from_millis(1600)).await;
+            if feature_writes(&rig) == writes || tokio::time::Instant::now() >= deadline {
+                break;
+            }
+        }
         let device = rig.sim.report3()[747];
         if device != 3 {
             wrong.push((round, device));

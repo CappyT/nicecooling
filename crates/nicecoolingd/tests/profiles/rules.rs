@@ -502,6 +502,11 @@ async fn device_change_while_group_holds_not_overwritten() {
         .unwrap();
     profiles.return_to_automatic().await.unwrap();
     rig.step(2).await;
+    // The worker writes on its own thread: a loaded test host can take longer than the step.
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    while feature_writes(&rig) == 0 && tokio::time::Instant::now() < deadline {
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
     // The group won and wrote slot 2: the device has the number 2 now.
     assert_eq!(rig.sim.report3()[747], 2);
     assert_eq!(feature_writes(&rig), 1);
