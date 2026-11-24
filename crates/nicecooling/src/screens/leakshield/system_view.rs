@@ -8,17 +8,23 @@ use gpui_component::button::{Button, ButtonVariants as _};
 use gpui_component::input::Input;
 use gpui_component::progress::Progress;
 use gpui_component::switch::Switch;
-use gpui_component::{Disableable as _, Sizable as _, h_flex};
+use gpui_component::{Disableable as _, Sizable as _, h_flex, v_flex};
 
 use crate::screen_view::{InputKey, ScreenView, skeleton};
 use crate::screens::controls::{Pick, act};
 use crate::screens::leakshield::TabState;
-use crate::screens::leakshield::sensors_view::header_row;
+use crate::screens::leakshield::parts::{button, field_row, header, small_button, table_row};
 use crate::screens::leakshield::system::{Ask, SystemModel, direct_fields};
 use crate::screens::ui::{
-    TagKind, caption, card, card_header, card_row, modal, notice_row, page, tag, write_line,
+    TagKind, caption, card, card_header, card_row, cell, modal, notice_row, page, table_header,
+    tag, wide_cell, write_line,
 };
 use crate::tokens::Palette;
+
+/// The widths of the table columns.
+const TIME: f32 = 170.0;
+const REASON: f32 = 150.0;
+const ROW_BUTTONS: f32 = 190.0;
 
 impl ScreenView {
     pub(crate) fn render_ls_system(
@@ -39,29 +45,31 @@ impl ScreenView {
                 .into_any_element();
         }
 
+        // A row of a card: the name and its caption at the left, the value at the right.
+        let name_of = |name: &str, text: Option<&str>| {
+            v_flex()
+                .flex_1()
+                .min_w_0()
+                .gap(px(3.))
+                .child(div().font_weight(FontWeight::BOLD).child(name.to_owned()))
+                .when_some(text, |column, text| {
+                    column.child(caption(text.to_owned(), p))
+                })
+        };
+
         // Device.
         let device = &model.device;
         let mut card_device = card(p)
             .child(card_header(device.title.clone(), p))
             .child(
-                card_row(p)
-                    .child(
-                        div()
-                            .w(px(180.))
-                            .font_weight(FontWeight::BOLD)
-                            .child(device.serial_label.clone()),
-                    )
+                field_row(p)
+                    .child(name_of(&device.serial_label, None))
                     .child(div().font_family("monospace").child(device.serial.clone())),
             )
             .child(
-                card_row(p)
-                    .child(
-                        div()
-                            .w(px(180.))
-                            .font_weight(FontWeight::BOLD)
-                            .child(device.firmware_label.clone()),
-                    )
-                    .child(div().mr(px(8.)).child(device.firmware.clone()))
+                field_row(p)
+                    .child(name_of(&device.firmware_label, Some(&device.update_hint)))
+                    .child(div().flex_none().child(device.firmware.clone()))
                     .child(tag(
                         device.firmware_tag.clone(),
                         if device.firmware_known {
@@ -75,38 +83,35 @@ impl ScreenView {
         if let Some(text) = &device.unknown_text {
             card_device = card_device.child(notice_row(text.clone(), true, p));
         }
-        card_device = card_device.child(card_row(p).child(caption(device.update_hint.clone(), p)));
         let counter = {
             let ask = view.clone();
             let button = &device.reset_counter;
-            Button::new("ls-reset-counter")
-                .small()
-                .label(button.label.clone())
+            small_button("ls-reset-counter", button.label.clone())
                 .disabled(!button.enabled)
                 .on_click(act(&ask, |this, _, _| {
                     this.leakshield.system.request(Ask::ServiceCounter)
                 }))
         };
         card_device = card_device.child(
-            card_row(p)
-                .child(
-                    div()
-                        .w(px(180.))
-                        .font_weight(FontWeight::BOLD)
-                        .child(device.maintenance_label.clone()),
-                )
-                .child(div().w(px(160.)).child(
+            field_row(p)
+                .child(name_of(
+                    &device.maintenance_label,
+                    Some(&device.maintenance_caption),
+                ))
+                .child(div().w(px(140.)).flex_none().child(
                     Progress::new("ls-maintenance").value(device.maintenance.unwrap_or(0.) as f32),
                 ))
-                .child(div().w(px(60.)).child(device.maintenance_text.clone()))
-                .child(div().flex_1())
+                .child(
+                    div()
+                        .flex_none()
+                        .font_weight(FontWeight::BOLD)
+                        .child(device.maintenance_text.clone()),
+                )
                 .child(counter),
         );
         if let Some(text) = &device.maintenance_warning {
             card_device = card_device.child(notice_row(text.clone(), true, p));
         }
-        card_device =
-            card_device.child(card_row(p).child(caption(device.maintenance_caption.clone(), p)));
         if let Some(text) = &device.counter_unsupported {
             card_device = card_device.child(card_row(p).child(caption(text.clone(), p)));
         }
@@ -188,9 +193,7 @@ impl ScreenView {
         );
         let sync = {
             let device = id.to_owned();
-            Button::new("ls-sync-clock")
-                .small()
-                .label(clock.sync.label.clone())
+            small_button("ls-sync-clock", clock.sync.label.clone())
                 .disabled(!clock.sync.enabled)
                 .on_click(act(&view, move |this, _, _| {
                     this.send(crate::command::Command::SyncLeakshieldClock {
@@ -201,33 +204,18 @@ impl ScreenView {
         let mut clock_card = card(p)
             .child(card_header(clock.title.clone(), p).child(sync))
             .child(
-                card_row(p)
-                    .child(
-                        div()
-                            .w(px(180.))
-                            .font_weight(FontWeight::BOLD)
-                            .child(clock.time_label.clone()),
-                    )
-                    .child(div().child(clock.time.clone())),
+                field_row(p)
+                    .child(name_of(&clock.time_label, None))
+                    .child(div().font_family("monospace").child(clock.time.clone())),
             )
             .child(
-                card_row(p)
-                    .child(
-                        div()
-                            .w(px(180.))
-                            .font_weight(FontWeight::BOLD)
-                            .child(clock.zone_label.clone()),
-                    )
+                field_row(p)
+                    .child(name_of(&clock.zone_label, None))
                     .child(zone_select),
             )
             .child(
-                card_row(p)
-                    .child(
-                        div()
-                            .w(px(180.))
-                            .font_weight(FontWeight::BOLD)
-                            .child(clock.format_label.clone()),
-                    )
+                field_row(p)
+                    .child(name_of(&clock.format_label, None))
                     .child(format_select),
             );
         if let Some(text) = &clock.warning {
@@ -239,41 +227,41 @@ impl ScreenView {
         content = content.child(clock_card);
 
         // Standby.
-        let mut standby = card(p)
-            .child(card_header(model.standby.title.clone(), p))
-            .child(card_row(p).child(caption(model.standby.text.clone(), p)));
+        let mut standby = card(p).child(header(
+            model.standby.title.clone(),
+            model.standby.text.clone(),
+            p,
+        ));
         for row in &model.standby.rows {
             let (device, bit) = (id.to_owned(), row.bit);
             let view = view.clone();
             standby = standby.child(
-                card_row(p)
-                    .child(div().flex_1().child(row.label.clone()))
-                    .child(
-                        Switch::new(SharedString::from(format!("ls-standby-{bit}")))
-                            .checked(row.on)
-                            .disabled(!row.writable)
-                            .on_click(move |on, _, cx| {
-                                let on = *on;
-                                let device = device.clone();
-                                view.update(cx, |this, cx| {
-                                    let mask = this
-                                        .state(cx)
+                field_row(p).child(name_of(&row.label, None)).child(
+                    Switch::new(SharedString::from(format!("ls-standby-{bit}")))
+                        .large()
+                        .checked(row.on)
+                        .disabled(!row.writable)
+                        .on_click(move |on, _, cx| {
+                            let on = *on;
+                            let device = device.clone();
+                            view.update(cx, |this, cx| {
+                                let mask =
+                                    this.state(cx)
                                         .snapshot
                                         .leakshield_data
                                         .get(&device)
                                         .and_then(|d| d.number("standby_conditions"))
-                                        .unwrap_or(0.0)
-                                        as u32;
-                                    let mask = if on { mask | bit } else { mask & !bit };
-                                    this.send(direct_fields(
-                                        &device,
-                                        "standby",
-                                        "standby_conditions",
-                                        f64::from(mask),
-                                    ));
-                                });
-                            }),
-                    ),
+                                        .unwrap_or(0.0) as u32;
+                                let mask = if on { mask | bit } else { mask & !bit };
+                                this.send(direct_fields(
+                                    &device,
+                                    "standby",
+                                    "standby_conditions",
+                                    f64::from(mask),
+                                ));
+                            });
+                        }),
+                ),
             );
         }
         if let Some(line) = &model.standby.write_line {
@@ -285,9 +273,7 @@ impl ScreenView {
         let backups = &model.backups;
         let back_up = {
             let device = id.to_owned();
-            Button::new("ls-back-up")
-                .small()
-                .label(backups.back_up.label.clone())
+            small_button("ls-back-up", backups.back_up.label.clone())
                 .disabled(!backups.back_up.enabled)
                 .on_click(act(&view, move |this, _, _| {
                     this.send(crate::command::Command::CreateBackup {
@@ -297,9 +283,7 @@ impl ScreenView {
         };
         let import = {
             let device = id.to_owned();
-            Button::new("ls-import")
-                .small()
-                .label(backups.import.label.clone())
+            small_button("ls-import", backups.import.label.clone())
                 .disabled(!backups.import.enabled)
                 .on_click(act(&view, move |this, _, cx| {
                     this.pick_backup_file(&device, cx);
@@ -311,45 +295,55 @@ impl ScreenView {
                     .child(back_up)
                     .child(import),
             )
-            .child(header_row(&backups.columns, &[170., 160., 0., 200.], p));
+            .child(
+                table_header(
+                    &backups.columns,
+                    &[Some(TIME), Some(REASON), None, Some(ROW_BUTTONS)],
+                    p,
+                )
+                .border_t_0(),
+            );
         if let Some(text) = &backups.empty {
-            backups_card = backups_card.child(card_row(p).child(text.clone()));
+            backups_card =
+                backups_card.child(table_row(p).text_color(p.fg_dim).child(text.clone()));
         }
         for row in &backups.rows {
             let (backup, device) = (row.id.clone(), id.to_owned());
             let restore_id = backup.clone();
-            let export = Button::new(SharedString::from(format!("ls-export-{}", row.id)))
-                .small()
-                .label(row.export.label.clone())
-                .disabled(!row.export.enabled)
-                .on_click(act(&view, {
-                    let device = device.clone();
-                    move |this, _, cx| this.save_backup_file(&device, &backup, cx)
-                }));
-            let restore = Button::new(SharedString::from(format!("ls-restore-{}", row.id)))
-                .small()
-                .danger()
-                .label(row.restore.label.clone())
-                .disabled(!row.restore.enabled)
-                .on_click(act(&view, move |this, _, _| {
-                    this.leakshield
-                        .system
-                        .request(Ask::Restore(restore_id.clone()))
-                }));
+            let export = small_button(
+                SharedString::from(format!("ls-export-{}", row.id)),
+                row.export.label.clone(),
+            )
+            .disabled(!row.export.enabled)
+            .on_click(act(&view, {
+                let device = device.clone();
+                move |this, _, cx| this.save_backup_file(&device, &backup, cx)
+            }));
+            let restore = small_button(
+                SharedString::from(format!("ls-restore-{}", row.id)),
+                row.restore.label.clone(),
+            )
+            .danger()
+            .disabled(!row.restore.enabled)
+            .on_click(act(&view, move |this, _, _| {
+                this.leakshield
+                    .system
+                    .request(Ask::Restore(restore_id.clone()))
+            }));
             backups_card = backups_card.child(
-                card_row(p)
-                    .child(div().w(px(170.)).child(row.time.clone()))
-                    .child(div().w(px(160.)).child(row.reason.clone()))
+                table_row(p)
+                    .child(cell(TIME).font_family("monospace").child(row.time.clone()))
+                    .child(cell(REASON).child(row.reason.clone()))
                     .child(
-                        div()
-                            .flex_1()
+                        wide_cell()
                             .font_family("monospace")
                             .text_color(p.fg_dim)
                             .child(row.short_hash.clone()),
                     )
                     .child(
                         h_flex()
-                            .w(px(200.))
+                            .w(px(ROW_BUTTONS))
+                            .flex_none()
                             .gap(px(6.))
                             .justify_end()
                             .child(export)
@@ -371,20 +365,18 @@ impl ScreenView {
                     .bg(p.alarm_tint)
                     .child(div().flex_1().child(failed.text.clone()))
                     .child(
-                        Button::new("ls-restore-retry")
-                            .small()
-                            .label(failed.try_again.clone())
-                            .on_click(act(&retry, move |this, _, _| {
+                        small_button("ls-restore-retry", failed.try_again.clone()).on_click(act(
+                            &retry,
+                            move |this, _, _| {
                                 if let Some(command) = this.leakshield.system.retry_restore(&device)
                                 {
                                     this.send(command);
                                 }
-                            })),
+                            },
+                        )),
                     )
                     .child(
-                        Button::new("ls-restore-close")
-                            .small()
-                            .label(failed.close.clone())
+                        small_button("ls-restore-close", failed.close.clone())
                             .on_click(act(&close, |this, _, _| {
                                 this.leakshield.system.close_failure()
                             })),
@@ -398,17 +390,19 @@ impl ScreenView {
 
         // Refill history.
         let refill = &model.refill;
-        let reset_history = Button::new("ls-reset-history")
-            .small()
-            .label(refill.reset.label.clone())
+        let reset_history = small_button("ls-reset-history", refill.reset.label.clone())
             .disabled(!refill.reset.enabled)
             .on_click(act(&view, |this, _, _| {
                 this.leakshield.system.request(Ask::RefillHistory)
             }));
         let mut refill_card = card(p)
             .child(card_header(refill.title.clone(), p).child(reset_history))
-            .child(header_row(&refill.columns, &[170., 160., 0.], p))
-            .child(card_row(p).child(refill.empty.clone()));
+            .child(table_header(&refill.columns, &[Some(TIME), Some(REASON), None], p).border_t_0())
+            .child(
+                table_row(p)
+                    .text_color(p.fg_dim)
+                    .child(refill.empty.clone()),
+            );
         if let Some(text) = &refill.unsupported {
             refill_card = refill_card.child(card_row(p).child(caption(text.clone(), p)));
         }
@@ -420,11 +414,9 @@ impl ScreenView {
         // Reset.
         let reset = &model.reset;
         let mut reset_card = card(p).child(card_header(reset.title.clone(), p)).child(
-            card_row(p).child(
-                Button::new("ls-factory-reset")
-                    .small()
+            card_row(p).py(px(12.)).child(
+                button("ls-factory-reset", reset.factory.label.clone())
                     .danger()
-                    .label(reset.factory.label.clone())
                     .disabled(!reset.factory.enabled)
                     .on_click(act(&view, |this, _, _| {
                         this.leakshield.system.request(Ask::FactoryReset)
@@ -457,9 +449,7 @@ impl ScreenView {
                 dialog.text.clone(),
                 body,
                 vec![
-                    Button::new("ls-ask-cancel")
-                        .small()
-                        .label(dialog.cancel.clone())
+                    small_button("ls-ask-cancel", dialog.cancel.clone())
                         .on_click(act(&cancel, |this, _, _| this.leakshield.system.cancel()))
                         .into_any_element(),
                     Button::new("ls-ask-confirm")
