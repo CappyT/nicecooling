@@ -55,7 +55,11 @@ async fn a_failed_newest_activation_drops_the_waiting_older_write() {
     std::fs::remove_file(slot_file(&rig, 3)).unwrap();
 
     hub.activate_profile("profile_2", Cause::Manual).unwrap();
-    tokio::time::sleep(Duration::from_millis(200)).await;
+    // A loaded test host can take longer than a fixed sleep: wait for the write itself.
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    while feature_writes(&rig) == 0 && tokio::time::Instant::now() < deadline {
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
     assert_eq!(feature_writes(&rig), 1);
     // The device follows the written number, as the real device does.
     rig.sim.edit_report1(|r| r.active_profile = 2);

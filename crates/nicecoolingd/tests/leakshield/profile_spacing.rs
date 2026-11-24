@@ -321,15 +321,17 @@ async fn save_settings_4s_after_last_profile_write() {
 
 /// The HID side of the simulated device with a slow read of report 1, as on the real device: it
 /// sends report 1 every 500 ms, and a read that finds the queue empty waits for the next one.
-/// It records the time of each report 3 write.
+/// It records the time of each read of report 1 and each report 3 write.
 struct SlowReport1 {
     sim: SimDevice,
     delay: Duration,
+    reads: Mutex<Vec<std::time::Instant>>,
     writes: Mutex<Vec<std::time::Instant>>,
 }
 
 impl HidTransport for SlowReport1 {
     fn read_input(&self, timeout: Duration) -> Result<Vec<u8>, DeviceError> {
+        self.reads.lock().unwrap().push(std::time::Instant::now());
         std::thread::sleep(self.delay);
         self.sim.read_input(timeout)
     }
@@ -352,6 +354,7 @@ async fn a_slow_report1_read_does_not_delay_the_waiting_write() {
     let hid = Arc::new(SlowReport1 {
         sim: rig.sim.clone(),
         delay: Duration::from_millis(400),
+        reads: Mutex::new(Vec::new()),
         writes: Mutex::new(Vec::new()),
     });
     let bulk: Arc<dyn BulkTransport> = Arc::new(rig.sim.clone());
@@ -373,11 +376,20 @@ async fn a_slow_report1_read_does_not_delay_the_waiting_write() {
     assert_eq!(rig.sim.report3()[747], 4);
     let writes = hid.writes.lock().unwrap();
     assert_eq!(writes.len(), 2);
-    // The second write goes out 1.5 s after the first one, with a margin of 0.2 s. The spacing
-    // counts from the start of the first write, which takes a backup before the report 3 write.
+    // No read of report 1 sits between the two writes. A time bound would fail on a loaded test
+    // host: the backup of each write goes to disk.
+    let reads = hid.reads.lock().unwrap();
+    assert!(
+        !reads
+            .iter()
+            .any(|read| *read > writes[0] && *read < writes[1]),
+        "a read of report 1 came between the two writes"
+    );
+    // The spacing counts from the start of the first write, which takes a backup before the
+    // report 3 write.
     let gap = writes[1] - writes[0];
     assert!(
-        gap >= Duration::from_millis(1300) && gap < Duration::from_millis(1700),
+        gap >= Duration::from_millis(1300),
         "the second write came {gap:?} after the first"
     );
 }
