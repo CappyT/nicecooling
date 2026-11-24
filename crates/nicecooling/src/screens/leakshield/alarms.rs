@@ -4,7 +4,7 @@
 use crate::command::{Command, response_feedback_key};
 use crate::model::{AlarmEntry, FieldValue, Response, Severity};
 use crate::screens::alarms::DEFAULT_DELAY_S;
-use crate::screens::format::clock;
+use crate::screens::format::{clock, plain};
 use crate::screens::leakshield::{Device, TabState, fields_command, write_line};
 use crate::screens::{FeedbackLine, ScreenInput};
 
@@ -101,6 +101,23 @@ const EVENTS: [EventDef; 6] = [
     },
 ];
 
+/// A number setting of a group, with its range. The device keeps it as one byte.
+struct LimitDef {
+    field: &'static str,
+    group: &'static str,
+    min: f64,
+    max: f64,
+    unit: &'static str,
+}
+
+const LIMITS: [LimitDef; 1] = [LimitDef {
+    field: "daily_pump_time_warning",
+    group: "leakage",
+    min: 5.0,
+    max: 240.0,
+    unit: "s",
+}];
+
 /// A switch of the tab that is one bit of a settings field.
 struct OptionDef {
     key: &'static str,
@@ -147,6 +164,29 @@ impl AlarmsUi {
             id,
             &format!("threshold:{field}"),
             vec![(field.to_owned(), FieldValue::Number(value))],
+        ))
+    }
+
+    /// A limit of a group. The device takes whole numbers in the range, so the value is rounded
+    /// and cut to it.
+    pub fn set_limit(
+        &self,
+        input: &ScreenInput<'_>,
+        id: &str,
+        field: &str,
+        value: f64,
+    ) -> Option<Command> {
+        let def = LIMITS.iter().find(|l| l.field == field)?;
+        if !value.is_finite() || !Device::new(input, id).access(field).writable {
+            return None;
+        }
+        Some(fields_command(
+            id,
+            &format!("limit:{field}"),
+            vec![(
+                field.to_owned(),
+                FieldValue::Number(value.round().clamp(def.min, def.max)),
+            )],
         ))
     }
 
@@ -318,10 +358,25 @@ pub struct EventRow {
     pub write_line: Option<FeedbackLine>,
 }
 
+/// A number input under the events of a group.
+#[derive(Clone, Debug, PartialEq)]
+pub struct LimitCtl {
+    pub field: String,
+    pub label: String,
+    /// What the limit does, with its range.
+    pub text: String,
+    pub value: f64,
+    pub unit: String,
+    pub writable: bool,
+    pub reason: Option<String>,
+    pub write_line: Option<FeedbackLine>,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct EventGroup {
     pub title: String,
     pub rows: Vec<EventRow>,
+    pub limits: Vec<LimitCtl>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -508,7 +563,31 @@ impl AlarmsModel {
                 None => groups.push(EventGroup {
                     title: def.group.to_owned(),
                     rows: vec![row],
+                    limits: Vec::new(),
                 }),
+            }
+        }
+        for def in &LIMITS {
+            let Some(value) = device.number(def.field) else {
+                continue;
+            };
+            let access = device.access(def.field);
+            let range =
+                [("min", def.min), ("max", def.max)].map(|(name, v)| (name, plain(locale, v)));
+            if let Some(group) = groups.iter_mut().find(|g| g.title == def.group) {
+                group.limits.push(LimitCtl {
+                    field: def.field.to_owned(),
+                    label: locale.tr(&format!("leakshield.alarms.limit.{}", def.field)),
+                    text: locale.fmt(
+                        &format!("leakshield.alarms.limit.{}_text", def.field),
+                        &[("min", &range[0].1), ("max", &range[1].1)],
+                    ),
+                    value,
+                    unit: crate::screens::format::unit_text(def.unit).to_owned(),
+                    writable: access.writable,
+                    reason: (!access.writable).then(|| device.reason_text(&access.reason)),
+                    write_line: write_line(input, id, &format!("limit:{}", def.field)),
+                });
             }
         }
         for group in &mut groups {
@@ -536,6 +615,7 @@ impl AlarmsModel {
                     }),
                 write_line: None,
             }],
+            limits: Vec::new(),
         });
 
         let latched = alarms

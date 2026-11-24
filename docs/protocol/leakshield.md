@@ -280,7 +280,7 @@ aquasuite reads the struct, changes the fields of the user, and writes back ever
 | `system_alarm_response_modifiers` | 566 | u8 |  |  | mask 0xF |  | 8 | Key modifiers of the USB key sequence: bit 0 ctrl, bit 1 shift, bit 2 alt, bit 3 windows. |
 | `system_alarm_response_key` | 567 | u16 |  |  | codes 0-2004, 110 codes (list in the registry) |  | 7 | Key code of the USB key sequence. Codes 4-115 follow the USB HID keyboard usages. |
 | `loop_height` | 569 | u8 |  |  | 0 to 200 cm |  | 25 | Height of the loop. |
-| `refill_duration_warning` | 570 | u8 |  |  | 5 to 240 s | 5 | 5 | Pump duration of a refill above which a warning starts. |
+| `daily_pump_time_warning` | 570 | u8 |  |  | 5 to 240 s | 5 | 5 | Warning limit of the daily pump time: a value below 5 is raised to 5. |
 | `led_strip_brightness` | 571 | u8 |  | 1/2.55 | 0 to 100 % |  | 255 | Brightness of the LED strip. |
 | `led_strip_flags` | 572 | u16 |  |  | mask 0x6 |  | 4 | Bit 1: strip off. Bit 2: LEDs off in standby (clear: LEDs stay on in standby). |
 | `led_controller_strip` | 574 | u8 | 2 x 70 |  | type only |  | [0, 0] | Strip of the LED controller. |

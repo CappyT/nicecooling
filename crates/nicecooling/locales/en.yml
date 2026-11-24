@@ -1010,6 +1010,9 @@ leakshield:
       threshold: "Threshold"
       device: "Device response"
       response: "Alarm response"
+    limit:
+      daily_pump_time_warning: "Daily pump time warning limit"
+      daily_pump_time_warning_text: "The Leakshield warns when the daily pump time passes this limit. From %{min} to %{max} s."
     options: "Options"
     option:
       standby_actions: "Disable alarm actions during standby"

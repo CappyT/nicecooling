@@ -1393,6 +1393,91 @@ fn bit_3_of_the_standby_conditions_disables_the_alarm_actions_in_standby() {
 }
 
 #[test]
+fn the_daily_pump_time_warning_limit_is_in_the_leak_group() {
+    let feedback = Feedback::default();
+    let state =
+        tweak(|state| set_field(state, "daily_pump_time_warning", FieldValue::Number(90.0)));
+    let model = alarms(&state, &feedback);
+    let leakage = &model.groups[0];
+    assert_eq!(leakage.title, "Leakage");
+    let [limit] = &leakage.limits[..] else {
+        panic!("one limit: {:?}", leakage.limits);
+    };
+    assert_eq!(limit.field, "daily_pump_time_warning");
+    assert_eq!(limit.label, "Daily pump time warning limit");
+    assert_eq!(
+        limit.text,
+        "The Leakshield warns when the daily pump time passes this limit. From 5 to 240 s."
+    );
+    assert_eq!(
+        (limit.value, limit.unit.as_str(), limit.writable),
+        (90.0, "s", true)
+    );
+    // The other groups have no limit.
+    assert!(model.groups[1..].iter().all(|g| g.limits.is_empty()));
+
+    // The value is a whole number of seconds from 5 to 240.
+    let input = en(&state, &feedback);
+    let written = |value: f64| {
+        let Some(Command::SetLeakshieldFields { fields, .. }) =
+            AlarmsUi.set_limit(&input, LEAKSHIELD, "daily_pump_time_warning", value)
+        else {
+            panic!("a field write for {value}");
+        };
+        fields[0].clone()
+    };
+    for (typed, raw) in [
+        (90.0, 90.0),
+        (240.0, 240.0),
+        (300.0, 240.0),
+        (2.0, 5.0),
+        (12.4, 12.0),
+    ] {
+        assert_eq!(
+            written(typed),
+            (
+                "daily_pump_time_warning".to_owned(),
+                FieldValue::Number(raw)
+            ),
+            "{typed}"
+        );
+    }
+    assert!(
+        AlarmsUi
+            .set_limit(&input, LEAKSHIELD, "daily_pump_time_warning", f64::NAN)
+            .is_none()
+    );
+    assert!(
+        AlarmsUi
+            .set_limit(&input, LEAKSHIELD, "loop_height", 5.0)
+            .is_none()
+    );
+    // A read-only device sends nothing and shows the reason.
+    let unknown = unknown_firmware();
+    assert!(
+        AlarmsUi
+            .set_limit(
+                &en(&unknown, &feedback),
+                LEAKSHIELD,
+                "daily_pump_time_warning",
+                20.0
+            )
+            .is_none()
+    );
+    let model = alarms(&unknown, &feedback);
+    assert!(!model.groups[0].limits[0].writable && model.groups[0].limits[0].reason.is_some());
+    // The old name is gone from the fields.
+    let fields = &state.snapshot.leakshield_data[LEAKSHIELD].fields;
+    assert!(fields.iter().all(|f| f.id != "refill_duration_warning"));
+    // Italian.
+    let italian = AlarmsModel::build(&self::input(&state, &feedback, IT), &AlarmsUi, LEAKSHIELD);
+    assert_eq!(
+        italian.groups[0].limits[0].text,
+        "Il Leakshield avvisa quando il tempo pompa giornaliero supera questo limite. Da 5 a 240 s."
+    );
+}
+
+#[test]
 fn leakshield_alarms_commands() {
     let state = with_leakshield();
     let feedback = Feedback::default();

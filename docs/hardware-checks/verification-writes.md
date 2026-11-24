@@ -31,7 +31,7 @@ A group holds fields with the same safe loop state:
 | reservoir | `fill_level_calibration`, `reservoir_model`, `reservoir_air_volume_full`, `reservoir_air_volume_empty`, `reservoir_total_volume`, `standby_conditions` | Fill level stable for 5 min. The PC does not suspend. |
 | pump | `pump_model`, `pump_flags`, `pump_max_speed`, `pump_max_pressure`, `pump_start_speed`, `pump_start_flow` | The pump runs at its normal duty. No Action runs. |
 | clock | `sensor_unit` (copy 0), `clock_flags`, `clock_timezone`, `shield_flags`, `vacuum_timer_start_hour`, `vacuum_timer_start_minute`, `vacuum_timer_end_hour`, `vacuum_timer_end_minute` | No time-controlled vacuum window starts within 15 min. The test values of the group give the window 08:01-10:02: `vacuum_timer_start_hour` goes one step down. |
-| alarms | `alarm_enable`, `alarm_buzzer`, the three thresholds, the 18 response fields, `refill_duration_warning` | `alarm_bits` and `alarm_bits_latched` read 0. |
+| alarms | `alarm_enable`, `alarm_buzzer`, the three thresholds, the 18 response fields, `daily_pump_time_warning` | `alarm_bits` and `alarm_bits_latched` read 0. |
 | pressure | `loop_height`, `test_pressure`, `deaeration_pressure`, `refill_pressure`, the four `shield_pressure_*` and the four `monitor_pressure_*` fields | Pressure stable within 2 mbar of the setpoint for 5 min. |
 | mode | `default_mode` | Runs last, alone. After the restore, check the Mode with `busctl get-property $B $LS $B.Leakshield Mode`. |
 
@@ -363,7 +363,7 @@ A group holds fields with the same safe loop state:
 - Expected registry change: `code-defined` to `verified-write` on pass, `failed` on fail.
 - Result: 2026-11-24, firmware 1022, pass, group `pressure`, Mode RELEASE, no replug, pressure 1.7 to 2.7 mbar for 5 min with setpoint 0 (RELEASE has no vacuum regulation).
 
-### refill_duration_warning
+### daily_pump_time_warning
 
 - Offset 570, u8. Value in the fw1022 dump: 5.
 - Test value: the current value plus or minus one raw step (1 s).

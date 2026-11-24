@@ -95,7 +95,7 @@ for name, off in (("fill_level_warning", 541), ("fill_level_alarm", 547), ("leak
     f(f"{name}_response_modifiers", off + 1, "u8", B(0x0F), "safety", "Key modifiers of the USB key sequence: bit 0 ctrl, bit 1 shift, bit 2 alt, bit 3 windows.")
     f(f"{name}_response_key", off + 2, "u16", E(*KEYS), "safety", "Key code of the USB key sequence. Codes 4-115 follow the USB HID keyboard usages.")
 f("loop_height", 569, "u8", L(0, 200), "safety", "Height of the loop.", unit="cm")
-f("refill_duration_warning", 570, "u8", L(5, 240), "safety", "Pump duration of a refill above which a warning starts.", unit="s", default=5)
+f("daily_pump_time_warning", 570, "u8", L(5, 240), "safety", "Warning limit of the daily pump time: a value below 5 is raised to 5.", unit="s", default=5)
 f("led_strip_brightness", 571, "u8", L(0, 100), "low", "Brightness of the LED strip.", scale=100 / 255, unit="%")
 f("led_strip_flags", 572, "u16", B(0x06), "low", "Bit 1: strip off. Bit 2: LEDs off in standby (clear: LEDs stay on in standby).")
 C = dict(count=2, stride=70)

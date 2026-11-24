@@ -1010,6 +1010,9 @@ leakshield:
       threshold: "Soglia"
       device: "Risposta del dispositivo"
       response: "Risposta all'allarme"
+    limit:
+      daily_pump_time_warning: "Limite di avviso del tempo pompa giornaliero"
+      daily_pump_time_warning_text: "Il Leakshield avvisa quando il tempo pompa giornaliero supera questo limite. Da %{min} a %{max} s."
     options: "Opzioni"
     option:
       standby_actions: "Disattiva le azioni di allarme durante lo standby"

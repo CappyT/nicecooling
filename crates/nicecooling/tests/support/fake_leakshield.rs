@@ -161,6 +161,7 @@ fn default_fields() -> Vec<Field> {
         safety("leak_rate_alarm_2_response_action", text("signal-long")),
         locked("system_alarm_response_action", text("none")),
         safety("standby_conditions", Fv::Int(11)),
+        safety("daily_pump_time_warning", Fv::Int(5)),
         field("sensor_log_interval", "low", texts(&["1s"; 20]), true),
         field("sensor_unit", "low", texts(&["none"; 20]), true),
         num("display_page_time", 10.0),

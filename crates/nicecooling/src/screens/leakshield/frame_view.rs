@@ -206,6 +206,18 @@ impl ScreenView {
             if let Some(number) = parse_number(value) {
                 self.send_threshold(field, number, cx);
             }
+        } else if let Some(field) = name.strip_prefix("limit:")
+            && commits
+        {
+            if let Some(number) = parse_number(value) {
+                let id = self.current_leakshield(cx);
+                let command = self.with_input(cx, |input| {
+                    self.leakshield.alarms.set_limit(input, &id, field, number)
+                });
+                if let Some(command) = command {
+                    self.send(command);
+                }
+            }
         } else if let Some(event) = name.strip_prefix("alarm-delay:")
             && commits
         {

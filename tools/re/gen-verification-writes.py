@@ -28,7 +28,7 @@ def extra(i):
         return "Fill level stable for 5 min. Do not refill or drain during the check."
     if i.startswith("pump_"):
         return "Pump runs at its normal duty. No Action runs."
-    if i.endswith(("_response_action", "_response_modifiers", "_response_key")) or i.startswith(("alarm_", "fill_level_", "leak_rate_", "refill_duration")):
+    if i.endswith(("_response_action", "_response_modifiers", "_response_key")) or i.startswith(("alarm_", "fill_level_", "leak_rate_", "daily_pump_time")):
         return "No Warning or Alarm is active: `alarm_bits` and `alarm_bits_latched` read 0."
     if i.startswith(("shield_pressure", "monitor_pressure")):
         return "Pressure stable within 2 mbar of the setpoint for 5 min. The written value keeps lower limit < setpoint < upper limit."

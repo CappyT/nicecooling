@@ -662,7 +662,7 @@ risk_class = "safety"
 verification_state = "verified-write"
 
 [[field]]
-id = "refill_duration_warning"
+id = "daily_pump_time_warning"
 report = 3
 offset = 570
 type = "u8"

@@ -352,6 +352,7 @@ pub fn leakshield_data() -> LeakshieldData {
         ),
         field("system_alarm_response_action", Safety, t("none"), false),
         field("standby_conditions", Safety, n(11.0), true),
+        field("daily_pump_time_warning", Safety, n(5.0), true),
         field("display_page_time", Low, n(10.0), true),
         field("display_brightness_active", Low, t("low"), true),
         field("display_brightness_idle", Low, t("low"), true),

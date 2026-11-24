@@ -104,6 +104,49 @@ impl ScreenView {
             for row in &group.rows {
                 card = card.child(self.alarm_event_row(id, row, &model, p, window, cx));
             }
+            for limit in &group.limits {
+                let input = self.input(
+                    InputKey::Ls(format!("limit:{}", limit.field)),
+                    &plain(self.model.read(cx).locale, limit.value),
+                    "",
+                    window,
+                    cx,
+                );
+                card = card.child(
+                    card_row(p)
+                        .py(px(9.))
+                        .gap(px(18.))
+                        .items_start()
+                        .child(
+                            v_flex()
+                                .flex_1()
+                                .min_w_0()
+                                .gap(px(3.))
+                                .child(
+                                    div()
+                                        .font_weight(FontWeight::BOLD)
+                                        .child(limit.label.clone()),
+                                )
+                                .child(caption(limit.text.clone(), p))
+                                .when_some(limit.reason.clone(), |column, reason| {
+                                    column.child(
+                                        locked(reason, p).text_size(px(12.)).text_color(p.fg_dim),
+                                    )
+                                })
+                                .when_some(limit.write_line.as_ref(), |column, line| {
+                                    column.child(write_line(line, p))
+                                }),
+                        )
+                        .child(div().w(px(110.)).flex_none().child(Self::mode_input(
+                            &input,
+                            &limit.unit,
+                            limit.writable && model.state == TabState::Ready,
+                            false,
+                            false,
+                            p,
+                        ))),
+                );
+            }
             content = content.child(card);
         }
         let mut options = card(p).child(card_header(model.options_title.clone(), p));

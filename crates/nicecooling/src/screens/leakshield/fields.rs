@@ -135,9 +135,10 @@ pub fn group_of(id: &str) -> &'static str {
     } else if id.starts_with("reservoir_") || id == "fill_level_calibration" || id == "loop_height"
     {
         "reservoir"
-    } else if id.starts_with("pump_") || id == "refill_duration_warning" {
+    } else if id.starts_with("pump_") {
         "pump"
     } else if id.starts_with("alarm_")
+        || id == "daily_pump_time_warning"
         || id.ends_with("_threshold")
         || id.contains("_response_")
         || id == "signal_output_config"

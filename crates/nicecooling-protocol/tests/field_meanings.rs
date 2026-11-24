@@ -39,6 +39,10 @@ fn the_meaning_of_the_flag_fields() {
             &["Bit 3: disable the alarm actions during standby (set: disabled)"],
         ),
         (
+            "daily_pump_time_warning",
+            &["Warning limit of the daily pump time"],
+        ),
+        (
             "led_strip_flags",
             &["Bit 2: LEDs off in standby (clear: LEDs stay on in standby)"],
         ),

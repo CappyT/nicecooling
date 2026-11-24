@@ -17,7 +17,7 @@ One card per group. Each event is one row with these columns:
 
 | Group | Events |
 |---|---|
-| Leakage | "Leak Warning": threshold on the volume change in ml/h. "Small leak Alarm" and "Large leak Alarm": no threshold, the Leakshield decides |
+| Leakage | "Leak Warning": threshold on the volume change in ml/h. "Small leak Alarm" and "Large leak Alarm": no threshold, the Leakshield decides. Below the events: the number input "Daily pump time warning limit" (`daily_pump_time_warning`), 5 to 240 s, whole seconds. A value outside the range is cut to it |
 | Fill level | "Fill level Warning" and "Fill level Alarm": thresholds in percent |
 | System | "System Alarm": a fault of the Leakshield or of its power supply. No threshold |
 | nicecooling | "Leakshield unreachable": nicecooling gets no data for 10 s. It has an alarm response only |
