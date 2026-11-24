@@ -38,6 +38,32 @@ Adaptive pressure SHALL be a switch on `shield_flags` bit 3. It SHALL NOT lock o
 - **WHEN** adaptive pressure is on
 - **THEN** the three values keep their look and stay editable with own values
 
+### Requirement: Limits of the pressure values
+The wizard SHALL keep the minimum in 30 to 430 mbar, the target in 50 to 450 mbar and the maximum in 80 to 500 mbar, the target at least 20 mbar above the minimum and the maximum at least 30 mbar above the target. An edit SHALL be corrected to these limits and SHALL move the neighbor values that are too close. The wizard SHALL show no error for a corrected value.
+
+#### Scenario: Minimum raised
+- **WHEN** the values are 250, 300 and 350 mbar and the user sets the minimum to 310 mbar
+- **THEN** the values are 310, 330 and 360 mbar
+
+#### Scenario: Maximum lowered
+- **WHEN** the values are 250, 300 and 350 mbar and the user sets the maximum to 290 mbar
+- **THEN** the values are 240, 260 and 290 mbar
+
+#### Scenario: Value out of range
+- **WHEN** the user sets the minimum to 999 mbar
+- **THEN** the values are 430, 450 and 480 mbar and the wizard shows no error
+
+#### Scenario: Value at a limit
+- **WHEN** the target is 20 mbar above the minimum
+- **THEN** an information line under the target says that it is as close to the minimum as the Leakshield accepts
+
+### Requirement: Stored fields of the pressure values
+The wizard SHALL store the minimum in `shield_pressure_low`, target minus minimum in `shield_pressure_working_range` and maximum minus target in `shield_pressure_max_range`.
+
+#### Scenario: Target edited
+- **WHEN** the values are 250, 300 and 350 mbar and the user sets the target to 320 mbar
+- **THEN** the pending changes hold a working range of 70 mbar and a maximum range of 30 mbar, and no change of the minimum
+
 ### Requirement: Band diagram with live values
 The Pressure step SHALL show a band diagram with the three lines maximum, target and minimum, the zone where the Leakshield releases vacuum and the zone where it builds vacuum. The lines SHALL carry the values of the wizard. The diagram SHALL show the live pressure and each live limit of the Leakshield that differs from the value of the wizard, and the step SHALL show one line of text with the three live limits.
 

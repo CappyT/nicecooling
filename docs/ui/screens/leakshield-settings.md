@@ -40,6 +40,18 @@ The three values are the control band of SHIELD. They are not alarm limits: no v
 - "Adaptive pressure" is `shield_flags` bit 3. The Leakshield then lowers the minimum and the target with the pump speed of the Feed. It keeps the stored distance between minimum and target and the stored maximum. So the switch never dims or locks the three values.
 - While the Leakshield does not answer, the diagram has the values of the wizard only.
 
+The wizard corrects a value of the band. It shows no error for it:
+
+| Value | Range in mbar | Rule | Stored field |
+|---|---|---|---|
+| Minimum pressure | 30 to 430 | | `shield_pressure_low` |
+| Target pressure | 50 to 450 | At least the minimum plus 20 | `shield_pressure_working_range`: target minus minimum |
+| Maximum pressure | 80 to 500 | At least the target plus 30 | `shield_pressure_max_range`: maximum minus target |
+
+- An edit takes whole mbar and moves the neighbors that are too close. A higher minimum raises the target. A higher target raises the maximum. A lower maximum lowers the target. A lower target lowers the minimum. A lower minimum lowers the standby minimum.
+- The caption of each value ends with its range: "30 to 430 mbar."
+- A value at a limit has an information line under its caption: the maximum at the target plus 30, the target at the minimum plus 20, the minimum at 30 or at 430.
+
 ## States
 
 | State | What the user sees |
@@ -72,6 +84,9 @@ The three values are the control band of SHIELD. They are not alarm limits: no v
 | Maximum pressure | "Above this value the Leakshield opens its vent valve and releases vacuum." |
 | Target pressure | "The pressure that you want in SHIELD. The pump of the Leakshield builds the vacuum up to this value and stops." |
 | Minimum pressure | "Below this value the Leakshield starts its pump." |
+| Maximum at its distance | "The maximum is as close to the target as the Leakshield accepts: 30 mbar." |
+| Target at its distance | "The target is as close to the minimum as the Leakshield accepts: 20 mbar." |
+| Minimum at 30 or 430 mbar | "This is the lowest minimum that the Leakshield accepts.", "This is the highest minimum that the Leakshield accepts." |
 | Adaptive pressure | "The Leakshield lowers the minimum and the target with the pump speed of the Feed. The distance between minimum and target and the maximum stay as set here." |
 | Time-controlled | "The Leakshield builds the negative pressure at two times of the day, so that you choose when its pump makes noise." |
 | Automatic measurement | "The Leakshield measures the fill level after a change, for example when you open the reservoir. During the measurement the Loop has no leak protection." |

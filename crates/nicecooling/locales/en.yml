@@ -1325,6 +1325,11 @@ leakshield:
     band_target_text: "The pressure that you want in SHIELD. The pump of the Leakshield builds the vacuum up to this value and stops."
     band_min: "Minimum pressure"
     band_min_text: "Below this value the Leakshield starts its pump."
+    band_note:
+      max_close: "The maximum is as close to the target as the Leakshield accepts: 30 mbar."
+      target_close: "The target is as close to the minimum as the Leakshield accepts: 20 mbar."
+      min_lowest: "This is the lowest minimum that the Leakshield accepts."
+      min_highest: "This is the highest minimum that the Leakshield accepts."
     diagram:
       title: "What the Leakshield does in SHIELD"
       above: "Vent valve open: releases vacuum"

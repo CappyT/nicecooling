@@ -1325,6 +1325,11 @@ leakshield:
     band_target_text: "La pressione che vuoi in SHIELD. La pompa del Leakshield crea il vuoto fino a questo valore e si ferma."
     band_min: "Pressione minima"
     band_min_text: "Sotto questo valore il Leakshield avvia la sua pompa."
+    band_note:
+      max_close: "Il massimo è vicino all'obiettivo quanto il Leakshield accetta: 30 mbar."
+      target_close: "L'obiettivo è vicino al minimo quanto il Leakshield accetta: 20 mbar."
+      min_lowest: "Questo è il minimo più basso che il Leakshield accetta."
+      min_highest: "Questo è il minimo più alto che il Leakshield accetta."
     diagram:
       title: "Che cosa fa il Leakshield in SHIELD"
       above: "Valvola di sfiato aperta: rilascia il vuoto"

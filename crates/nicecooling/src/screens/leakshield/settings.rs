@@ -85,9 +85,7 @@ pub fn range_of(field: &str) -> Option<(f64, f64)> {
         | "pump_max_speed"
         | "pump_start_speed" => (0.0, 32767.0),
         "pump_max_pressure" | "pump_start_flow" => (0.0, 3276.7),
-        "shield_pressure_low" | "shield_pressure_low_standby" => (30.0, 430.0),
-        "shield_pressure_working_range" => (0.0, 420.0),
-        "shield_pressure_max_range" => (0.0, 450.0),
+        "shield_pressure_low_standby" => (30.0, 430.0),
         _ => return None,
     })
 }
@@ -98,7 +96,71 @@ fn is_whole(field: &str) -> bool {
 }
 
 fn parse(text: &str) -> Option<f64> {
-    text.trim().replace(',', ".").parse().ok()
+    text.trim()
+        .replace(',', ".")
+        .parse()
+        .ok()
+        .filter(|value: &f64| value.is_finite())
+}
+
+/// The control band of SHIELD in mbar, with the rules of the Leakshield for its values. A
+/// setter puts its value in the range and moves the neighbors that are too close.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Band {
+    pub min: f64,
+    pub target: f64,
+    pub max: f64,
+    /// The minimum in standby. It is never above the minimum.
+    pub standby: f64,
+}
+
+impl Band {
+    pub const MIN_RANGE: (f64, f64) = (30.0, 430.0);
+    pub const TARGET_RANGE: (f64, f64) = (50.0, 450.0);
+    pub const MAX_RANGE: (f64, f64) = (80.0, 500.0);
+    /// The least distance from the minimum to the target.
+    pub const TARGET_DISTANCE: f64 = 20.0;
+    /// The least distance from the target to the maximum.
+    pub const MAX_DISTANCE: f64 = 30.0;
+
+    /// A higher minimum raises the target. A lower minimum lowers the standby minimum.
+    pub fn set_min(&mut self, value: f64) {
+        self.min = value.clamp(Self::MIN_RANGE.0, Self::MIN_RANGE.1);
+        if self.target < self.min + Self::TARGET_DISTANCE {
+            self.set_target(self.min + Self::TARGET_DISTANCE);
+        }
+        if self.standby > self.min {
+            self.standby = self.min;
+        }
+    }
+
+    /// A lower target lowers the minimum. A higher target raises the maximum.
+    pub fn set_target(&mut self, value: f64) {
+        self.target = value.clamp(Self::TARGET_RANGE.0, Self::TARGET_RANGE.1);
+        if self.target < self.min + Self::TARGET_DISTANCE {
+            self.set_min(self.target - Self::TARGET_DISTANCE);
+        }
+        if self.max < self.target + Self::MAX_DISTANCE {
+            self.set_max(self.target + Self::MAX_DISTANCE);
+        }
+    }
+
+    /// A lower maximum lowers the target.
+    pub fn set_max(&mut self, value: f64) {
+        self.max = value.clamp(Self::MAX_RANGE.0, Self::MAX_RANGE.1);
+        if self.max < self.target + Self::MAX_DISTANCE {
+            self.set_target(self.max - Self::MAX_DISTANCE);
+        }
+    }
+
+    pub fn set_standby(&mut self, value: f64) {
+        self.standby = value.max(Self::MIN_RANGE.0).min(self.min);
+    }
+}
+
+/// A difference of two values with one decimal, as the fields of the band hold it.
+fn tenth(value: f64) -> f64 {
+    (value * 10.0).round() / 10.0
 }
 
 impl SettingsUi {
@@ -160,34 +222,61 @@ impl SettingsUi {
         self.set(data, field, FieldValue::Number(f64::from(mask)));
     }
 
-    /// The minimum, the target and the maximum of the SHIELD control band.
-    pub fn band(&self, data: &LeakshieldData) -> Option<(f64, f64, f64)> {
-        let low = self.number(data, "shield_pressure_low")?;
+    /// The control band of SHIELD: the device values with the pending changes.
+    pub fn band(&self, data: &LeakshieldData) -> Option<Band> {
+        let min = self.number(data, "shield_pressure_low")?;
         let working = self.number(data, "shield_pressure_working_range")?;
         let upper = self.number(data, "shield_pressure_max_range")?;
-        Some((low, low + working, low + working + upper))
+        Some(Band {
+            min,
+            target: tenth(min + working),
+            max: tenth(min + working + upper),
+            standby: self
+                .number(data, "shield_pressure_low_standby")
+                .unwrap_or(min),
+        })
     }
 
-    fn set_band(&mut self, data: &LeakshieldData, which: usize, value: f64) {
-        let Some((mut min, mut target, mut max)) = self.band(data) else {
-            return;
-        };
-        match which {
-            0 => min = value,
-            1 => target = value,
-            _ => max = value,
-        }
-        self.set(data, "shield_pressure_low", FieldValue::Number(min));
+    /// Put a band into the pending changes. The device holds the minimum, the distance from
+    /// the minimum to the target and the distance from the target to the maximum.
+    fn store_band(&mut self, data: &LeakshieldData, band: Band) {
+        self.set(data, "shield_pressure_low", FieldValue::Number(band.min));
         self.set(
             data,
             "shield_pressure_working_range",
-            FieldValue::Number(target - min),
+            FieldValue::Number(tenth(band.target - band.min)),
         );
         self.set(
             data,
             "shield_pressure_max_range",
-            FieldValue::Number(max - target),
+            FieldValue::Number(tenth(band.max - band.target)),
         );
+        if data.field("shield_pressure_low_standby").is_some() {
+            self.set(
+                data,
+                "shield_pressure_low_standby",
+                FieldValue::Number(band.standby),
+            );
+        }
+    }
+
+    /// An edit of one value of the band, in whole mbar. `which` is 0 for the minimum, 1 for
+    /// the target and 2 for the maximum.
+    fn set_band(&mut self, data: &LeakshieldData, which: usize, value: f64) {
+        let Some(mut band) = self.band(data) else {
+            return;
+        };
+        let value = value.round();
+        match which {
+            0 => band.set_min(value),
+            1 => band.set_target(value),
+            _ => band.set_max(value),
+        }
+        // Device values that break a rule get their correction with the first edit.
+        band.set_min(band.min);
+        band.set_target(band.target);
+        band.set_max(band.max);
+        self.store_band(data, band);
     }
 
     /// The time of a vacuum window as `HH:MM`.
@@ -899,8 +988,7 @@ fn band_diagram(ctx: &RowCtx<'_>, input: &ScreenInput<'_>) -> (BandDiagram, Opti
         _ => None,
     };
     let line = |name: &str, index: usize| {
-        let pick = |band: (f64, f64, f64)| [band.2, band.1, band.0][index];
-        let value = set.map(pick);
+        let value = set.map(|band| [band.max, band.target, band.min][index]);
         BandLine {
             label: locale.fmt(
                 &format!("leakshield.settings.diagram.{name}"),
@@ -911,7 +999,7 @@ fn band_diagram(ctx: &RowCtx<'_>, input: &ScreenInput<'_>) -> (BandDiagram, Opti
             ),
             // A difference under half a mbar is the rounding of the device.
             now: now
-                .map(pick)
+                .map(|(min, target, max)| [max, target, min][index])
                 .filter(|now| value.is_none_or(|value| (now - value).abs() >= 0.5))
                 .map(|now| {
                     locale.fmt(
@@ -922,7 +1010,7 @@ fn band_diagram(ctx: &RowCtx<'_>, input: &ScreenInput<'_>) -> (BandDiagram, Opti
         }
     };
     let marker = live("pressure").and_then(|pressure| {
-        let (min, target, max) = now.or(set)?;
+        let (min, target, max) = now.or(set.map(|band| (band.min, band.target, band.max)))?;
         Some((
             marker_place(pressure, min, target, max),
             locale.fmt(
@@ -948,6 +1036,21 @@ fn band_diagram(ctx: &RowCtx<'_>, input: &ScreenInput<'_>) -> (BandDiagram, Opti
         marker,
     };
     (diagram, now_line)
+}
+
+/// The information line of a value of the band that is at a limit.
+fn band_note(locale: Locale, key: &str, band: Band) -> Option<Note> {
+    let name = match key {
+        "band_max" if band.max <= band.target + Band::MAX_DISTANCE => "max_close",
+        "band_target" if band.target <= band.min + Band::TARGET_DISTANCE => "target_close",
+        "band_min" if band.min <= Band::MIN_RANGE.0 => "min_lowest",
+        "band_min" if band.min >= Band::MIN_RANGE.1 => "min_highest",
+        _ => return None,
+    };
+    Some(Note {
+        text: locale.tr(&format!("leakshield.settings.band_note.{name}")),
+        warning: false,
+    })
 }
 
 fn pressure_rows(ctx: &RowCtx<'_>, input: &ScreenInput<'_>) -> Vec<Row> {
@@ -1002,14 +1105,25 @@ fn pressure_rows(ctx: &RowCtx<'_>, input: &ScreenInput<'_>) -> Vec<Row> {
         note: None,
     });
     let band = ctx.ui.band(ctx.data);
-    for (key, field, value) in [
-        ("band_max", "shield_pressure_max_range", band.map(|b| b.2)),
+    for (key, field, value, range) in [
+        (
+            "band_max",
+            "shield_pressure_max_range",
+            band.map(|b| b.max),
+            Band::MAX_RANGE,
+        ),
         (
             "band_target",
             "shield_pressure_working_range",
-            band.map(|b| b.1),
+            band.map(|b| b.target),
+            Band::TARGET_RANGE,
         ),
-        ("band_min", "shield_pressure_low", band.map(|b| b.0)),
+        (
+            "band_min",
+            "shield_pressure_low",
+            band.map(|b| b.min),
+            Band::MIN_RANGE,
+        ),
     ] {
         let mut row = ctx.row(
             key,
@@ -1020,7 +1134,20 @@ fn pressure_rows(ctx: &RowCtx<'_>, input: &ScreenInput<'_>) -> Vec<Row> {
                 unit: "mbar".to_owned(),
             },
         );
-        row.caption = Some(locale.tr(&format!("leakshield.settings.{key}_text")));
+        // The meaning of the value, then its range: the wizard corrects a value outside it.
+        row.caption = Some(format!(
+            "{} {}",
+            locale.tr(&format!("leakshield.settings.{key}_text")),
+            locale.fmt(
+                "leakshield.range",
+                &[
+                    ("min", &compact(locale, range.0)),
+                    ("max", &compact(locale, range.1)),
+                    ("unit", "mbar"),
+                ],
+            )
+        ));
+        row.note = band.and_then(|band| band_note(locale, key, band));
         // The recommended values are not for the user to edit.
         if !own && row.writable {
             row.fixed = true;

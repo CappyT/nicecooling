@@ -6,7 +6,7 @@ mod support;
 use nicecooling::i18n::{EN, IT, Locale};
 use nicecooling::model::{AppState, FieldEntry, FieldRisk, FieldValue, LeakshieldData};
 use nicecooling::screens::leakshield::settings::{
-    Control, Row, SettingsModel, SettingsUi, Step, marker_place,
+    Band, Control, Row, SettingsModel, SettingsUi, Step, marker_place,
 };
 use nicecooling::screens::{Feedback, ScreenInput};
 use support::fixtures::{LEAKSHIELD, NOW_US, with_leakshield};
@@ -152,17 +152,17 @@ fn the_pressure_step_shows_the_control_band_and_two_choices() {
             (
                 "Maximum pressure",
                 "350",
-                "Above this value the Leakshield opens its vent valve and releases vacuum."
+                "Above this value the Leakshield opens its vent valve and releases vacuum. 80 to 500 mbar."
             ),
             (
                 "Target pressure",
                 "300",
-                "The pressure that you want in SHIELD. The pump of the Leakshield builds the vacuum up to this value and stops."
+                "The pressure that you want in SHIELD. The pump of the Leakshield builds the vacuum up to this value and stops. 50 to 450 mbar."
             ),
             (
                 "Minimum pressure",
                 "250",
-                "Below this value the Leakshield starts its pump."
+                "Below this value the Leakshield starts its pump. 30 to 430 mbar."
             ),
         ]
     );
@@ -346,6 +346,223 @@ fn the_marker_of_the_diagram_keeps_its_zone() {
     assert_eq!(marker_place(900.0, 375.0, 425.0, 465.0), 0.06);
     // Limits without a distance give a place and no division by zero.
     assert_eq!(marker_place(100.0, 100.0, 100.0, 100.0), 0.25);
+}
+
+/// The device with own values: 250 / 300 / 350 mbar, standby 80.
+fn own_values() -> AppState {
+    let mut state = device();
+    set_field(&mut state, "shield_flags", FieldValue::Number(111.0));
+    state
+}
+
+fn band(min: f64, target: f64, max: f64, standby: f64) -> Band {
+    Band {
+        min,
+        target,
+        max,
+        standby,
+    }
+}
+
+#[test]
+fn the_limiter_keeps_each_value_in_its_range() {
+    let start = band(250.0, 300.0, 350.0, 80.0);
+    let with = |edit: fn(&mut Band)| {
+        let mut band = start;
+        edit(&mut band);
+        (band.min, band.target, band.max)
+    };
+    // The minimum: 30 to 430 mbar.
+    assert_eq!(with(|b| b.set_min(5.0)), (30.0, 300.0, 350.0));
+    assert_eq!(with(|b| b.set_min(999.0)), (430.0, 450.0, 480.0));
+    // The target: 50 to 450 mbar.
+    assert_eq!(with(|b| b.set_target(10.0)), (30.0, 50.0, 350.0));
+    assert_eq!(with(|b| b.set_target(999.0)), (250.0, 450.0, 480.0));
+    // The maximum: 80 to 500 mbar.
+    assert_eq!(with(|b| b.set_max(10.0)), (30.0, 50.0, 80.0));
+    assert_eq!(with(|b| b.set_max(999.0)), (250.0, 300.0, 500.0));
+}
+
+#[test]
+fn a_higher_minimum_raises_the_target_and_then_the_maximum() {
+    let mut values = band(250.0, 300.0, 350.0, 80.0);
+    // 280 is the last minimum that leaves the target alone: 300 - 20.
+    values.set_min(280.0);
+    assert_eq!(
+        (values.min, values.target, values.max),
+        (280.0, 300.0, 350.0)
+    );
+    values.set_min(290.0);
+    assert_eq!(
+        (values.min, values.target, values.max),
+        (290.0, 310.0, 350.0)
+    );
+    // The target 330 needs the maximum 360: 330 + 30.
+    values.set_min(310.0);
+    assert_eq!(
+        (values.min, values.target, values.max),
+        (310.0, 330.0, 360.0)
+    );
+}
+
+#[test]
+fn a_higher_target_raises_the_maximum() {
+    let mut values = band(250.0, 300.0, 350.0, 80.0);
+    values.set_target(320.0);
+    assert_eq!(
+        (values.min, values.target, values.max),
+        (250.0, 320.0, 350.0)
+    );
+    values.set_target(321.0);
+    assert_eq!(
+        (values.min, values.target, values.max),
+        (250.0, 321.0, 351.0)
+    );
+}
+
+#[test]
+fn a_lower_maximum_lowers_the_target_and_then_the_minimum() {
+    let mut values = band(250.0, 300.0, 350.0, 80.0);
+    values.set_max(330.0);
+    assert_eq!(
+        (values.min, values.target, values.max),
+        (250.0, 300.0, 330.0)
+    );
+    values.set_max(310.0);
+    assert_eq!(
+        (values.min, values.target, values.max),
+        (250.0, 280.0, 310.0)
+    );
+    values.set_max(290.0);
+    assert_eq!(
+        (values.min, values.target, values.max),
+        (240.0, 260.0, 290.0)
+    );
+}
+
+#[test]
+fn a_lower_target_lowers_the_minimum() {
+    let mut values = band(250.0, 300.0, 350.0, 80.0);
+    values.set_target(270.0);
+    assert_eq!(
+        (values.min, values.target, values.max),
+        (250.0, 270.0, 350.0)
+    );
+    values.set_target(260.0);
+    assert_eq!(
+        (values.min, values.target, values.max),
+        (240.0, 260.0, 350.0)
+    );
+}
+
+#[test]
+fn a_lower_minimum_lowers_the_standby_minimum() {
+    let mut values = band(250.0, 300.0, 350.0, 80.0);
+    values.set_min(100.0);
+    assert_eq!(values.standby, 80.0);
+    values.set_min(60.0);
+    assert_eq!(values.standby, 60.0);
+    // A higher minimum does not raise it again.
+    values.set_min(200.0);
+    assert_eq!(values.standby, 60.0);
+}
+
+#[test]
+fn an_edit_of_the_band_stores_the_minimum_and_the_two_distances() {
+    let state = own_values();
+    let data = data_of(&state);
+    let mut ui = SettingsUi::default();
+
+    // The target only: the distance to the minimum grows, the distance to the maximum
+    // shrinks, the minimum stays the device value.
+    ui.edit(&data, "band_target", "320");
+    assert_eq!(pending(&ui, "shield_pressure_low"), None);
+    assert_eq!(pending(&ui, "shield_pressure_working_range"), Some(70.0));
+    assert_eq!(pending(&ui, "shield_pressure_max_range"), Some(30.0));
+    assert_eq!(pending(&ui, "shield_pressure_low_standby"), None);
+    let model = step(&state, &ui, Step::Pressure);
+    assert_eq!(number_text(row(&model, "band_target")), "320");
+    assert_eq!(number_text(row(&model, "band_max")), "350");
+
+    // The minimum pushes the two others, and the wizard corrects a value out of range.
+    ui.edit(&data, "band_min", "999");
+    assert_eq!(pending(&ui, "shield_pressure_low"), Some(430.0));
+    assert_eq!(pending(&ui, "shield_pressure_working_range"), Some(20.0));
+    assert_eq!(pending(&ui, "shield_pressure_max_range"), Some(30.0));
+    let model = step(&state, &ui, Step::Pressure);
+    let texts: Vec<&str> = ["band_min", "band_target", "band_max"]
+        .iter()
+        .map(|key| number_text(row(&model, key)))
+        .collect();
+    assert_eq!(texts, ["430", "450", "480"]);
+    assert!(
+        model.rows.iter().all(|row| row.error.is_none()),
+        "a corrected value is no error"
+    );
+
+    // A low minimum takes the standby minimum with it. A typed fraction is a whole mbar.
+    ui.edit(&data, "band_min", "50,4");
+    assert_eq!(pending(&ui, "shield_pressure_low"), Some(50.0));
+    assert_eq!(pending(&ui, "shield_pressure_low_standby"), Some(50.0));
+    // The device values again: nothing is pending.
+    let mut ui = SettingsUi::default();
+    ui.edit(&data, "band_max", "400");
+    ui.edit(&data, "band_max", "350");
+    assert!(ui.pending.is_empty());
+    // A text that is no number changes nothing.
+    ui.edit(&data, "band_max", "nan");
+    ui.edit(&data, "band_max", "high");
+    assert!(ui.pending.is_empty());
+}
+
+#[test]
+fn a_value_at_a_limit_has_an_information_line() {
+    let state = own_values();
+    let data = data_of(&state);
+    let mut ui = SettingsUi::default();
+    let note = |ui: &SettingsUi, key: &str| {
+        let model = step(&state, ui, Step::Pressure);
+        row(&model, key).note.clone().map(|note| {
+            assert!(!note.warning, "an information, not a warning");
+            note.text
+        })
+    };
+    // 250 / 300 / 350: no value is at a limit.
+    for key in ["band_min", "band_target", "band_max"] {
+        assert_eq!(note(&ui, key), None, "{key}");
+        let model = step(&state, &ui, Step::Pressure);
+        assert!(
+            row(&model, key)
+                .caption
+                .as_deref()
+                .unwrap()
+                .ends_with(match key {
+                    "band_min" => "30 to 430 mbar.",
+                    "band_target" => "50 to 450 mbar.",
+                    _ => "80 to 500 mbar.",
+                })
+        );
+    }
+    ui.edit(&data, "band_max", "330");
+    assert_eq!(
+        note(&ui, "band_max").as_deref(),
+        Some("The maximum is as close to the target as the Leakshield accepts: 30 mbar.")
+    );
+    ui.edit(&data, "band_min", "280");
+    assert_eq!(
+        note(&ui, "band_target").as_deref(),
+        Some("The target is as close to the minimum as the Leakshield accepts: 20 mbar.")
+    );
+    ui.edit(&data, "band_min", "30");
+    assert_eq!(
+        note(&ui, "band_min").as_deref(),
+        Some("This is the lowest minimum that the Leakshield accepts.")
+    );
+    ui.edit(&data, "band_min", "430");
+    assert_eq!(
+        note(&ui, "band_min").as_deref(),
+        Some("This is the highest minimum that the Leakshield accepts.")
+    );
 }
 
 mod layout {
