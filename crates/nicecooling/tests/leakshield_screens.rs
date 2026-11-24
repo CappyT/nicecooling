@@ -17,7 +17,7 @@ use nicecooling::screens::leakshield::overview::{
 };
 use nicecooling::screens::leakshield::sensors::{SensorsModel, SensorsUi};
 use nicecooling::screens::leakshield::settings::{Control, SettingsModel, SettingsUi, Step};
-use nicecooling::screens::leakshield::status::{StatusModel, StatusUi, export_text};
+use nicecooling::screens::leakshield::status::{StatusModel, StatusUi, event_title, export_text};
 use nicecooling::screens::leakshield::system::{Ask, RESET_WORD, SystemModel, SystemUi};
 use nicecooling::screens::leakshield::{Frame, TabState};
 use nicecooling::screens::{Feedback, ScreenInput, WriteOutcome};
@@ -2162,6 +2162,73 @@ fn export_file_has_serial_firmware_and_one_line_per_event() {
     nicecooling::screens::leakshield::status::export_to(&path, EN, info, &data.events).unwrap();
     assert_eq!(std::fs::read_to_string(&path).unwrap(), text);
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// The names of one list of the event table of the daemon.
+fn daemon_event_names(list: &str) -> Vec<&'static str> {
+    const SOURCE: &str = include_str!("../../nicecoolingd/src/leakshield/events.rs");
+    let start = SOURCE
+        .find(&format!("const {list}:"))
+        .expect("the list is in events.rs");
+    let body = &SOURCE[start..];
+    let body = &body[body.find("= [").expect("the list has a body")..];
+    let body = &body[..body.find("];").expect("the list ends")];
+    body.split('"').skip(1).step_by(2).collect()
+}
+
+#[test]
+fn every_event_of_the_daemon_has_a_title_in_both_languages() {
+    let device = daemon_event_names("DEVICE_EVENTS");
+    let alarms = daemon_event_names("ALARM_EVENTS");
+    assert_eq!((device.len(), alarms.len()), (28, 11));
+    for locale in [EN, IT] {
+        for name in device.iter().chain(&alarms) {
+            let id = format!("leakshield.{name}");
+            let title = event_title(locale, &id);
+            assert!(
+                !title.contains(&id),
+                "{id} has no title in {}: {title}",
+                locale.code()
+            );
+        }
+    }
+    assert_eq!(
+        event_title(EN, "leakshield.release-run"),
+        "Vacuum release running"
+    );
+    assert_eq!(
+        event_title(IT, "leakshield.shield-pressure-low"),
+        "SHIELD: pressione bassa"
+    );
+    assert_eq!(
+        event_title(EN, "leakshield.event-42"),
+        "Event leakshield.event-42",
+        "a code that the protocol document does not name"
+    );
+
+    // A device event is a plain row. Only a Warning or an Alarm has the icon and opens Alarms.
+    let state = tweak(|state| {
+        let data = state.snapshot.leakshield_data.get_mut(LEAKSHIELD).unwrap();
+        data.events = ["system-start", "pump-runtime-alarm", "event-42"]
+            .iter()
+            .map(|name| nicecooling::model::DeviceEvent {
+                time_us: 1_700_000_000_000_000,
+                id: format!("leakshield.{name}"),
+                details: Default::default(),
+            })
+            .collect();
+    });
+    let rows = status(&state, &StatusUi::default()).events.rows;
+    assert_eq!(
+        rows.iter()
+            .map(|r| (r.title.as_str(), r.severity, r.opens_alarms))
+            .collect::<Vec<_>>(),
+        [
+            ("System start", None, false),
+            ("Pump runtime Alarm", Some(Severity::Alarm), true),
+            ("Event leakshield.event-42", None, false),
+        ]
+    );
 }
 
 #[test]

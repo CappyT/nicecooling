@@ -160,14 +160,26 @@ pub struct StatusModel {
     pub unknown_firmware: bool,
 }
 
+/// The text of an entry of the device event list, and whether the entry is a Warning or an
+/// Alarm. The daemon sends `leakshield.<name>`. A device event has its text under
+/// `leakshield.event`. The names of the `alarm_bits` have their title with the Alarms.
+fn event_text(locale: Locale, id: &str) -> (String, bool) {
+    let name = id.strip_prefix("leakshield.").unwrap_or(id);
+    let key = format!("leakshield.event.{}", event_key(name));
+    let text = locale.tr(&key);
+    if text != key {
+        return (text, false);
+    }
+    if name == id {
+        return (id.to_owned(), false);
+    }
+    let key = format!("event.{}.title", event_key(id));
+    (locale.event_title(id), locale.tr(&key) != key)
+}
+
 /// The text of a device event identifier.
 pub fn event_title(locale: Locale, id: &str) -> String {
-    if id.starts_with("leakshield.") {
-        return locale.event_title(id);
-    }
-    let key = format!("leakshield.event.{}", event_key(id));
-    let text = locale.tr(&key);
-    if text == key { id.to_owned() } else { text }
+    event_text(locale, id).0
 }
 
 fn details_text(locale: Locale, details: &BTreeMap<String, String>) -> String {
@@ -343,10 +355,10 @@ impl StatusModel {
                 data.events
                     .iter()
                     .map(|event| {
-                        let is_alarm = event.id.starts_with("leakshield.");
+                        let (title, is_alarm) = event_text(locale, &event.id);
                         EventLine {
                             time: date_time_seconds(event.time_us),
-                            title: event_title(locale, &event.id),
+                            title,
                             details: details_text(locale, &event.details),
                             severity: is_alarm.then(|| event_severity(&event.id)),
                             opens_alarms: is_alarm,
