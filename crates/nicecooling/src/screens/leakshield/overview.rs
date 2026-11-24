@@ -302,6 +302,8 @@ pub struct ActionButton {
 #[derive(Clone, Debug, PartialEq)]
 pub struct RefillRow {
     pub text: String,
+    /// The bytes of `text` that are the name of the Action: they are bold.
+    pub action: std::ops::Range<usize>,
     pub link: String,
 }
 
@@ -666,9 +668,17 @@ impl OverviewModel {
                 .collect(),
             cancel: (running && ready).then(|| locale.tr("leakshield.cancel")),
             action_line: write_line(input, id, "action"),
-            refill: RefillRow {
-                text: locale.tr("leakshield.overview.refill"),
-                link: locale.tr("leakshield.overview.refill_link"),
+            refill: {
+                let action = locale.tr("leakshield.action.refill");
+                let start = locale
+                    .tr("leakshield.overview.refill")
+                    .find("%{action}")
+                    .unwrap_or(0);
+                RefillRow {
+                    text: locale.fmt("leakshield.overview.refill", &[("action", &action)]),
+                    action: start..start + action.len(),
+                    link: locale.tr("leakshield.overview.refill_link"),
+                }
             },
             release_banner: (mode == "release")
                 .then(|| locale.tr("leakshield.overview.release_banner")),

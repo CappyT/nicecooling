@@ -362,7 +362,7 @@ impl ScreenView {
             .py(px(6.))
             .gap(px(9.))
             .child(heading(detail.name.clone()))
-            .child(with_popover(rename, rename_popover).flex_none())
+            .child(with_popover(rename, rename_popover, Self::dismiss(&view)).flex_none())
             .children(
                 detail
                     .pump_tag
@@ -646,7 +646,7 @@ impl ScreenView {
             .items_end()
             .child(field(
                 curve.input.label.clone(),
-                with_popover(input_select, picker).into_any_element(),
+                with_popover(input_select, picker, Self::dismiss(&view)).into_any_element(),
                 2.,
             ))
             .child(help(

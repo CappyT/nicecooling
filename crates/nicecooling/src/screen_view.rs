@@ -124,6 +124,9 @@ pub struct ScreenView {
     pub(crate) history_error: Option<String>,
     /// The sensor picker of the Curve editor, History and the Derived sensor editor.
     pub(crate) open_picker: Option<String>,
+    /// Where the press was that closed the popovers, and the sensor of the rename popover
+    /// that it closed.
+    pub(crate) closing_press: Option<(gpui::Point<gpui::Pixels>, Option<String>)>,
     pub(crate) preset_menu_open: bool,
 }
 
@@ -166,6 +169,7 @@ impl ScreenView {
             sensors_focus: Some(cx.focus_handle()),
             history_error: None,
             open_picker: None,
+            closing_press: None,
             preset_menu_open: false,
         }
     }

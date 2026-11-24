@@ -348,18 +348,25 @@ impl ScreenView {
             )
             .tooltip(locale.tr("sensors.rename"))
             .disabled(!enabled)
-            .on_click(act(&view, move |this, _, _| {
-                if this
-                    .sensors
-                    .rename
-                    .as_ref()
-                    .is_some_and(|(open, _)| open == &sensor)
-                {
-                    this.sensors.rename = None;
-                } else {
-                    this.sensors.open_rename(&sensor, &current);
+            .on_click({
+                let view = view.clone();
+                move |click, _, cx| {
+                    view.update(cx, |this, cx| {
+                        let open = this
+                            .sensors
+                            .rename
+                            .as_ref()
+                            .is_some_and(|(open, _)| open == &sensor);
+                        if open {
+                            this.sensors.rename = None;
+                        } else if !this.closed_rename_by(click, &sensor) {
+                            // The press on this button did not close its own popover.
+                            this.sensors.open_rename(&sensor, &current);
+                        }
+                        cx.notify();
+                    });
                 }
-            }))
+            })
         });
         if row.derived.is_some() {
             buttons = buttons.child({
@@ -448,7 +455,7 @@ impl ScreenView {
                     })
                 }
             })
-            .child(with_popover(name, rename).flex_1())
+            .child(with_popover(name, rename, Self::dismiss(&view)).flex_1())
             .child(value)
             .child(div().w(px(CHART)).flex_none().child(spark))
             .child(
@@ -607,7 +614,7 @@ impl ScreenView {
                 .gap(px(9.))
                 .items_center()
                 .child(caption(source.label.clone(), p).w(px(90.)).flex_none())
-                .child(with_popover(trigger, picker).flex_1());
+                .child(with_popover(trigger, picker, Self::dismiss(&view)).flex_1());
             if source.removable {
                 line = line.child(
                     Self::icon_button(

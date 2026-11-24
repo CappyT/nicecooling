@@ -161,8 +161,7 @@ fn review_every_page_starts_under_the_header(cx: &mut TestAppContext) {
         visual.update(|window, cx| window.draw(cx).clear(cx));
         let scroll = visual.debug_bounds("screen-scroll").expect("scroll area");
         let before = visual.debug_bounds("screen-page").expect("page");
-        // The wheel moves the page by 40 px: the page must be longer than its area by that.
-        if before.size.height < scroll.size.height + gpui::px(40.) {
+        if before.size.height <= scroll.size.height {
             continue;
         }
         visual.simulate_event(gpui::ScrollEvent {
@@ -567,4 +566,88 @@ fn the_header_bar_centers_the_title(cx: &mut TestAppContext) {
     }
     // A device page has two lines: the label and the serial.
     assert!(heights[1] > heights[0], "{heights:?}");
+}
+
+/// A popover closes on its control, on a press outside it and on Escape.
+#[gpui::test]
+fn a_popover_closes_on_a_press_outside_and_on_escape(cx: &mut TestAppContext) {
+    let (model, rig) = start(cx, StartMode::Normal);
+    rig.events
+        .send(DaemonEvent::Snapshot(Box::new(online().snapshot.clone())))
+        .unwrap();
+    cx.run_until_parked();
+    cx.update(|cx| {
+        model.update(cx, |app, cx| {
+            app.page = Page::Settings;
+            cx.notify();
+        });
+    });
+    let handle = cx.windows()[0];
+    let mut visual = VisualTestContext::from_window(handle, cx);
+    let bounds = |visual: &mut VisualTestContext, name: &'static str| {
+        visual.run_until_parked();
+        visual.update(|window, cx| window.draw(cx).clear(cx));
+        visual.debug_bounds(name)
+    };
+    let (select, list) = ("select-settings-language", "select-list-settings-language");
+    let control = bounds(&mut visual, select).expect("the select").center();
+    let press = |visual: &mut VisualTestContext, position| {
+        visual.simulate_click(position, gpui::Modifiers::none());
+    };
+    assert!(bounds(&mut visual, list).is_none(), "closed at the start");
+
+    // The control opens its popover and closes it.
+    press(&mut visual, control);
+    let open = bounds(&mut visual, list).expect("the list of choices");
+    press(&mut visual, control);
+    assert!(bounds(&mut visual, list).is_none(), "the control closes it");
+
+    // A press outside the popover closes it.
+    press(&mut visual, control);
+    assert!(bounds(&mut visual, list).is_some());
+    let outside = gpui::point(open.left() - gpui::px(40.), open.bottom() + gpui::px(40.));
+    press(&mut visual, outside);
+    assert!(bounds(&mut visual, list).is_none(), "a press outside");
+
+    // Escape closes it.
+    press(&mut visual, control);
+    assert!(bounds(&mut visual, list).is_some());
+    visual.simulate_keystrokes("escape");
+    assert!(bounds(&mut visual, list).is_none(), "Escape");
+}
+
+/// A dialog has the height of its content: it does not reach the bottom of the window.
+#[gpui::test]
+fn a_dialog_keeps_the_height_of_its_content(cx: &mut TestAppContext) {
+    use gpui::prelude::*;
+    use nicecooling::screens::ui::modal;
+    use nicecooling::tokens::Palette;
+
+    struct Screen;
+    impl gpui::Render for Screen {
+        fn render(
+            &mut self,
+            _: &mut gpui::Window,
+            _: &mut gpui::Context<Self>,
+        ) -> impl IntoElement {
+            gpui::div().relative().size_full().child(modal(
+                "Reset the counter?",
+                "This cannot be undone.",
+                Vec::new(),
+                Vec::new(),
+                &Palette::new(false),
+            ))
+        }
+    }
+    let window = cx.add_window(|_, _| Screen);
+    let mut visual = VisualTestContext::from_window(window.into(), cx);
+    visual.simulate_resize(gpui::size(gpui::px(1100.), gpui::px(700.)));
+    visual.update(|window, cx| window.draw(cx).clear(cx));
+    let dialog = visual.debug_bounds("modal-dialog").expect("the dialog");
+    assert_eq!(dialog.size.width, gpui::px(440.));
+    assert!(
+        dialog.size.height < gpui::px(160.),
+        "the dialog is {:?} high",
+        dialog.size.height
+    );
 }

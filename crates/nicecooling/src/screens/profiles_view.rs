@@ -5,8 +5,8 @@ use std::rc::Rc;
 
 use gpui::prelude::*;
 use gpui::{
-    AnyElement, Context, Div, Entity, FontWeight, KeyDownEvent, Render, SharedString, Window,
-    deferred, div, px, relative,
+    AnyElement, Context, Div, Entity, FontWeight, KeyDownEvent, Render, SharedString, Window, div,
+    px, relative,
 };
 use gpui_component::button::ButtonVariants as _;
 use gpui_component::checkbox::Checkbox;
@@ -25,7 +25,7 @@ use crate::screens::profiles::{
 };
 use crate::screens::ui::{
     TagKind, caption, card, card_header, card_row, heading, label, modal, notice_row, page,
-    popover, tag, with_popover, write_line,
+    popover, tag, with_menu, with_popover, write_line,
 };
 use crate::shell::Page;
 use crate::tokens::Palette;
@@ -544,33 +544,23 @@ impl ScreenView {
             .child(with_popover(
                 heading(detail.name.clone()).truncate(),
                 rename,
+                Self::dismiss(&view),
             ))
             .children(detail.tag.clone().map(|text| tag(text, TagKind::Accent, p)))
             .child(div().flex_1())
             .child(activate)
             .child(
-                div()
-                    .relative()
-                    .flex_none()
-                    .child(
-                        Self::icon_button("profile-menu", NcIcon::Menu).on_click(act(
-                            &view,
-                            |this, _, _| {
-                                this.profiles.menu_open = !this.profiles.menu_open;
-                            },
-                        )),
-                    )
-                    .children(menu.map(|menu| {
-                        deferred(
-                            div()
-                                .absolute()
-                                .top(relative(1.))
-                                .right_0()
-                                .pt(px(3.))
-                                .child(menu),
-                        )
-                        .with_priority(1)
-                    })),
+                with_menu(
+                    Self::icon_button("profile-menu", NcIcon::Menu).on_click(act(
+                        &view,
+                        |this, _, _| {
+                            this.profiles.menu_open = !this.profiles.menu_open;
+                        },
+                    )),
+                    menu.map(IntoElement::into_any_element),
+                    Self::dismiss(&view),
+                )
+                .flex_none(),
             );
         // A tinted last row keeps the round corners of the card.
         let mut card = card(p).overflow_hidden().child(header);

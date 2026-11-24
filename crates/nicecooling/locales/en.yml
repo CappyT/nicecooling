@@ -881,7 +881,7 @@ leakshield:
     unknown_tooltip: "Read-only: unknown firmware."
     denied: "Not authorized. The Mode did not change."
     release_banner: "Mode RELEASE: the Loop has no leak protection."
-    refill: "Refill can also start on the device:"
+    refill: "%{action} can also start on the device:"
     refill_link: "Show the steps"
     refill_title: "Refill"
     refill_step:

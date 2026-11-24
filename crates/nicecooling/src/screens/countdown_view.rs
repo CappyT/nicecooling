@@ -2,13 +2,13 @@
 //! as its head, the seconds, the facts of the Alarm and the two buttons.
 
 use gpui::prelude::*;
-use gpui::{AnyElement, App, BoxShadow, FocusHandle, FontWeight, Window, div, point, px, rgba};
+use gpui::{AnyElement, App, FocusHandle, FontWeight, Window, div, px};
 use gpui_component::button::{Button, ButtonVariants as _};
 use gpui_component::{Sizable as _, h_flex, v_flex};
 
 use crate::icons::{NcIcon, icon};
 use crate::screens::alarms::CountdownDialog;
-use crate::screens::ui::caption;
+use crate::screens::ui::{caption, pop_shadow, scrim};
 use crate::tokens::Palette;
 
 /// The dialog over the scrim. "Cancel poweroff" has `focus` when the dialog opens.
@@ -155,29 +155,7 @@ pub fn countdown_overlay(
         .justify_center()
         // The scrim takes the clicks: the screen under it does not react.
         .occlude()
-        .bg(rgba(if p.dark { 0x0000_0099 } else { 0x0000_0680 }))
+        .bg(scrim(p))
         .child(frame)
         .into_any_element()
-}
-
-/// The shadow of a dialog and a popover (`DESIGN.md`, "Elevation & Depth").
-fn pop_shadow(p: &Palette) -> Vec<BoxShadow> {
-    let shadow = |color: u32, y: f32, blur: f32, spread: f32| BoxShadow {
-        color: rgba(color).into(),
-        offset: point(px(0.), px(y)),
-        blur_radius: px(blur),
-        spread_radius: px(spread),
-        inset: false,
-    };
-    if p.dark {
-        vec![
-            shadow(0xFFFF_FF14, 0., 0., 1.),
-            shadow(0x0000_0080, 8., 24., 0.),
-        ]
-    } else {
-        vec![
-            shadow(0x0000_060F, 0., 0., 1.),
-            shadow(0x0000_062E, 8., 24., 0.),
-        ]
-    }
 }

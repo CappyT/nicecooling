@@ -113,7 +113,11 @@ impl ScreenView {
             .gap_y(px(6.))
             .items_center()
             .flex_wrap()
-            .child(with_popover(sensors, picker).w(px(190.)).flex_none())
+            .child(
+                with_popover(sensors, picker, Self::dismiss(&view))
+                    .w(px(190.))
+                    .flex_none(),
+            )
             .child(ranges)
             .child(
                 h_flex()

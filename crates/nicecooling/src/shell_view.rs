@@ -121,6 +121,10 @@ impl ShellView {
             self.menu_open = false;
             self.down_dialog_open = false;
             self.notices_open = false;
+            self.screens.update(cx, |screens, cx| {
+                screens.close_popovers();
+                cx.notify();
+            });
             cx.notify();
         }
     }

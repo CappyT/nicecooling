@@ -2,7 +2,9 @@
 
 use chrono::{Local, TimeZone as _};
 use gpui::prelude::*;
-use gpui::{AnyElement, Context, FontWeight, SharedString, Window, div, px};
+use gpui::{
+    AnyElement, Context, FontWeight, HighlightStyle, SharedString, StyledText, Window, div, px,
+};
 use gpui_component::button::ButtonVariants as _;
 use gpui_component::progress::Progress;
 use gpui_component::tooltip::Tooltip;
@@ -328,7 +330,15 @@ impl ScreenView {
                 .rounded(px(9.))
                 .bg(p.hover)
                 .child(icon(NcIcon::Info, p.fg))
-                .child(div().flex_1().min_w_0().child(mode.refill.text.clone()))
+                .child(div().flex_1().min_w_0().child(
+                    StyledText::new(mode.refill.text.clone()).with_highlights([(
+                        mode.refill.action.clone(),
+                        HighlightStyle {
+                            font_weight: Some(FontWeight::BOLD),
+                            ..Default::default()
+                        },
+                    )]),
+                ))
                 .child(
                     Self::link_button("ls-refill-steps", mode.refill.link.clone(), p).on_click(
                         act(&view, |this, _, _| {

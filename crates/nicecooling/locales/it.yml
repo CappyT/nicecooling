@@ -881,7 +881,7 @@ leakshield:
     unknown_tooltip: "Sola lettura: firmware sconosciuto."
     denied: "Non autorizzato. La modalità non è cambiata."
     release_banner: "Modalità RELEASE: il circuito non ha protezione dalle perdite."
-    refill: "Il rabbocco si avvia anche dal Leakshield:"
+    refill: "Il %{action} si avvia anche dal Leakshield:"
     refill_link: "Mostra i passaggi"
     refill_title: "Rabbocco"
     refill_step:

@@ -4,7 +4,8 @@ use std::rc::Rc;
 
 use gpui::prelude::*;
 use gpui::{
-    AnyElement, App, ClickEvent, Context, Entity, FontWeight, Hsla, SharedString, Window, div, px,
+    AnyElement, App, ClickEvent, Context, Entity, FontWeight, Hsla, MouseDownEvent, SharedString,
+    Window, div, px,
 };
 use gpui_component::Sizable as _;
 use gpui_component::button::{Button, ButtonVariants as _};
@@ -28,6 +29,45 @@ pub(crate) fn act(
             f(this, window, cx);
             cx.notify();
         });
+    }
+}
+
+impl ScreenView {
+    /// The `close` of a popover: a press outside it closes the popovers of the screens.
+    pub(crate) fn dismiss(
+        view: &Entity<Self>,
+    ) -> impl Fn(&MouseDownEvent, &mut Window, &mut App) + 'static {
+        let view = view.clone();
+        move |event, _, cx| {
+            view.update(cx, |this, cx| {
+                let renamed = this.sensors.rename.take().map(|(sensor, _)| sensor);
+                this.closing_press = Some((event.position, renamed));
+                this.close_popovers();
+                cx.notify();
+            });
+        }
+    }
+
+    /// Close every open popover and menu of the screens. A dialog stays open.
+    pub(crate) fn close_popovers(&mut self) {
+        self.open_picker = None;
+        self.history.picker_open = false;
+        self.profiles.menu_open = false;
+        self.profiles.rename = None;
+        self.sensors.rename = None;
+        self.channels.rename = None;
+    }
+
+    /// True when the press of `click` closed the rename popover of `sensor`. The rename
+    /// button is not next to its popover, so it asks this: the click does not open the
+    /// popover again.
+    pub(crate) fn closed_rename_by(&self, click: &ClickEvent, sensor: &str) -> bool {
+        match (click, &self.closing_press) {
+            (ClickEvent::Mouse(mouse), Some((position, Some(closed)))) => {
+                *position == mouse.down.position && closed == sensor
+            }
+            _ => false,
+        }
     }
 }
 
@@ -75,6 +115,7 @@ impl ScreenView {
         let view = cx.entity();
         let open = enabled && self.open_picker.as_deref() == Some(key);
         let name = key.to_owned();
+        let (trigger_name, list_name) = (format!("select-{key}"), format!("select-list-{key}"));
         let trigger = select_trigger(
             SharedString::from(format!("select-{key}")),
             shown.to_owned(),
@@ -83,6 +124,7 @@ impl ScreenView {
             enabled,
             ground,
         )
+        .debug_selector(move || trigger_name)
         .when(enabled, |trigger| {
             trigger.on_click(act(&view, move |this, _, _| {
                 this.open_picker = if this.open_picker.as_deref() == Some(name.as_str()) {
@@ -93,7 +135,10 @@ impl ScreenView {
             }))
         });
         let list = open.then(|| {
-            let mut list = popover(p).min_w(px(180.)).p(px(4.));
+            let mut list = popover(p)
+                .min_w(px(180.))
+                .p(px(4.))
+                .debug_selector(move || list_name);
             for (index, (id, text, selected)) in choices.into_iter().enumerate() {
                 let pick = pick.clone();
                 let view = view.clone();
@@ -126,7 +171,9 @@ impl ScreenView {
             }
             list.into_any_element()
         });
-        with_popover(trigger, list).w_full().into_any_element()
+        with_popover(trigger, list, Self::dismiss(&view))
+            .w_full()
+            .into_any_element()
     }
 
     /// A text input with the look of the design: the `track` fill, no outline, and the unit
@@ -195,13 +242,23 @@ impl ScreenView {
         label: impl Into<SharedString>,
         icon: Option<NcIcon>,
     ) -> Button {
+        let label: SharedString = label.into();
+        // The label of a gpui-component button has the size of the button variant. The text
+        // is a child here, so it takes the 13 px of the design.
         let button = Button::new(id.into())
-            .label(label.into())
+            .accessibility_label(label.clone())
             .h(px(28.))
             .px(px(10.))
             .rounded(px(7.))
-            .text_size(px(13.))
-            .font_weight(FontWeight::BOLD);
+            .font_weight(FontWeight::BOLD)
+            .child(
+                div()
+                    .min_w_0()
+                    .whitespace_nowrap()
+                    .text_ellipsis()
+                    .text_size(px(13.))
+                    .child(label),
+            );
         match icon {
             Some(icon) => button.icon(text_icon(icon)),
             None => button,

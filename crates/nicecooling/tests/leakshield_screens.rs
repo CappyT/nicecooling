@@ -181,13 +181,21 @@ fn leakshield_overview_states() {
         ["Test", "Measure fill level", "Deaerate", "Refill"]
     );
     assert!(model.mode.actions.iter().all(|a| a.enabled));
-    assert!(
-        model
-            .mode
-            .refill
-            .text
-            .starts_with("Refill can also start on the device:")
+    let refill = &model.mode.refill;
+    assert_eq!(refill.text, "Refill can also start on the device:");
+    assert_eq!(
+        &refill.text[refill.action.clone()],
+        "Refill",
+        "the bold part"
     );
+    let italian = OverviewModel::build(
+        &input(&state, &Feedback::default(), IT),
+        &OverviewUi::default(),
+        LEAKSHIELD,
+    );
+    let refill = &italian.mode.refill;
+    assert_eq!(refill.text, "Il Rabbocco si avvia anche dal Leakshield:");
+    assert_eq!(&refill.text[refill.action.clone()], "Rabbocco");
     assert!(model.action_view.is_none() && model.dialog.is_none());
 
     // Below the minimum: a Warning tag on the gauge.

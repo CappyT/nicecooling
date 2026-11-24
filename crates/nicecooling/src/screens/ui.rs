@@ -1,9 +1,12 @@
 //! Small building blocks that the screens share. They paint with the tokens of `Palette`.
 
+use std::cell::Cell;
+use std::rc::Rc;
+
 use gpui::prelude::*;
 use gpui::{
-    AnyElement, BoxShadow, Div, ElementId, FontWeight, Hsla, SharedString, Stateful, deferred, div,
-    point, px, relative, rgba,
+    AnyElement, App, Bounds, BoxShadow, Div, ElementId, FontWeight, Hsla, MouseDownEvent, Pixels,
+    SharedString, Stateful, Window, deferred, div, point, px, relative, rgba,
 };
 use gpui_component::{Icon, Sizable as _, h_flex, v_flex};
 
@@ -177,46 +180,98 @@ pub fn select_trigger(
         .child(Icon::new(NcIcon::Down).with_size(px(16.)).flex_none())
 }
 
-/// The ground of a popover: the `card` fill, 12 px radius and the popover shadow.
-pub fn popover(p: &Palette) -> Div {
-    let shadow = |color: gpui::Rgba, y: f32, blur: f32, spread: f32| BoxShadow {
-        color: color.into(),
+/// The shadow of a dialog and a popover (`DESIGN.md`, "Elevation & Depth").
+pub fn pop_shadow(p: &Palette) -> Vec<BoxShadow> {
+    let shadow = |color: u32, y: f32, blur: f32, spread: f32| BoxShadow {
+        color: rgba(color).into(),
         offset: point(px(0.), px(y)),
         blur_radius: px(blur),
         spread_radius: px(spread),
         inset: false,
     };
+    if p.dark {
+        vec![
+            shadow(0xFFFF_FF14, 0., 0., 1.),
+            shadow(0x0000_0080, 8., 24., 0.),
+        ]
+    } else {
+        vec![
+            shadow(0x0000_060F, 0., 0., 1.),
+            shadow(0x0000_062E, 8., 24., 0.),
+        ]
+    }
+}
+
+/// The color of the scrim under a dialog.
+pub fn scrim(p: &Palette) -> Hsla {
+    rgba(if p.dark { 0x0000_0099 } else { 0x0000_0680 }).into()
+}
+
+/// The ground of a popover: the `card` fill, 12 px radius and the popover shadow.
+pub fn popover(p: &Palette) -> Div {
     v_flex()
         .rounded(px(12.))
         .bg(p.card)
         .occlude()
-        .shadow(if p.dark {
-            vec![
-                shadow(rgba(0xFFFF_FF14), 0., 0., 1.),
-                shadow(rgba(0x0000_0080), 8., 24., 0.),
-            ]
-        } else {
-            vec![
-                shadow(rgba(0x0000_060F), 0., 0., 1.),
-                shadow(rgba(0x0000_062E), 8., 24., 0.),
-            ]
-        })
+        .shadow(pop_shadow(p))
 }
 
-/// A control with its popover under it. The popover paints over the content that follows:
-/// it does not move it.
-pub fn with_popover(control: impl IntoElement, popover: Option<AnyElement>) -> Div {
+/// A control with its popover under it, at the left edge of the control. The popover paints
+/// over the content that follows: it does not move it. `close` gets a press outside the
+/// popover. A press on the control is not one: the control closes its own popover.
+pub fn with_popover(
+    control: impl IntoElement,
+    popover: Option<AnyElement>,
+    close: impl Fn(&MouseDownEvent, &mut Window, &mut App) + 'static,
+) -> Div {
+    anchored(control, popover, false, close)
+}
+
+/// A control with its menu under it, at the right edge of the control. `close` is the one
+/// of `with_popover`.
+pub fn with_menu(
+    control: impl IntoElement,
+    menu: Option<AnyElement>,
+    close: impl Fn(&MouseDownEvent, &mut Window, &mut App) + 'static,
+) -> Div {
+    anchored(control, menu, true, close)
+}
+
+fn anchored(
+    control: impl IntoElement,
+    popover: Option<AnyElement>,
+    right: bool,
+    close: impl Fn(&MouseDownEvent, &mut Window, &mut App) + 'static,
+) -> Div {
+    let control_bounds = Rc::new(Cell::new(Bounds::<Pixels>::default()));
+    let seen = control_bounds.clone();
     div()
         .relative()
         .min_w_0()
+        .on_children_prepainted(move |children, _, _| {
+            if let Some(first) = children.first() {
+                seen.set(*first);
+            }
+        })
         .child(control)
         .children(popover.map(|popover| {
             deferred(
                 div()
                     .absolute()
                     .top(relative(1.))
-                    .left_0()
+                    .map(|place| {
+                        if right {
+                            place.right_0()
+                        } else {
+                            place.left_0()
+                        }
+                    })
                     .pt(px(3.))
+                    .on_mouse_down_out(move |event, window, cx| {
+                        if !control_bounds.get().contains(&event.position) {
+                            close(event, window, cx);
+                        }
+                    })
                     .child(popover),
             )
             .with_priority(1)
@@ -401,7 +456,7 @@ pub fn page() -> Div {
         .gap(px(12.))
 }
 
-/// A dialog of 440 px over a dark scrim. The caller puts it in a container with `relative()`.
+/// A dialog of 440 px over the scrim. The caller puts it in a container with `relative()`.
 /// `body` goes under the text, `buttons` at the right of the last row.
 pub fn modal(
     title: impl Into<SharedString>,
@@ -410,6 +465,7 @@ pub fn modal(
     buttons: Vec<AnyElement>,
     p: &Palette,
 ) -> Div {
+    let text: SharedString = text.into();
     div()
         .absolute()
         .top_0()
@@ -417,38 +473,45 @@ pub fn modal(
         .size_full()
         .flex()
         .justify_center()
+        // The dialog keeps the height of its content.
+        .items_start()
         .pt(px(120.))
-        .bg(gpui::black().opacity(0.4))
+        .bg(scrim(p))
         .child(
             v_flex()
                 .w(px(440.))
-                .h_auto()
                 .p(px(18.))
                 .gap(px(12.))
                 .rounded(px(15.))
                 .bg(p.card)
-                .border_1()
-                .border_color(p.border)
+                .shadow(pop_shadow(p))
+                .debug_selector(|| "modal-dialog".to_owned())
                 .child(
                     div()
                         .text_size(px(18.))
+                        .line_height(px(24.))
                         .font_weight(FontWeight::BOLD)
                         .child(title.into()),
                 )
-                .child(text.into())
+                .children((!text.is_empty()).then_some(text))
                 .children(body)
                 .child(h_flex().justify_end().gap(px(8.)).children(buttons)),
         )
 }
 
-/// A row with a warning or an information line: the icon and the text.
+/// A row with a warning or an information line: the icon and the text on the tint of its
+/// kind.
 pub fn notice_row(text: impl Into<SharedString>, warning: bool, p: &Palette) -> Div {
     card_row(p)
-        .bg(if warning { p.warning_tint } else { p.selected })
+        .bg(if warning {
+            p.warning_tint
+        } else {
+            p.accent_tint
+        })
         .child(if warning {
             icon(NcIcon::Warn, p.warning)
         } else {
-            icon(NcIcon::Info, p.fg_dim)
+            icon(NcIcon::Info, p.accent)
         })
         .child(div().flex_1().min_w_0().child(text.into()))
 }
