@@ -76,8 +76,11 @@ A Leakshield sensor has the id `<leakshield id>_<field id>`, the origin `leakshi
 | `supply_voltage` | 259 | `voltage` | V | 0.01 |
 | `feed_rpm` | device sensor 4, value at 101 | `fan` | rpm | 1 |
 | `flow` | device sensor 5, value at 111 | `flow` | l/h | 0.1 |
+| `maintenance` | counters at 321 and 325 | `other` | % | computed |
 
 `feed_rpm` and `flow` are the values that the device holds for the Feed. A slot with another unit code than rpm or l/h gives no value.
+
+`maintenance` is a value of the daemon. It has no 32767 case: the counters always have a value. With the pump runtime `p` and the pump runtime in short cycles `c`, both in hours, it is `100 - (p^2 / 16 + c^2 / 64)`, limited to 0 to 100. The fw1022 dump (11431 s and 21 s) gives 99.4.
 
 `Leakshield.GetCounters() -> a{st}` (class `read`) reads report 1 and returns the counters of the System page: `pump_runtime_s`, `pump_short_cycle_runtime_s`, `pump_revolution_count`, `fill_valve_cycles`, `release_valve_cycles`, `total_runtime_s` and `power_up_count`. The times are in seconds. The call fails like any other read of the device (`Disconnected`).
 

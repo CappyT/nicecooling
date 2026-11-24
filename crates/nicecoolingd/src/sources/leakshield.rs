@@ -20,7 +20,7 @@ use crate::value_table::ValueTable;
 const NO_VALUE: i16 = 0x7FFF;
 
 /// A sensor of a Leakshield: field id, default name, kind and unit of `docs/api.md`.
-pub const SENSORS: [(&str, &str, &str, &str); 15] = [
+pub const SENSORS: [(&str, &str, &str, &str); 16] = [
     ("pressure", "Pressure", "pressure", "mbar"),
     ("pressure_setpoint", "Pressure target", "pressure", "mbar"),
     ("pressure_low", "Pressure minimum", "pressure", "mbar"),
@@ -36,6 +36,7 @@ pub const SENSORS: [(&str, &str, &str, &str); 15] = [
     ("supply_voltage", "Supply voltage", "voltage", "V"),
     ("feed_rpm", "Pump speed", "fan", "rpm"),
     ("flow", "Flow", "flow", "l/h"),
+    ("maintenance", "Maintenance", "other", "%"),
 ];
 
 /// The report 1 sensor slots of the Feed values: slot 4 holds the pump speed, slot 5 the flow.
@@ -54,6 +55,15 @@ pub fn sensor_metas(leakshield: &str) -> Vec<SensorMeta> {
             driver: String::new(),
         })
         .collect()
+}
+
+/// The maintenance indicator in percent: 100 for a new device, 0 when the vacuum pump and the
+/// valves need maintenance. The device has no such value. The runtimes in hours wear it down
+/// (`docs/protocol/leakshield.md`, section Published values).
+pub fn maintenance(pump_runtime_s: u32, short_cycle_runtime_s: u32) -> f64 {
+    let hours = |seconds: u32| f64::from(seconds) / 3600.0;
+    let wear = hours(pump_runtime_s).powi(2) / 16.0 + hours(short_cycle_runtime_s).powi(2) / 64.0;
+    (100.0 - wear).clamp(0.0, 100.0)
 }
 
 /// The values of the sensors in report 1, in the units of `SENSORS`. A value of 32767 is no
@@ -89,11 +99,17 @@ pub fn sensor_values(report1: &Report1) -> Vec<(&'static str, f64)> {
         ("feed_rpm", feed_rpm),
         ("flow", flow),
     ];
-    raw.into_iter()
+    let mut values: Vec<(&'static str, f64)> = raw
+        .into_iter()
         .filter_map(|(field, value)| Some((field, value?)))
         .filter(|&(_, (raw, _))| raw != NO_VALUE)
         .map(|(field, (raw, scale))| (field, f64::from(raw) * scale))
-        .collect()
+        .collect();
+    values.push((
+        "maintenance",
+        maintenance(report1.pump_runtime, report1.pump_short_cycles),
+    ));
+    values
 }
 
 /// Reads report 1 every `period`. A read that blocks stops this task only: the values go stale
@@ -167,6 +183,8 @@ mod tests {
         // Feed sensor 4 holds 2500 rpm and sensor 5 holds 1300 in 0.1 l/h.
         near(v.get("feed_rpm"), 2500.0);
         near(v.get("flow"), 130.0);
+        // 11431 s of pump runtime and 21 s in short cycles.
+        assert!((v["maintenance"] - 99.4).abs() < 0.05);
         // The dump holds "no value" in these.
         for name in ["volume_change", "pressure_change", "leak_indicator"] {
             assert!(!v.contains_key(name), "{name}");
@@ -181,6 +199,8 @@ mod tests {
         for name in ["pump_head_pressure", "feed_rpm", "flow", "volume_change"] {
             assert!(!v.contains_key(name), "{name}");
         }
+        // 11308 s of pump runtime and 21 s in short cycles.
+        assert!((v["maintenance"] - 99.4).abs() < 0.05);
     }
 
     #[test]
@@ -202,6 +222,14 @@ mod tests {
         report1.sensors[SLOT_FLOW].unit_code = 13;
         let v: std::collections::BTreeMap<_, _> = sensor_values(&report1).into_iter().collect();
         assert!(!v.contains_key("feed_rpm") && !v.contains_key("flow"));
+    }
+
+    #[test]
+    fn maintenance_follows_the_runtime_formula() {
+        assert_eq!(maintenance(0, 0), 100.0);
+        // 8 h of pump runtime: 64 / 16 = 4. 8 h in short cycles: 64 / 64 = 1.
+        assert!((maintenance(8 * 3600, 8 * 3600) - 95.0).abs() < 1e-9);
+        assert_eq!(maintenance(100 * 3600, 0), 0.0);
     }
 
     #[test]

@@ -282,6 +282,8 @@ async fn runtime_sensors_exposed() {
     assert_eq!(sensor("feed_rpm").await.value().await.unwrap(), 2500.0);
     assert!((sensor("flow").await.value().await.unwrap() - 130.0).abs() < 1e-9);
     assert!((sensor("pump_head_pressure").await.value().await.unwrap() - 101.2).abs() < 1e-9);
+    // 11431 s of pump runtime and 21 s in short cycles.
+    assert!((sensor("maintenance").await.value().await.unwrap() - 99.4).abs() < 0.05);
     // 32767 is no value: the dump has none for the leak indicator.
     assert!(!sensor("leak_indicator").await.has_value().await.unwrap());
 }

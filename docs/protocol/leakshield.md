@@ -154,6 +154,8 @@ The daemon publishes these report 1 values as sensors and reads the counters on 
 | Supply voltage | 259 | 0.01 V |
 | Counters | 321, 325, 329, 333, 337, 28, 24 | pump runtime s, pump runtime in short cycles s, pump revolutions, fill valve cycles, release valve cycles, total runtime s, power-up count |
 
+The maintenance indicator is not a device value. The daemon computes it from the pump runtime `p` and the pump runtime in short cycles `c`, both in hours: `100 - (p^2 / 16 + c^2 / 64)`, limited to 0 to 100. The System page warns below 10 % and shows the alarm text at 0 %. The fw1022 dump gives 99.4 %, the fw1019 dump 99.4 % too.
+
 The fw1022 dump holds "no value" for the volume change, the pressure change and the leak indicator, and 0 s for the daily pump time. No dump holds a number for them.
 
 ### Event list
