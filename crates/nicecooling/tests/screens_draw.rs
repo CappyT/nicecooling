@@ -596,6 +596,7 @@ fn the_alarm_time_stays_in_the_pressure_plot(cx: &mut TestAppContext) {
             0,
         );
         leak.raised_us = app::now_us() - age_s * 1_000_000;
+        let leak_raised_us = leak.raised_us;
         snapshot.alarms = vec![leak];
         rig.events
             .send(DaemonEvent::Snapshot(Box::new(snapshot)))
@@ -604,7 +605,11 @@ fn the_alarm_time_stays_in_the_pressure_plot(cx: &mut TestAppContext) {
         show(cx, &model, Page::Overview);
         let handle = cx.windows()[0];
         let mut visual = VisualTestContext::from_window(handle, cx);
+        // The view reads the clock when it draws. A loaded test host can take seconds from the
+        // snapshot to the frame, so the Alarm line is between its places at these two times.
+        let before_us = app::now_us();
         visual.update(|window, cx| window.draw(cx).clear(cx));
+        let after_us = app::now_us();
         let plot = visual.debug_bounds("pressure-plot").expect("the plot");
         let label = visual.debug_bounds("pressure-raised").expect("the label");
         assert!(label.size.width > gpui::px(40.), "{age_s} s: {label:?}");
@@ -613,14 +618,31 @@ fn the_alarm_time_stays_in_the_pressure_plot(cx: &mut TestAppContext) {
             "{age_s} s: the label {label:?} leaves the plot {plot:?}"
         );
         assert!(label.top() >= plot.top() && label.bottom() <= plot.bottom());
-        // The Alarm line, to 2 px: the clock moves between the snapshot and the frame.
-        let line = plot.left() + plot.size.width * (1.0 - age_s as f32 / 600.0);
+        let line_at = |now_us: u64| {
+            let age = (now_us - leak_raised_us) as f32 / 1_000_000.0;
+            plot.left() + plot.size.width * (1.0 - age / 600.0)
+        };
+        // The line moves to the left with the time.
+        let (rightmost, leftmost) = (line_at(before_us), line_at(after_us));
+        let slack = gpui::px(1.);
         if at_left {
-            assert!(label.right() <= line, "{age_s} s: {label:?}, line {line:?}");
-            assert!(label.right() >= line - gpui::px(8.), "{age_s} s: {label:?}");
+            assert!(
+                label.right() <= rightmost + slack,
+                "{age_s} s: {label:?}, line {rightmost:?}"
+            );
+            assert!(
+                label.right() >= leftmost - gpui::px(8.),
+                "{age_s} s: {label:?}, line {leftmost:?}"
+            );
         } else {
-            assert!(label.left() >= line, "{age_s} s: {label:?}, line {line:?}");
-            assert!(label.left() <= line + gpui::px(8.), "{age_s} s: {label:?}");
+            assert!(
+                label.left() >= leftmost - slack,
+                "{age_s} s: {label:?}, line {leftmost:?}"
+            );
+            assert!(
+                label.left() <= rightmost + gpui::px(8.),
+                "{age_s} s: {label:?}, line {rightmost:?}"
+            );
         }
     }
 }

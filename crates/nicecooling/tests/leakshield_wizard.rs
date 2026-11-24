@@ -1606,9 +1606,9 @@ mod layout {
     }
 }
 
-// aquasuite sets MaxSpeed first and its StartSpeed setter cuts the start speed to the
-// maximum speed (DlgLeakshieldAssistantModel.cs:817-835, :2037-2045). DDC 3.25 has the table
-// row (start 5500, max 4850), so aquasuite writes 4850 as the start speed.
+// aquasuite sets the maximum speed first, and its setter of the start speed cuts the start
+// speed to the maximum speed. The table row of the DDC 3.25 has the start speed 5500 and the
+// maximum speed 4850, so aquasuite writes 4850 as the start speed.
 #[test]
 fn the_ddc_325_preset_keeps_the_start_speed_at_the_maximum_speed() {
     let state = device();
