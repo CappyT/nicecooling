@@ -3,12 +3,13 @@
 use std::rc::Rc;
 
 use gpui::prelude::*;
-use gpui::{AnyElement, Context, FontWeight, Window, div, px};
+use gpui::{AnyElement, Context, Div, FontWeight, Window, div, px};
 use gpui_component::button::{Button, ButtonVariants as _};
 use gpui_component::slider::Slider;
 use gpui_component::spinner::Spinner;
 use gpui_component::{Disableable as _, h_flex, v_flex};
 
+use crate::icons::{NcIcon, small_icon, text_icon};
 use crate::screen_view::ScreenView;
 use crate::screens::controls::{Pick, act};
 use crate::screens::first_run::{
@@ -31,35 +32,56 @@ impl ScreenView {
         self.first_run.sync(&state);
         let model = self.with_input(cx, |input| FirstRunModel::build(input, &self.first_run));
         let view = cx.entity();
-        let locale = self.model.read(cx).locale;
 
-        // The stepper.
-        let mut stepper = h_flex().gap(px(8.)).items_center();
-        for label in &model.steps {
+        // The stepper: a numbered circle and the name of each step, with a line between them.
+        let mut stepper = h_flex()
+            .w_full()
+            .px(px(18.))
+            .py(px(12.))
+            .gap(px(6.))
+            .flex_wrap();
+        for (index, label) in model.steps.iter().enumerate() {
+            if index > 0 {
+                stepper = stepper.child(div().flex_1().min_w(px(6.)).h(px(1.)).bg(p.border));
+            }
+            let (fill, ink) = if label.current {
+                (p.accent_bg, p.accent_fg)
+            } else if label.done {
+                (p.accent_tint, p.accent)
+            } else {
+                (p.track, p.fg_dim)
+            };
+            let mark = div()
+                .size(px(22.))
+                .flex_none()
+                .flex()
+                .items_center()
+                .justify_center()
+                .rounded_full()
+                .bg(fill)
+                .text_color(ink)
+                .text_size(px(12.))
+                .font_weight(FontWeight::BOLD);
             stepper = stepper.child(
-                div()
-                    .px(px(12.))
-                    .py(px(4.))
-                    .rounded_full()
-                    .when(label.current, |chip| {
-                        chip.bg(p.accent_tint).text_color(p.accent)
+                h_flex()
+                    .flex_none()
+                    .gap(px(6.))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(if label.current { p.fg } else { p.fg_dim })
+                    .child(if label.done {
+                        mark.child(small_icon(NcIcon::Check, ink))
+                    } else {
+                        mark.child((index + 1).to_string())
                     })
-                    .when(label.done, |chip| chip.text_color(p.success))
-                    .when(!label.current && !label.done, |chip| {
-                        chip.text_color(p.fg_dim)
-                    })
-                    .font_weight(FontWeight::BOLD)
                     .child(label.label.clone()),
             );
         }
 
-        let body: AnyElement = if let Some(offline) = &model.offline {
+        let body = if let Some(offline) = &model.offline {
             card(p)
-                .p(px(18.))
-                .gap(px(12.))
-                .child(offline.title.clone())
+                .child(text_row(offline.title.clone(), p).border_t_0())
                 .child(
-                    h_flex().child(
+                    card_row(p).child(
                         Button::new("first-run-retry")
                             .label(offline.try_again.clone())
                             .on_click(act(&view, |this, _, cx| {
@@ -70,44 +92,55 @@ impl ScreenView {
                             })),
                     ),
                 )
-                .into_any_element()
         } else {
             match model.step {
                 Step::Board => self.board_card(&model.board, p),
                 Step::Loop => self.first_run_loop_card(&model.loop_step, p, window, cx),
                 Step::Bios => bios_card(&model, p),
-                Step::Leakshield => model.leakshield.as_ref().map_or_else(
-                    || div().into_any_element(),
-                    |step| leakshield_card(step, p, &view),
-                ),
+                Step::Leakshield => model
+                    .leakshield
+                    .as_ref()
+                    .map_or_else(|| card(p), |step| leakshield_card(step, p, &view)),
                 Step::Done => done_card(&model.done, p, &view),
             }
         };
 
+        // The footer of the step card: "Skip setup" at the left, back and next at the right.
         let footer = &model.footer;
-        let mut buttons = h_flex().w_full().gap(px(8.)).child(
-            Button::new("first-run-skip")
-                .ghost()
-                .label(footer.skip.clone())
-                .on_click(act(&view, |this, _, cx| {
-                    this.first_run.step = Step::Board;
-                    this.go(Page::Overview, cx);
-                })),
-        );
-        buttons = buttons.child(div().flex_1());
+        let mut buttons = h_flex()
+            .w_full()
+            .px(px(18.))
+            .py(px(12.))
+            .gap(px(6.))
+            .border_t_1()
+            .border_color(p.border)
+            .child(
+                Button::new("first-run-skip")
+                    .ghost()
+                    .label(footer.skip.clone())
+                    .on_click(act(&view, |this, _, cx| {
+                        this.first_run.step = Step::Board;
+                        this.go(Page::Overview, cx);
+                    })),
+            )
+            .child(div().flex_1());
         if let Some(back) = &footer.back {
-            buttons = buttons.child(Button::new("first-run-back").label(back.clone()).on_click(
-                act(&view, |this, _, cx| {
-                    let state = this.state(cx);
-                    this.first_run.back(&state);
-                }),
-            ));
+            buttons = buttons.child(
+                Button::new("first-run-back")
+                    .icon(text_icon(NcIcon::Left))
+                    .label(back.clone())
+                    .on_click(act(&view, |this, _, cx| {
+                        let state = this.state(cx);
+                        this.first_run.back(&state);
+                    })),
+            );
         }
         if let Some(next) = &footer.next {
             buttons = buttons.child(
                 Button::new("first-run-next")
                     .primary()
                     .label(next.clone())
+                    .child(text_icon(NcIcon::Right))
                     .disabled(!footer.next_enabled)
                     .on_click(act(&view, |this, _, cx| {
                         let model = this.model.clone();
@@ -120,34 +153,23 @@ impl ScreenView {
                     })),
             );
         }
-        let _ = locale;
         page()
-            .child(
-                div()
-                    .text_size(px(18.))
-                    .font_weight(FontWeight::BOLD)
-                    .child(model.title.clone()),
-            )
-            .child(stepper)
-            .child(body)
-            .child(buttons)
+            .child(card(p).child(stepper))
+            .child(body.child(buttons))
             .into_any_element()
     }
 
-    fn board_card(&self, board: &BoardStep, p: &Palette) -> AnyElement {
+    fn board_card(&self, board: &BoardStep, p: &Palette) -> Div {
         let mut card = card(p).child(card_header(board.name.clone(), p));
         if let Some(text) = &board.loading {
-            return card
-                .child(card_row(p).child(Spinner::new()).child(text.clone()))
-                .into_any_element();
+            return card.child(card_row(p).child(Spinner::new()).child(text.clone()));
         }
-        card = card.child(card_row(p).child(board.text.clone()));
+        card = card.child(text_row(board.text.clone(), p));
         if let Some(text) = &board.warning {
             card = card.child(notice_row(text.clone(), true, p));
         }
         card = card.child(card_row(p).child(caption(board.counts.clone(), p)));
-        card = card.child(channel_table(&board.columns, &board.channels, p));
-        card.into_any_element()
+        card.child(channel_table(&board.columns, &board.channels, p))
     }
 
     fn first_run_loop_card(
@@ -156,7 +178,7 @@ impl ScreenView {
         p: &Palette,
         window: &mut Window,
         cx: &mut Context<Self>,
-    ) -> AnyElement {
+    ) -> Div {
         let locale = self.model.read(cx).locale;
         let enabled = step.enabled;
         let mut card = card(p).child(card_header(locale.tr("first_run.step.loop"), p));
@@ -215,13 +237,18 @@ impl ScreenView {
                         .child(step.floor_text.clone()),
                 ),
         );
-        card = card.child(div().p(px(18.)).child(loop_diagram::element(
-            &step.diagram,
-            p,
-            self.navigator(),
-            cx,
-        )));
-        card.into_any_element()
+        // The preview has the line of a row above it.
+        card.child(
+            div()
+                .border_t_1()
+                .border_color(p.border)
+                .child(loop_diagram::element(
+                    &step.diagram,
+                    p,
+                    self.navigator(),
+                    cx,
+                )),
+        )
     }
 
     fn picker_row(
@@ -256,7 +283,9 @@ impl ScreenView {
             card_row(p)
                 .child(
                     div()
-                        .w(px(160.))
+                        .flex_1()
+                        .min_w_0()
+                        .truncate()
                         .font_weight(FontWeight::BOLD)
                         .child(row.label.clone()),
                 )
@@ -267,6 +296,11 @@ impl ScreenView {
         }
         column.into_any_element()
     }
+}
+
+/// A row with a sentence: the text takes the width of the card and wraps there.
+fn text_row(text: impl Into<gpui::SharedString>, p: &Palette) -> Div {
+    card_row(p).child(div().flex_1().min_w_0().child(text.into()))
 }
 
 fn channel_table(columns: &[String], rows: &[ChannelRow], p: &Palette) -> AnyElement {
@@ -329,7 +363,7 @@ fn bios_table(columns: &[String], rows: &[BiosRow], p: &Palette) -> AnyElement {
     table.into_any_element()
 }
 
-fn bios_card(model: &FirstRunModel, p: &Palette) -> AnyElement {
+fn bios_card(model: &FirstRunModel, p: &Palette) -> Div {
     let bios = &model.bios;
     let frame = card(p)
         .child(card_header(
@@ -340,7 +374,7 @@ fn bios_card(model: &FirstRunModel, p: &Palette) -> AnyElement {
                 .map_or_else(String::new, |s| s.label.clone()),
             p,
         ))
-        .child(card_row(p).child(bios.text.clone()));
+        .child(text_row(bios.text.clone(), p));
     let frame = match &bios.saved {
         Some(saved) => frame.child(card_row(p).child(caption(saved.clone(), p))),
         None => frame,
@@ -348,17 +382,12 @@ fn bios_card(model: &FirstRunModel, p: &Palette) -> AnyElement {
     frame
         .child(bios_table(&bios.columns, &bios.rows, p))
         .child(card_row(p).child(caption(bios.no_curve.clone(), p)))
-        .into_any_element()
 }
 
-fn leakshield_card(
-    step: &LeakshieldStep,
-    p: &Palette,
-    view: &gpui::Entity<ScreenView>,
-) -> AnyElement {
+fn leakshield_card(step: &LeakshieldStep, p: &Palette, view: &gpui::Entity<ScreenView>) -> Div {
     let mut card = card(p)
         .child(card_header(step.serial.clone(), p))
-        .child(card_row(p).child(step.status.clone()));
+        .child(text_row(step.status.clone(), p));
     if step.unknown {
         card = card.child(notice_row(step.status.clone(), true, p));
     }
@@ -375,15 +404,15 @@ fn leakshield_card(
             ),
         );
     }
-    card.into_any_element()
+    card
 }
 
-fn done_card(done: &DoneStep, p: &Palette, view: &gpui::Entity<ScreenView>) -> AnyElement {
+fn done_card(done: &DoneStep, p: &Palette, view: &gpui::Entity<ScreenView>) -> Div {
     let mut card = card(p);
     for line in &done.summary {
-        card = card.child(card_row(p).child(line.clone()));
+        card = card.child(text_row(line.clone(), p));
     }
-    card = card.child(card_row(p).child(done.text.clone()));
+    card = card.child(text_row(done.text.clone(), p));
     let mut buttons = h_flex().gap(px(8.)).child(
         Button::new("first-run-overview")
             .primary()
@@ -401,5 +430,5 @@ fn done_card(done: &DoneStep, p: &Palette, view: &gpui::Entity<ScreenView>) -> A
                 .on_click(act(view, move |this, _, cx| this.go(page.clone(), cx))),
         );
     }
-    card.child(card_row(p).child(buttons)).into_any_element()
+    card.child(card_row(p).child(buttons))
 }
