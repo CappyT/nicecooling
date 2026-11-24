@@ -2,17 +2,18 @@
 
 use gpui::prelude::*;
 use gpui::{
-    AnyElement, ClickEvent, Context, Entity, FocusHandle, FontWeight, IntoElement, KeyDownEvent,
-    MouseButton, MouseMoveEvent, Render, Window, div, px, rgb,
+    AnyElement, ClickEvent, Context, Decorations, Div, Entity, FocusHandle, FontWeight,
+    IntoElement, KeyDownEvent, MouseButton, MouseMoveEvent, Render, Stateful, Window,
+    WindowControlArea, div, px, rgb,
 };
 use gpui_component::button::{Button, ButtonCustomVariant, ButtonVariants as _};
 use gpui_component::spinner::Spinner;
-use gpui_component::{Sizable as _, TitleBar, h_flex, v_flex};
+use gpui_component::{Sizable as _, h_flex, v_flex};
 use tokio::sync::mpsc::UnboundedSender;
 
 use crate::app::AppModel;
 use crate::command::Command;
-use crate::icons::{NcIcon, icon, text_icon};
+use crate::icons::{NcIcon, icon, small_icon, text_icon};
 use crate::model::{Link, Severity};
 use crate::screen_view::ScreenView;
 use crate::shell::{Banner, BannerAction, BannerStyle, NavBadge, NavEntry, Page, ShellModel};
@@ -32,8 +33,9 @@ pub struct ShellView {
     countdown_focused: Option<String>,
     /// The screen of every page.
     screens: Entity<ScreenView>,
-    /// A press on the app name of the sidebar: the next pointer move starts a window move.
-    sidebar_press: bool,
+    /// A press on the header bar or on the app name of the sidebar: the next pointer move
+    /// starts a window move.
+    bar_press: bool,
 }
 
 /// The sidebar icon of a page, as the comps show it.
@@ -73,7 +75,7 @@ impl ShellView {
             countdown_hidden: None,
             countdown_focus: cx.focus_handle(),
             countdown_focused: None,
-            sidebar_press: false,
+            bar_press: false,
         }
     }
 
@@ -299,30 +301,18 @@ impl ShellView {
             .gap(px(2.))
             .child(
                 // The app name is at the height of the header bar: it moves the window too.
-                div()
-                    .id("app-name")
-                    .h(px(46.))
-                    .flex_none()
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .font_weight(FontWeight::BOLD)
-                    .on_mouse_down(
-                        MouseButton::Left,
-                        cx.listener(|this, _, _, _| this.sidebar_press = true),
-                    )
-                    .on_mouse_up(
-                        MouseButton::Left,
-                        cx.listener(|this, _, _, _| this.sidebar_press = false),
-                    )
-                    .on_mouse_move(cx.listener(|this, event: &MouseMoveEvent, window, _| {
-                        let pressed = event.pressed_button == Some(MouseButton::Left);
-                        if this.sidebar_press && pressed {
-                            window.start_window_move();
-                        }
-                        this.sidebar_press = false;
-                    }))
-                    .child("nicecooling"),
+                Self::moves_window(
+                    div()
+                        .id("app-name")
+                        .h(px(46.))
+                        .flex_none()
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .font_weight(FontWeight::BOLD),
+                    cx,
+                )
+                .child("nicecooling"),
             );
         for group in &shell.groups {
             if let Some(title) = &group.title {
@@ -349,6 +339,133 @@ impl ShellView {
             p,
             cx,
         ))
+    }
+
+    /// Make `bar` a part of the window frame: a press and then a pointer move start a window
+    /// move, and a double click maximizes or restores the window. A button in the bar takes
+    /// its press (it prevents the default), so its click does not move the window.
+    fn moves_window(bar: Stateful<Div>, cx: &mut Context<Self>) -> Stateful<Div> {
+        bar.window_control_area(WindowControlArea::Drag)
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|this, _, window, _| this.bar_press = !window.default_prevented()),
+            )
+            .on_mouse_up(
+                MouseButton::Left,
+                cx.listener(|this, _, _, _| this.bar_press = false),
+            )
+            .on_mouse_move(cx.listener(|this, event: &MouseMoveEvent, window, _| {
+                let pressed = event.pressed_button == Some(MouseButton::Left);
+                if this.bar_press && pressed {
+                    window.start_window_move();
+                }
+                this.bar_press = false;
+            }))
+            .on_click(|event, window, _| {
+                if event.click_count() == 2 {
+                    window.zoom_window();
+                }
+            })
+    }
+
+    /// The header bar: the page title in the center, the primary menu button and the close
+    /// button at the right. The bar is the title bar of the window.
+    fn render_header(
+        &self,
+        title: String,
+        subtitle: Option<String>,
+        p: &Palette,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        let locale = self.model.read(cx).locale;
+        // With server-side decorations the window manager draws its own title bar and close
+        // button over the header bar: a second close button here would be a duplicate.
+        let client_frame = matches!(window.window_decorations(), Decorations::Client { .. });
+        let menu_button = Button::new("primary-menu")
+            .ghost()
+            .size(px(28.))
+            .rounded(px(7.))
+            .icon(text_icon(NcIcon::Menu))
+            .tooltip(locale.tr("menu.primary"))
+            .on_click(self.toggle(|this| &mut this.menu_open, cx));
+        // The close button hides the window. The app stays in the tray.
+        let close_button = Button::new("window-close")
+            .custom(
+                ButtonCustomVariant::new(cx)
+                    .color(p.selected)
+                    .foreground(p.fg)
+                    .hover(p.border_strong)
+                    .active(p.border_strong),
+            )
+            // The custom variant draws its color as a tint: the fill is set here.
+            .bg(p.selected)
+            .size(px(24.))
+            .p_0()
+            .rounded(px(12.))
+            .child(small_icon(NcIcon::X, p.fg))
+            .tooltip(locale.tr("menu.close"))
+            .on_click(|_, window, _| window.remove_window());
+        Self::moves_window(
+            div()
+                .id("header-bar")
+                .relative()
+                .h(px(46.))
+                .flex_none()
+                .flex()
+                .items_center()
+                .justify_center()
+                .px(px(96.))
+                .bg(p.headerbar)
+                .border_b_1()
+                .border_color(p.border)
+                .debug_selector(|| "shell-header".to_owned()),
+            cx,
+        )
+        .when(client_frame, |bar| {
+            bar.on_mouse_down(MouseButton::Right, |event, window, _| {
+                window.show_window_menu(event.position)
+            })
+        })
+        .child(
+            v_flex()
+                .min_w_0()
+                .items_center()
+                .debug_selector(|| "header-title".to_owned())
+                .child(
+                    div()
+                        .max_w_full()
+                        .truncate()
+                        .font_weight(FontWeight::BOLD)
+                        .line_height(px(18.))
+                        .child(title),
+                )
+                .children(subtitle.map(|text| {
+                    div()
+                        .max_w_full()
+                        .truncate()
+                        .text_size(px(12.))
+                        .line_height(px(14.))
+                        .text_color(p.fg_dim)
+                        .child(text)
+                })),
+        )
+        .child(
+            h_flex()
+                .absolute()
+                .top_0()
+                .right(px(12.))
+                .h_full()
+                .gap(px(6.))
+                .child(menu_button)
+                .when(client_frame, |controls| {
+                    controls.child(
+                        div()
+                            .debug_selector(|| "header-close".to_owned())
+                            .child(close_button),
+                    )
+                }),
+        )
     }
 
     fn render_status_bar(
@@ -568,46 +685,9 @@ impl Render for ShellView {
             )
         });
 
-        let menu_button = Button::new("primary-menu")
-            .ghost()
-            .size(px(28.))
-            .rounded(px(7.))
-            .icon(text_icon(NcIcon::Menu))
-            .tooltip(locale.tr("menu.primary"))
-            .on_click(self.toggle(|this| &mut this.menu_open, cx));
-        let _ = window;
-
-        // `TitleBar` pads its left side with 12 px: the same padding at the right keeps the
-        // title in the center.
-        let header = TitleBar::new()
-            .h(px(46.))
-            .bg(p.headerbar)
-            .border_color(p.border)
-            .child(
-                h_flex()
-                    .size_full()
-                    .pr(px(12.))
-                    .child(div().flex_1())
-                    .child(
-                        v_flex()
-                            .flex_none()
-                            .items_center()
-                            .child(
-                                div()
-                                    .font_weight(FontWeight::BOLD)
-                                    .line_height(px(18.))
-                                    .child(title),
-                            )
-                            .children(subtitle.map(|text| {
-                                div()
-                                    .text_size(px(12.))
-                                    .line_height(px(14.))
-                                    .text_color(p.fg_dim)
-                                    .child(text)
-                            })),
-                    )
-                    .child(h_flex().flex_1().justify_end().child(menu_button)),
-            );
+        let header = self
+            .render_header(title, subtitle, &p, window, cx)
+            .into_any_element();
 
         // `h_flex` centers its children on the cross axis. This row must stretch them: the
         // sidebar and the content column take the height of the window.
@@ -632,12 +712,7 @@ impl Render for ShellView {
                     .flex_1()
                     .min_w_0()
                     .h_full()
-                    .child(
-                        div()
-                            .flex_none()
-                            .debug_selector(|| "shell-header".to_owned())
-                            .child(header),
-                    )
+                    .child(header)
                     .child(banners)
                     .child(
                         div()

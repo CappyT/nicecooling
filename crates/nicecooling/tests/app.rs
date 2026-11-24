@@ -527,3 +527,41 @@ fn a_failed_response_write_wraps_in_its_cell(cx: &mut TestAppContext) {
         text.size.height
     );
 }
+
+/// The header bar has the page title in its center, with the serial under it on a device
+/// page. The test window has server-side decorations: the bar then has no close button,
+/// because the window manager draws one.
+#[gpui::test]
+fn the_header_bar_centers_the_title(cx: &mut TestAppContext) {
+    let (model, rig) = start(cx, StartMode::Normal);
+    let state = support::fixtures::with_leakshield();
+    rig.events
+        .send(DaemonEvent::Snapshot(Box::new(state.snapshot.clone())))
+        .unwrap();
+    cx.run_until_parked();
+    let handle = cx.windows()[0];
+    let mut heights = Vec::new();
+    for page in [Page::Overview, Page::Leakshield(LEAKSHIELD.to_owned())] {
+        cx.update(|cx| {
+            model.update(cx, |app, cx| {
+                app.page = page.clone();
+                cx.notify();
+            });
+        });
+        cx.run_until_parked();
+        let mut visual = VisualTestContext::from_window(handle, cx);
+        visual.update(|window, cx| window.draw(cx).clear(cx));
+        let header = visual.debug_bounds("shell-header").expect("header bar");
+        let title = visual.debug_bounds("header-title").expect("title");
+        let offset = title.center().x - header.center().x;
+        assert!(
+            offset.abs() <= gpui::px(1.),
+            "{page:?}: the title is {offset:?} off the center"
+        );
+        assert!(title.top() >= header.top() && title.bottom() <= header.bottom());
+        assert!(visual.debug_bounds("header-close").is_none());
+        heights.push(title.size.height);
+    }
+    // A device page has two lines: the label and the serial.
+    assert!(heights[1] > heights[0], "{heights:?}");
+}

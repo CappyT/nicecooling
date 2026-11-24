@@ -56,6 +56,7 @@ tooltip:
   daemon_offline: Il demone è offline.
 menu:
   primary: Menu principale
+  close: Chiudi
   shortcuts: Scorciatoie da tastiera
   about: Informazioni su nicecooling
   quit: Esci

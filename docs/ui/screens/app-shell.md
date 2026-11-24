@@ -9,7 +9,7 @@ The shell is the frame of every screen: sidebar, header bar, global banners, con
 | Area | Size | Content |
 |---|---|---|
 | Sidebar | 220 px | App name, navigation entries in groups, Settings at the bottom |
-| Header bar | 46 px | Page title, subtitle on a device page, primary menu button, close button |
+| Header bar | 46 px | Page title, subtitle on a device page, primary menu button, one round close button. A drag on the bar or on the app name of the sidebar moves the window. A double click maximizes or restores it |
 | Banners | 46 px each, 64 px for the poweroff banner | Under the header bar, above the tab strip |
 | Content | rest | The screen. It scrolls vertically |
 | Status bar | 28 px | Daemon connection, active Profile, Alarm count |

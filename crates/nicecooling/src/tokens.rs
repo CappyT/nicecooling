@@ -170,8 +170,6 @@ fn theme_config(dark: bool, font: Option<SharedString>, mono: Option<SharedStrin
     colors.slider_bar = Some(hex(p.accent_bg));
     colors.progress_bar = Some(hex(p.accent_bg));
     colors.skeleton = Some(hex(p.track));
-    colors.title_bar = Some(hex(p.headerbar));
-    colors.title_bar_border = Some(hex(p.border));
     config
 }
 

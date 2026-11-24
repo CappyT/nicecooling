@@ -342,7 +342,7 @@ Four SVG files on a 16 px grid, one color (`#2E3436`). The desktop recolors a sy
 
 | Component (`components.md`) | Built with |
 |---|---|
-| Window and header bar | `TitleBar` with client-side decorations |
+| Window and header bar | Composite: a GPUI flex row with the page title, the primary menu `button` and one round close `button`. The row moves the window, and a double click maximizes or restores it. The window has client-side decorations where the desktop gives no title bar (GNOME on Wayland). Where the window manager draws its own title bar, the row has no close button |
 | Sidebar navigation and groups | `sidebar` |
 | Status bar | Composite: a GPUI flex row |
 | Global banners | Composite `Banner`: icon, text, optional `button` |
