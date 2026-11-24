@@ -640,7 +640,7 @@ The app SHALL import a Graph from one file of at most 1 MiB. It SHALL give the G
 - **THEN** the import adds it disabled with no Graph sensor, and Apply or enable creates the sensor
 
 ### Requirement: Graph sensor in the daemon
-The daemon SHALL keep Graph sensors: an id `graph_<n>`, a name of up to 64 characters and a unit, in the key `graph_sensors` of `state.json`. It SHALL give one method each to create, rename and remove a Graph sensor. It SHALL hold at most 64. It SHALL not reuse the id of a removed one. It SHALL run no Graph code.
+The daemon SHALL keep Graph sensors: an id `graph_<n>`, a name of up to 64 characters and a unit, in the key `graph_sensors` of `state.json`. It SHALL give one method each to create a Graph sensor, to change its name and unit, and to remove it. It SHALL hold at most 64. It SHALL not reuse the id of a removed one. It SHALL run no Graph code.
 
 #### Scenario: Create
 - **WHEN** the app creates a Graph sensor and the last number used was 4

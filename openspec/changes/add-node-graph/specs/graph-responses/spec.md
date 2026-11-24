@@ -89,7 +89,7 @@ For 10 s after its start the app SHALL evaluate the Graphs and SHALL run no resp
 - **THEN** the app feeds it in the first second
 
 ### Requirement: Run once
-"Run once" on a response end node SHALL run the response one time at once with the parameters of the draft and SHALL ignore the minimum interval and the state. It SHALL not run in the response pause.
+"Run once" on a response end node SHALL run the response one time at once with the parameters of the draft and SHALL ignore the minimum interval and the state. It SHALL run in the response pause too, because the user asks for this one run.
 
 #### Scenario: Run once inside the interval
 - **WHEN** the response ran 10 s ago with a minimum interval of 300 s and the user presses "Run once"
@@ -100,8 +100,8 @@ For 10 s after its start the app SHALL evaluate the Graphs and SHALL run no resp
 - **THEN** the response runs with the parameters in the editor
 
 #### Scenario: In the pause
-- **WHEN** the response pause is on and the user presses "Run once"
-- **THEN** nothing runs and the app shows that the responses are paused
+- **WHEN** the response pause is on and the user presses "Run once" on a notification response
+- **THEN** the notification shows once, and the response pause stays on
 
 ### Requirement: Response process
 The app SHALL run every response kind in the user session: notification, sound, command, e-mail, MQTT message, poweroff, reboot and suspend. The daemon SHALL run none and SHALL accept no request for a response. Only the app of the active session of logind SHALL run responses. No kind SHALL ask for a password.
