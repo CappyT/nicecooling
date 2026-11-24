@@ -173,9 +173,11 @@ fn review_every_page_starts_under_the_header(cx: &mut TestAppContext) {
         visual.run_until_parked();
         visual.update(|window, cx| window.draw(cx).clear(cx));
         let after = visual.debug_bounds("screen-page").expect("page");
+        // A page that is less than 40 px longer than its area stops at its end.
+        let step = (before.size.height - scroll.size.height).min(gpui::px(40.));
         assert_eq!(
             after.top(),
-            before.top() - gpui::px(40.),
+            before.top() - step,
             "{page:?}: the page scrolls"
         );
         scrolled.push(page.clone());
