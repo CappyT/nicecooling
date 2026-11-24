@@ -4,7 +4,7 @@ use gpui::prelude::*;
 use gpui::{
     AnyElement, ClickEvent, Context, Decorations, Div, Entity, FocusHandle, FontWeight,
     IntoElement, KeyDownEvent, MouseButton, MouseMoveEvent, Render, Stateful, Window,
-    WindowControlArea, div, px, rgb,
+    WindowControlArea, deferred, div, px, rgb,
 };
 use gpui_component::button::{Button, ButtonCustomVariant, ButtonVariants as _};
 use gpui_component::spinner::Spinner;
@@ -638,7 +638,14 @@ impl Render for ShellView {
 
         let mut banners = v_flex().flex_none();
         for (index, banner) in shell.banners.iter().enumerate() {
-            banners = banners.child(self.render_banner(index, banner, &p, cx));
+            let row = self.render_banner(index, banner, &p, cx).into_any_element();
+            // The scrim of a dialog covers the window. The poweroff banner draws over it:
+            // "Cancel poweroff" works on every screen while a countdown runs.
+            banners = banners.child(if banner.countdown.is_some() {
+                deferred(row).with_priority(2).into_any_element()
+            } else {
+                row
+            });
         }
         if self.notices_open {
             for (index, banner) in shell.more_notices.iter().enumerate() {
@@ -747,6 +754,7 @@ impl Render for ShellView {
             .when(self.down_dialog_open, |root| {
                 root.child(self.render_down_dialog(&p, cx))
             })
-            .children(countdown_element)
+            // The countdown dialog draws over a dialog of a screen and over the banner.
+            .children(countdown_element.map(|dialog| deferred(dialog).with_priority(3)))
     }
 }

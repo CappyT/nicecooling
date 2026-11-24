@@ -699,6 +699,75 @@ fn a_dialog_scrim_blocks_the_controls_under_it(cx: &mut TestAppContext) {
     assert_eq!(pressed, 0, "the press went through the scrim");
 }
 
+/// The scrim of a dialog covers the whole window: a control outside the page, as the sidebar
+/// and the header bar are, takes no press while the dialog is open.
+#[gpui::test]
+fn a_dialog_scrim_covers_the_whole_window(cx: &mut TestAppContext) {
+    use gpui::prelude::*;
+    use nicecooling::screens::ui::modal;
+    use nicecooling::tokens::Palette;
+
+    struct Screen {
+        pressed: usize,
+    }
+    impl gpui::Render for Screen {
+        fn render(
+            &mut self,
+            _: &mut gpui::Window,
+            cx: &mut gpui::Context<Self>,
+        ) -> impl IntoElement {
+            // The sidebar, then a page that clips and scrolls its content.
+            gpui::div()
+                .flex()
+                .size_full()
+                .child(
+                    gpui::div()
+                        .id("sidebar")
+                        .debug_selector(|| "sidebar".to_owned())
+                        .w(gpui::px(220.))
+                        .h_full()
+                        .flex_none()
+                        .on_click(cx.listener(|this, _, _, _| this.pressed += 1)),
+                )
+                .child(
+                    gpui::div()
+                        .id("page")
+                        .flex_1()
+                        .mt(gpui::px(46.))
+                        .overflow_y_scroll()
+                        .child(
+                            gpui::div()
+                                .relative()
+                                .w_full()
+                                .h(gpui::px(300.))
+                                .child(modal(
+                                    "Reset the counter?",
+                                    "This cannot be undone.",
+                                    Vec::new(),
+                                    Vec::new(),
+                                    &Palette::new(false),
+                                )),
+                        ),
+                )
+        }
+    }
+    let window = cx.add_window(|_, _| Screen { pressed: 0 });
+    let mut visual = VisualTestContext::from_window(window.into(), cx);
+    visual.simulate_resize(gpui::size(gpui::px(1100.), gpui::px(700.)));
+    visual.update(|window, cx| window.draw(cx).clear(cx));
+    let scrim = visual.debug_bounds("modal-scrim").expect("the scrim");
+    assert_eq!(scrim.origin, gpui::point(gpui::px(0.), gpui::px(0.)));
+    assert_eq!(scrim.size, gpui::size(gpui::px(1100.), gpui::px(700.)));
+    // The dialog is in the middle of the window, not of the page.
+    let dialog = visual.debug_bounds("modal-dialog").expect("the dialog");
+    assert_eq!(dialog.center().x, gpui::px(550.));
+    let sidebar = visual.debug_bounds("sidebar").expect("the sidebar");
+    visual.simulate_click(sidebar.center(), gpui::Modifiers::none());
+    visual.run_until_parked();
+    let pressed = window.update(cx, |screen, _, _| screen.pressed).unwrap();
+    assert_eq!(pressed, 0, "the sidebar took a press under the dialog");
+}
+
 /// A tooltip draws outside the shell root, so it sets the tabular figures itself. No screen
 /// builds a tooltip another way: a gpui-component tooltip has no font features.
 #[test]

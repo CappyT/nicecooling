@@ -478,8 +478,9 @@ pub fn page() -> Div {
         .gap(px(12.))
 }
 
-/// A dialog of 440 px over the scrim. The caller puts it in a container with `relative()`.
-/// `body` goes under the text, `buttons` at the right of the last row.
+/// A dialog of 440 px over the scrim. The scrim covers the whole window, as the comps show
+/// it: the sidebar and the header bar take no press while a dialog is open. `body` goes under
+/// the text, `buttons` at the right of the last row.
 pub fn modal(
     title: impl Into<SharedString>,
     text: impl Into<SharedString>,
@@ -488,39 +489,59 @@ pub fn modal(
     p: &Palette,
 ) -> Div {
     let text: SharedString = text.into();
-    div()
-        .absolute()
-        .top_0()
-        .left_0()
-        .size_full()
-        .flex()
-        .justify_center()
-        // The dialog keeps the height of its content.
-        .items_start()
-        .pt(px(120.))
-        .bg(scrim(p))
-        // The scrim takes the presses: a control under a dialog does not get them.
-        .occlude()
+    let dialog = v_flex()
+        .w(px(440.))
+        .p(px(18.))
+        .gap(px(12.))
+        .rounded(px(15.))
+        .bg(p.card)
+        .shadow(pop_shadow(p))
+        .debug_selector(|| "modal-dialog".to_owned())
         .child(
-            v_flex()
-                .w(px(440.))
-                .p(px(18.))
-                .gap(px(12.))
-                .rounded(px(15.))
-                .bg(p.card)
-                .shadow(pop_shadow(p))
-                .debug_selector(|| "modal-dialog".to_owned())
-                .child(
-                    div()
-                        .text_size(px(18.))
-                        .line_height(px(24.))
-                        .font_weight(FontWeight::BOLD)
-                        .child(title.into()),
-                )
-                .children((!text.is_empty()).then_some(text))
-                .children(body)
-                .child(h_flex().justify_end().gap(px(8.)).children(buttons)),
+            div()
+                .text_size(px(18.))
+                .line_height(px(24.))
+                .font_weight(FontWeight::BOLD)
+                .child(title.into()),
         )
+        .children((!text.is_empty()).then_some(text))
+        .children(body)
+        .child(h_flex().justify_end().gap(px(8.)).children(buttons));
+    // The page clips its content, so the scrim draws after the window, at the window origin.
+    div().absolute().child(deferred(
+        gpui::anchored()
+            .position(point(px(0.), px(0.)))
+            .child(Scrim {
+                color: scrim(p),
+                dialog: dialog.into_any_element(),
+            }),
+    ))
+}
+
+/// The scrim of `modal`: the size of the window, with the dialog in it.
+#[derive(IntoElement)]
+struct Scrim {
+    color: Hsla,
+    dialog: AnyElement,
+}
+
+impl RenderOnce for Scrim {
+    fn render(self, window: &mut Window, _: &mut App) -> impl IntoElement {
+        let size = window.viewport_size();
+        div()
+            .w(size.width)
+            .h(size.height)
+            .flex()
+            .justify_center()
+            // The dialog keeps the height of its content.
+            .items_start()
+            .pt(px(120.))
+            .bg(self.color)
+            // The scrim takes the presses: a control under a dialog does not get them.
+            .occlude()
+            .debug_selector(|| "modal-scrim".to_owned())
+            .child(self.dialog)
+    }
 }
 
 /// A row with a warning or an information line: the icon and the text on the tint of its
