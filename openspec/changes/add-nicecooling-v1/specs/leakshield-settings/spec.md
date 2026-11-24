@@ -116,10 +116,10 @@ After each write, the daemon SHALL read the settings back and check that only th
 - **THEN** the daemon reports an error and offers the restore of the backup
 
 ### Requirement: Restore a backup
-The user SHALL be able to restore a backup of the device settings. A restore MUST need admin authorization. A restore SHALL write only report 3, until reports 5 and 8 are decoded.
+The user SHALL be able to restore a backup of the device settings. A restore SHALL use the polkit action `critical`, which needs no admin password for a `wheel` member in the active local session. A restore SHALL write only report 3, until reports 5 and 8 are decoded.
 
 #### Scenario: Restore with authorization
-- **WHEN** an admin authorizes the restore of a backup
+- **WHEN** an authorized caller restores a backup
 - **THEN** report 3 of the device equals the backup and the daemon reads it back to confirm
 
 #### Scenario: Reports 5 and 8 not decoded

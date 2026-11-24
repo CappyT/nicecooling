@@ -248,7 +248,6 @@ Error names have the prefix `io.github.cappyt.NiceCooling1.Error.`, except two s
 | `DefaultProfile` | A delete of the Default Profile. |
 | `ReadOnly` | A write to a preset, to a Leakshield that is read-only (`ResetAlarms` included), or a `SetCurve` or `SetFixedDuty` on a Channel without a BIOS snapshot entry (`no-bios-snapshot`). The message holds the reason identifier. |
 | `NotVerified` | A Leakshield field that is not Verified for this firmware. The message holds the field id. |
-| `PumpRunning` | `StartAction("refill")` while a Pump channel of the Loop reads above 0 rpm or has no tach value. |
 | `Busy` | The Leakshield write worker already holds a queued write. |
 | `DeviceChanged` | Report 3 changed outside the volatile mask between the first read and the write. |
 | `VerifyFailed` | The read-back differs outside the volatile mask. The message holds the backup id. |
@@ -264,7 +263,7 @@ Error names have the prefix `io.github.cappyt.NiceCooling1.Error.`, except two s
 | `read` | none | - | - |
 | `write` | `io.github.cappyt.NiceCooling1.write` | `auth_admin_keep` x3 | YES for a `wheel` member, `subject.local` and `subject.active` |
 | `cancel-poweroff` | `io.github.cappyt.NiceCooling1.cancel-poweroff` | `auth_admin_keep` x3 | YES for a `wheel` member, `subject.local`, active or not |
-| `critical` | `io.github.cappyt.NiceCooling1.critical` | `auth_admin_keep` x3 | none |
+| `critical` | `io.github.cappyt.NiceCooling1.critical` | `auth_admin_keep` x3 | YES for a `wheel` member, `subject.local` and `subject.active` (the rule of `write`) |
 
 - `write-or-critical` (`SetMode`): `critical` for `release`, `write` for the other Modes. The Mode arguments are lowercase: `shield`, `monitor`, `release`. The check asks `critical` for `release` in any case and with surrounding whitespace.
 - A caller with uid 0 needs no polkit check.

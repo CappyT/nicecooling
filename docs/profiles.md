@@ -188,4 +188,4 @@ A Profile that the user activates by hand becomes active at once, also during th
 
 ## Saving a Profile with RELEASE
 
-A Profile contains RELEASE when its slot holds `default_mode` 3. Saving such a Profile asks the polkit action `write`, as any other save does. Setting the Mode RELEASE directly asks `critical`. The owner accepted this difference (ADR-0007).
+A Profile contains RELEASE when its slot holds `default_mode` 3. Saving such a Profile asks the polkit action `write`, as any other save does. Setting the Mode RELEASE directly asks `critical`. A `wheel` member in the active local session gives no password for either action (ADR-0007).

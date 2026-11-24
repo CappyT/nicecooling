@@ -93,7 +93,7 @@ An Alarm with the response "Poweroff after a delay" starts a countdown in the da
 
 All four call `CancelPoweroff` of the daemon (`docs/api.md`). The Alarm stays active. The notification then shows "Poweroff cancelled".
 
-The polkit action `io.github.cappyt.NiceCooling1.cancel-poweroff` allows a member of `wheel` in a local session, active or not. Another user must give the administrator password (`docs/api.md`, Authorization). The app of a second session of a `wheel` member cancels the poweroff too.
+The polkit action `io.github.cappyt.NiceCooling1.cancel-poweroff` allows a member of `wheel` in a local session, active or not. A user outside `wheel` must give the administrator password (`docs/api.md`, Authorization). The app of a second session of a `wheel` member cancels the poweroff too.
 
 ## Settings and files
 

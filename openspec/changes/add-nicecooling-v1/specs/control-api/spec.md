@@ -112,11 +112,15 @@ The action `cancel-poweroff` SHALL be allowed for a member of group `wheel` in a
 - **THEN** polkit asks for admin authentication
 
 ### Requirement: Authorization action critical
-The action `critical` SHALL need admin authentication, kept for a short time, for every caller. The `critical` methods are: factory reset, setting Mode RELEASE directly (`SetMode` with the argument RELEASE) and restoring a backup. `SetMode` with another Mode SHALL use `write`.
+The action `critical` SHALL be allowed for a member of group `wheel` in the active local session, as the action `write`. For other callers it SHALL need admin authentication, kept for a short time. The `critical` methods are: factory reset, setting Mode RELEASE directly (`SetMode` with the argument RELEASE) and restoring a backup. `SetMode` with another Mode SHALL use `write`.
 
 #### Scenario: Set RELEASE directly
-- **WHEN** a wheel member sets Mode RELEASE
-- **THEN** polkit asks for the admin password
+- **WHEN** a wheel member in the active local session sets Mode RELEASE
+- **THEN** the daemon applies the change without a prompt
+
+#### Scenario: Set RELEASE from an SSH session
+- **WHEN** a caller in an SSH session sets Mode RELEASE
+- **THEN** polkit asks for admin authentication
 
 ### Requirement: Alarm API
 The API SHALL emit the signal AlarmRaised for each Alarm and offer the method CancelPoweroff. A signal SHALL carry event identifiers and no text.

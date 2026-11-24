@@ -330,7 +330,7 @@ A change to a Curve SHALL go into the active Profile. A change to a Leakshield s
 - **THEN** slot 2 holds the new value and Profile B uses it when activated
 
 ### Requirement: Profiles with critical values
-Saving a Profile that contains Mode RELEASE SHALL NOT need admin authorization.
+Saving a Profile that contains Mode RELEASE SHALL use the action `write`, as any other save, and SHALL NOT need admin authorization.
 
 #### Scenario: Save with RELEASE
 - **WHEN** a user with write authorization saves a Profile with Mode RELEASE

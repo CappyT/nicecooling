@@ -20,16 +20,24 @@ The user SHALL be able to start an Action: Test, Measure fill level, Deaerate or
 - **WHEN** a Test ends
 - **THEN** the Leakshield returns to its Mode
 
-### Requirement: Refill only in standby
-nicecooling SHALL NOT start a Refill while a Pump channel of the Loop of the Leakshield reads above 0 rpm or has no tach value. It SHALL tell the user to start the Refill with the device button with the PC in standby.
+### Requirement: Refill in any pump state
+The daemon SHALL start a Refill whatever the pump does. The app SHALL ask the user to confirm before it sends a Refill while a Pump channel of the Loop of the Leakshield reads above 0 rpm or has no tach value. The warning SHALL say that the pump runs and that the Leakshield manual asks for the pump off during Refill. The app SHALL send the Refill at once when every Pump channel of the Loop reads 0 rpm.
 
 #### Scenario: Refill requested with pump on
 - **WHEN** the user requests a Refill while a Pump channel of the Loop of the Leakshield reads above 0 rpm
-- **THEN** the daemon refuses and shows the instruction to use the device button
+- **THEN** the app shows the warning "Start Refill?" and sends nothing until the user confirms
+
+#### Scenario: Refill confirmed with pump on
+- **WHEN** the user confirms the warning
+- **THEN** the daemon starts the Refill
+
+#### Scenario: Refill requested with pump off
+- **WHEN** the user requests a Refill while every Pump channel of the Loop reads 0 rpm
+- **THEN** the app sends the Refill without a warning
 
 #### Scenario: Pump of another Loop runs
 - **WHEN** the user requests a Refill while only a Pump channel of another Loop reads above 0 rpm
-- **THEN** the daemon starts the Refill
+- **THEN** the app sends the Refill without a warning
 
 ### Requirement: Cancel an Action
 The user SHALL be able to cancel a running Action. The daemon SHALL send the command `cancel_action` (report 2 command 12, code 0). When the registry of the device firmware lacks that command, the daemon SHALL refuse the cancel with `NotSupported`.

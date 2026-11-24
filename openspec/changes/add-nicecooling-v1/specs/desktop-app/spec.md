@@ -108,10 +108,14 @@ The app SHALL offer English and Italian.
 - **THEN** the app shows Italian text
 
 ### Requirement: Authorization prompts
-When an action needs authentication, the app SHALL show the polkit prompt and SHALL report a denial.
+The app SHALL NOT ask for a password and SHALL NOT mark a control with a lock icon. A user outside the group `wheel` gets the system polkit dialog. The app SHALL report a denial. The app SHALL warn before an action that lowers the protection and SHALL NOT refuse the choice of the user.
+
+#### Scenario: Wheel member sets RELEASE
+- **WHEN** a wheel member in the active local session confirms Mode RELEASE
+- **THEN** the app sends the change and no password dialog shows
 
 #### Scenario: Denied
-- **WHEN** the user cancels the prompt of a critical action
+- **WHEN** a user outside the group `wheel` cancels the polkit dialog of an action
 - **THEN** the action does not run and the app says it was denied
 
 ### Requirement: Screen data from the contract

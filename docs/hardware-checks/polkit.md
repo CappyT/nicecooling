@@ -25,7 +25,7 @@ For each cell run: `pkcheck --action-id <action> --process $$; echo "exit=$?"`. 
 |---|---|
 | `io.github.cappyt.NiceCooling1.write` | YES |
 | `io.github.cappyt.NiceCooling1.cancel-poweroff` | YES |
-| `io.github.cappyt.NiceCooling1.critical` | auth_admin_keep |
+| `io.github.cappyt.NiceCooling1.critical` | YES |
 
 ## Record
 

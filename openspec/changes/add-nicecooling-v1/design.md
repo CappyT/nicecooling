@@ -285,7 +285,7 @@ Rejected: a user write without a second read, because another tool can change re
 - Mode and Action use one transport: report 2 command 12 (`set_mode`) with the Mode or Action code as parameter (`docs/protocol/leakshield.md`).
 - The Feed message has 16 slots: slot 0 is the pump speed, slot 1 is the flow, slots 2 and 3 are spare, and slots 4 to 15 are the 12 Software sensors.
 - The aquasuite code does not define what the Leakshield does when the Feed stops. Task 5.11 measures it.
-- The daemon refuses a Refill while a Pump channel of the same Loop reads above 0 rpm (ADR-0007).
+- The daemon starts a Refill in any pump state. The app warns while a Pump channel of the Loop reads above 0 rpm or has no tach value (ADR-0007).
 - `CancelAction` sends `cancel_action` (command 12, code 0). It fails with `NotSupported` only when the registry of the device firmware lacks the command.
 - The device has no command that clears the pump runtime. "Reset pump history" of aquasuite clears only a log on the PC, so nicecooling has no such function. `ResetRefillHistory` sends `reset_refill_history` (command 13). `ResetServiceCounter` sends `reset_service_counter` (command 25000, parameter: serial XOR 0xFFFFFFFF). Both are `write` class and fail with `NotSupported` when the registry of the firmware lacks the command. The code does not say which report 1 values they clear.
 - The Leakshield stamps its event list and its time-controlled vacuum generation with its clock, and it has no battery for it. The user can set the device clock from the PC clock at any offset (`SyncClock`). The daemon sets the device clock by itself only when the device time differs from the PC time by more than 60 s. This is its only Leakshield write without a user action or a Profile activation.
@@ -344,11 +344,11 @@ There is no polkit action for read methods. Three polkit actions cover the other
 |---|---|---|---|
 | `io.github.cappyt.NiceCooling1.write` | changes of Curves, Pump floor, Profiles, alarm responses and Leakshield settings | `auth_admin_keep` | Yes for a `wheel` member in the active local session. |
 | `io.github.cappyt.NiceCooling1.cancel-poweroff` | `CancelPoweroff` | `auth_admin_keep` | Yes for a `wheel` member in a local session, active or not. |
-| `io.github.cappyt.NiceCooling1.critical` | factory reset, `SetMode` to RELEASE, restore a backup | `auth_admin_keep` | None. |
+| `io.github.cappyt.NiceCooling1.critical` | factory reset, `SetMode` to RELEASE, restore a backup | `auth_admin_keep` | Yes for a `wheel` member in the active local session, as for `write`. |
 
 The polkit rule is JavaScript that tests the `wheel` group. A caller with uid 0 needs no polkit check. The daemon passes `AllowUserInteraction` to polkit only when the method call carries the D-Bus flag `ALLOW_INTERACTIVE_AUTHORIZATION`.
 
-A `write` method can lower an alarm response, the Pump floor or a pump Duty, and it needs no admin password (see Risks).
+A `write` method can lower an alarm response, the Pump floor or a pump Duty, and it needs no admin password (see Risks). A `critical` method needs none either. A user outside `wheel` gets the polkit dialog for every action.
 
 Rejected: a group-owned Unix socket, which has no per-action authorization.
 
@@ -494,7 +494,7 @@ Rejected:
 - [GPUI is pre-1.0 and changes often] -> Pin `gpui-pre` to `=0.3.12` and `gpui-component` to 0.10.0.
 - [The kernel hangs and Channels stay at the last Duty] -> Accepted (ADR-0003). The optional hardware watchdog (`RuntimeWatchdogSec` in `/etc/systemd/system.conf`) is a host setting, listed in the README.
 - [A false Alarm powers off the PC] -> Delay with cancel. The alarm response is configurable per Alarm.
-- [Saving a Profile with RELEASE needs no admin password] -> Accepted by the owner (ADR-0007).
+- [A `wheel` member in the active session sets RELEASE, restores a backup or resets the Leakshield without an admin password] -> Accepted by the owner (ADR-0007).
 
 ## Migration Plan
 
