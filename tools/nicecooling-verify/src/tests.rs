@@ -443,8 +443,11 @@ fn arguments_repeat_in_pairs() {
     assert_eq!(pairs, [("b", 2), ("a", -1), ("c", 3)]);
     // Each --field needs its own --value.
     let why = parse(&["--field", "a", "--field", "b", "--value", "1"]).unwrap_err();
-    assert!(why.contains("2 --field but 1 --value"), "{why}");
+    assert!(why.contains("--field a needs its --value"), "{why}");
     assert!(parse(&["--field", "a", "--value", "1", "--value", "2"]).is_err());
+    // A --value belongs to the --field right before it.
+    assert!(parse(&["--value", "1", "--field", "a"]).is_err());
+    assert!(parse(&["--field", "a", "--value", "1", "--field", "b"]).is_err());
 }
 
 #[tokio::test]
@@ -645,4 +648,154 @@ async fn group_validates_every_pair_before_the_first_write() {
     assert_eq!(rig.report3_writes(), 0);
     assert_eq!(rig.save_settings_count(), 0);
     assert_eq!(replug.calls, 0);
+}
+
+/// The state dir already holds the first backup and 20 newer ones, and the oldest of them holds the
+/// state of the device: a former run restored it. The run backup deduplicates to that old id. The
+/// writes of the group take no backup of their own, and the restore needs none from the store.
+#[tokio::test]
+async fn restore_survives_backup_retention() {
+    use nicecoolingd::leakshield::backup::BackupSet;
+    let rig = Rig::new();
+    let backups = Backups::new(&rig.state.0, &rig.serial());
+    let current = BackupSet {
+        report3: Report3::decode(&rig.sim.report3()).unwrap().encode(),
+        report5: rig.sim.report5(),
+        report8: rig.sim.report8(),
+    };
+    let firmware = rig.sim.report1().firmware_version;
+    let other = |i: u8| {
+        let mut set = current.clone();
+        let mut r3 = Report3::decode(&set.report3).unwrap();
+        // XOR with a non-zero key: never the state of the device, and distinct per key.
+        r3.set_bytes(200, &[rig.original[200] ^ i]);
+        set.report3 = r3.encode();
+        set
+    };
+    backups
+        .save(&other(0x40), firmware, Reason::BeforeWrite, 1)
+        .unwrap();
+    let same = backups
+        .save(&current, firmware, Reason::BeforeWrite, 2)
+        .unwrap()
+        .id;
+    for i in 1..=19u8 {
+        assert!(
+            backups
+                .save(&other(i), firmware, Reason::BeforeWrite, 2 + u64::from(i))
+                .unwrap()
+                .written
+        );
+    }
+    let pairs = &group_pairs(&rig)[..2];
+    let mut replug = rig.replug(no_hook);
+    let (result, out) = rig.run_group(&rig.group_options(pairs), &mut replug).await;
+    assert!(out.contains(&format!("backup: {same}")), "{out}");
+    assert_eq!(
+        rig.sim.report3(),
+        rig.original,
+        "device not restored: {result:?}\n{out}"
+    );
+}
+
+/// A field of the original report holds a value outside its registry range. The restore writes
+/// the original bytes back as they are.
+#[tokio::test]
+async fn restore_of_an_out_of_range_original() {
+    let mut rig = Rig::new();
+    // fill_level_calibration: i16 at 4, scale 0.01, range -20..20 %.
+    rig.sim.change_report3(4, &3000i16.to_be_bytes());
+    rig.original = rig.sim.report3();
+    let mut replug = rig.replug(no_hook);
+    let (result, out) = rig
+        .run(&rig.options("pump_max_speed", 4801), &mut replug)
+        .await;
+    assert!(
+        rig.report3_writes() == 0 || rig.sim.report3() == rig.original,
+        "wrote, then left the device unrestored: {result:?}\n{out}"
+    );
+}
+
+/// The state dir stops taking new backups between two writes (disk full). The restore takes no
+/// backup, so it still writes the device back.
+#[tokio::test]
+async fn restore_without_a_writable_state_dir() {
+    use std::os::unix::fs::PermissionsExt;
+    let rig = Rig::new();
+    let pairs = group_pairs(&rig);
+    let leak_dir = rig.state.0.join("backups");
+    let mut out = Tripwire::new("save-settings: waiting", {
+        let leak_dir = leak_dir.clone();
+        move || {
+            for entry in std::fs::read_dir(&leak_dir).unwrap() {
+                let p = entry.unwrap().path();
+                std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o555)).unwrap();
+            }
+        }
+    });
+    let mut replug = rig.replug(no_hook);
+    let result = rig
+        .run_into(&rig.group_options(&pairs), &mut replug, &mut out)
+        .await;
+    for entry in std::fs::read_dir(&leak_dir).unwrap() {
+        let p = entry.unwrap().path();
+        std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    assert_eq!(
+        rig.sim.report3(),
+        rig.original,
+        "device not restored: {result:?}\n{}",
+        out.text()
+    );
+}
+
+/// No two writable Safety fields share a byte: the group check attributes each byte to one field.
+#[test]
+fn safety_fields_do_not_overlap() {
+    let registry = Registry::leakshield();
+    let mut owner: std::collections::BTreeMap<usize, &str> = Default::default();
+    let mut clashes = Vec::new();
+    for field in registry
+        .field
+        .iter()
+        .filter(|f| f.risk_class == RiskClass::Safety)
+    {
+        let size = field.value_type.scalar.size();
+        for offset in field.element_offsets() {
+            for byte in offset..offset + size {
+                if let Some(prev) = owner.insert(byte, &field.id)
+                    && prev != field.id
+                {
+                    clashes.push((byte, prev.to_owned(), field.id.clone()));
+                }
+            }
+        }
+    }
+    assert!(clashes.is_empty(), "{clashes:?}");
+}
+
+/// A device that does not take the restore gives no result: no registry change, a loud error.
+#[tokio::test]
+async fn a_failed_restore_aborts_without_a_registry_change() {
+    let rig = Rig::new();
+    let sim = rig.sim.clone();
+    let mut out = Tripwire::new("restore: the report 3", move || {
+        sim.fail_feature_writes(true)
+    });
+    let mut replug = rig.replug(no_hook);
+    let result = rig
+        .run_into(&rig.options("pump_max_speed", 4801), &mut replug, &mut out)
+        .await;
+    rig.sim.fail_feature_writes(false);
+    assert!(
+        matches!(
+            result,
+            Err(Error::Aborted {
+                restored: false,
+                ..
+            })
+        ),
+        "{result:?}"
+    );
+    assert!(!out.text().contains("registry change in"), "{}", out.text());
 }

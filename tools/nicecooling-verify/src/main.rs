@@ -19,7 +19,7 @@ use nicecoolingd::leakshield::DeviceIo;
 use nicecoolingd::leakshield::backup::{Backups, Reason};
 use nicecoolingd::leakshield::save_settings::{self, SAVE_SETTINGS_DELAY};
 use nicecoolingd::leakshield::write::{
-    FieldEdit, WriteEnv, WriteError, restore, take_backup, write_fields,
+    FieldEdit, WriteEnv, WriteError, take_backup, write_fields_under, write_verified,
 };
 use nicecoolingd::sources::hotplug::UsbDevice;
 use nicecoolingd::sources::usb::{NusbBus, UsbBus};
@@ -61,43 +61,43 @@ pub struct Options {
 }
 
 fn parse_args(args: impl Iterator<Item = String>) -> Result<Options, String> {
-    let (mut fields, mut values, mut confirm_serial) = (Vec::new(), Vec::new(), None);
+    let (mut pairs, mut confirm_serial) = (Vec::new(), None);
+    // A `--value` belongs to the `--field` right before it.
+    let mut field: Option<String> = None;
     let mut state_dir = PathBuf::from("/var/lib/nicecooling");
     let mut args = args;
     while let Some(arg) = args.next() {
         let mut next = |what: &str| args.next().ok_or(format!("{arg} needs {what}"));
         match arg.as_str() {
-            "--field" => fields.push(next("a field id")?),
+            "--field" => {
+                if let Some(open) = &field {
+                    return Err(format!(
+                        "--field {open} needs its --value before the next --field"
+                    ));
+                }
+                field = Some(next("a field id")?);
+            }
             "--value" => {
                 let text = next("a raw value")?;
-                values.push(
-                    text.parse::<i64>()
-                        .map_err(|_| format!("{text:?} is not an integer"))?,
-                );
+                let value = text
+                    .parse::<i64>()
+                    .map_err(|_| format!("{text:?} is not an integer"))?;
+                let field = field
+                    .take()
+                    .ok_or(format!("--value {text} needs a --field before it"))?;
+                pairs.push(Pair { field, value });
             }
             "--confirm-serial" => confirm_serial = Some(next("a serial")?),
             "--state-dir" => state_dir = PathBuf::from(next("a path")?),
             other => return Err(format!("unknown argument {other}")),
         }
     }
-    if fields.is_empty() {
-        return Err("--field is required".to_owned());
+    if let Some(open) = field {
+        return Err(format!("--field {open} needs its --value"));
     }
-    if values.is_empty() {
-        return Err("--value is required".to_owned());
+    if pairs.is_empty() {
+        return Err("--field and --value are required".to_owned());
     }
-    if fields.len() != values.len() {
-        return Err(format!(
-            "{} --field but {} --value: each --field needs its own --value",
-            fields.len(),
-            values.len()
-        ));
-    }
-    let pairs = fields
-        .into_iter()
-        .zip(values)
-        .map(|(field, value)| Pair { field, value })
-        .collect();
     Ok(Options {
         pairs,
         confirm_serial,
@@ -510,7 +510,8 @@ impl Check<'_> {
                 plan.value,
                 plan.first_offset()
             ));
-            let written = write_fields(&self.env(), &self.report1, &base, &[edit], now_us());
+            let written =
+                write_fields_under(&self.env(), &self.report1, &base, &[edit], &self.backup);
             // These errors come before the first report 3 write: the device holds the previous bytes.
             self.touched |= !matches!(
                 written,
@@ -581,11 +582,21 @@ impl Check<'_> {
         Ok(verdicts)
     }
 
-    /// Writes the backup back, saves it and checks that the device holds the backup bytes.
+    /// Writes back the report 3 that the tool read before its first write, saves it and checks
+    /// that the device holds those bytes. It takes no backup, so a full or read-only state
+    /// directory and the backup retention cannot stop it. A device that left the bus during the run
+    /// is opened again once.
     fn restore(&mut self) -> Result<(), String> {
-        self.line(format!("restore: backup {}", self.backup));
-        restore(&self.env(), &self.report1, &self.backup, now_us())
-            .map_err(|e| format!("restore: {e}"))?;
+        self.line(format!("restore: the report 3 of backup {}", self.backup));
+        if let Err(first) = write_verified(&self.env(), &self.original, &self.backup) {
+            self.line(format!("restore: {first}; opening the device again"));
+            let (io, report1) = open_by_serial(self.bus, self.serial, self.opts.reopen_timeout)
+                .map_err(|e| format!("restore: {first}; reopen: {e}"))?;
+            self.io = io;
+            self.report1 = report1;
+            write_verified(&self.env(), &self.original, &self.backup)
+                .map_err(|e| format!("restore: {e}"))?;
+        }
         self.save_settings()?;
         let report = self
             .io
@@ -713,18 +724,26 @@ fn verify(
             });
         }
     };
-    // A device that does not hold the backup again gives no Pass.
-    let verdicts: Vec<Verdict> = match restored {
-        Ok(()) => verdicts,
-        Err(why) => verdicts
-            .into_iter()
-            .map(|verdict| match verdict {
-                Verdict::Pass => Verdict::Failed(why.clone()),
-                Verdict::Failed(first) => Verdict::Failed(format!("{first}; {why}")),
-                Verdict::NotRun => Verdict::NotRun,
+    // A device that does not hold the backup again gives no result: the fields get no registry
+    // change, and the loud error asks for the restore.
+    if let Err(why) = restored {
+        let lines: Vec<String> = check
+            .plans
+            .iter()
+            .zip(&verdicts)
+            .map(|(plan, verdict)| {
+                format!("result: {} {verdict} (no registry change)", plan.field.id)
             })
-            .collect(),
-    };
+            .collect();
+        for line in lines {
+            check.line(line);
+        }
+        return Err(Error::Aborted {
+            cause: why,
+            backup,
+            restored: false,
+        });
+    }
 
     let results: Vec<(String, Verdict)> = check
         .plans

@@ -266,6 +266,28 @@ pub fn write_fields(
 ) -> Result<Written, WriteError> {
     let planned = plan(Access::new(env.registry, report1), edits)?;
     let backup = take_backup(env, report1, Reason::BeforeWrite, now_us)?;
+    write_planned(env, base, planned, backup)
+}
+
+/// `write_fields` under a backup that the caller took before: the Verification tool writes the
+/// fields of a group under the one backup of its run, so the backup retention removes nothing.
+pub fn write_fields_under(
+    env: &WriteEnv<'_>,
+    report1: &Report1,
+    base: &Report3,
+    edits: &[FieldEdit],
+    backup: &str,
+) -> Result<Written, WriteError> {
+    let planned = plan(Access::new(env.registry, report1), edits)?;
+    write_planned(env, base, planned, backup.to_owned())
+}
+
+fn write_planned(
+    env: &WriteEnv<'_>,
+    base: &Report3,
+    planned: Vec<(&Field, &FieldEdit)>,
+    backup: String,
+) -> Result<Written, WriteError> {
     let mask = &env.registry.report3.volatile_mask;
     let mut report3 = env
         .io
@@ -287,6 +309,17 @@ pub fn write_fields(
     }
     let report3 = write_and_verify(env, &report3, &backup)?;
     Ok(Written { backup, report3 })
+}
+
+/// Writes `report3` as it is and reads it back, with no backup and no range check: the caller
+/// holds the bytes. The Verification tool writes back the report 3 that it read before its first
+/// write. `backup` names the backup of the run in an error.
+pub fn write_verified(
+    env: &WriteEnv<'_>,
+    report3: &Report3,
+    backup: &str,
+) -> Result<Report3, WriteError> {
+    write_and_verify(env, report3, backup)
 }
 
 /// A Profile activation (D14): backs up reports 3, 5 and 8, then writes the stored report 3 as it
