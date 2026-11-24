@@ -158,6 +158,8 @@ The maintenance indicator is not a device value. The daemon computes it from the
 
 The fw1022 dump holds "no value" for the volume change, the pressure change and the leak indicator, and 0 s for the daily pump time. No dump holds a number for them.
 
+The refill history of report 1 (offset 353, 7 entries of 16 bytes) is the source of the daemon store `refill-history.json` (`docs/api.md`, Leakshield refill history). The fw1019 and fw1022 dumps hold 7 empty entries.
+
 ### Event list
 
 The event list has 15 entries of 20 bytes at offset 465: time u32 (`device_clock` format), entry id u8, event code u8, Mode i16, procedure state i16, pressure i16 (0.1 mbar), pressure leak rate i16 (0.1), volume leak rate i16 (0.1), value 1 i16, value 2 i16. The live volume change at offset 307 has no such factor. Event code 255 marks an empty entry. The event codes (P3):

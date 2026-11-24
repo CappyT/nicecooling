@@ -1,7 +1,7 @@
 mod support;
 
 use nicecooling::daemon_client::{ROOT, decode_alarms};
-use nicecooling::model::{Cause, DaemonEvent, Response, Severity};
+use nicecooling::model::{Cause, DaemonEvent, RefillEntry, Response, Severity};
 use support::bus::PrivateBus;
 use support::fake_daemon::{FakeDaemon, LEAKSHIELD, Options};
 use support::harness::Harness;
@@ -437,6 +437,29 @@ async fn only_some_leakshield_properties_read_the_device() {
         .await;
     let calls = calls_to_daemon(&mut stream).await;
     assert!(calls.is_empty(), "the client made calls: {calls:?}");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_refill_history_of_the_daemon_is_read_with_the_device_data() {
+    let (_bus, _daemon, harness) = online().await;
+    let data = &harness.state.snapshot.leakshield_data[LEAKSHIELD];
+    assert_eq!(
+        data.refill_history,
+        [
+            RefillEntry {
+                time_us: 1_700_000_000_000_000,
+                duration_s: 9,
+                pump_turns: 40,
+                volume_ml: 12.5,
+            },
+            RefillEntry {
+                time_us: 1_700_086_400_000_000,
+                duration_s: 14,
+                pump_turns: 60,
+                volume_ml: 18.0,
+            },
+        ]
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]

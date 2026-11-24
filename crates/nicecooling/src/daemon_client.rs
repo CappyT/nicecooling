@@ -19,8 +19,8 @@ use crate::model::{
     CalibrationTableInfo, Cause, ChannelInfo, ChannelOverride, Control, CurveSpec, DaemonEvent,
     Derived, DerivedDef, DeviceEvent, FeedState, FieldEntry, FieldRisk, FieldValue, LastFeed,
     LeakshieldData, LeakshieldInfo, Link, LoopInfo, Outcome, ProfileChannel, ProfileContent,
-    ProfileInfo, PropertyChange, Response, ResponseProposal, ResponseRule, Rule, RuleGroup,
-    SensorInfo, SensorSample, Severity, Snapshot, UnitState,
+    ProfileInfo, PropertyChange, RefillEntry, Response, ResponseProposal, ResponseRule, Rule,
+    RuleGroup, SensorInfo, SensorSample, Severity, Snapshot, UnitState,
 };
 
 /// A row of `GetHistory`: instance, event, severity, source, response, raised, cleared, outcome,
@@ -622,6 +622,20 @@ impl DaemonClient {
             .collect();
         data.events
             .sort_by_key(|event| std::cmp::Reverse(event.time_us));
+        let refills: Vec<(u64, u32, u32, f64)> = proxy
+            .call("GetRefillHistory", &())
+            .await
+            .unwrap_or_default();
+        data.refill_history = refills
+            .into_iter()
+            .map(|(time_us, duration_s, pump_turns, volume_ml)| RefillEntry {
+                time_us,
+                duration_s,
+                pump_turns,
+                volume_ml,
+            })
+            .collect();
+        data.refill_history.sort_by_key(|refill| refill.time_us);
         let backups: Vec<(String, u64, String, u16, String)> =
             proxy.call("ListBackups", &()).await.unwrap_or_default();
         data.backups = backups

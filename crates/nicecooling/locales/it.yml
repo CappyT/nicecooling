@@ -923,8 +923,8 @@ leakshield:
     pressure_empty: "Nessun valore di pressione in questo intervallo."
     runtime_caption: "pompa del vuoto"
     runtime: "Funzionamento della pompa al giorno"
-    runtime_empty: "Il demone non dà ancora il tempo di funzionamento della pompa."
-    runtime_limit: "15 s al giorno: il limite di un circuito a tenuta"
+    runtime_empty: "Nessun Rabbocco negli ultimi 14 giorni."
+    runtime_limit: "Limite di avviso: %{seconds} s al giorno"
   sensors:
     device: "Sensori del dispositivo"
     software: "Sensori software"

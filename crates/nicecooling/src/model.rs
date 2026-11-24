@@ -390,6 +390,16 @@ pub struct DeviceEvent {
     pub details: BTreeMap<String, String>,
 }
 
+/// One row of `GetRefillHistory`: a refill that the daemon keeps.
+#[derive(Clone, Debug, PartialEq)]
+pub struct RefillEntry {
+    /// The device time, as in `DeviceEvent`.
+    pub time_us: u64,
+    pub duration_s: u32,
+    pub pump_turns: u32,
+    pub volume_ml: f64,
+}
+
 /// One row of `ListBackups`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct BackupEntry {
@@ -420,6 +430,8 @@ pub struct LeakshieldData {
     pub fields: Vec<FieldEntry>,
     /// Newest first.
     pub events: Vec<DeviceEvent>,
+    /// Oldest first.
+    pub refill_history: Vec<RefillEntry>,
     /// Newest first.
     pub backups: Vec<BackupEntry>,
     /// `(slot, sensor)`: the slots 1 to 12, with the sensor that fills each.

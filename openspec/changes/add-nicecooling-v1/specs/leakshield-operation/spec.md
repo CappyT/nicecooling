@@ -108,6 +108,21 @@ The daemon SHALL also publish, for each Leakshield, the sensors `volume_change`,
 - **WHEN** the device raises a Warning
 - **THEN** the API shows the Warning with its type
 
+### Requirement: Refill history
+The daemon SHALL keep each refill entry of report 1 that has a time and pump revolutions above 0, keyed by its time, for 90 days, in its state directory, and SHALL return the entries with `GetRefillHistory`. The history SHALL stay when the device forgets its entries.
+
+#### Scenario: Refill entries
+- **WHEN** report 1 holds a refill of 12 s with 60 pump revolutions, a refill with no time and a refill with 0 pump revolutions
+- **THEN** `GetRefillHistory` returns the first refill only
+
+#### Scenario: Device history cleared
+- **WHEN** the device no longer lists a stored refill, and the refill is less than 90 days old
+- **THEN** `GetRefillHistory` still returns it, also after a restart of the daemon
+
+#### Scenario: Retention
+- **WHEN** a stored refill is older than 90 days
+- **THEN** the daemon drops it
+
 ### Requirement: Coexistence with the in-tree kernel driver
 The daemon SHALL read the Leakshield without disturbing the in-tree kernel driver that also reads report 1.
 

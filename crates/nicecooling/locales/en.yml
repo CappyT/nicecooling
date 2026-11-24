@@ -923,8 +923,8 @@ leakshield:
     pressure_empty: "No pressure value in this time."
     runtime_caption: "vacuum pump"
     runtime: "Pump runtime per day"
-    runtime_empty: "The daemon gives no pump runtime yet."
-    runtime_limit: "15 s per day: the limit of a tight Loop"
+    runtime_empty: "No refill in the last 14 days."
+    runtime_limit: "Warning limit: %{seconds} s per day"
   sensors:
     device: "Device sensors"
     software: "Software sensors"

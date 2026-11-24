@@ -321,6 +321,12 @@
       <annotation name="io.github.cappyt.NiceCooling1.Authorization" value="read"/>
       <arg name="counters" type="a{st}" direction="out"/>
     </method>
+    <!-- The refill history of the daemon, oldest first: (device time us, duration s, pump revolutions, volume ml). It holds each refill
+         entry of report 1 for 90 days. The device is not read. api.md gives the rules. -->
+    <method name="GetRefillHistory">
+      <annotation name="io.github.cappyt.NiceCooling1.Authorization" value="read"/>
+      <arg name="refills" type="a(tuud)" direction="out"/>
+    </method>
     <!-- (device time us, event identifier, details) -->
     <method name="GetEvents">
       <annotation name="io.github.cappyt.NiceCooling1.Authorization" value="read"/>

@@ -413,9 +413,25 @@ pub fn time_chart(chart: TimeChart, color: Hsla, p: &Palette) -> AnyElement {
     .into_any_element()
 }
 
-/// The frame of the pump runtime chart: seconds per day from 0 to 20, with the dashed limit
-/// of a tight Loop at 15 s. `empty` shows while the daemon gives no runtime.
-pub fn runtime_chart(limit_label: String, empty: Option<String>, p: &Palette) -> AnyElement {
+/// One bar of the pump runtime chart.
+#[derive(Clone, Debug, PartialEq)]
+pub struct RuntimeBar {
+    /// The text under the bar.
+    pub label: String,
+    pub seconds: f64,
+    pub color: Hsla,
+    /// The value shows over the bar: the color alone does not say that a day is high.
+    pub flagged: bool,
+}
+
+/// The pump runtime chart: one bar for each day, in seconds, with the dashed limit line of the
+/// device. `empty` shows while no day has a runtime.
+pub fn runtime_chart(
+    bars: Vec<RuntimeBar>,
+    limit: Option<(f64, String)>,
+    empty: Option<String>,
+    p: &Palette,
+) -> AnyElement {
     let (grid, axis, dim, warning) = (p.border, p.border_strong, p.fg_dim, p.warning);
     canvas(
         |_, _, _| (),
@@ -423,31 +439,66 @@ pub fn runtime_chart(limit_label: String, empty: Option<String>, p: &Palette) ->
             let o = bounds.origin;
             let (w, h) = (f32::from(bounds.size.width), f32::from(bounds.size.height));
             let (left, right, top, bottom) = (36.0, w - 4.0, 20.0, h - 30.0);
-            let y = |seconds: f32| bottom - seconds / 20.0 * (bottom - top);
-            for (seconds, label) in [
-                (20.0, "20 s"),
-                (15.0, "15"),
-                (10.0, "10"),
-                (5.0, "5"),
-                (0.0, "0"),
-            ] {
-                let (color, dash) = match seconds as u32 {
-                    0 => (axis, None),
-                    15 => (warning, Some((5.0, 4.0))),
-                    _ => (grid, None),
-                };
+            let highest = bars
+                .iter()
+                .map(|bar| bar.seconds)
+                .chain(limit.iter().map(|(seconds, _)| *seconds))
+                .fold(5.0, f64::max);
+            let (_, step, count) = value_axis(0.0, highest);
+            let last = step * count as f64;
+            let y = |seconds: f64| bottom - (seconds / last) as f32 * (bottom - top);
+            for index in 0..=count {
+                let seconds = step * index as f64;
+                let color = if index == 0 { axis } else { grid };
                 polyline(
                     window,
                     &[at(o, left, y(seconds)), at(o, right, y(seconds))],
                     1.0,
                     color,
-                    dash,
+                    None,
                 );
-                let text = shape(window, label, dim, false);
+                let label = if index == count {
+                    format!("{} s", tick_text(seconds, step))
+                } else {
+                    tick_text(seconds, step)
+                };
+                let text = shape(window, &label, dim, false);
                 paint_text(window, cx, &text, o, 30.0, y(seconds) - 9.0, 1.0);
             }
-            let limit = shape(window, &limit_label, dim, false);
-            paint_text(window, cx, &limit, o, right - 4.0, y(15.0) - 19.0, 1.0);
+            let slot = (right - left) / bars.len().max(1) as f32;
+            for (index, bar) in bars.iter().enumerate() {
+                let centre = left + slot * (index as f32 + 0.5);
+                if bar.seconds > 0.0 {
+                    let top_y = y(bar.seconds);
+                    rect(
+                        window,
+                        Bounds::new(
+                            at(o, centre - slot * 0.3, top_y),
+                            size(px(slot * 0.6), px(bottom - top_y)),
+                        ),
+                        2.0,
+                        bar.color,
+                        None,
+                    );
+                    if bar.flagged {
+                        let text = shape(window, &format!("{:.0}", bar.seconds), dim, false);
+                        paint_text(window, cx, &text, o, centre, top_y - 17.0, 0.5);
+                    }
+                }
+                let text = shape(window, &bar.label, dim, false);
+                paint_text(window, cx, &text, o, centre, bottom + 5.0, 0.5);
+            }
+            if let Some((seconds, label)) = &limit {
+                polyline(
+                    window,
+                    &[at(o, left, y(*seconds)), at(o, right, y(*seconds))],
+                    1.0,
+                    warning,
+                    Some((5.0, 4.0)),
+                );
+                let text = shape(window, label, dim, false);
+                paint_text(window, cx, &text, o, right - 4.0, y(*seconds) - 19.0, 1.0);
+            }
             if let Some(empty) = &empty {
                 let text = shape(window, empty, dim, false);
                 paint_text(
@@ -456,7 +507,7 @@ pub fn runtime_chart(limit_label: String, empty: Option<String>, p: &Palette) ->
                     &text,
                     o,
                     (left + right) / 2.0,
-                    y(7.5) - 8.0,
+                    (top + bottom) / 2.0 - 8.0,
                     0.5,
                 );
             }

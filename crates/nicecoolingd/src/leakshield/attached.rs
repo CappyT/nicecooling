@@ -27,6 +27,7 @@ use super::external::{ExternalDetector, LastKnown};
 use super::feed::FeedSent;
 use super::fields::{self, EditError, FieldRow, FieldValue};
 use super::mode::{self, COMMAND_DELAY, Mode};
+use super::refill_history::{Refill, RefillHistory};
 use super::software_sensors::SoftwareSlots;
 use super::worker::{
     Job, ProfileRequest, ProfileTicket, StoredReply, StoredRequest, WorkerParts, WriteWorker,
@@ -104,6 +105,7 @@ pub struct Attached {
     events: mpsc::UnboundedSender<DeviceEvent>,
     events_rx: Mutex<Option<mpsc::UnboundedReceiver<DeviceEvent>>>,
     last_auto_clock: Mutex<Option<Instant>>,
+    refills: RefillHistory,
     software: Arc<SoftwareSlots>,
     /// The task that waits for the device to store the Mode that the last `SetMode` set.
     mode_store: Mutex<Option<JoinHandle<()>>>,
@@ -292,7 +294,10 @@ impl Attached {
             save_delay: params.save_delay,
             info: Arc::clone(&info),
         });
+        let refills = RefillHistory::open(Arc::new(StateStore::new(&params.state_dir)), &id);
+        refills.ingest(&state.report1, now_unix());
         Ok(Arc::new(Self {
+            refills,
             backups: Backups::new(&params.state_dir, &serial),
             id,
             serial,
@@ -387,6 +392,7 @@ impl Attached {
     }
 
     fn apply(&self, report1: Report1, now: i64) {
+        self.refills.ingest(&report1, now);
         self.refresh(|state| {
             (state.mode, state.running) = action::interpret(report1.mode, state.mode);
             state.clock_offset = clock::offset(&report1, now);
@@ -629,6 +635,12 @@ impl Attached {
             counters::reset_service_counter(&self.registry, serial),
             COMMAND_DELAY,
         )
+    }
+
+    /// The refill history that the daemon keeps (`refill_history`), oldest first. The device is
+    /// not read.
+    pub fn get_refill_history(&self) -> Vec<Refill> {
+        self.refills.entries()
     }
 
     /// The counters of report 1 (`counters::counters`).

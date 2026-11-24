@@ -89,6 +89,21 @@ The app SHALL show pages for every Leakshield setting group. A field that is not
 - **WHEN** the firmware version has no layout
 - **THEN** each field is read-only and the page says why
 
+### Requirement: Pump runtime per day
+The Overview tab of a Leakshield SHALL chart the pump runtime of the last 14 local days: for each day, the sum of the durations of the refills of the daemon history (`GetRefillHistory`), at most 1000 s. A day above 30 s SHALL show as concerning and a day above 60 s as critical. The limit line SHALL come from the warning limit field of the device, and the chart SHALL show no limit line while the device gives none.
+
+#### Scenario: Days of a refill
+- **WHEN** the history holds two refills of 12 s and 8 s on the same local day
+- **THEN** the bar of that day reads 20 s
+
+#### Scenario: High day
+- **WHEN** a day sums to 61 s
+- **THEN** its bar is critical
+
+#### Scenario: Limit from the device
+- **WHEN** the warning limit field of the device holds 5
+- **THEN** the dashed line is at 5 s per day
+
 ### Requirement: Profile and rule management
 The app SHALL let the user create, edit, activate and revoke Profiles, set the Leakshield slot of a Profile, edit Rule groups, and set Immediate switching. The app SHALL NOT offer to delete the Default Profile.
 

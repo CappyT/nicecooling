@@ -65,7 +65,7 @@ This inventory lists every screen, state and widget that the nicecooling desktop
 
 Tabs: Overview, Settings, Sensors, Display, Lighting, Alarms, Status, System, Fields.
 
-- Overview: pressure gauge with current, minimum, target and maximum; status; fill level percent; volume change ml/h; pressure change mbar/min; Mode selector (SHIELD, MONITOR, RELEASE); Action bar; pressure chart; pump runtime per day chart (tight systems stay under 15 s per day).
+- Overview: pressure gauge with current, minimum, target and maximum; status; fill level percent; volume change ml/h; pressure change mbar/min; Mode selector (SHIELD, MONITOR, RELEASE); Action bar; pressure chart; pump runtime per day chart (a day above 30 s is concerning, above 60 s critical; the dashed line is the warning limit of the device).
 - Action views:
   - Test: pressure input 80 to 450 mbar; live chart with a selectable source (absolute pressure, difference to reference, pressure change); "Reference" button; zoom; Cancel.
   - Measure fill level: progress bar; warning that protection is off during the measurement.

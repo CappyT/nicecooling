@@ -57,6 +57,8 @@ pub trait Leakshield {
     fn reset_service_counter(&self) -> zbus::Result<()>;
     /// Counter name to value (`docs/api.md`, Leakshield counters).
     fn get_counters(&self) -> zbus::Result<HashMap<String, u64>>;
+    /// (device time us, duration s, pump revolutions, volume ml), oldest first.
+    fn get_refill_history(&self) -> zbus::Result<Vec<(u64, u32, u32, f64)>>;
     /// (device time us, event identifier, details)
     fn get_events(&self) -> zbus::Result<Vec<(u64, String, HashMap<String, OwnedValue>)>>;
     fn get_software_sensors(&self) -> zbus::Result<Vec<(u16, OwnedObjectPath)>>;

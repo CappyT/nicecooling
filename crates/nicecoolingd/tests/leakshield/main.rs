@@ -19,6 +19,7 @@ mod mode_store;
 mod profile_spacing;
 mod profile_write;
 mod proposals;
+mod refill_history;
 mod reset;
 mod software_sensors;
 #[path = "../support/mod.rs"]

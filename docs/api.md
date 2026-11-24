@@ -190,6 +190,12 @@ Each active Alarm or Warning (`Alarms.Active`) and each `AlarmRaised` signal car
 - `SetStoredFields` decodes the stored report 3, changes the fields, encodes it and computes the CRC again. It writes `report3.bin` atomically and sets `edited` to true in `meta.json`.
 - The next activation of an edited slot uses the verified write path of design D11: backup, write, read-back. A good read-back clears `edited`. A failed read-back keeps it and reports `leakshield-failed`. The rule of design D14 that the device produced the stored bytes does not hold for an edited slot.
 
+## Leakshield refill history
+
+`Leakshield.GetRefillHistory() -> a(tuud)` (class `read`) returns the refills that the daemon keeps, oldest first: the device time in microseconds since the Unix epoch (as in `GetEvents`, the clock offset is not applied), the duration in seconds, the pump revolutions and the volume in ml. The call does not read the device, so it works while the device is away.
+
+The device holds 7 refill entries in report 1. The daemon reads them with each report 1. It keeps each entry that has a time and pump revolutions above 0, keyed by its time: an entry with a known time replaces the stored one. It drops entries older than 90 days by the PC clock. The history stays when the device forgets its entries, also after `ResetRefillHistory`, and it survives a restart (`storage.md`, `refill-history.json`). The daemon has no call that clears it.
+
 ## Leakshield events and Software sensors
 
 - `GetEvents` returns the event list of report 1, oldest first. The identifier is `leakshield.<name>`, with the names of `docs/protocol/leakshield.md` (section Event list). A code that the document does not name gives `leakshield.event-<code>`. The time is the device time in microseconds since the Unix epoch: the clock offset is not applied. `details` holds `entry_id`, `mode`, `procedure_state`, `pressure` (mbar), `pressure_leak_rate`, `volume_leak_rate`, `value_1` and `value_2`, all as `d`. An entry holds both leak rates in 0.1 steps: the daemon sends the stored number times 0.1. A value that the device marks as "no value" is absent.

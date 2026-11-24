@@ -17,10 +17,10 @@ use crate::screen_view::{InputKey, ScreenView};
 use crate::screens::controls::act;
 use crate::screens::leakshield::TabState;
 use crate::screens::leakshield::charts::{
-    Reference, Runs, TimeChart, gauge, runtime_chart, time_chart,
+    Reference, Runs, RuntimeBar, TimeChart, gauge, runtime_chart, time_chart,
 };
 use crate::screens::leakshield::overview::{
-    ActionView, ChartRange, Confirm, GaugeState, ModeCard, OverviewModel, TestSource,
+    ActionView, ChartRange, Confirm, DayLevel, GaugeState, ModeCard, OverviewModel, TestSource,
 };
 use crate::screens::leakshield::parts::{header, loading_card, state_tag};
 use crate::screens::ui::Tip as _;
@@ -480,6 +480,22 @@ impl ScreenView {
                 p.series[0],
                 p,
             )));
+        // A day is colored by what the seconds say: concerning above 30 s, critical above 60 s.
+        let bars = model
+            .charts
+            .runtime_days
+            .iter()
+            .map(|day| RuntimeBar {
+                label: day.label.clone(),
+                seconds: f64::from(day.seconds),
+                color: match day.level {
+                    DayLevel::Normal => p.series[0],
+                    DayLevel::Concerning => p.warning,
+                    DayLevel::Critical => p.alarm,
+                },
+                flagged: day.level != DayLevel::Normal,
+            })
+            .collect();
         let runtime = card(p)
             .flex_1()
             .child(header(
@@ -488,8 +504,9 @@ impl ScreenView {
                 p,
             ))
             .child(div().px(px(18.)).pb(px(12.)).child(runtime_chart(
+                bars,
                 model.charts.runtime_limit.clone(),
-                Some(model.charts.runtime_empty.clone()),
+                model.charts.runtime_empty.clone(),
                 p,
             )));
         h_flex()

@@ -14,7 +14,7 @@ Every Leakshield page has the same frame: the header bar with the device label a
    - Action bar: "Test", "Measure fill level", "Deaerate", "Refill".
    - A caption with the meaning of the selected Mode.
    - The Refill instruction row: it says that Refill can also start on the device.
-3. Row of two cards: "Pressure" (area chart with 1 h, 24 h and 7 d, the target as a dashed line, minimum and maximum as dotted lines) and "Pump runtime per day" (bar chart of 14 days, with a dashed line at 15 s).
+3. Row of two cards: "Pressure" (area chart with 1 h, 24 h and 7 d, the target as a dashed line, minimum and maximum as dotted lines) and "Pump runtime per day" (bar chart of the last 14 local days with the pump durations of the refills that the daemon keeps added per day, at most 1000 s per day, and a dashed line at the warning limit of the device).
 
 While an Action runs, the Action view replaces item 3, and the Action bar shows only "Cancel".
 
@@ -62,4 +62,4 @@ While an Action runs, the Action view replaces item 3, and the Action bar shows 
 | Refill warning | Title "Start Refill?". Text "The pump runs. The Leakshield manual asks for the pump off during Refill." Buttons "Cancel", "Start Refill" |
 | Refill steps | "1. Put the PC in standby." / "2. Hold the Leakshield button for more than 1 s and select FILL." / "3. Put the fill hose in the coolant. The Leakshield sucks the coolant in." / "4. Select EXIT. The Leakshield goes back to its Mode." |
 | Measure banner | "The fill level measurement runs. The Loop has no leak protection until it ends." |
-| Pump runtime | "15 s per day: the limit of a tight Loop", "Average 8 s" |
+| Pump runtime | "Warning limit: 5 s per day" (the seconds come from the field of the device), "No refill in the last 14 days." |

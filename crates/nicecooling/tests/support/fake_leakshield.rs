@@ -734,6 +734,14 @@ impl Leakshield {
         Ok(())
     }
 
+    /// (device time us, duration s, pump revolutions, volume ml), oldest first.
+    async fn get_refill_history(&self) -> Vec<(u64, u32, u32, f64)> {
+        vec![
+            (1_700_000_000_000_000, 9, 40, 12.5),
+            (1_700_086_400_000_000, 14, 60, 18.0),
+        ]
+    }
+
     /// (device time us, event identifier, details)
     async fn get_events(&self) -> Vec<(u64, String, HashMap<String, OwnedValue>)> {
         let detail = |pairs: &[(&str, Value<'_>)]| {

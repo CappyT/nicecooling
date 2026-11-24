@@ -292,6 +292,22 @@ impl Leakshield {
             .collect())
     }
 
+    #[zbus(out_args("refills"))]
+    async fn get_refill_history(&self) -> Vec<(u64, u32, u32, f64)> {
+        self.device
+            .get_refill_history()
+            .into_iter()
+            .map(|r| {
+                (
+                    r.time_us,
+                    r.duration_s,
+                    r.pump_turns,
+                    f64::from(r.volume_tenth_ml) / 10.0,
+                )
+            })
+            .collect()
+    }
+
     #[zbus(out_args("events"))]
     async fn get_events(&self) -> Result<Vec<(u64, String, HashMap<String, OwnedVariant>)>> {
         Ok(self

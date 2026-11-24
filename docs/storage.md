@@ -26,6 +26,7 @@ systemd creates the directory with `StateDirectory=nicecooling` and `StateDirect
 | `lease.json` | JSON | The takeover lease: `{"schema_version":1,"created_us":<t>,"boot_id":"<from /proc/sys/kernel/random/boot_id>"}`. The file exists from before the first manual write until a restore whose read-back matches. |
 | `leakshield/<leakshield id>/last-known-report3.bin` | binary | Report 3 with its report ID byte, as the daemon last read or wrote it. External change detection compares against it, also after a daemon restart. |
 | `backups/<leakshield id>/<UTC yyyymmddThhmmssZ>-<sha256 first 12 hex>/` | directory | One backup: `report3.bin`, `report5.bin`, `report8.bin` (each with its report ID byte) and `meta.json`. |
+| `leakshield/<leakshield id>/refill-history.json` | JSON | The refill history, see below. |
 | `leakshield/<leakshield id>/firmware-update.json` | JSON | The record of a firmware update that is not finished, see below. It exists only from before the restart into the bootloader until the device is back in normal operation. |
 
 Every JSON file above has a `.lkg` copy, except `lease.json`, `firmware-update.json` and the backup `meta.json`.
@@ -86,6 +87,21 @@ The file follows the common rules, with one change: the history has its own writ
 ### Backup `meta.json`
 
 `{"schema_version":1, "created_us", "leakshield", "serial", "firmware", "reason": "first"|"before-write"|"manual"|"import", "sha256": <hex of report3.bin || report5.bin || report8.bin>}`. The first backup that comes from the device has the reason `first`, whatever the caller asked for. An import never has it. Retention keeps the `first` backup of a serial, the 20 newest and the backup that was just saved; a backup with the same `sha256` as an existing one is not written.
+
+### `refill-history.json`
+
+```json
+{"schema_version": 1, "entries": [{"time_us": 1795000000000000, "duration_s": 12, "pump_turns": 60, "volume_tenth_ml": 1234}]}
+```
+
+| Key | Type | Content |
+|---|---|---|
+| `time_us` | integer | The time of the refill entry of report 1: device clock seconds since 2009-01-01 00:00 UTC, as microseconds since the Unix epoch. It is the key: the file holds one entry for each time, sorted by it. |
+| `duration_s` | integer | The pump duration of the refill, in seconds. |
+| `pump_turns` | integer | The pump revolutions of the refill. Above 0 for every stored entry. |
+| `volume_tenth_ml` | integer | The volume of the refill, in 0.1 ml. |
+
+The daemon writes the file when a report 1 adds or changes an entry, or when an entry passes 90 days of age by the PC clock. The device command `reset_refill_history` does not change it.
 
 ### `firmware-update.json`
 

@@ -453,6 +453,7 @@ pub fn leakshield_data() -> LeakshieldData {
                 details: Default::default(),
             },
         ],
+        refill_history: Vec::new(),
         backups: vec![
             BackupEntry {
                 id: "backup_2".into(),

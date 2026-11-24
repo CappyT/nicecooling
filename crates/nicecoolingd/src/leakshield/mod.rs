@@ -26,6 +26,7 @@ pub mod feed;
 pub mod fields;
 pub mod lighting;
 pub mod mode;
+pub mod refill_history;
 pub mod reset_alarm;
 pub mod save_settings;
 pub mod software_sensors;

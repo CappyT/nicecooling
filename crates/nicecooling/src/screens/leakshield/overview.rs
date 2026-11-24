@@ -1,15 +1,28 @@
 //! The Overview tab and the Action views (`docs/ui/screens/leakshield-overview.md`).
 
+use chrono::{Local, NaiveDate, TimeZone as _};
 use nicecooling_core::loops::tach_sensor;
 
 use crate::command::Command;
 use crate::i18n::Locale;
-use crate::model::{AppState, PressureLimits, Severity};
+use crate::model::{AppState, PressureLimits, RefillEntry, Severity};
 use crate::screens::format::{clock_minutes, compact, number, optional_value, plain, value_text};
 use crate::screens::leakshield::charts::GaugeLabels;
 use crate::screens::leakshield::{Device, TabState, change_text, severity_of, write_line};
 use crate::screens::ui::TagKind;
 use crate::screens::{FeedbackLine, ScreenInput, WriteOutcome};
+
+/// The field that holds the limit line of the pump runtime chart: the daily pump time above
+/// which the device warns.
+pub const PUMP_LIMIT_FIELD: &str = "refill_duration_warning";
+/// The days of the pump runtime chart, today last.
+pub const RUNTIME_DAYS: i64 = 14;
+/// A day shows at most this many seconds.
+pub const DAY_CAP_S: u32 = 1000;
+/// A day above this many seconds is concerning.
+pub const CONCERNING_S: u32 = 30;
+/// A day above this many seconds is critical.
+pub const CRITICAL_S: u32 = 60;
 
 /// The Test pressure that the device accepts, in mbar.
 pub const TEST_PRESSURE_RANGE: (f64, f64) = (80.0, 450.0);
@@ -72,6 +85,67 @@ pub enum Confirm {
     Refill,
     /// The four steps of a Refill.
     RefillSteps,
+}
+
+/// How a day of the pump runtime chart reads.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DayLevel {
+    Normal,
+    Concerning,
+    Critical,
+}
+
+impl DayLevel {
+    pub fn of(seconds: u32) -> Self {
+        match seconds {
+            s if s > CRITICAL_S => Self::Critical,
+            s if s > CONCERNING_S => Self::Concerning,
+            _ => Self::Normal,
+        }
+    }
+}
+
+/// One bar of the pump runtime chart: the pump runtime of a local day.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DayBar {
+    pub date: NaiveDate,
+    /// The day of the month.
+    pub label: String,
+    pub seconds: u32,
+    pub level: DayLevel,
+}
+
+fn local_date(us: u64) -> Option<NaiveDate> {
+    Local
+        .timestamp_micros(i64::try_from(us).ok()?)
+        .single()
+        .map(|time| time.date_naive())
+}
+
+/// The pump runtime of the last `RUNTIME_DAYS` local days: the durations of the refills of each
+/// day added, with at most `DAY_CAP_S` for a day. The last bar is the day of `now_us`.
+pub fn day_bars(refills: &[RefillEntry], now_us: u64) -> Vec<DayBar> {
+    let Some(today) = local_date(now_us) else {
+        return Vec::new();
+    };
+    (0..RUNTIME_DAYS)
+        .rev()
+        .filter_map(|ago| today.checked_sub_days(chrono::Days::new(ago as u64)))
+        .map(|date| {
+            let total: u64 = refills
+                .iter()
+                .filter(|refill| local_date(refill.time_us) == Some(date))
+                .map(|refill| u64::from(refill.duration_s))
+                .sum();
+            let seconds = total.min(u64::from(DAY_CAP_S)) as u32;
+            DayBar {
+                date,
+                label: date.format("%-d").to_string(),
+                seconds,
+                level: DayLevel::of(seconds),
+            }
+        })
+        .collect()
 }
 
 /// The pressure of one range of the chart, as the history database has it.
@@ -383,8 +457,13 @@ pub struct ChartsCard {
     pub runtime_title: String,
     /// "vacuum pump".
     pub runtime_caption: String,
-    pub runtime_empty: String,
-    pub runtime_limit: String,
+    /// The bars of the last 14 days, oldest first.
+    pub runtime_days: Vec<DayBar>,
+    /// The text in the plot while no day has a pump runtime.
+    pub runtime_empty: Option<String>,
+    /// The limit line: the seconds of the field of the device, and its label. `None` while the
+    /// device gives no limit.
+    pub runtime_limit: Option<(f64, String)>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -443,16 +522,16 @@ impl OverviewModel {
         let ready = state == TabState::Ready;
         let alarms = device.alarms(input);
         let worst = severity_of(&alarms);
-        let sample = input
-            .state
-            .sensors
-            .as_ref()
-            .or(input.state.last_sensors.as_ref());
         let pressure = if ready {
             device.sensor(input, "pressure")
         } else {
             None
         };
+        let sample = input
+            .state
+            .sensors
+            .as_ref()
+            .or(input.state.last_sensors.as_ref());
         let limits = limits_of(&device);
         let info = device.info;
         let mode = info.map_or("", |i| i.mode.as_str());
@@ -781,6 +860,10 @@ impl OverviewModel {
             },
         });
 
+        let runtime_days = day_bars(
+            device.data.map_or(&[][..], |data| &data.refill_history),
+            input.now_us,
+        );
         Self {
             state,
             loading_text: locale.tr("leakshield.overview.loading"),
@@ -808,8 +891,20 @@ impl OverviewModel {
                 pressure_empty: locale.tr("leakshield.overview.pressure_empty"),
                 runtime_title: locale.tr("leakshield.overview.runtime"),
                 runtime_caption: locale.tr("leakshield.overview.runtime_caption"),
-                runtime_empty: locale.tr("leakshield.overview.runtime_empty"),
-                runtime_limit: locale.tr("leakshield.overview.runtime_limit"),
+                runtime_empty: runtime_days
+                    .iter()
+                    .all(|day| day.seconds == 0)
+                    .then(|| locale.tr("leakshield.overview.runtime_empty")),
+                runtime_limit: device.number(PUMP_LIMIT_FIELD).map(|seconds| {
+                    (
+                        seconds,
+                        locale.fmt(
+                            "leakshield.overview.runtime_limit",
+                            &[("seconds", &compact(locale, seconds))],
+                        ),
+                    )
+                }),
+                runtime_days,
             },
         }
     }
