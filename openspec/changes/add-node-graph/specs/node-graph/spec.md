@@ -735,6 +735,17 @@ The app SHALL store all Graphs in `graphs.json` in `$XDG_CONFIG_HOME/nicecooling
 - **WHEN** `graphs.json` has `schema_version` 2 and the app knows 1
 - **THEN** the app writes no Graph file and shows an error
 
+### Requirement: Ids of stored Graphs
+The app SHALL give a new Graph (an import, a new draft) an id that no stored entry holds, an invalid entry included. A write SHALL never replace an entry that the app did not load as a valid Graph. An Apply with the id of such an entry SHALL be refused with `bad-parameter` for `id`.
+
+#### Scenario: Import next to an invalid Graph
+- **WHEN** `graphs.json` holds the valid `graph_1` and the invalid `graph_2` (a node of the kind `quantum`), and the user imports a file
+- **THEN** the new Graph has the id `graph_3` and the file still holds the text of `graph_2`
+
+#### Scenario: Apply with the id of an invalid Graph
+- **WHEN** the user applies a Graph with the id `graph_2` and `graph_2` is invalid
+- **THEN** the validator refuses it with `bad-parameter` for `id` and the file does not change
+
 ### Requirement: Graph state storage
 `graph-state.json` in `$XDG_DATA_HOME/nicecooling/` SHALL hold `schema_version` (1), `values` (the persistent storage nodes, keyed `<graph id>/<node id>`), `responses` (the same key, with `state` as `run` or `not_run` and `last_run_us`) and `pause` (`count`, `quiet_s`, `paused`). The app SHALL write it at most every 30 s when a value changed, at its stop and before a power call.
 

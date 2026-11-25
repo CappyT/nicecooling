@@ -65,7 +65,8 @@ fn new_graph_id(existing: &[Graph]) -> String {
 /// Make a Graph of an export. The Graph and its nodes get new ids. The Graph is disabled and has
 /// no `sensor_id`, so a response from another machine does not run before the user enabled it.
 /// A source on a sensor that this machine does not have stays as it is: it gives no value.
-/// `existing` holds the Graphs of the app, for the id and the validator.
+/// `existing` holds every stored entry as a Graph (`GraphStore::all_graphs`), for the id and the
+/// validator: an entry that does not run keeps its id and counts for the limit.
 pub fn import_text(text: &str, existing: &[Graph]) -> Result<Graph, ImportError> {
     let export = Export::parse(text).map_err(ImportError::Format)?;
     // The nodes count from 1, in the order of the file.

@@ -253,6 +253,7 @@ A file that is not valid JSON or TOML, or that has a higher `schema_version` tha
 - A connection joins the output pin `out` of `from.node` to the input pin `to.pin` of `to.node`. The input pin names are in `graphs.md`.
 - The app reads the file one Graph at a time. A Graph that does not parse, has a node of an unknown kind, or breaks a rule of the validator stays in the file with its stored text. The app lists it as "invalid" and does not run it. The other Graphs load.
 - The file holds at most 64 Graphs. An invalid Graph counts as one.
+- A new Graph gets an id that no entry of the file holds, an invalid entry included. A write never replaces an entry that the app did not load as a valid Graph.
 
 ### `graph-state.json`
 

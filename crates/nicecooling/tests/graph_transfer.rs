@@ -163,3 +163,40 @@ fn invalid_graph_is_refused_with_a_message() {
     // The persistent Graph of the store tests is fine.
     assert!(import_text(&export_text(&persistent_graph("graph_1")), &[]).is_ok());
 }
+
+#[test]
+fn import_id_is_free_of_an_invalid_graph() {
+    let dir = Dir::new("import-odd");
+    let paths = dir.graph_paths();
+    std::fs::create_dir_all(paths.graphs.parent().unwrap()).unwrap();
+    let odd = r#"{"id":"graph_2","name":"Odd","enabled":true,"sensor_id":null,"nodes":[{"id":1,"kind":"quantum","label":null,"params":{},"x":0.0,"y":0.0}],"connections":[]}"#;
+    let valid = serde_json::to_string(&constant_graph("graph_1", 1.0)).unwrap();
+    std::fs::write(
+        &paths.graphs,
+        format!(r#"{{"schema_version":1,"graphs":[{valid},{odd}]}}"#),
+    )
+    .unwrap();
+
+    let mut store = GraphStore::open(paths.clone());
+    let imported =
+        import_text(&export_text(&constant_graph("x", 3.0)), &store.all_graphs()).unwrap();
+    assert_eq!(imported.id, "graph_3");
+    store.put(imported).unwrap();
+    assert_eq!(store.entries().len(), 3);
+    assert!(
+        std::fs::read_to_string(&paths.graphs)
+            .unwrap()
+            .contains(odd)
+    );
+}
+
+#[test]
+fn import_counts_an_invalid_graph_for_the_limit() {
+    let mut stored: Vec<Graph> = (1..=63)
+        .map(|n| constant_graph(&format!("graph_{n}"), 1.0))
+        .collect();
+    // The stand-in of an invalid entry: its id, no nodes.
+    stored.push(Graph::new("graph_64", "Odd"));
+    let error = import_text(&export_text(&constant_graph("x", 1.0)), &stored).unwrap_err();
+    assert!(error.to_string().contains("limit-graphs"), "{error}");
+}

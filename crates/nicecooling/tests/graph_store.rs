@@ -7,6 +7,7 @@ use nicecooling::graphs::secrets::{PasswordEdit, Secrets};
 use nicecooling::graphs::store::{GraphStore, StateFile};
 use nicecooling_graph::model::{Kind, Node, StoredGraph};
 use nicecooling_graph::response::{RunRecord, RunState};
+use nicecooling_graph::validate::RefusalCode;
 use support::graphs::{Dir, constant_graph, persistent_graph};
 
 fn secs(s: u64) -> Duration {
@@ -260,4 +261,72 @@ fn password_is_not_in_debug_output() {
     let edit = PasswordEdit::Set("hunter2".into());
     let text = format!("{secrets:?} {edit:?} {:?}", secrets.mqtt);
     assert!(!text.contains("hunter2"), "{text}");
+}
+
+const ODD: &str = r#"{"id":"graph_2","name":"Odd","enabled":true,"sensor_id":null,"nodes":[{"id":1,"kind":"quantum","label":null,"params":{},"x":0.0,"y":0.0}],"connections":[]}"#;
+
+/// `graph_1` is valid and `graph_2` has a node kind of a newer version.
+fn store_with_odd_graph(name: &str) -> (Dir, GraphStore) {
+    let dir = Dir::new(name);
+    let paths = dir.graph_paths();
+    std::fs::create_dir_all(paths.graphs.parent().unwrap()).unwrap();
+    let valid = serde_json::to_string(&constant_graph("graph_1", 1.0)).unwrap();
+    std::fs::write(
+        &paths.graphs,
+        format!(r#"{{"schema_version":1,"graphs":[{valid},{ODD}]}}"#),
+    )
+    .unwrap();
+    let store = GraphStore::open(paths);
+    (dir, store)
+}
+
+#[test]
+fn put_never_replaces_an_invalid_graph() {
+    let (dir, mut store) = store_with_odd_graph("put-odd");
+    assert!(store.put(constant_graph("graph_2", 9.0)).is_err());
+    assert_eq!(store.entries().len(), 2);
+    let text = std::fs::read_to_string(dir.graph_paths().graphs).unwrap();
+    assert!(text.contains(ODD), "{text}");
+}
+
+#[test]
+fn validator_refuses_the_id_of_an_invalid_graph() {
+    let (_dir, store) = store_with_odd_graph("validate-odd");
+    let refusals = store.validate(&constant_graph("graph_2", 1.0));
+    assert!(
+        refusals
+            .iter()
+            .any(|r| r.code == RefusalCode::BadParameter && r.parameter.as_deref() == Some("id")),
+        "{refusals:?}"
+    );
+    // The id of a valid Graph is the stored version of it: no refusal.
+    assert!(store.validate(&constant_graph("graph_1", 2.0)).is_empty());
+}
+
+#[test]
+fn invalid_graph_counts_for_the_limit_of_64_graphs() {
+    let dir = Dir::new("limit-odd");
+    let paths = dir.graph_paths();
+    std::fs::create_dir_all(paths.graphs.parent().unwrap()).unwrap();
+    let odd = ODD.replace("graph_2", "graph_100");
+    let valid: Vec<String> = (1..=63)
+        .map(|n| serde_json::to_string(&constant_graph(&format!("graph_{n}"), 1.0)).unwrap())
+        .collect();
+    std::fs::write(
+        &paths.graphs,
+        format!(
+            r#"{{"schema_version":1,"graphs":[{},{odd}]}}"#,
+            valid.join(",")
+        ),
+    )
+    .unwrap();
+    let store = GraphStore::open(paths);
+    assert_eq!(store.graphs().len(), 63);
+    let refusals = store.validate(&constant_graph("graph_64", 1.0));
+    assert!(
+        refusals.iter().any(|r| r.code == RefusalCode::LimitGraphs),
+        "{refusals:?}"
+    );
+    // A Graph that is stored already is not a new one.
+    assert!(store.validate(&constant_graph("graph_5", 1.0)).is_empty());
 }

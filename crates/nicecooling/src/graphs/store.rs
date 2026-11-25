@@ -13,7 +13,7 @@ use nicecooling_graph::model::{
 };
 use nicecooling_graph::pause::Pause;
 use nicecooling_graph::response::RunRecord;
-use nicecooling_graph::validate::{Refusal, validate};
+use nicecooling_graph::validate::{Refusal, RefusalCode, validate};
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 
@@ -183,9 +183,27 @@ impl GraphStore {
             .collect()
     }
 
-    /// The refusals of the validator for `graph` among the stored entries.
+    /// The refusals of the validator for `graph` among the stored entries. An id that an entry
+    /// without a valid Graph holds is a refusal of `id`: that entry is not a version of `graph`.
     pub fn validate(&self, graph: &Graph) -> Vec<Refusal> {
-        validate(graph, &self.all_graphs())
+        let mut refusals = validate(graph, &self.all_graphs());
+        if self.holds_unreadable(&graph.id) {
+            refusals.push(Refusal {
+                code: RefusalCode::BadParameter,
+                parameter: Some("id".to_owned()),
+                node: None,
+            });
+            refusals.sort_by_key(|r| r.code);
+            refusals.dedup();
+        }
+        refusals
+    }
+
+    /// Whether an entry that this version cannot run has the id `id`.
+    fn holds_unreadable(&self, id: &str) -> bool {
+        self.entries
+            .iter()
+            .any(|e| matches!(e, StoredGraph::Invalid(_)) && e.id() == Some(id))
     }
 
     pub fn graph(&self, id: &str) -> Option<&Graph> {
@@ -205,27 +223,45 @@ impl GraphStore {
     }
 
     /// Add a Graph, or replace the Graph with the same id, and write the file. The caller runs the
-    /// validator first.
+    /// validator first. An entry that is not a valid Graph is never replaced: its id is taken.
     pub fn put(&mut self, graph: Graph) -> std::io::Result<()> {
         self.change(|entries| {
-            let entry = StoredGraph::Valid(graph);
-            match entries.iter_mut().find(|e| e.id() == entry.id()) {
-                Some(slot) => *slot = entry,
-                None => entries.push(entry),
+            match entries
+                .iter_mut()
+                .find(|e| e.id() == Some(graph.id.as_str()))
+            {
+                Some(StoredGraph::Valid(slot)) => *slot = graph,
+                Some(StoredGraph::Invalid(_)) => {
+                    return Err(io_error(format!(
+                        "the id {} belongs to a Graph that this version does not run",
+                        graph.id
+                    )));
+                }
+                None => entries.push(StoredGraph::Valid(graph)),
             }
+            Ok(())
         })
     }
 
     pub fn remove(&mut self, id: &str) -> std::io::Result<()> {
-        self.change(|entries| entries.retain(|e| e.id() != Some(id)))
+        self.change(|entries| {
+            entries.retain(|e| e.id() != Some(id));
+            Ok(())
+        })
     }
 
-    fn change(&mut self, edit: impl FnOnce(&mut Vec<StoredGraph>)) -> std::io::Result<()> {
+    fn change(
+        &mut self,
+        edit: impl FnOnce(&mut Vec<StoredGraph>) -> std::io::Result<()>,
+    ) -> std::io::Result<()> {
         if let Some(error) = &self.file_error {
             return Err(io_error(error.clone()));
         }
         let before = self.entries.clone();
-        edit(&mut self.entries);
+        if let Err(error) = edit(&mut self.entries) {
+            self.entries = before;
+            return Err(error);
+        }
         let text = GraphFile {
             graphs: self.entries.clone(),
         }
