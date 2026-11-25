@@ -64,11 +64,15 @@ A Graph SHALL have exactly one end node: a sensor end node or a response end nod
 - **THEN** the validator refuses the Graph with the code `end-node-output`
 
 ### Requirement: Graph limits
-The app SHALL store at most 64 Graphs and at most 256 nodes in one Graph. A Graph name SHALL have at most 64 characters. A node label SHALL have 1 to 32 characters of letters, digits and `_`, and SHALL be unique in its Graph, with upper and lower case letters taken as equal. The validator SHALL refuse a Graph above a limit. The limits of the window samples and of the Graph sensors are in their own requirements.
+The app SHALL store at most 64 Graphs, an invalid Graph included, and at most 256 nodes in one Graph. A Graph name SHALL have at most 64 characters. A node label SHALL have 1 to 32 characters of letters, digits and `_`, and SHALL be unique in its Graph, with upper and lower case letters taken as equal. The validator SHALL refuse a Graph above a limit. The limits of the window samples and of the Graph sensors are in their own requirements.
 
 #### Scenario: 65th Graph
 - **WHEN** 64 Graphs exist and the user applies a new Graph
 - **THEN** the validator refuses it with the code `limit-graphs`
+
+#### Scenario: 65th entry next to an invalid Graph
+- **WHEN** `graphs.json` holds 63 Graphs that run and 1 invalid Graph, and the user applies a new Graph
+- **THEN** the validator refuses it with the code `limit-graphs`, because the file holds 64 Graphs
 
 #### Scenario: 257 nodes
 - **WHEN** a Graph holds 257 nodes

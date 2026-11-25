@@ -162,6 +162,32 @@ impl GraphStore {
             .collect()
     }
 
+    /// Every entry of the file as a Graph, for the validator and for new ids. An entry that does
+    /// not run has its id and no nodes: it counts for the limit of 64 Graphs and its id is taken.
+    pub fn all_graphs(&self) -> Vec<Graph> {
+        self.entries
+            .iter()
+            .enumerate()
+            .map(|(index, entry)| match entry {
+                StoredGraph::Valid(graph) => graph.clone(),
+                StoredGraph::Invalid(invalid) => {
+                    let id = invalid
+                        .id
+                        .clone()
+                        .unwrap_or_else(|| format!("<unreadable {index}>"));
+                    let mut graph = Graph::new(&id, invalid.name.as_deref().unwrap_or_default());
+                    graph.enabled = false;
+                    graph
+                }
+            })
+            .collect()
+    }
+
+    /// The refusals of the validator for `graph` among the stored entries.
+    pub fn validate(&self, graph: &Graph) -> Vec<Refusal> {
+        validate(graph, &self.all_graphs())
+    }
+
     pub fn graph(&self, id: &str) -> Option<&Graph> {
         self.entries.iter().find_map(|entry| match entry {
             StoredGraph::Valid(graph) if graph.id == id => Some(graph),

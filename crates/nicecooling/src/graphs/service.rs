@@ -14,7 +14,6 @@ use nicecooling_core::rules::process::ProcessList;
 use nicecooling_graph::eval::{Evaluator, Pass, Sources};
 use nicecooling_graph::model::{Graph, StoredGraph};
 use nicecooling_graph::pause::PowerKind;
-use nicecooling_graph::validate::validate;
 use tokio::sync::mpsc::UnboundedSender;
 
 use super::channel::GraphCommand;
@@ -348,7 +347,7 @@ impl GraphService {
             }
             GraphCommand::Try(request) => {
                 let now = self.clock.now();
-                match TryRun::start(&request, &self.store.graphs(), now) {
+                match TryRun::start(&request, &self.store.all_graphs(), now) {
                     Ok(run) => {
                         self.trying = Some(run);
                         self.step_try(now);
@@ -369,8 +368,7 @@ impl GraphService {
     /// Validate a Graph, make or rename its Graph sensor, and store it. Apply starts the state of
     /// its nodes again. A refusal of the daemon stores nothing.
     fn store_graph(&mut self, graph: Graph, mode: Store) {
-        let stored = self.store.graphs();
-        let refusals = validate(&graph, &stored);
+        let refusals = self.store.validate(&graph);
         if !refusals.is_empty() {
             self.refuse(format!("{}: {}", graph.name, describe(&refusals)));
             return;
