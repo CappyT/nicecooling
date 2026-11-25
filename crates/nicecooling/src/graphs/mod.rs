@@ -5,4 +5,5 @@ pub mod channel;
 pub mod secrets;
 pub mod service;
 pub mod store;
+pub mod transfer;
 pub mod view;
