@@ -49,6 +49,27 @@ fn import_id_does_not_collide_with_an_invalid_graph() {
     assert_eq!(store.entries().len(), 3);
 }
 
+/// An export file whose Graph has two nodes with one id. The validator refuses such a Graph. The
+/// import gives new ids first and so turns it into another Graph that passes.
+#[test]
+fn duplicate_node_ids_in_the_file_are_refused() {
+    let text = r#"{"format":"nicecooling-graph","format_version":1,"graph":{"name":"Dup","nodes":[
+        {"id":1,"kind":"constant","label":null,"params":{"value":5},"x":0.0,"y":0.0},
+        {"id":1,"kind":"constant","label":null,"params":{"value":9},"x":0.0,"y":0.0},
+        {"id":2,"kind":"sensor_end","label":null,"params":{"unit":"degC"},"x":0.0,"y":0.0}],
+        "connections":[{"from":{"node":1,"pin":"out"},"to":{"node":2,"pin":"a"}}]}}"#;
+    let result = import_text(text, &[]);
+    assert!(
+        result.is_err(),
+        "a Graph with two nodes of id 1 imported as {:?}",
+        result.map(|g| g
+            .nodes
+            .iter()
+            .map(|n| (n.id, n.params.clone()))
+            .collect::<Vec<_>>())
+    );
+}
+
 /// 1 MiB is the limit. One byte more is refused before the parse.
 #[test]
 fn one_byte_over_the_limit_is_refused() {
