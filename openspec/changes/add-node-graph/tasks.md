@@ -42,7 +42,7 @@ The pure logic is in `crates/nicecooling-graph`. The tasks of the app connect it
 - [x] 2.15 Create `crates/nicecooling-graph/src/pause.rs`: the count of poweroff and reboot runs, the 60 minutes of stored app run time, the pause at 3, turn on, and the JSON form. Verify: the new tests `third_reboot_enters_pause`, `count_resets_after_60_minutes`, `run_time_adds_up_over_restarts`, `cancelled_run_does_not_count`, `suspend_does_not_count`, `run_once_counts`, `pause_survives_json_roundtrip` and `turn_on_clears_pause` pass.
 - [x] 2.16 Create `crates/nicecooling-graph/src/template.rs`: the placeholder expander and the environment of a command response. The caller gives the formatted time as an input, because the crate has no clock for local time. Verify: the new tests `placeholder_value_and_unit`, `placeholder_no_value_dashes`, `placeholder_unknown_label_kept`, `placeholder_escaped_braces`, `placeholder_two_decimals`, `placeholder_time_is_the_given_text`, `placeholder_unit_of_non_source_is_empty`, `command_environment_uses_upper_case_labels`, `command_environment_skips_unlabelled_nodes` and `command_environment_empty_for_no_value` pass.
 - [x] 2.17 Modify `tools/re/check-identifiers.py`: add `docs/graphs.md` to `SCOPE`. The new crates are under `crates/` and the script scans them already. Verify: `python3 -I tools/re/check-identifiers.py --self-test` exits 0, and a temporary token planted in `docs/graphs.md` makes the script exit 1.
-- [ ] 2.18 Checkpoint. Verify: the checkpoint command exits 0.
+- [x] 2.18 Checkpoint. Verify: the checkpoint command exits 0.
 
 ## 3. Graph service, storage, links, export and import in the app
 
