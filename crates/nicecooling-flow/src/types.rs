@@ -258,6 +258,16 @@ impl FlowEdge {
         self.edge_type = edge_type;
         self
     }
+
+    /// The pins that the edge joins.
+    pub fn connection(&self) -> Connection {
+        Connection {
+            source: self.source.clone(),
+            target: self.target.clone(),
+            source_handle: self.source_handle.clone(),
+            target_handle: self.target_handle.clone(),
+        }
+    }
 }
 
 /// Viewport state: pan offset and zoom level.
@@ -309,15 +319,6 @@ pub struct PanDragState {
     pub start_mouse: (f32, f32),
     /// Viewport position at drag start.
     pub start_viewport: (f32, f32),
-}
-
-/// State tracked during a box/lasso selection.
-#[derive(Debug, Clone, Copy)]
-pub struct SelectionBox {
-    /// Screen coordinates where the selection started.
-    pub start: (f32, f32),
-    /// Current screen coordinates of the selection end.
-    pub current: (f32, f32),
 }
 
 /// State tracked while dragging a connection from a handle.
@@ -374,10 +375,32 @@ impl ConnectionDraft {
     }
 }
 
-/// What the canvas tells its user. The canvas never changes the state of the app on its own.
-/// It reports an input, and the app decides.
+/// The selected item. The canvas keeps one selection.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Selection {
+    Node(FlowNodeId),
+    Connection(EdgeId),
+}
+
+/// What the canvas tells its user. Each event comes from an input of the user. The canvas sends
+/// no event when the app sets the state.
 #[derive(Debug, Clone, PartialEq)]
 pub enum FlowEvent {
+    /// A drag moved a node. One event for each drag, with the position at the press and at the
+    /// release. A drag that Escape cancels sends none.
+    NodeMoved {
+        id: FlowNodeId,
+        from: FlowPoint,
+        to: FlowPoint,
+    },
+    /// A drop on a free pin made a connection. The canvas gave it the id.
+    ConnectionAdded { id: EdgeId, connection: Connection },
+    /// The canvas removed a connection: the user deleted it, or deleted a node that it joined.
+    ConnectionRemoved { id: EdgeId, connection: Connection },
+    /// The canvas removed a node.
+    NodeRemoved { id: FlowNodeId },
+    /// The selection changed.
+    SelectionChanged { selection: Option<Selection> },
     /// A drop on a pin that a rule refuses. The canvas added nothing.
     ConnectionRefused {
         connection: Connection,
@@ -392,33 +415,4 @@ pub struct Connection {
     pub target: FlowNodeId,
     pub source_handle: Option<SharedString>,
     pub target_handle: Option<SharedString>,
-}
-
-/// Change events for nodes.
-#[derive(Debug, Clone)]
-pub enum NodeChange {
-    Position {
-        id: FlowNodeId,
-        position: FlowPoint,
-        dragging: bool,
-    },
-    Dimensions {
-        id: FlowNodeId,
-        width: Pixels,
-        height: Pixels,
-    },
-    Select {
-        id: FlowNodeId,
-        selected: bool,
-    },
-    Remove {
-        id: FlowNodeId,
-    },
-}
-
-/// Change events for edges.
-#[derive(Debug, Clone)]
-pub enum EdgeChange {
-    Select { id: EdgeId, selected: bool },
-    Remove { id: EdgeId },
 }

@@ -75,13 +75,6 @@ pub enum ConnectOutcome {
     Dropped,
 }
 
-/// A snapshot of the graph state for undo/redo.
-#[derive(Clone)]
-struct HistoryEntry {
-    nodes: Vec<FlowNode>,
-    edges: Vec<FlowEdge>,
-}
-
 /// The central state store for a flow graph. Wrapped in `Entity<FlowState>`.
 pub struct FlowState {
     pub nodes: Vec<FlowNode>,
@@ -93,10 +86,6 @@ pub struct FlowState {
     pub drag_state: Option<DragState>,
     pub pan_drag: Option<PanDragState>,
     pub connecting: Option<ConnectionDraft>,
-    pub selection_box: Option<SelectionBox>,
-    // Undo/redo
-    undo_stack: Vec<HistoryEntry>,
-    redo_stack: Vec<HistoryEntry>,
     // Config
     pub min_zoom: f32,
     pub max_zoom: f32,
@@ -131,9 +120,6 @@ impl FlowState {
             drag_state: None,
             pan_drag: None,
             connecting: None,
-            selection_box: None,
-            undo_stack: Vec::new(),
-            redo_stack: Vec::new(),
             min_zoom: MIN_ZOOM,
             max_zoom: MAX_ZOOM,
             snap_to_grid: false,
@@ -165,52 +151,6 @@ impl FlowState {
         }
     }
 
-    /// Push the current state onto the undo stack. Call before destructive operations.
-    pub fn push_undo(&mut self) {
-        self.undo_stack.push(HistoryEntry {
-            nodes: self.nodes.clone(),
-            edges: self.edges.clone(),
-        });
-        // Clear redo stack on new action
-        self.redo_stack.clear();
-        // Limit history size
-        if self.undo_stack.len() > 100 {
-            self.undo_stack.remove(0);
-        }
-    }
-
-    /// Undo the last operation. Returns true if undo was performed.
-    pub fn undo(&mut self) -> bool {
-        if let Some(entry) = self.undo_stack.pop() {
-            self.redo_stack.push(HistoryEntry {
-                nodes: self.nodes.clone(),
-                edges: self.edges.clone(),
-            });
-            self.nodes = entry.nodes;
-            self.edges = entry.edges;
-            self.rebuild_lookup();
-            true
-        } else {
-            false
-        }
-    }
-
-    /// Redo the last undone operation. Returns true if redo was performed.
-    pub fn redo(&mut self) -> bool {
-        if let Some(entry) = self.redo_stack.pop() {
-            self.undo_stack.push(HistoryEntry {
-                nodes: self.nodes.clone(),
-                edges: self.edges.clone(),
-            });
-            self.nodes = entry.nodes;
-            self.edges = entry.edges;
-            self.rebuild_lookup();
-            true
-        } else {
-            false
-        }
-    }
-
     /// Get a node by ID.
     pub fn get_node(&self, id: &FlowNodeId) -> Option<&FlowNode> {
         self.node_lookup.get(id).map(|&i| &self.nodes[i])
@@ -219,74 +159,6 @@ impl FlowState {
     /// Get a mutable node by ID.
     pub fn get_node_mut(&mut self, id: &FlowNodeId) -> Option<&mut FlowNode> {
         self.node_lookup.get(id).map(|&i| &mut self.nodes[i])
-    }
-
-    /// Set all nodes, rebuilding the index.
-    pub fn set_nodes(&mut self, nodes: Vec<FlowNode>) {
-        self.nodes = nodes;
-        self.rebuild_lookup();
-    }
-
-    /// Set all edges.
-    pub fn set_edges(&mut self, edges: Vec<FlowEdge>) {
-        self.edges = edges;
-    }
-
-    /// Apply a batch of node changes.
-    pub fn apply_node_changes(&mut self, changes: &[NodeChange]) {
-        let mut needs_rebuild = false;
-
-        for change in changes {
-            match change {
-                NodeChange::Position {
-                    id,
-                    position,
-                    dragging,
-                } => {
-                    if let Some(node) = self.get_node_mut(id) {
-                        node.position = *position;
-                        node.dragging = *dragging;
-                    }
-                }
-                NodeChange::Dimensions { id, width, height } => {
-                    if let Some(node) = self.get_node_mut(id) {
-                        node.measured_width = Some(*width);
-                        node.measured_height = Some(*height);
-                    }
-                }
-                NodeChange::Select { id, selected } => {
-                    if let Some(node) = self.get_node_mut(id) {
-                        node.selected = *selected;
-                    }
-                }
-                NodeChange::Remove { id } => {
-                    if let Some(&idx) = self.node_lookup.get(id) {
-                        self.nodes.remove(idx);
-                        needs_rebuild = true;
-                    }
-                }
-            }
-        }
-
-        if needs_rebuild {
-            self.rebuild_lookup();
-        }
-    }
-
-    /// Apply a batch of edge changes.
-    pub fn apply_edge_changes(&mut self, changes: &[EdgeChange]) {
-        for change in changes {
-            match change {
-                EdgeChange::Select { id, selected } => {
-                    if let Some(edge) = self.edges.iter_mut().find(|e| e.id == *id) {
-                        edge.selected = *selected;
-                    }
-                }
-                EdgeChange::Remove { id } => {
-                    self.edges.retain(|e| e.id != *id);
-                }
-            }
-        }
     }
 
     /// Set the viewport, clamping zoom to min/max.
@@ -419,13 +291,10 @@ impl FlowState {
         self.pan_drag = None;
     }
 
-    /// A pointer move at the canvas point `mouse`. It moves the active drag: the selection box,
-    /// the connection draft, the dragged nodes or the view. Returns true when the state changed.
+    /// A pointer move at the canvas point `mouse`. It moves the active drag: the connection
+    /// draft, the dragged nodes or the view. Returns true when the state changed.
     pub fn pointer_moved(&mut self, mouse: (f32, f32)) -> bool {
-        if self.selection_box.is_some() {
-            self.drag_selection_box(mouse);
-            true
-        } else if self.drag_connection(mouse) {
+        if self.drag_connection(mouse) {
             true
         } else if self.drag_state.is_some() {
             self.drag_nodes(mouse);
@@ -435,15 +304,23 @@ impl FlowState {
         }
     }
 
-    /// A release of the main button, anywhere. It ends every drag. Returns true when a drag was
-    /// active.
+    /// A release of the main button, anywhere. It ends every drag. A node that a drag moved
+    /// gives one `NodeMoved` event, with its position at the press and at the release. Returns
+    /// true when a drag was active.
     pub fn pointer_released(&mut self) -> bool {
-        let mut changed = self.selection_box.take().is_some();
+        let mut changed = false;
         if self.connecting.is_some() {
             self.end_connection();
             changed = true;
         }
-        if self.drag_state.take().is_some() {
+        if let Some(drag) = self.drag_state.take() {
+            for (id, from) in drag.node_origins {
+                if let Some(to) = self.get_node(&id).map(|node| node.position) {
+                    if to != from {
+                        self.events.push(FlowEvent::NodeMoved { id, from, to });
+                    }
+                }
+            }
             for node in &mut self.nodes {
                 node.dragging = false;
             }
@@ -459,8 +336,7 @@ impl FlowState {
     /// Cancel the active drag. A dragged node goes back to where it was, and the view goes back
     /// to where it was before a pan. Returns true when a drag was active.
     pub fn cancel_drag(&mut self) -> bool {
-        let mut changed = self.selection_box.take().is_some();
-        changed |= self.connecting.take().is_some();
+        let mut changed = self.connecting.take().is_some();
         if let Some(drag) = self.drag_state.take() {
             for (id, origin) in drag.node_origins {
                 if let Some(node) = self.get_node_mut(&id) {
@@ -501,26 +377,156 @@ impl FlowState {
         }
     }
 
-    fn drag_selection_box(&mut self, mouse: (f32, f32)) {
-        let Some(selection) = &mut self.selection_box else {
+    /// The selected node or connection. The canvas keeps one selection.
+    pub fn selection(&self) -> Option<Selection> {
+        self.nodes
+            .iter()
+            .find(|node| node.selected)
+            .map(|node| Selection::Node(node.id.clone()))
+            .or_else(|| {
+                self.edges
+                    .iter()
+                    .find(|edge| edge.selected)
+                    .map(|edge| Selection::Connection(edge.id.clone()))
+            })
+    }
+
+    /// Set the selection, as the app wants it. This sends no event.
+    pub fn set_selection(&mut self, selection: Option<Selection>) {
+        for node in &mut self.nodes {
+            node.selected = selection.as_ref() == Some(&Selection::Node(node.id.clone()));
+        }
+        for edge in &mut self.edges {
+            edge.selected = selection.as_ref() == Some(&Selection::Connection(edge.id.clone()));
+        }
+    }
+
+    /// Set the selection because of an input of the user. A change sends `SelectionChanged`.
+    pub fn select(&mut self, selection: Option<Selection>) {
+        if self.selection() != selection {
+            self.set_selection(selection.clone());
+            self.events.push(FlowEvent::SelectionChanged { selection });
+        }
+    }
+
+    /// Replace the nodes and the connections with the state of the app. This sends no event: the
+    /// events tell the app about the inputs of the user, and the app owns the state. A node
+    /// without a measured size keeps the size that the canvas measured for the same id. A drag
+    /// that is active ends, and the nodes stay where the app put them.
+    pub fn set_graph(&mut self, mut nodes: Vec<FlowNode>, edges: Vec<FlowEdge>) {
+        for node in &mut nodes {
+            if let Some(old) = self.get_node(&node.id) {
+                node.measured_width = node.measured_width.or(old.measured_width);
+                node.measured_height = node.measured_height.or(old.measured_height);
+            }
+        }
+        self.nodes = nodes;
+        self.edges = edges;
+        self.rebuild_lookup();
+        self.drag_state = None;
+        self.connecting = None;
+    }
+
+    /// A press on a node: select it, bring it to the front and start a drag. A press during a
+    /// connection drag does nothing.
+    pub fn press_node(&mut self, id: &FlowNodeId, mouse: (f32, f32)) {
+        if self.connecting.is_some() {
+            return;
+        }
+        let Some(node) = self.get_node(id) else {
             return;
         };
-        selection.current = mouse;
-        let (sx, sy) = (
-            selection.start.0.min(mouse.0),
-            selection.start.1.min(mouse.1),
-        );
-        let (ex, ey) = (
-            selection.start.0.max(mouse.0),
-            selection.start.1.max(mouse.1),
-        );
-        let viewport = self.viewport;
-        for node in self.nodes.iter_mut().filter(|node| !node.hidden) {
-            let (nx, ny) = viewport.flow_to_screen(node.position);
-            let nw = node.measured_width.map_or(150.0, |p| p.as_f32()) * viewport.zoom;
-            let nh = node.measured_height.map_or(40.0, |p| p.as_f32()) * viewport.zoom;
-            node.selected = nx < ex && nx + nw > sx && ny < ey && ny + nh > sy;
+        let (selectable, draggable, position) = (node.selectable, node.draggable, node.position);
+        if selectable {
+            self.select(Some(Selection::Node(id.clone())));
         }
+        let top = self
+            .nodes
+            .iter()
+            .map(|node| node.z_index)
+            .max()
+            .unwrap_or(0);
+        if let Some(node) = self.get_node_mut(id) {
+            if selectable {
+                node.z_index = top + 1;
+            }
+            if draggable {
+                node.dragging = true;
+            }
+        }
+        if draggable {
+            self.drag_state = Some(DragState {
+                origin_mouse: mouse,
+                node_origins: vec![(id.clone(), position)],
+            });
+        }
+    }
+
+    /// A press on the empty canvas: select the connection under the pointer, or clear the
+    /// selection and start a pan.
+    pub fn press_canvas(&mut self, mouse: (f32, f32)) {
+        if self.drag_state.is_some() || self.connecting.is_some() {
+            return;
+        }
+        if let Some(id) = crate::edges::hit_test_edges(self, mouse.0, mouse.1, 5.0) {
+            let selectable = self
+                .edges
+                .iter()
+                .any(|edge| edge.id == id && edge.selectable);
+            if selectable {
+                self.select(Some(Selection::Connection(id)));
+            }
+            return;
+        }
+        self.select(None);
+        self.start_pan(mouse);
+    }
+
+    /// Remove the selected node with its connections, or the selected connection. A node or a
+    /// connection with `deletable` off stays. Each removal sends an event. Returns true when
+    /// something went.
+    pub fn delete_selection(&mut self) -> bool {
+        let removed = match self.selection() {
+            Some(Selection::Node(id)) if self.get_node(&id).is_some_and(|node| node.deletable) => {
+                let (gone, kept): (Vec<_>, Vec<_>) = std::mem::take(&mut self.edges)
+                    .into_iter()
+                    .partition(|edge| edge.source == id || edge.target == id);
+                self.edges = kept;
+                for edge in gone {
+                    self.events.push(FlowEvent::ConnectionRemoved {
+                        connection: edge.connection(),
+                        id: edge.id,
+                    });
+                }
+                self.nodes.retain(|node| node.id != id);
+                self.rebuild_lookup();
+                self.events.push(FlowEvent::NodeRemoved { id });
+                true
+            }
+            Some(Selection::Connection(id))
+                if self
+                    .edges
+                    .iter()
+                    .any(|edge| edge.id == id && edge.deletable) =>
+            {
+                if let Some(at) = self.edges.iter().position(|edge| edge.id == id) {
+                    let edge = self.edges.remove(at);
+                    self.events.push(FlowEvent::ConnectionRemoved {
+                        connection: edge.connection(),
+                        id: edge.id,
+                    });
+                }
+                true
+            }
+            _ => false,
+        };
+        if removed {
+            // The removed item was the selection. `select` would see no change.
+            self.set_selection(None);
+            self.events
+                .push(FlowEvent::SelectionChanged { selection: None });
+        }
+        removed
     }
 
     /// Start a connection drag on a pin.
@@ -577,9 +583,12 @@ impl FlowState {
             });
             return ConnectOutcome::Refused { connection, reason };
         }
-        self.push_undo();
         let edge_id = self.new_edge_id();
-        self.add_edge_from_connection(&connection, edge_id);
+        self.add_edge_from_connection(&connection, edge_id.clone());
+        self.events.push(FlowEvent::ConnectionAdded {
+            id: edge_id,
+            connection: connection.clone(),
+        });
         ConnectOutcome::Added(connection)
     }
 
@@ -617,20 +626,6 @@ impl FlowState {
     ) {
         self.viewport.x = container_width / 2.0 - flow_x * self.viewport.zoom;
         self.viewport.y = container_height / 2.0 - flow_y * self.viewport.zoom;
-    }
-
-    /// Select all nodes and edges.
-    pub fn select_all(&mut self) {
-        for node in &mut self.nodes {
-            if node.selectable {
-                node.selected = true;
-            }
-        }
-        for edge in &mut self.edges {
-            if edge.selectable {
-                edge.selected = true;
-            }
-        }
     }
 
     /// Get nodes that have edges pointing TO the given node.

@@ -215,3 +215,44 @@ fn a_drop_on_an_occupied_pin_sends_the_reason_to_a_subscriber(cx: &mut TestAppCo
     );
     assert_eq!(cx.read(|cx| state.read(cx).edges.len()), 1);
 }
+
+#[gpui::test]
+fn the_canvas_binds_no_undo_key(cx: &mut TestAppContext) {
+    let (state, cx) = rig(cx);
+    cx.simulate_mouse_down(at(120.0, 110.0), MouseButton::Left, Modifiers::none());
+    cx.simulate_mouse_move(at(220.0, 160.0), MouseButton::Left, Modifiers::none());
+    cx.simulate_mouse_up(at(220.0, 160.0), MouseButton::Left, Modifiers::none());
+    let moved = FlowPoint::new(200.0, 150.0);
+    assert_eq!(node_position(&state, cx, "a"), moved);
+    cx.simulate_keystrokes("ctrl-z super-z ctrl-shift-z super-shift-z");
+    assert_eq!(node_position(&state, cx, "a"), moved);
+}
+
+#[gpui::test]
+fn events_reach_a_subscriber_in_the_order_of_the_inputs(cx: &mut TestAppContext) {
+    let (state, cx) = rig(cx);
+    let events: Rc<RefCell<Vec<FlowEvent>>> = Rc::default();
+    let log = events.clone();
+    let _subscription = cx.update(|_, cx| {
+        cx.subscribe(&state, move |_, event: &FlowEvent, _| {
+            log.borrow_mut().push(event.clone())
+        })
+    });
+    cx.simulate_mouse_down(at(120.0, 110.0), MouseButton::Left, Modifiers::none());
+    cx.simulate_mouse_move(at(220.0, 160.0), MouseButton::Left, Modifiers::none());
+    cx.simulate_mouse_up(at(220.0, 160.0), MouseButton::Left, Modifiers::none());
+    cx.simulate_keystrokes("delete");
+    let events = events.borrow();
+    let [
+        FlowEvent::SelectionChanged { selection: Some(_) },
+        FlowEvent::NodeMoved { from, to, .. },
+        FlowEvent::NodeRemoved { id },
+        FlowEvent::SelectionChanged { selection: None },
+    ] = events.as_slice()
+    else {
+        panic!("unexpected events: {events:?}");
+    };
+    assert_eq!(*from, FlowPoint::new(100.0, 100.0));
+    assert_eq!(*to, FlowPoint::new(200.0, 150.0));
+    assert_eq!(id, "a");
+}

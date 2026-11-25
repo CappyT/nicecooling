@@ -41,6 +41,8 @@ pub struct FlowGraph {
 
 impl FlowGraph {
     pub fn new(state: Entity<FlowState>, cx: &mut Context<Self>) -> Self {
+        // The canvas draws again when the state changes, also when the app sets the state.
+        cx.observe(&state, |_, _, cx| cx.notify()).detach();
         Self {
             state,
             focus_handle: cx.focus_handle(),
@@ -140,7 +142,6 @@ impl FlowGraph {
         viewport: &Viewport,
         is_connecting: bool,
         snap: Option<&(HandleKey, bool)>,
-        _entity_id: EntityId,
         window: &mut Window,
         cx: &mut App,
     ) -> AnyElement {
@@ -241,55 +242,16 @@ impl FlowGraph {
             .on_mouse_down(MouseButton::Left, {
                 let node_id = node_id.clone();
                 let state = state.clone();
-                move |event, _window, cx| {
-                    let multi = event.modifiers.platform;
-
-                    state.update(cx, |state, _| {
+                let focus = self.focus_handle.clone();
+                move |event, window, cx| {
+                    // The keys of the canvas work only with the focus.
+                    window.focus(&focus, cx);
+                    // The press belongs to the node: the canvas must not start a pan.
+                    cx.stop_propagation();
+                    update_state(&state, cx, |state| {
                         let mouse = state.to_canvas(event.position);
-                        // Don't start node drag if we're connecting
-                        if state.connecting.is_some() {
-                            return;
-                        }
-
-                        // Handle selection
-                        if !multi {
-                            for n in &mut state.nodes {
-                                n.selected = false;
-                            }
-                        }
-                        // Z-index elevation
-                        let max_z = state.nodes.iter().map(|n| n.z_index).max().unwrap_or(0);
-                        if let Some(n) = state.get_node_mut(&node_id) {
-                            n.selected = !n.selected || !multi;
-                            if n.selected {
-                                n.z_index = max_z + 1;
-                            }
-                        }
-
-                        // Start drag — collect all selected nodes
-                        let mut node_origins = Vec::new();
-                        if let Some(n) = state.get_node(&node_id) {
-                            if n.selected && n.draggable {
-                                for n in &state.nodes {
-                                    if n.selected && n.draggable {
-                                        node_origins.push((n.id.clone(), n.position));
-                                    }
-                                }
-                            }
-                        }
-
-                        if !node_origins.is_empty() {
-                            state.push_undo();
-                            state.drag_state = Some(DragState {
-                                origin_mouse: mouse,
-                                node_origins,
-                            });
-                            for n in &mut state.nodes {
-                                if n.selected && n.draggable {
-                                    n.dragging = true;
-                                }
-                            }
-                        }
+                        state.press_node(&node_id, mouse);
+                        true
                     });
                 }
             })
@@ -366,7 +328,7 @@ impl FlowGraph {
                         let node_id = node_id.clone();
                         let handle_id = handle_id.clone();
                         move |event, _window, cx| {
-                            state.update(cx, |state, _| {
+                            update_state(&state, cx, |state| {
                                 let mouse = state.to_canvas(event.position);
                                 state.begin_connection(
                                     &node_id,
@@ -375,6 +337,7 @@ impl FlowGraph {
                                     handle_position,
                                     mouse,
                                 );
+                                true
                             });
                         }
                     });
@@ -511,73 +474,6 @@ impl FlowGraph {
         }
     }
 
-    /// Paint a selection box rectangle.
-    fn paint_selection_box(
-        sel: &SelectionBox,
-        origin: (f32, f32),
-        accent: u32,
-        window: &mut Window,
-    ) {
-        let x = sel.start.0.min(sel.current.0) + origin.0;
-        let y = sel.start.1.min(sel.current.1) + origin.1;
-        let w = (sel.start.0 - sel.current.0).abs();
-        let h = (sel.start.1 - sel.current.1).abs();
-
-        if w < 1.0 || h < 1.0 {
-            return;
-        }
-
-        let bounds = Bounds::new(
-            Point::new(px(x), px(y)),
-            Size {
-                width: px(w),
-                height: px(h),
-            },
-        );
-
-        // Semi-transparent accent fill
-        window.paint_quad(fill(bounds, gpui::rgba((accent << 8) | 0x18)));
-
-        // Accent border
-        let border_color: Background = gpui::rgb(accent).into();
-        // Top
-        let top = Bounds::new(
-            Point::new(px(x), px(y)),
-            Size {
-                width: px(w),
-                height: px(1.0),
-            },
-        );
-        window.paint_quad(fill(top, border_color.clone()));
-        // Bottom
-        let bottom = Bounds::new(
-            Point::new(px(x), px(y + h - 1.0)),
-            Size {
-                width: px(w),
-                height: px(1.0),
-            },
-        );
-        window.paint_quad(fill(bottom, border_color.clone()));
-        // Left
-        let left = Bounds::new(
-            Point::new(px(x), px(y)),
-            Size {
-                width: px(1.0),
-                height: px(h),
-            },
-        );
-        window.paint_quad(fill(left, border_color.clone()));
-        // Right
-        let right = Bounds::new(
-            Point::new(px(x + w - 1.0), px(y)),
-            Size {
-                width: px(1.0),
-                height: px(h),
-            },
-        );
-        window.paint_quad(fill(right, border_color));
-    }
-
     /// Paint a draft connection line from handle to mouse cursor.
     fn paint_connection_draft(
         draft: &ConnectionDraft,
@@ -628,7 +524,6 @@ impl Render for FlowGraph {
             cx.notify(); // triggers one immediate re-render
         }
 
-        let entity_id = cx.entity_id();
         let window_size = window.viewport_size();
         let win_w = window_size.width.as_f32();
         let win_h = window_size.height.as_f32();
@@ -641,7 +536,6 @@ impl Render for FlowGraph {
             is_connecting,
             snap,
             connecting_draft,
-            selection_box,
             visible_nodes,
             edge_label_elements,
         ) = {
@@ -660,7 +554,6 @@ impl Render for FlowGraph {
                     )
                 });
             let connecting_draft = state.connecting.clone();
-            let selection_box = state.selection_box;
 
             // Build visible node indices
             let mut visible_indices: Vec<usize> = Vec::new();
@@ -718,7 +611,6 @@ impl Render for FlowGraph {
                 is_connecting,
                 snap,
                 connecting_draft,
-                selection_box,
                 visible_nodes,
                 edge_label_elements,
             )
@@ -732,7 +624,6 @@ impl Render for FlowGraph {
                 &viewport,
                 is_connecting,
                 snap.as_ref(),
-                entity_id,
                 window,
                 cx,
             ));
@@ -785,13 +676,10 @@ impl Render for FlowGraph {
                             let state = state_for_canvas.clone();
                             move |event: &MouseMoveEvent, phase, _, cx| {
                                 if phase == DispatchPhase::Bubble {
-                                    let moved = state.update(cx, |state, _| {
+                                    update_state(&state, cx, |state| {
                                         let mouse = state.to_canvas(event.position);
                                         state.pointer_moved(mouse)
                                     });
-                                    if moved {
-                                        cx.notify(entity_id);
-                                    }
                                 }
                             }
                         });
@@ -801,9 +689,7 @@ impl Render for FlowGraph {
                                 if phase == DispatchPhase::Bubble
                                     && event.button == MouseButton::Left
                                 {
-                                    if update_state(&state, cx, |state| state.pointer_released()) {
-                                        cx.notify(entity_id);
-                                    }
+                                    update_state(&state, cx, |state| state.pointer_released());
                                 }
                             }
                         });
@@ -820,11 +706,6 @@ impl Render for FlowGraph {
                                 window,
                             );
                         }
-
-                        // Paint selection box
-                        if let Some(ref sel) = selection_box {
-                            Self::paint_selection_box(sel, origin, accent_color, window);
-                        }
                     },
                 )
                 .absolute()
@@ -834,207 +715,77 @@ impl Render for FlowGraph {
             .children(node_elements)
             // Edge labels
             .children(edge_label_elements)
-            // Mouse down on empty space → start panning, deselect, or edge selection
+            // A press on the empty canvas selects a connection, or clears the selection and pans.
             .on_mouse_down(MouseButton::Left, {
-                let entity_id = entity_id;
                 let focus = self.focus_handle.clone();
                 move |event, window, cx| {
                     // The keys of the canvas, Escape among them, work only with the focus.
                     window.focus(&focus, cx);
-                    let mouse_pos = event.position;
-                    state_for_mouse_down.update(cx, |state, _| {
-                        // If a node drag or connection was already started, skip
-                        if state.drag_state.is_some() || state.connecting.is_some() {
-                            return;
-                        }
-
-                        // Try edge hit testing
-                        let (mx, my) = state.to_canvas(mouse_pos);
-                        if let Some(edge_id) = edges::hit_test_edges(state, mx, my, 5.0) {
-                            if !event.modifiers.platform {
-                                for n in &mut state.nodes {
-                                    n.selected = false;
-                                }
-                                for e in &mut state.edges {
-                                    e.selected = false;
-                                }
-                            }
-                            if let Some(edge) = state.edges.iter_mut().find(|e| e.id == edge_id) {
-                                edge.selected = true;
-                            }
-                            return;
-                        }
-
-                        // Shift+drag → start box selection
-                        if event.modifiers.shift {
-                            if !event.modifiers.platform {
-                                for n in &mut state.nodes {
-                                    n.selected = false;
-                                }
-                                for e in &mut state.edges {
-                                    e.selected = false;
-                                }
-                            }
-                            state.selection_box = Some(SelectionBox {
-                                start: (mx, my),
-                                current: (mx, my),
-                            });
-                            return;
-                        }
-
-                        // Deselect all nodes and edges
-                        if !event.modifiers.platform {
-                            for n in &mut state.nodes {
-                                n.selected = false;
-                            }
-                            for e in &mut state.edges {
-                                e.selected = false;
-                            }
-                        }
-
-                        // Start pan drag
-                        state.pan_drag = Some(PanDragState {
-                            start_mouse: (mx, my),
-                            start_viewport: (state.viewport.x, state.viewport.y),
-                        });
+                    update_state(&state_for_mouse_down, cx, |state| {
+                        let mouse = state.to_canvas(event.position);
+                        state.press_canvas(mouse);
+                        true
                     });
-                    cx.notify(entity_id);
                 }
             })
-            // Keyboard shortcuts (delete, undo/redo)
             .on_key_down({
-                let entity_id = entity_id;
                 let focus = self.focus_handle.clone();
                 move |event: &KeyDownEvent, window, cx| {
                     let key: &str = event.keystroke.key.as_ref();
-
-                    // Only handle destructive keys (delete/backspace) when the
-                    // flow graph itself is focused — not when a child element
-                    // (like an Input inside a node) has focus.
+                    // Keys that change the graph work only when the canvas itself has the
+                    // focus, not when an element inside a node has it.
                     let graph_focused = focus.is_focused(window);
 
-                    // Escape cancels a connection drag.
                     if key == "escape" {
-                        let cancelled = state_for_key.update(cx, |state, _| state.cancel_drag());
-                        if cancelled {
-                            cx.notify(entity_id);
-                        }
-                        return;
-                    }
-
-                    // Undo: Cmd+Z (always allowed)
-                    if key == "z"
-                        && event.keystroke.modifiers.platform
-                        && !event.keystroke.modifiers.shift
-                    {
-                        state_for_key.update(cx, |state, _| {
-                            state.undo();
-                        });
-                        cx.notify(entity_id);
-                        return;
-                    }
-                    // Redo: Cmd+Shift+Z
-                    if key == "z"
-                        && event.keystroke.modifiers.platform
-                        && event.keystroke.modifiers.shift
-                    {
-                        state_for_key.update(cx, |state, _| {
-                            state.redo();
-                        });
-                        cx.notify(entity_id);
-                        return;
-                    }
-
-                    // Select all: Cmd+A
-                    if key == "a" && event.keystroke.modifiers.platform && graph_focused {
-                        state_for_key.update(cx, |state, _| {
-                            state.select_all();
-                        });
-                        cx.notify(entity_id);
-                        return;
-                    }
-
-                    if (key == "backspace" || key == "delete") && graph_focused {
-                        state_for_key.update(cx, |state, _| {
-                            state.push_undo();
-                            // Collect IDs of selected deletable nodes
-                            let node_ids_to_remove: Vec<FlowNodeId> = state
-                                .nodes
-                                .iter()
-                                .filter(|n| n.selected && n.deletable)
-                                .map(|n| n.id.clone())
-                                .collect();
-
-                            // Remove edges connected to deleted nodes + selected edges
-                            state.edges.retain(|e| {
-                                let connected_to_removed = node_ids_to_remove.contains(&e.source)
-                                    || node_ids_to_remove.contains(&e.target);
-                                let selected_and_deletable = e.selected && e.deletable;
-                                !connected_to_removed && !selected_and_deletable
-                            });
-
-                            // Remove selected nodes
-                            state.nodes.retain(|n| !node_ids_to_remove.contains(&n.id));
-                            if !node_ids_to_remove.is_empty() {
-                                state.rebuild_lookup();
-                            }
-                        });
-                        cx.notify(entity_id);
+                        update_state(&state_for_key, cx, |state| state.cancel_drag());
+                    } else if (key == "backspace" || key == "delete") && graph_focused {
+                        update_state(&state_for_key, cx, |state| state.delete_selection());
                     }
                 }
             })
             // Scroll to zoom / pan
-            .on_scroll({
-                move |event, _window, cx| {
-                    let delta = event.delta.pixel_delta(px(20.0));
-                    let mouse_pos = event.position;
-
-                    state_for_scroll.update(cx, |state, _| {
-                        if state.zoom_on_scroll
-                            || event.modifiers.platform
-                            || event.modifiers.control
-                        {
-                            // Zoom towards mouse. One wheel step is 3 lines of 20 px, and it
-                            // zooms by the factor of the zoom buttons. Wheel up zooms in.
-                            let focus = state.to_canvas(mouse_pos);
-                            state.zoom_steps_at(focus, delta.y.as_f32() / 60.0);
-                        } else {
-                            // Pan
-                            state.viewport.x += delta.x.as_f32();
-                            state.viewport.y += delta.y.as_f32();
-                        }
-                    });
-
-                    cx.notify(entity_id);
-                }
+            .on_scroll(move |event, _window, cx| {
+                let delta = event.delta.pixel_delta(px(20.0));
+                update_state(&state_for_scroll, cx, |state| {
+                    if state.zoom_on_scroll || event.modifiers.platform || event.modifiers.control {
+                        // Zoom towards mouse. One wheel step is 3 lines of 20 px, and it
+                        // zooms by the factor of the zoom buttons. Wheel up zooms in.
+                        let focus = state.to_canvas(event.position);
+                        state.zoom_steps_at(focus, delta.y.as_f32() / 60.0);
+                    } else {
+                        state.viewport.x += delta.x.as_f32();
+                        state.viewport.y += delta.y.as_f32();
+                    }
+                    true
+                });
             })
             // Pinch to zoom (macOS trackpad / Linux Wayland)
-            .on_pinch({
-                move |event, _window, cx| {
-                    let mouse_pos = event.position;
-                    let zoom_delta = event.delta;
-                    state_for_pinch.update(cx, |state, _| {
-                        let focus = state.to_canvas(mouse_pos);
-                        state.zoom_at(focus, state.viewport.zoom * (1.0 + zoom_delta));
-                    });
-                    cx.notify(entity_id);
-                }
+            .on_pinch(move |event, _window, cx| {
+                update_state(&state_for_pinch, cx, |state| {
+                    let focus = state.to_canvas(event.position);
+                    state.zoom_at(focus, state.viewport.zoom * (1.0 + event.delta));
+                    true
+                });
             })
     }
 }
 
-/// Change the state, then give the events that the change made to the subscribers.
-fn update_state<R>(
+/// Change the state, then give the events that the change made to the subscribers. `change`
+/// returns true when the state changed: the canvas then draws again.
+fn update_state(
     state: &Entity<FlowState>,
     cx: &mut App,
-    change: impl FnOnce(&mut FlowState) -> R,
-) -> R {
+    change: impl FnOnce(&mut FlowState) -> bool,
+) {
     state.update(cx, |state, cx| {
-        let result = change(state);
-        for event in state.take_events() {
+        let changed = change(state);
+        let events = state.take_events();
+        if changed || !events.is_empty() {
+            cx.notify();
+        }
+        for event in events {
             cx.emit(event);
         }
-        result
     })
 }
 

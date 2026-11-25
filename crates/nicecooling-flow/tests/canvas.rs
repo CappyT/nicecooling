@@ -2,8 +2,8 @@
 
 use gpui::SharedString;
 use nicecooling_flow::{
-    ALREADY_CONNECTED, ConnectOutcome, Connection, FlowEdge, FlowEvent, FlowNode, FlowState,
-    HandleDef, HandlePosition, HandleType, MAX_ZOOM, MIN_ZOOM, SAME_NODE,
+    ALREADY_CONNECTED, ConnectOutcome, Connection, FlowEdge, FlowEvent, FlowNode, FlowPoint,
+    FlowState, HandleDef, HandlePosition, HandleType, MAX_ZOOM, MIN_ZOOM, SAME_NODE, Selection,
 };
 
 /// `src` has the output pin `out`. `dst` has the input pins `a` and `b`.
@@ -139,6 +139,7 @@ fn pan_moves_the_view() {
 fn a_release_on_an_occupied_pin_gives_the_reason() {
     let mut state = pins().with_rule(occupied);
     connect(&mut state, "src", "a");
+    state.take_events();
     let outcome = connect(&mut state, "src2", "a");
     let ConnectOutcome::Refused { connection, reason } = outcome else {
         panic!("expected a refusal, got {outcome:?}");
@@ -202,4 +203,173 @@ fn the_default_rules_give_a_reason() {
         ..again
     };
     assert_eq!(state.check(&to_self), Err(SAME_NODE.into()));
+}
+
+fn node(id: &str) -> Selection {
+    Selection::Node(id.to_string().into())
+}
+
+#[test]
+fn a_drag_sends_one_node_moved_event() {
+    let mut state = pins();
+    state.press_node(&"src".into(), (10.0, 10.0));
+    assert_eq!(
+        state.take_events(),
+        vec![FlowEvent::SelectionChanged {
+            selection: Some(node("src"))
+        }]
+    );
+    for step in 1..=5 {
+        let offset = 10.0 * step as f32;
+        assert!(state.pointer_moved((10.0 + offset, 10.0 + offset / 2.0)));
+    }
+    // The moves send nothing: the app learns the end of the drag.
+    assert!(state.take_events().is_empty());
+    assert!(state.pointer_released());
+    assert_eq!(
+        state.take_events(),
+        vec![FlowEvent::NodeMoved {
+            id: "src".into(),
+            from: FlowPoint::new(0.0, 0.0),
+            to: FlowPoint::new(50.0, 25.0),
+        }]
+    );
+}
+
+#[test]
+fn a_click_without_a_move_sends_no_node_moved() {
+    let mut state = pins();
+    state.press_node(&"src".into(), (10.0, 10.0));
+    state.take_events();
+    state.pointer_released();
+    assert!(state.take_events().is_empty());
+}
+
+#[test]
+fn a_cancelled_drag_sends_no_node_moved() {
+    let mut state = pins();
+    state.press_node(&"src".into(), (10.0, 10.0));
+    state.take_events();
+    state.pointer_moved((60.0, 60.0));
+    assert!(state.cancel_drag());
+    state.pointer_released();
+    assert!(state.take_events().is_empty());
+}
+
+#[test]
+fn a_connection_sends_connection_added() {
+    let mut state = pins();
+    connect(&mut state, "src", "a");
+    let events = state.take_events();
+    let [FlowEvent::ConnectionAdded { id, connection }] = events.as_slice() else {
+        panic!("expected one ConnectionAdded, got {events:?}");
+    };
+    assert_eq!(connection.target_handle, Some("a".into()));
+    assert_eq!(state.edges[0].id, *id);
+}
+
+#[test]
+fn the_canvas_keeps_one_selection() {
+    let mut state = pins();
+    state.press_node(&"src".into(), (0.0, 0.0));
+    state.pointer_released();
+    state.press_node(&"dst".into(), (0.0, 0.0));
+    state.pointer_released();
+    assert_eq!(state.selection(), Some(node("dst")));
+    assert_eq!(state.nodes.iter().filter(|node| node.selected).count(), 1);
+    assert_eq!(
+        state.take_events(),
+        vec![
+            FlowEvent::SelectionChanged {
+                selection: Some(node("src"))
+            },
+            FlowEvent::SelectionChanged {
+                selection: Some(node("dst"))
+            },
+        ]
+    );
+    // A press on the empty canvas clears the selection.
+    state.press_canvas((500.0, 500.0));
+    assert_eq!(state.selection(), None);
+    assert_eq!(
+        state.take_events(),
+        vec![FlowEvent::SelectionChanged { selection: None }]
+    );
+    // A press on the selected node again changes nothing.
+    state.press_node(&"dst".into(), (0.0, 0.0));
+    state.take_events();
+    state.press_node(&"dst".into(), (0.0, 0.0));
+    assert!(state.take_events().is_empty());
+}
+
+#[test]
+fn delete_removes_a_node_and_its_connections_and_tells_the_app() {
+    let mut state = pins();
+    connect(&mut state, "src", "a");
+    connect(&mut state, "src2", "b");
+    state.take_events();
+    let id: SharedString = state.edges[0].id.clone();
+    state.press_node(&"src".into(), (0.0, 0.0));
+    state.pointer_released();
+    state.take_events();
+    assert!(state.delete_selection());
+    assert_eq!(state.nodes.len(), 2);
+    assert_eq!(state.edges.len(), 1);
+    let events = state.take_events();
+    assert!(matches!(
+        events.as_slice(),
+        [
+            FlowEvent::ConnectionRemoved { id: removed, .. },
+            FlowEvent::NodeRemoved { id: node },
+            FlowEvent::SelectionChanged { selection: None },
+        ] if *removed == id && node == "src"
+    ));
+}
+
+#[test]
+fn delete_removes_a_selected_connection() {
+    let mut state = pins();
+    connect(&mut state, "src", "a");
+    let id = state.edges[0].id.clone();
+    state.select(Some(Selection::Connection(id.clone())));
+    state.take_events();
+    assert!(state.delete_selection());
+    assert!(state.edges.is_empty());
+    assert_eq!(state.nodes.len(), 3);
+    assert!(matches!(
+        state.take_events().as_slice(),
+        [
+            FlowEvent::ConnectionRemoved { id: removed, .. },
+            FlowEvent::SelectionChanged { selection: None },
+        ] if *removed == id
+    ));
+}
+
+#[test]
+fn delete_leaves_a_node_that_is_not_deletable() {
+    let mut state = pins();
+    state.nodes[2].deletable = false;
+    state.select(Some(node("dst")));
+    state.take_events();
+    assert!(!state.delete_selection());
+    assert_eq!(state.nodes.len(), 3);
+    assert!(state.take_events().is_empty());
+}
+
+#[test]
+fn set_graph_sends_no_event_and_keeps_the_measured_sizes() {
+    let mut state = pins();
+    let mut moved = state.nodes.clone();
+    moved[0].position = FlowPoint::new(7.0, 8.0);
+    moved[0].measured_width = None;
+    moved[0].selected = true;
+    state.set_graph(moved, Vec::new());
+    assert!(state.take_events().is_empty());
+    let first = state.get_node(&"src".into()).unwrap();
+    assert_eq!(first.position, FlowPoint::new(7.0, 8.0));
+    assert_eq!(first.measured_width, Some(gpui::px(100.0)));
+    assert_eq!(state.selection(), Some(node("src")));
+    // The new state sets the selection too, with no event.
+    state.set_selection(None);
+    assert!(state.take_events().is_empty());
 }
