@@ -12,6 +12,7 @@ pub mod live;
 pub mod palette;
 pub(crate) mod panel_view;
 pub mod params;
+pub mod response_panel;
 pub mod rules;
 pub mod try_run;
 pub(crate) mod view;
@@ -25,6 +26,7 @@ use self::draft::Draft;
 use self::live::LiveValues;
 use self::palette::{ListForm, ListUi, NodeList, node_list};
 use self::params::{Panel, panel};
+use self::response_panel::Network;
 use self::rules::first_rule_text;
 use self::try_run::{TryBanner, TryUi, try_banner};
 use crate::graphs::view::{GraphRow, GraphView, ValuesState};
@@ -112,6 +114,10 @@ pub struct EditorUi {
     pub tries: TryUi,
     /// The state of "Apply", and the question on leaving.
     pub apply: ApplyUi,
+    /// What the response panel needs of the network settings of the app.
+    pub network: Network,
+    /// The last "Run once" ran nothing: the poweroff countdown of an Alarm runs.
+    pub run_blocked: bool,
 }
 
 impl EditorUi {
@@ -130,6 +136,8 @@ impl EditorUi {
             live: LiveValues::default(),
             tries: TryUi::default(),
             apply: ApplyUi::default(),
+            network: Network::default(),
+            run_blocked: false,
         }
     }
 
@@ -311,7 +319,7 @@ impl EditorModel {
                 zoom: locale.fmt("graph_editor.canvas.zoom", &[("percent", &percent)]),
             },
             hint,
-            panel: panel(input, ui),
+            panel: panel(input, view, ui),
             try_banner: try_banner(ui, locale),
             leave: leave_dialog(input, view, ui),
             toolbar: Toolbar {

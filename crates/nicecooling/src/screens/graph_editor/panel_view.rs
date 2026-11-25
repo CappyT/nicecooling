@@ -5,8 +5,8 @@ use std::rc::Rc;
 
 use gpui::prelude::*;
 use gpui::{
-    AnyElement, Bounds, Context, Div, FontWeight, Pixels, SharedString, Window, canvas, div, px,
-    relative,
+    AnyElement, Bounds, Context, Div, Entity, FontWeight, Pixels, SharedString, Window, canvas,
+    div, px, relative,
 };
 use gpui_component::button::ButtonVariants as _;
 use gpui_component::switch::Switch;
@@ -17,13 +17,15 @@ use super::params::{
     Control, EndSensor, EndSwitch, Guide, InputRow, LabelRow, Panel, ParamRow, arg_key, label_key,
     pair_key, param_key,
 };
+use super::response_panel::Warning;
 use super::try_run::{for_key, test_key};
 use crate::app::now_us;
-use crate::icons::NcIcon;
+use crate::icons::{NcIcon, icon};
 use crate::screen_view::{InputKey, ScreenView};
 use crate::screens::controls::{Pick, act};
 use crate::screens::sensors_view::PickRow;
 use crate::screens::ui::{caption, heading, label, seg, seg_item, select_trigger, with_menu};
+use crate::shell::Page;
 use crate::tokens::Palette;
 use crate::widgets::paint::{at, disc, polyline};
 
@@ -263,9 +265,77 @@ impl ScreenView {
         if let Some(row) = &panel.label {
             header = header.children(self.graph_label_row(node, row, p, window, cx));
         }
+        let response = panel.response.as_ref();
         for row in &panel.rows {
-            header = header.children(self.graph_param_row(node, row, p, window, cx));
+            // The base topic shows before the field "Topic" of an MQTT message.
+            let prefix = response
+                .and_then(|response| response.topic_prefix.clone())
+                .filter(|_| row.name == "topic");
+            header = header.children(self.graph_param_row(node, row, prefix, p, window, cx));
+            // The warning of the kind is under the select "Kind".
+            if row.name == "kind"
+                && let Some(warning) = response.and_then(|response| response.warning.as_ref())
+            {
+                header = header.child(Self::graph_warning(warning, &view, p));
+            }
         }
+        if let Some(text) = response.and_then(|response| response.placeholders.clone()) {
+            header = header.child(caption(text, p));
+        }
+        // "Run once" with its caption, and the newest rows of the response log.
+        let once = response.map(|response| {
+            section(p)
+                .child(h_flex().child(
+                    Self::small_button("graph-run-once", response.run_once.clone(), None).on_click(
+                        act(&view, |this, _, cx| {
+                            let state = this.state(cx);
+                            let command = this
+                                .graph_editor
+                                .as_mut()
+                                .and_then(|host| host.ui.run_once(&state));
+                            if let Some(command) = command {
+                                this.send_graph(command, cx);
+                            }
+                        }),
+                    ),
+                ))
+                .child(caption(response.run_once_caption.clone(), p))
+                .children(
+                    response
+                        .run_once_blocked
+                        .clone()
+                        .map(|text| caption(text, p).text_color(p.warning)),
+                )
+        });
+        let runs = response.map(|response| {
+            let mut list = section(p).child(
+                div()
+                    .text_size(px(12.))
+                    .font_weight(FontWeight::BOLD)
+                    .text_color(p.fg_dim)
+                    .child(response.runs_title.clone()),
+            );
+            for row in &response.runs {
+                list = list.child(
+                    h_flex()
+                        .w_full()
+                        .min_h(px(22.))
+                        .gap(px(9.))
+                        .items_center()
+                        .text_size(px(12.))
+                        .child(
+                            caption(row.time.clone(), p)
+                                .flex_1()
+                                .font_family("Adwaita Mono"),
+                        )
+                        .child(div().flex_none().child(row.text.clone())),
+                );
+            }
+            if let Some(text) = &response.no_run {
+                list = list.child(caption(text.clone(), p));
+            }
+            list
+        });
         if let Some(guide) = &panel.guide {
             header = header
                 .children(band_guide(guide, p))
@@ -332,8 +402,10 @@ impl ScreenView {
             .debug_selector(|| "graph-panel".to_owned())
             .when_some(focus, |panel, focus| panel.track_focus(&focus))
             .child(header)
+            .children(once)
             .when(!panel.inputs.is_empty(), |list| list.child(inputs))
             .children(tests)
+            .children(runs)
             .children(delete)
             .into_any_element()
     }
@@ -417,12 +489,40 @@ impl ScreenView {
         rows
     }
 
+    /// The warning of a response kind: the Warning icon and the text on the tint, and the link
+    /// "Open Settings" for an account that Settings does not have.
+    fn graph_warning(warning: &Warning, view: &Entity<Self>, p: &Palette) -> Div {
+        h_flex()
+            .w_full()
+            .px(px(9.))
+            .py(px(6.))
+            .gap(px(9.))
+            .items_start()
+            .rounded(px(6.))
+            .bg(p.warning_tint)
+            .child(icon(NcIcon::Warn, p.warning))
+            .child(
+                v_flex()
+                    .flex_1()
+                    .min_w_0()
+                    .child(warning.text.clone())
+                    .children(warning.link.clone().map(|text| {
+                        h_flex().child(
+                            Self::link_button("graph-open-settings", text, p)
+                                .on_click(act(view, |this, _, cx| this.go(Page::Settings, cx))),
+                        )
+                    })),
+            )
+    }
+
     /// One parameter of the node: its name and its control, and the range under a field that
-    /// holds a value that did not commit.
+    /// holds a value that did not commit. `prefix` is a dim text before the field.
+    #[allow(clippy::too_many_arguments)]
     fn graph_param_row(
         &mut self,
         node: u32,
         row: &ParamRow,
+        prefix: Option<String>,
         p: &Palette,
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -442,7 +542,23 @@ impl ScreenView {
                     window,
                     cx,
                 );
-                rows.push(panel_row(row.label.clone(), field));
+                rows.push(match prefix {
+                    Some(prefix) => panel_row(
+                        row.label.clone(),
+                        h_flex()
+                            .gap(px(3.))
+                            .items_center()
+                            .child(
+                                div()
+                                    .flex_none()
+                                    .text_size(px(12.))
+                                    .text_color(p.fg_dim)
+                                    .child(prefix),
+                            )
+                            .child(div().flex_1().min_w_0().child(field)),
+                    ),
+                    None => panel_row(row.label.clone(), field),
+                });
             }
             Control::Select { shown, choices } => {
                 let pick: Pick = Rc::new(move |this, value, _, cx| {

@@ -1071,6 +1071,29 @@ graph_editor:
   offline: "The daemon is offline. The Graph sensor needs the daemon."
   not_applied_reason: "Not applied: %{reason}."
   not_applied_curve: "Not applied: the Curve of %{name} uses the Graph sensor."
+  response:
+    warning:
+      power: "This response can power off or restart the PC"
+      command: "The program is not an executable file"
+      smtp: "No SMTP account"
+      mqtt: "No MQTT broker"
+    open_settings: "Open Settings"
+    repeat_off: "Off"
+    run_once: "Run once"
+    run_once_caption: "Runs now with the parameters of the draft."
+    run_once_counts: "It counts for the Response pause."
+    run_once_blocked: "Not run: the poweroff countdown of an Alarm runs."
+    last_runs: "Last runs"
+    no_run: "No run yet."
+    outcome:
+      ok: "OK"
+      failed: "Failed"
+      timeout: "Timeout"
+      not_configured: "Not configured"
+      busy: "Busy"
+      cancelled: "Cancelled"
+    other_kind: "%{kind}: %{outcome}"
+    placeholders: "Placeholders: {graph}, {time}, {value:label}, {unit:label}"
 alarms:
   active:
     title: Active

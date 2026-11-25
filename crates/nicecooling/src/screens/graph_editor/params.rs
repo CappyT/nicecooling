@@ -16,9 +16,11 @@ use serde_json::Value;
 
 use super::canvas::{Band, REASON_TIME_US, connection_refusal, detail_of, pin_value, value_text};
 use super::palette::family_key;
+use super::response_panel::{ResponsePanel, TIMING, response_panel};
 use super::rules::{node_name, param_name, range_text};
 use super::try_run::{TestRows, test_rows};
 use super::{EditorUi, Selected, number_text};
+use crate::graphs::view::GraphView;
 use crate::i18n::Locale;
 use crate::screens::ScreenInput;
 use crate::screens::format::optional_value;
@@ -191,6 +193,8 @@ pub struct Panel {
     pub inputs: Vec<InputRow>,
     /// "Test value" and "For", on a Sensor node only.
     pub tests: Option<TestRows>,
+    /// The warning, "Run once" and the last runs, on a response end node only.
+    pub response: Option<ResponsePanel>,
     /// "Delete node". `None` for an end node: a Graph keeps its end node.
     pub delete: Option<String>,
 }
@@ -525,8 +529,9 @@ pub fn panel_node(ui: &EditorUi) -> Option<&Node> {
     .or_else(|| graph.end_nodes().next())
 }
 
-/// The parameter panel. `None` for a draft that has no end node and no selection.
-pub fn panel(input: &ScreenInput<'_>, ui: &EditorUi) -> Option<Panel> {
+/// The parameter panel. `None` for a draft that has no end node and no selection. `view` is what
+/// the Graph service shows: the response log is in it.
+pub fn panel(input: &ScreenInput<'_>, view: &GraphView, ui: &EditorUi) -> Option<Panel> {
     let locale = input.locale;
     let node = panel_node(ui)?;
     let error_of = |key: String| {
@@ -536,8 +541,13 @@ pub fn panel(input: &ScreenInput<'_>, ui: &EditorUi) -> Option<Panel> {
             .map(|(_, range)| range.clone())
     };
     let is_end = node.kind.is_end();
-    let rows: Vec<ParamRow> = node
-        .param_specs()
+    let mut specs = node.param_specs();
+    if node.kind == Kind::ResponseEnd {
+        // The hold time, the repeat and the minimum interval come after the parameters of the
+        // kind.
+        specs.sort_by_key(|spec| TIMING.contains(&spec.name));
+    }
+    let rows: Vec<ParamRow> = specs
         .iter()
         .map(|spec| ParamRow {
             name: spec.name,
@@ -607,6 +617,7 @@ pub fn panel(input: &ScreenInput<'_>, ui: &EditorUi) -> Option<Panel> {
         inputs_title: locale.tr("graph_editor.panel.inputs"),
         inputs: input_rows(ui, node, locale),
         tests: test_rows(ui, node.id, locale),
+        response: response_panel(input, view, ui, node),
         delete: (!is_end).then(|| locale.tr("graph_editor.panel.delete_node")),
     })
 }

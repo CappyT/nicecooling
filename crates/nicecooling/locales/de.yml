@@ -1071,6 +1071,29 @@ graph_editor:
   offline: "Der Daemon ist offline. Der Graph-Sensor braucht den Daemon."
   not_applied_reason: "Nicht angewendet: %{reason}."
   not_applied_curve: "Nicht angewendet: die Kurve von %{name} verwendet den Graph-Sensor."
+  response:
+    warning:
+      power: "Diese Reaktion kann den PC herunterfahren oder neu starten"
+      command: "Das Programm ist keine ausführbare Datei"
+      smtp: "Kein SMTP-Konto"
+      mqtt: "Kein MQTT-Broker"
+    open_settings: "Einstellungen öffnen"
+    repeat_off: "Aus"
+    run_once: "Einmal ausführen"
+    run_once_caption: "Führt jetzt mit den Parametern des Entwurfs aus."
+    run_once_counts: "Das zählt für die Reaktionspause."
+    run_once_blocked: "Nicht ausgeführt: der Countdown zum Herunterfahren eines Alarms läuft."
+    last_runs: "Letzte Läufe"
+    no_run: "Noch kein Lauf."
+    outcome:
+      ok: "OK"
+      failed: "Fehlgeschlagen"
+      timeout: "Zeitüberschreitung"
+      not_configured: "Nicht konfiguriert"
+      busy: "Beschäftigt"
+      cancelled: "Abgebrochen"
+    other_kind: "%{kind}: %{outcome}"
+    placeholders: "Platzhalter: {graph}, {time}, {value:label}, {unit:label}"
 alarms:
   active:
     title: Aktiv

@@ -5,12 +5,14 @@ mod support;
 
 use std::cell::Cell;
 use std::collections::BTreeMap;
+use std::os::unix::fs::PermissionsExt as _;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use gpui::SharedString;
 use nicecooling::command::Command;
 use nicecooling::graphs::channel::{GraphChannel, GraphCommand, Input, Inputs, TryRequest};
+use nicecooling::graphs::responses::{Outcome, Run, Runner, Started};
 use nicecooling::graphs::service::{
     Env, GraphService, NoPower, SensorCall, SensorDone, SensorLink,
 };
@@ -21,17 +23,18 @@ use nicecooling::graphs::view::{
     ApplyError, GraphRow, GraphView, RowState, SharedView, shared_view,
 };
 use nicecooling::i18n::{EN, IT};
-use nicecooling::model::{AppState, DaemonEvent, Link, SensorSample};
+use nicecooling::model::{AppState, DaemonEvent, Link, Response, SensorSample};
 use nicecooling::notify::Plan;
-use nicecooling::screens::format::clock;
+use nicecooling::screens::format::{clock, date_time_seconds};
 use nicecooling::screens::graph_editor::apply::{ApplyState, Leave};
 use nicecooling::screens::graph_editor::canvas::{self, new_flow_state, shape_of};
 use nicecooling::screens::graph_editor::draft::UNDO_LIMIT;
 use nicecooling::screens::graph_editor::live::ValueSource;
 use nicecooling::screens::graph_editor::palette::{ListForm, ListKey};
 use nicecooling::screens::graph_editor::params::{
-    Control, Guide, InputRow, Panel, label_key, pair_key, param_key,
+    Control, Guide, InputRow, Panel, arg_key, label_key, pair_key, param_key,
 };
+use nicecooling::screens::graph_editor::response_panel::{ResponsePanel, TIMING, Warning};
 use nicecooling::screens::graph_editor::try_run::{for_key, test_key};
 use nicecooling::screens::graph_editor::{EditorKey, EditorModel, EditorUi, Selected, editor_key};
 use nicecooling::screens::graphs::{GraphsModel, GraphsState, GraphsUi, LineState};
@@ -46,7 +49,7 @@ use nicecooling_flow::{
 use nicecooling_graph::eval::EndValue;
 use nicecooling_graph::model::{Connection, Family, Graph, Kind, Node, ResponseKind, StoredGraph};
 use serde_json::json;
-use support::fixtures::{full, online, sensor};
+use support::fixtures::{LEAKSHIELD, alarm, full, online, sensor};
 use support::graphs::{Dir, constant_graph};
 use tokio::sync::mpsc::{UnboundedReceiver, unbounded_channel};
 
@@ -854,10 +857,14 @@ fn every_kind_has_a_panel() {
         assert!(!panel.title.is_empty(), "{kind}");
         assert!(!panel.title.contains("graph_editor."), "{kind}");
         assert!(!panel.help.contains("graph_editor."), "{kind}");
-        // One row for each parameter of the table of the engine, in its order.
+        // One row for each parameter of the table of the engine, in its order. A response end
+        // node has the hold time, the repeat and the minimum interval after the others.
         let specs = Node::new(1, kind).param_specs();
         let names: Vec<&str> = panel.rows.iter().map(|row| row.name).collect();
-        let expected: Vec<&str> = specs.iter().map(|spec| spec.name).collect();
+        let mut expected: Vec<&str> = specs.iter().map(|spec| spec.name).collect();
+        if kind == Kind::ResponseEnd {
+            expected.sort_by_key(|name| TIMING.contains(name));
+        }
         assert_eq!(names, expected, "{kind}");
         for row in &panel.rows {
             assert!(!row.label.contains("graph_editor."), "{kind} {}", row.name);
@@ -942,8 +949,11 @@ fn every_kind_has_a_panel() {
         assert_eq!(node.response_kind(), kind);
         let names: Vec<&str> = panel.rows.iter().map(|row| row.name).collect();
         let specs = node.param_specs();
-        let expected: Vec<&str> = specs.iter().map(|spec| spec.name).collect();
+        let mut expected: Vec<&str> = specs.iter().map(|spec| spec.name).collect();
+        expected.sort_by_key(|name| TIMING.contains(name));
         assert_eq!(names, expected, "{}", kind.as_str());
+        assert_eq!(names[0], "kind");
+        assert_eq!(names[names.len() - 3..], TIMING);
         for row in &panel.rows {
             assert!(!row.label.contains("graph_editor."), "{}", row.name);
         }
@@ -1409,6 +1419,20 @@ fn inputs_select_works_with_the_keyboard() {
     assert!(ui.draft.graph().connections.is_empty());
 }
 
+/// A runner that records each run and answers that it worked.
+struct Recorder(Arc<Mutex<Vec<Run>>>);
+
+impl Runner for Recorder {
+    fn start(&mut self, run: &Run) -> Started {
+        self.0.lock().unwrap().push(run.clone());
+        Started::Done(Outcome::Ok)
+    }
+
+    fn finished(&mut self) -> Vec<(String, Outcome)> {
+        Vec::new()
+    }
+}
+
 struct NoScan;
 
 impl ProcessSource for NoScan {
@@ -1489,6 +1513,8 @@ struct Rig {
     clock: SimClock,
     view: SharedView,
     link: FakeLink,
+    /// The responses that the service started.
+    runs: Arc<Mutex<Vec<Run>>>,
     /// The channel of the service: the answer of a call that waited comes here.
     inputs: Inputs,
     dir: Dir,
@@ -1512,6 +1538,7 @@ impl Rig {
         let link = FakeLink::default();
         let (notify, notifications) = unbounded_channel();
         let (channel, inputs) = GraphChannel::new();
+        let runs = Arc::new(Mutex::new(Vec::new()));
         let service = GraphService::new(
             store,
             Env {
@@ -1525,12 +1552,14 @@ impl Rig {
             },
         )
         .with_wall_clock(Box::new(SimWallClock::new(NOW_US)))
+        .with_runner(Box::new(Recorder(runs.clone())))
         .with_answers(channel.answers());
         let mut rig = Self {
             service,
             clock,
             view,
             link,
+            runs,
             inputs,
             dir,
             _notifications: notifications,
@@ -2835,4 +2864,429 @@ fn unbound_source_shows_the_warning_and_apply_stays_on() {
     let face = &model_with(&offline, &view, &ui).nodes[0];
     assert!(!face.warns);
     assert_eq!(face.note, None);
+}
+
+/// The response panel of the editor.
+fn response_of(rig: &Rig, ui: &EditorUi) -> ResponsePanel {
+    panel_of(&rig.shown(), ui)
+        .response
+        .expect("the response panel")
+}
+
+/// A warning with no link.
+fn warning(text: &str) -> Option<Warning> {
+    Some(Warning {
+        text: text.to_owned(),
+        link: None,
+    })
+}
+
+/// A warning with the link "Open Settings".
+fn account_warning(text: &str) -> Option<Warning> {
+    Some(Warning {
+        text: text.to_owned(),
+        link: Some("Open Settings".to_owned()),
+    })
+}
+
+#[test]
+fn poweroff_warning_and_apply_allowed() {
+    let mut rig = Rig::new("editor-poweroff", vec![response_graph("graph_2")]);
+    let state = state_with_x();
+    let mut ui = rig.open("graph_2");
+    // A notification has no warning. A node that is no response end node has no response panel.
+    assert_eq!(response_of(&rig, &ui).warning, None);
+    ui.selected = Some(Selected::Node(1));
+    assert_eq!(panel_of(&rig.shown(), &ui).response, None);
+    ui.selected = None;
+
+    // The kind poweroff shows the warning.
+    assert!(ui.choose_param(2, "kind", "poweroff"));
+    let panel = panel_of(&rig.shown(), &ui);
+    let labels: Vec<&str> = panel.rows.iter().map(|row| row.label.as_str()).collect();
+    assert_eq!(
+        labels,
+        [
+            "Kind",
+            "Countdown",
+            "Hold time",
+            "Repeat every",
+            "Minimum interval"
+        ]
+    );
+    let response = panel.response.expect("the response panel");
+    assert_eq!(
+        response.warning,
+        warning("This response can power off or restart the PC")
+    );
+    assert_eq!(
+        response.run_once_caption,
+        "Runs now with the parameters of the draft. It counts for the Response pause."
+    );
+    assert_eq!(
+        model(&rig.shown(), &ui).nodes[1].subject.as_deref(),
+        Some("Poweroff")
+    );
+
+    // The warning never turns "Apply" off: the app warns and does not refuse.
+    let shown = model_with(&state, &rig.shown(), &ui);
+    assert_eq!(shown.toolbar.rule, None);
+    assert!(shown.toolbar.apply.enabled);
+    apply(&mut rig, &mut ui);
+    assert_eq!(ui.apply.state, ApplyState::Applied { at_us: NOW_US });
+    let stored = rig.service.store().graph("graph_2").expect("the Graph");
+    assert_eq!(
+        stored.response_end().unwrap().response_kind(),
+        ResponseKind::Poweroff
+    );
+    assert!(
+        response_of(&rig, &ui).warning.is_some(),
+        "the warning stays"
+    );
+
+    // Reboot and suspend warn too. A suspend does not count for the Response pause.
+    for kind in ["reboot", "suspend"] {
+        assert!(ui.choose_param(2, "kind", kind));
+        let response = response_of(&rig, &ui);
+        assert_eq!(
+            response.warning,
+            warning("This response can power off or restart the PC")
+        );
+        assert_eq!(
+            response.run_once_caption.ends_with("the Response pause."),
+            kind == "reboot"
+        );
+        assert!(model_with(&state, &rig.shown(), &ui).toolbar.apply.enabled);
+    }
+}
+
+#[test]
+fn command_path_warning() {
+    let rig = Rig::new("editor-command", vec![response_graph("graph_2")]);
+    let state = state_with_x();
+    let mut ui = rig.open("graph_2");
+    assert!(ui.choose_param(2, "kind", "command"));
+    let text = "The program is not an executable file";
+
+    // A path that is no file.
+    assert!(ui.commit_param(2, "path", "/nonexistent/nicecooling-test-program", EN));
+    assert_eq!(response_of(&rig, &ui).warning, warning(text));
+    // The path is absolute, so the draft breaks no rule: the warning does not turn "Apply" off.
+    let shown = model_with(&state, &rig.shown(), &ui);
+    assert_eq!(shown.toolbar.rule, None);
+    assert!(shown.toolbar.apply.enabled);
+
+    // A directory, and a file that nobody can execute.
+    let folder = rig.dir.path().to_str().unwrap().to_owned();
+    assert!(ui.commit_param(2, "path", &folder, EN));
+    assert_eq!(response_of(&rig, &ui).warning, warning(text));
+    let file = rig.dir.path().join("program");
+    std::fs::write(&file, "#!/bin/sh\n").unwrap();
+    std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o644)).unwrap();
+    assert!(ui.commit_param(2, "path", file.to_str().unwrap(), EN));
+    assert_eq!(response_of(&rig, &ui).warning, warning(text));
+
+    // The file is executable: the warning goes.
+    std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o755)).unwrap();
+    assert_eq!(response_of(&rig, &ui).warning, None);
+
+    // A relative path does not commit: the validator needs an absolute path.
+    assert!(!ui.commit_param(2, "path", "bin/program", EN));
+    assert_eq!(
+        error_of(&rig.shown(), &ui, "path").as_deref(),
+        Some("an absolute path")
+    );
+    ui.cancel_field();
+
+    // The arguments: one field each, 32 at most.
+    assert!(ui.add_arg(2));
+    assert!(ui.commit_field(&arg_key(2, 0), "--now", EN));
+    assert!(ui.add_arg(2));
+    assert!(ui.remove_arg(2, 1));
+    let node = ui.draft.graph().node(2).unwrap();
+    assert_eq!(node.param("args"), Some(json!(["--now"])));
+    for _ in 1..32 {
+        assert!(ui.add_arg(2));
+    }
+    assert!(!ui.add_arg(2), "the 33rd argument");
+    match &panel_of(&rig.shown(), &ui).rows[2].control {
+        Control::Args { args, can_add } => {
+            assert_eq!(args.len(), 32);
+            assert!(!can_add);
+        }
+        other => panic!("the arguments are no list: {other:?}"),
+    }
+}
+
+#[test]
+fn no_smtp_account_warning() {
+    let rig = Rig::new("editor-smtp", vec![response_graph("graph_2")]);
+    let state = state_with_x();
+    let mut ui = rig.open("graph_2");
+    assert!(ui.choose_param(2, "kind", "email"));
+
+    // Settings has no SMTP host: the panel warns and offers the link to Settings.
+    let response = response_of(&rig, &ui);
+    assert_eq!(response.warning, account_warning("No SMTP account"));
+    assert_eq!(
+        response.placeholders.as_deref(),
+        Some("Placeholders: {graph}, {time}, {value:label}, {unit:label}")
+    );
+    // The warning does not turn "Apply" off.
+    assert!(ui.commit_param(2, "to", "owner@example.org", EN));
+    let shown = model_with(&state, &rig.shown(), &ui);
+    assert_eq!(shown.toolbar.rule, None);
+    assert!(shown.toolbar.apply.enabled);
+    // An address without "@" does not commit.
+    assert!(!ui.commit_param(2, "to", "owner", EN));
+    assert_eq!(
+        error_of(&rig.shown(), &ui, "to").as_deref(),
+        Some("an e-mail address")
+    );
+    ui.cancel_field();
+
+    // With an SMTP host the warning goes.
+    ui.network.smtp = true;
+    assert_eq!(response_of(&rig, &ui).warning, None);
+    // An MQTT broker is no SMTP account.
+    ui.network.smtp = false;
+    ui.network.mqtt = true;
+    assert!(response_of(&rig, &ui).warning.is_some());
+}
+
+#[test]
+fn no_broker_warning() {
+    let rig = Rig::new("editor-broker", vec![response_graph("graph_2")]);
+    let state = state_with_x();
+    let mut ui = rig.open("graph_2");
+    assert!(ui.choose_param(2, "kind", "mqtt"));
+
+    // Settings has no broker host: the panel warns and offers the link to Settings.
+    let response = response_of(&rig, &ui);
+    assert_eq!(response.warning, account_warning("No MQTT broker"));
+    // The base topic shows before the field "Topic".
+    assert_eq!(response.topic_prefix.as_deref(), Some("nicecooling/"));
+    ui.network.base_topic = "home/pc".to_owned();
+    assert_eq!(
+        response_of(&rig, &ui).topic_prefix.as_deref(),
+        Some("home/pc/")
+    );
+    // The warning does not turn "Apply" off.
+    assert!(ui.commit_param(2, "topic", "alerts/water", EN));
+    let shown = model_with(&state, &rig.shown(), &ui);
+    assert_eq!(shown.toolbar.rule, None);
+    assert!(shown.toolbar.apply.enabled);
+    // A topic with a wildcard does not commit.
+    assert!(!ui.commit_param(2, "topic", "alerts/#", EN));
+    ui.cancel_field();
+
+    // With a broker host the warning goes.
+    ui.network.mqtt = true;
+    assert_eq!(response_of(&rig, &ui).warning, None);
+    // The other kinds have no topic.
+    assert!(ui.choose_param(2, "kind", "sound"));
+    let response = response_of(&rig, &ui);
+    assert_eq!((response.topic_prefix, response.placeholders), (None, None));
+}
+
+#[test]
+fn run_once_button_runs_with_the_draft() {
+    let mut rig = Rig::new("editor-run-once", vec![response_graph("graph_2")]);
+    rig.feed(0.0);
+    rig.ticks(1);
+    let state = state_with_x();
+    let mut ui = rig.open("graph_2");
+    let response = response_of(&rig, &ui);
+    assert_eq!(response.run_once, "Run once");
+    assert_eq!(
+        response.run_once_caption,
+        "Runs now with the parameters of the draft."
+    );
+    assert_eq!(response.run_once_blocked, None);
+
+    // The draft has another title than the stored Graph. "Run once" runs with the draft.
+    assert!(ui.commit_param(2, "title", "Hotter", EN));
+    let command = ui.run_once(&state).expect("the command");
+    assert_eq!(
+        command,
+        Command::Graph(GraphCommand::RunOnce {
+            graph: Box::new(ui.draft.candidate())
+        })
+    );
+    send(&mut rig, command);
+    let runs = rig.runs.lock().unwrap().clone();
+    assert_eq!(runs.len(), 1);
+    assert_eq!(runs[0].node.text("title"), "Hotter");
+    assert_eq!(runs[0].kind, ResponseKind::Notification);
+    // The input of the response is false: the run ignores the state of the node.
+    let stored = rig.service.store().graph("graph_2").expect("the Graph");
+    assert_eq!(stored.response_end().unwrap().text("title"), "Hot");
+    assert!(ui.draft.is_dirty(), "Run once applies nothing");
+
+    // A node that is not applied yet runs with the parameters in the editor.
+    let mut fresh = Graph::new("graph_5", "Graph 5");
+    fresh.nodes = vec![Node::new(1, Kind::ResponseEnd).with_param("title", "New")];
+    let mut new = EditorUi::open(fresh, &rig.shown());
+    let command = new.run_once(&state).expect("the command");
+    send(&mut rig, command);
+    let runs = rig.runs.lock().unwrap().clone();
+    assert_eq!(runs.len(), 2);
+    assert_eq!(runs[1].node.text("title"), "New");
+    assert_eq!(runs[1].graph_name, "Graph 5");
+
+    // While the poweroff countdown of an Alarm runs, "Run once" of a power kind runs nothing.
+    let mut alarmed = state_with_x();
+    alarmed.snapshot.alarms.push(alarm(
+        "a1",
+        "leakshield.leak-alarm",
+        LEAKSHIELD,
+        Response::Poweroff,
+        30,
+    ));
+    assert!(ui.choose_param(2, "kind", "poweroff"));
+    assert_eq!(ui.run_once(&alarmed), None);
+    assert_eq!(
+        response_of(&rig, &ui).run_once_blocked.as_deref(),
+        Some("Not run: the poweroff countdown of an Alarm runs.")
+    );
+    // Without the countdown the same button gives the command, and the caption goes.
+    assert!(ui.run_once(&state).is_some());
+    assert_eq!(response_of(&rig, &ui).run_once_blocked, None);
+    // A response that is no power response runs while the countdown runs.
+    assert!(ui.choose_param(2, "kind", "sound"));
+    assert!(ui.run_once(&alarmed).is_some());
+    // A Graph with a sensor end node has no "Run once".
+    let mut sensor_ui = EditorUi::open(fresh_graph("graph_6"), &rig.shown());
+    assert_eq!(sensor_ui.run_once(&state), None);
+}
+
+#[test]
+fn log_rows_of_the_graph() {
+    let mut rig = Rig::new(
+        "editor-log",
+        vec![response_graph("graph_2"), response_graph("graph_4")],
+    );
+    rig.feed(0.0);
+    rig.ticks(1);
+    let state = state_with_x();
+    let mut ui = rig.open("graph_2");
+    let mut other = rig.open("graph_4");
+
+    // No run yet.
+    let response = response_of(&rig, &ui);
+    assert_eq!(response.runs_title, "Last runs");
+    assert!(response.runs.is_empty());
+    assert_eq!(response.no_run.as_deref(), Some("No run yet."));
+
+    // The Graph runs 3 times, and another Graph runs once.
+    for _ in 0..3 {
+        let command = ui.run_once(&state).expect("the command");
+        send(&mut rig, command);
+    }
+    let command = other.run_once(&state).expect("the command");
+    send(&mut rig, command);
+    assert_eq!(rig.shown().log.len(), 4);
+
+    // The editor shows the 3 rows of its Graph: the time and the outcome.
+    let response = response_of(&rig, &ui);
+    assert_eq!(response.no_run, None);
+    assert_eq!(response.runs.len(), 3);
+    for row in &response.runs {
+        assert_eq!(row.time, date_time_seconds(NOW_US));
+        assert_eq!(row.text, "OK");
+    }
+    assert_eq!(response_of(&rig, &other).runs.len(), 1);
+
+    // A row of another kind than the kind of the draft starts with that kind.
+    assert!(ui.choose_param(2, "kind", "sound"));
+    let response = response_of(&rig, &ui);
+    assert!(
+        response
+            .runs
+            .iter()
+            .all(|row| row.text == "Notification: OK")
+    );
+
+    // The panel shows the newest 20 rows, the newest first.
+    assert!(ui.commit_param(2, "sound", "dialog-warning", EN));
+    for _ in 0..25 {
+        let command = ui.run_once(&state).expect("the command");
+        send(&mut rig, command);
+    }
+    let response = response_of(&rig, &ui);
+    assert_eq!(response.runs.len(), 20);
+    assert!(response.runs.iter().all(|row| row.text == "OK"));
+}
+
+#[test]
+fn power_kinds_default_to_600s_interval() {
+    let rig = Rig::new("editor-interval", vec![response_graph("graph_2")]);
+    let mut ui = rig.open("graph_2");
+    let interval = |ui: &EditorUi| ui.draft.graph().node(2).unwrap().number("min_interval_s");
+    assert_eq!(interval(&ui), 0.0);
+    assert!(ui.commit_param(2, "hold_s", "10", EN));
+
+    // A change of the kind to poweroff, reboot or suspend sets the minimum interval to 600 s.
+    for kind in ["poweroff", "reboot", "suspend"] {
+        assert!(ui.choose_param(2, "kind", "notification") || kind == "poweroff");
+        assert_eq!(interval(&ui), 0.0, "notification before {kind}");
+        assert!(ui.choose_param(2, "kind", kind));
+        assert_eq!(interval(&ui), 600.0, "{kind}");
+        let node = ui.draft.graph().node(2).unwrap();
+        // The countdown has its default, and the hold time stays.
+        assert_eq!(node.number("countdown_s"), 30.0);
+        assert_eq!(node.number("hold_s"), 10.0);
+    }
+    let panel = panel_of(&rig.shown(), &ui);
+    let row = panel.rows.iter().find(|row| row.name == "min_interval_s");
+    assert_eq!(
+        row.expect("the row").control,
+        Control::Field {
+            text: "600".to_owned(),
+            unit: Some("s".to_owned())
+        }
+    );
+
+    // The user can set another interval. A change to another kind sets it to 0 s.
+    assert!(ui.commit_param(2, "min_interval_s", "120", EN));
+    assert_eq!(interval(&ui), 120.0);
+    assert!(ui.choose_param(2, "kind", "sound"));
+    assert_eq!(interval(&ui), 0.0);
+    // One Ctrl+Z gives back the kind with its interval.
+    assert!(ui.undo());
+    let node = ui.draft.graph().node(2).unwrap();
+    assert_eq!(node.response_kind(), ResponseKind::Suspend);
+    assert_eq!(node.number("min_interval_s"), 120.0);
+    assert!(!ui.commit_param(2, "min_interval_s", "86401", EN));
+    assert!(!ui.commit_param(2, "hold_s", "3601", EN));
+    ui.cancel_field();
+
+    // "Repeat every" is off at first. The switch gives it 60 s, and off stores no value.
+    let repeat = |ui: &EditorUi| {
+        let panel = panel_of(&rig.shown(), ui);
+        let row = panel.rows.iter().find(|row| row.name == "repeat_s");
+        row.expect("the row").control.clone()
+    };
+    let off = Control::Optional {
+        on: false,
+        text: String::new(),
+    };
+    assert_eq!(repeat(&ui), off);
+    assert!(ui.switch_param(2, "repeat_s", true));
+    assert_eq!(
+        repeat(&ui),
+        Control::Optional {
+            on: true,
+            text: "60".to_owned()
+        }
+    );
+    assert!(ui.commit_param(2, "repeat_s", "300", EN));
+    assert!(!ui.commit_param(2, "repeat_s", "0", EN));
+    assert_eq!(ui.draft.graph().node(2).unwrap().number("repeat_s"), 300.0);
+    assert!(ui.switch_param(2, "repeat_s", false));
+    assert_eq!(repeat(&ui), off);
+    assert_eq!(
+        ui.draft.graph().node(2).unwrap().param("repeat_s"),
+        Some(serde_json::Value::Null)
+    );
 }

@@ -23,6 +23,7 @@ use super::canvas::{
     view_centre,
 };
 use super::palette::{ListForm, ListKey, ListRow, NodeList, family_key};
+use super::response_panel::Network;
 use super::{EditorKey, EditorModel, EditorUi, Selected, editor_key};
 use crate::app::{LeaveRequest, now_us};
 use crate::command::Command;
@@ -500,6 +501,15 @@ impl ScreenView {
         };
         host.ui.zoom = zoom;
         host.ui.view_centre = centre;
+        // The response panel warns when Settings has no SMTP account or no MQTT broker.
+        host.ui.network = {
+            let settings = &app.read(cx).settings.values;
+            Network {
+                smtp: !settings.smtp.host.is_empty(),
+                mqtt: !settings.mqtt.host.is_empty(),
+                base_topic: settings.mqtt.base_topic.clone(),
+            }
+        };
         // One read of the node values per second, while the editor shows.
         if let Some(source) = app.read(cx).graph_view.clone() {
             let graph = host.ui.draft.graph().id.clone();

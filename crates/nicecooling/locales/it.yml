@@ -1071,6 +1071,29 @@ graph_editor:
   offline: "Il demone è offline. Il sensore Grafo ha bisogno del demone."
   not_applied_reason: "Non applicato: %{reason}."
   not_applied_curve: "Non applicato: la Curva di %{name} usa il sensore Grafo."
+  response:
+    warning:
+      power: "Questa risposta può spegnere o riavviare il PC"
+      command: "Il programma non è un file eseguibile"
+      smtp: "Nessun account SMTP"
+      mqtt: "Nessun broker MQTT"
+    open_settings: "Apri Impostazioni"
+    repeat_off: "No"
+    run_once: "Esegui una volta"
+    run_once_caption: "Esegue ora con i parametri della bozza."
+    run_once_counts: "Conta per la Pausa delle risposte."
+    run_once_blocked: "Non eseguita: è in corso il conto alla rovescia di spegnimento di un Allarme."
+    last_runs: "Ultime esecuzioni"
+    no_run: "Nessuna esecuzione."
+    outcome:
+      ok: "OK"
+      failed: "Fallita"
+      timeout: "Timeout"
+      not_configured: "Non configurata"
+      busy: "Occupata"
+      cancelled: "Annullata"
+    other_kind: "%{kind}: %{outcome}"
+    placeholders: "Segnaposto: {graph}, {time}, {value:label}, {unit:label}"
 alarms:
   active:
     title: Attivi

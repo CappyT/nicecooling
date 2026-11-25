@@ -1071,6 +1071,29 @@ graph_editor:
   offline: "Le démon est hors ligne. Le capteur Graphe a besoin du démon."
   not_applied_reason: "Non appliqué : %{reason}."
   not_applied_curve: "Non appliqué : la Courbe de %{name} utilise le capteur Graphe."
+  response:
+    warning:
+      power: "Cette réponse peut éteindre ou redémarrer le PC"
+      command: "Le programme n'est pas un fichier exécutable"
+      smtp: "Aucun compte SMTP"
+      mqtt: "Aucun broker MQTT"
+    open_settings: "Ouvrir les Paramètres"
+    repeat_off: "Non"
+    run_once: "Exécuter une fois"
+    run_once_caption: "Exécute maintenant avec les paramètres du brouillon."
+    run_once_counts: "Cela compte pour la Pause des réponses."
+    run_once_blocked: "Non exécutée : le compte à rebours d'extinction d'une Alarme est en cours."
+    last_runs: "Dernières exécutions"
+    no_run: "Aucune exécution."
+    outcome:
+      ok: "OK"
+      failed: "Échec"
+      timeout: "Délai dépassé"
+      not_configured: "Non configurée"
+      busy: "Occupée"
+      cancelled: "Annulée"
+    other_kind: "%{kind} : %{outcome}"
+    placeholders: "Variables : {graph}, {time}, {value:label}, {unit:label}"
 alarms:
   active:
     title: Actives
