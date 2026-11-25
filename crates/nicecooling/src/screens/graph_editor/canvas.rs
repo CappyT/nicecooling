@@ -216,7 +216,7 @@ pub fn value_text(locale: Locale, value: f64) -> String {
 }
 
 /// The main parameter of a node, for its title row.
-fn detail_of(node: &Node, locale: Locale) -> Option<String> {
+pub(crate) fn detail_of(node: &Node, locale: Locale) -> Option<String> {
     let seconds = |name: &str| {
         locale.fmt(
             "graph_editor.title.seconds",

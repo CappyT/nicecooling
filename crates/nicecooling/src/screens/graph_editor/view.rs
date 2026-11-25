@@ -11,6 +11,7 @@ use gpui::{
     Point, Rems, Render, SharedString, Window, div, px, rems,
 };
 use gpui_component::button::ButtonVariants as _;
+use gpui_component::input::InputState;
 use gpui_component::{Disableable as _, Selectable as _, h_flex, v_flex};
 use nicecooling_flow::{FlowEvent, FlowGraph, FlowNode, FlowState};
 use nicecooling_graph::model::Kind;
@@ -64,6 +65,8 @@ pub(crate) struct EditorHost {
     list_focus: FocusHandle,
     /// The focus of the button "Add node": Escape in the popover gives the focus back to it.
     add_focus: FocusHandle,
+    /// The focus of the parameter panel: Enter on the canvas moves the focus there.
+    pub(super) panel_focus: FocusHandle,
 }
 
 /// A color of the palette as 0xRRGGBB, for the canvas.
@@ -394,6 +397,7 @@ impl ScreenView {
             events: Vec::new(),
             list_focus: cx.focus_handle().tab_stop(true),
             add_focus: cx.focus_handle().tab_stop(true),
+            panel_focus: cx.focus_handle(),
         });
     }
 
@@ -502,6 +506,10 @@ impl ScreenView {
                 .child(self.graph_node_list(&model.list, p, window, cx))
         });
         let canvas = self.graph_canvas(&model, p, cx);
+        let panel = model
+            .panel
+            .as_ref()
+            .map(|panel| self.graph_panel(panel, p, window, cx));
         v_flex()
             .id("graph-editor")
             .size_full()
@@ -524,7 +532,8 @@ impl ScreenView {
                     .min_h_0()
                     .w_full()
                     .children(list)
-                    .child(canvas),
+                    .child(canvas)
+                    .children(panel),
             )
             .into_any_element()
     }
@@ -863,24 +872,48 @@ impl ScreenView {
         .into_any_element()
     }
 
-    /// A text input of the editor. `field` names the control.
+    /// A text input of the editor. `field` names the control. A field of the parameter panel
+    /// commits on Enter and when it loses the focus. A value outside its range does not commit:
+    /// the field keeps the focus and its text.
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn on_graph_input(
         &mut self,
         field: &str,
         value: &str,
         changes: bool,
         commits: bool,
+        state: &Entity<InputState>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
     ) {
+        let locale = self.model.read(cx).locale;
         let Some(host) = self.graph_editor.as_mut() else {
             return;
         };
         match field {
-            "search" if changes => {
-                host.ui.list.search = value.to_owned();
-                host.ui.list.cursor = None;
+            "search" => {
+                if changes {
+                    host.ui.list.search = value.to_owned();
+                    host.ui.list.cursor = None;
+                }
             }
-            "name" if commits => {
-                host.ui.draft.set_name(value.trim());
+            "name" => {
+                if commits {
+                    host.ui.draft.set_name(value.trim());
+                }
+            }
+            _ if commits => {
+                let refused = !host.ui.commit_field(field, value, locale)
+                    && host
+                        .ui
+                        .field_error
+                        .as_ref()
+                        .is_some_and(|(key, _)| key == field);
+                if refused {
+                    self.edited = Some(InputKey::Graph(field.to_owned()));
+                    let focus = gpui::Focusable::focus_handle(state.read(cx), cx);
+                    window.focus(&focus, cx);
+                }
             }
             _ => {}
         }
@@ -896,14 +929,25 @@ impl ScreenView {
     }
 
     /// A key on the canvas, before the canvas gets it. An arrow key selects the nearest node in
-    /// that direction, and Alt with an arrow key moves the selected node. Escape clears the
-    /// selection. Returns whether the editor took the key.
-    fn graph_canvas_key(&mut self, event: &KeyDownEvent, cx: &mut Context<Self>) -> bool {
+    /// that direction, and Alt with an arrow key moves the selected node. Enter moves the focus
+    /// to the parameter panel, and Escape clears the selection. Returns whether the editor took
+    /// the key.
+    fn graph_canvas_key(
+        &mut self,
+        event: &KeyDownEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
         let keys = &event.keystroke;
         let Some(host) = self.graph_editor.as_mut() else {
             return false;
         };
         let direction = match keys.key.as_str() {
+            // Enter moves the focus to the parameter panel.
+            "enter" if !keys.modifiers.modified() => {
+                window.focus(&host.panel_focus, cx);
+                return true;
+            }
             "left" => (-1, 0),
             "right" => (1, 0),
             "up" => (0, -1),
@@ -1012,7 +1056,8 @@ impl ScreenView {
                     if !canvas_focus.is_focused(window) {
                         return;
                     }
-                    let handled = view.update(cx, |this, cx| this.graph_canvas_key(event, cx));
+                    let handled =
+                        view.update(cx, |this, cx| this.graph_canvas_key(event, window, cx));
                     if handled {
                         cx.stop_propagation();
                     }

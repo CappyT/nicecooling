@@ -65,6 +65,11 @@ impl ScreenView {
             InputKey::LoopRename => self.loops.rename = None,
             InputKey::ProfileRename => self.profiles.rename = None,
             InputKey::Network(_) => self.network.refused = None,
+            InputKey::Graph(_) => {
+                if let Some(host) = self.graph_editor.as_mut() {
+                    host.ui.cancel_field();
+                }
+            }
             _ => {}
         }
     }
@@ -233,7 +238,9 @@ impl ScreenView {
                 }
             }
             InputKey::Ls(name) => self.on_ls_input(name, &value, changes, commits, cx),
-            InputKey::Graph(field) => self.on_graph_input(field, &value, changes, commits),
+            InputKey::Graph(field) => {
+                self.on_graph_input(field, &value, changes, commits, state, window, cx);
+            }
             // Enter commits a password input that the user did not type in: empty clears.
             InputKey::Network(field) if commits && (edited || field.is_password()) => {
                 self.commit_network(*field, &value, state, window, cx);

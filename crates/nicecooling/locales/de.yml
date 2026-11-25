@@ -1014,6 +1014,40 @@ graph_editor:
     enable: "Freigabe"
     reset: "Reset"
     period: "Periode"
+  panel:
+    label_caption: "Ein Label benennt den Knoten in einer Nachricht: {value:water}."
+    inputs: "Eingänge"
+    none: "Keiner"
+    none_default: "Keiner, %{value}"
+    delete_node: "Knoten löschen"
+    created_at_apply: "Wird beim Anwenden erstellt"
+    used_by: "Verwendet von"
+    not_used: "Nicht verwendet"
+    used:
+      curve: "Kurve von %{name}"
+      loop: "Loop %{name}"
+      derived: "Abgeleiteter Sensor %{name}"
+    add_pair: "Paar hinzufügen"
+    remove_pair: "Paar entfernen"
+    pair_in: "Eingang"
+    pair_out: "Ausgang"
+    add_argument: "Argument hinzufügen"
+    remove_argument: "Argument entfernen"
+    choose: "Wählen"
+    seconds: "s"
+    guide:
+      minimum: "Minimum %{value}"
+      maximum: "Maximum %{value}"
+      input: "A %{value}"
+  choice:
+    nearest: "Nächster Wert"
+    down: "Abrunden"
+    up: "Aufrunden"
+    linear: "Linear"
+    step: "Stufen"
+    low: "Niedrig"
+    normal: "Normal"
+    critical: "Kritisch"
 alarms:
   active:
     title: Aktiv

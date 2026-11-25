@@ -1014,6 +1014,40 @@ graph_editor:
     enable: "Abilita"
     reset: "Reset"
     period: "Periodo"
+  panel:
+    label_caption: "Un'etichetta dà un nome al nodo in un messaggio: {value:water}."
+    inputs: "Ingressi"
+    none: "Nessuno"
+    none_default: "Nessuno, %{value}"
+    delete_node: "Elimina nodo"
+    created_at_apply: "Creato all'applicazione"
+    used_by: "Usato da"
+    not_used: "Non usato"
+    used:
+      curve: "Curva di %{name}"
+      loop: "Loop %{name}"
+      derived: "Sensore derivato %{name}"
+    add_pair: "Aggiungi coppia"
+    remove_pair: "Rimuovi coppia"
+    pair_in: "Ingresso"
+    pair_out: "Uscita"
+    add_argument: "Aggiungi argomento"
+    remove_argument: "Rimuovi argomento"
+    choose: "Scegli"
+    seconds: "s"
+    guide:
+      minimum: "Minimo %{value}"
+      maximum: "Massimo %{value}"
+      input: "A %{value}"
+  choice:
+    nearest: "Più vicino"
+    down: "Per difetto"
+    up: "Per eccesso"
+    linear: "Lineare"
+    step: "A gradini"
+    low: "Bassa"
+    normal: "Normale"
+    critical: "Critica"
 alarms:
   active:
     title: Attivi

@@ -8,6 +8,8 @@
 pub mod canvas;
 pub mod draft;
 pub mod palette;
+pub(crate) mod panel_view;
+pub mod params;
 pub mod rules;
 pub(crate) mod view;
 
@@ -17,6 +19,7 @@ use nicecooling_graph::validate::validate;
 use self::canvas::{EdgeFace, NodeFace, edge_faces, node_faces};
 use self::draft::Draft;
 use self::palette::{ListForm, ListUi, NodeList, node_list};
+use self::params::{Panel, panel};
 use self::rules::first_rule_text;
 use crate::graphs::view::{GraphRow, GraphView};
 use crate::i18n::Locale;
@@ -93,6 +96,9 @@ pub struct EditorUi {
     /// The reason that the canvas gave for the last refused connection, and the time until
     /// which the status line shows it, in microseconds since the Unix epoch.
     pub refused: Option<(String, u64)>,
+    /// The key of the field that holds a value that did not commit, and the range that the
+    /// panel shows under it.
+    pub field_error: Option<(String, String)>,
 }
 
 impl EditorUi {
@@ -107,6 +113,7 @@ impl EditorUi {
             view_centre: (0.0, 0.0),
             zoom: 1.0,
             refused: None,
+            field_error: None,
         }
     }
 
@@ -213,6 +220,8 @@ pub struct EditorModel {
     pub status: StatusLine,
     /// The text in the middle of the canvas of a Graph that has its end node only.
     pub hint: Option<String>,
+    /// The parameter panel: the selected node, or the end node.
+    pub panel: Option<Panel>,
 }
 
 impl EditorModel {
@@ -244,6 +253,7 @@ impl EditorModel {
                 zoom: locale.fmt("graph_editor.canvas.zoom", &[("percent", &percent)]),
             },
             hint,
+            panel: panel(input, ui),
             toolbar: Toolbar {
                 back: locale.tr("nav.graphs"),
                 name: ui.draft.graph().name.clone(),

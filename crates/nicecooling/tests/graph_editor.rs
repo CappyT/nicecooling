@@ -12,15 +12,18 @@ use nicecooling::model::AppState;
 use nicecooling::screens::graph_editor::canvas::{self, new_flow_state, shape_of};
 use nicecooling::screens::graph_editor::draft::UNDO_LIMIT;
 use nicecooling::screens::graph_editor::palette::{ListForm, ListKey};
+use nicecooling::screens::graph_editor::params::{
+    Control, Guide, InputRow, Panel, label_key, pair_key, param_key,
+};
 use nicecooling::screens::graph_editor::{EditorKey, EditorModel, EditorUi, Selected, editor_key};
 use nicecooling::screens::{Feedback, ScreenInput};
 use nicecooling_flow::{
     ConnectOutcome, FlowNodeId, FlowState, HandlePosition, HandleType, Selection, Viewport,
 };
 use nicecooling_graph::eval::EndValue;
-use nicecooling_graph::model::{Connection, Family, Graph, Kind, Node, StoredGraph};
+use nicecooling_graph::model::{Connection, Family, Graph, Kind, Node, ResponseKind, StoredGraph};
 use serde_json::json;
-use support::fixtures::online;
+use support::fixtures::{full, online, sensor};
 use support::graphs::constant_graph;
 
 /// The wall clock of the tests: 2025-12-17 19:33:20 UTC.
@@ -789,4 +792,595 @@ fn drag_from_the_popover_adds_no_node() {
     assert_eq!(kinds_of(&ui), [Kind::Constant, Kind::SensorEnd]);
     assert_eq!(ui.draft.undo_steps(), 0);
     assert!(ui.list.open);
+}
+
+/// The parameter panel of the editor.
+fn panel_of(view: &GraphView, ui: &EditorUi) -> Panel {
+    model(view, ui).panel.expect("the panel")
+}
+
+/// The editor on a Graph with one node of `kind` as node 1. Every kind but an end kind gets a
+/// sensor end node as node 2. Node 1 is selected.
+fn open_kind(kind: Kind) -> (EditorUi, GraphView) {
+    let mut graph = Graph::new("graph_1", "Kinds");
+    graph.nodes = vec![Node::new(1, kind)];
+    if !kind.is_end() {
+        graph.nodes.push(Node::new(2, Kind::SensorEnd));
+    }
+    let view = view_of(&[]);
+    let mut ui = EditorUi::open(graph, &view);
+    ui.selected = Some(Selected::Node(1));
+    (ui, view)
+}
+
+/// The range that the panel shows under the field of the parameter `name`.
+fn error_of(view: &GraphView, ui: &EditorUi, name: &str) -> Option<String> {
+    let panel = panel_of(view, ui);
+    let row = panel.rows.iter().find(|row| row.name == name);
+    row.expect("the parameter").error.clone()
+}
+
+#[test]
+fn every_kind_has_a_panel() {
+    assert_eq!(Kind::ALL.len(), 51);
+    for kind in Kind::ALL.iter().copied() {
+        let (ui, view) = open_kind(kind);
+        let panel = panel_of(&view, &ui);
+        assert_eq!((panel.node, panel.kind), (1, kind));
+        assert!(!panel.title.is_empty(), "{kind}");
+        assert!(!panel.title.contains("graph_editor."), "{kind}");
+        assert!(!panel.help.contains("graph_editor."), "{kind}");
+        // One row for each parameter of the table of the engine, in its order.
+        let specs = Node::new(1, kind).param_specs();
+        let names: Vec<&str> = panel.rows.iter().map(|row| row.name).collect();
+        let expected: Vec<&str> = specs.iter().map(|spec| spec.name).collect();
+        assert_eq!(names, expected, "{kind}");
+        for row in &panel.rows {
+            assert!(!row.label.contains("graph_editor."), "{kind} {}", row.name);
+            assert_eq!(row.error, None);
+        }
+        assert_eq!(panel.inputs.len(), kind.inputs().len(), "{kind}");
+        assert_eq!(panel.inputs_title, "Inputs");
+        // An end node has no label and no "Delete node".
+        assert_eq!(panel.label.is_some(), !kind.is_end(), "{kind}");
+        assert_eq!(panel.delete.is_some(), !kind.is_end(), "{kind}");
+        assert_eq!(panel.end.is_some(), kind.is_end(), "{kind}");
+        assert_eq!(panel.family.is_some(), !kind.is_end(), "{kind}");
+        assert_eq!(panel.sensor.is_some(), kind == Kind::SensorEnd, "{kind}");
+        let guided = matches!(kind, Kind::Limiter | Kind::Table);
+        assert_eq!(panel.guide.is_some(), guided, "{kind}");
+    }
+
+    // The header of a node and of an end node.
+    let (mut ui, view) = open_kind(Kind::Limiter);
+    let panel = panel_of(&view, &ui);
+    assert_eq!(panel.title, "Limiter");
+    assert_eq!(panel.family.as_deref(), Some("Math"));
+    assert_eq!(panel.help, "Holds A between the minimum and the maximum.");
+    assert_eq!(panel.delete.as_deref(), Some("Delete node"));
+    let label = panel.label.expect("the label");
+    assert_eq!(label.label, "Label");
+    assert_eq!(
+        label.caption,
+        "A label names the node in a message: {value:water}."
+    );
+    let labels: Vec<&str> = panel.rows.iter().map(|row| row.label.as_str()).collect();
+    assert_eq!(labels, ["Minimum", "Maximum"]);
+    assert_eq!(
+        panel.rows[0].control,
+        Control::Field {
+            text: "-100".to_owned(),
+            unit: None
+        }
+    );
+    match panel.guide {
+        Some(Guide::Band {
+            minimum, maximum, ..
+        }) => assert_eq!(
+            (minimum.as_str(), maximum.as_str()),
+            ("Minimum -100", "Maximum 100")
+        ),
+        other => panic!("no band guide: {other:?}"),
+    }
+    // With no selection the panel shows the end node.
+    ui.selected = None;
+    let panel = panel_of(&view, &ui);
+    assert_eq!((panel.node, panel.title.as_str()), (2, "End node"));
+    let end = panel.end.expect("the end switch");
+    assert_eq!(
+        (end.sensor.as_str(), end.response.as_str()),
+        ("Sensor", "Response")
+    );
+    assert!(end.is_sensor);
+    let sensor = panel.sensor.expect("the Graph sensor");
+    assert_eq!(
+        (sensor.label.as_str(), sensor.id.as_str()),
+        ("Graph sensor", "Created at Apply")
+    );
+    assert!(!sensor.has_id);
+    assert_eq!(sensor.used, ["Not used"]);
+    match &panel.rows[0].control {
+        Control::Select { shown, choices } => {
+            assert_eq!(shown, "°C");
+            let units: Vec<&str> = choices.iter().map(|(_, text, _)| text.as_str()).collect();
+            assert_eq!(units, ["°C", "rpm", "%", "V", "A", "W", "L/h", "mbar"]);
+        }
+        other => panic!("the unit is no select: {other:?}"),
+    }
+
+    // The segmented control changes the kind of the end node. Each of the 8 response kinds has
+    // the rows of its parameters.
+    assert!(ui.draft.set_end_kind(Kind::ResponseEnd));
+    for kind in ResponseKind::ALL {
+        ui.choose_param(2, "kind", kind.as_str());
+        let panel = panel_of(&view, &ui);
+        let node = ui.draft.graph().node(2).unwrap();
+        assert_eq!(node.response_kind(), kind);
+        let names: Vec<&str> = panel.rows.iter().map(|row| row.name).collect();
+        let specs = node.param_specs();
+        let expected: Vec<&str> = specs.iter().map(|spec| spec.name).collect();
+        assert_eq!(names, expected, "{}", kind.as_str());
+        for row in &panel.rows {
+            assert!(!row.label.contains("graph_editor."), "{}", row.name);
+        }
+    }
+
+    // The controls of the other parameter types.
+    let (ui, view) = open_kind(Kind::Round);
+    match &panel_of(&view, &ui).rows[1].control {
+        Control::Select { shown, choices } => {
+            assert_eq!(shown, "Nearest");
+            let texts: Vec<&str> = choices.iter().map(|(_, text, _)| text.as_str()).collect();
+            assert_eq!(texts, ["Nearest", "Down", "Up"]);
+        }
+        other => panic!("the mode is no select: {other:?}"),
+    }
+    let (ui, view) = open_kind(Kind::RiseDelay);
+    assert_eq!(
+        panel_of(&view, &ui).rows[0].control,
+        Control::Field {
+            text: "1".to_owned(),
+            unit: Some("s".to_owned())
+        }
+    );
+}
+
+#[test]
+fn fields_enforce_the_ranges() {
+    let (mut ui, view) = open_kind(Kind::RiseDelay);
+    for text in ["3601", "-1", "1.5", "abc", ""] {
+        assert!(!ui.commit_param(1, "delay_s", text, EN), "{text}");
+        // The value does not commit, and the panel shows the range under the field.
+        assert_eq!(ui.draft.graph().node(1).unwrap().number("delay_s"), 1.0);
+        assert_eq!(ui.draft.undo_steps(), 0);
+        assert_eq!(
+            error_of(&view, &ui, "delay_s").as_deref(),
+            Some("0 to 3600 s")
+        );
+    }
+    assert!(ui.commit_param(1, "delay_s", "3600", EN));
+    assert_eq!(ui.draft.graph().node(1).unwrap().number("delay_s"), 3600.0);
+    assert_eq!(error_of(&view, &ui, "delay_s"), None);
+    assert_eq!(ui.draft.undo_steps(), 1);
+    // The field of a parameter commits by its key, as the window does it.
+    assert!(ui.commit_field(&param_key(1, "delay_s"), "20", EN));
+    assert_eq!(ui.draft.graph().node(1).unwrap().number("delay_s"), 20.0);
+    assert!(!ui.commit_field(&param_key(1, "delay_s"), "99999", EN));
+
+    // A number with decimals takes a comma or a point.
+    let (mut ui, view) = open_kind(Kind::LowPass);
+    assert!(!ui.commit_param(1, "damping", "100", EN));
+    assert_eq!(
+        error_of(&view, &ui, "damping").as_deref(),
+        Some("0 to 99.99")
+    );
+    assert!(ui.commit_param(1, "damping", "99,5", EN));
+    assert_eq!(ui.draft.graph().node(1).unwrap().number("damping"), 99.5);
+    assert!(!ui.commit_param(1, "span_s", "1801", EN));
+    assert_eq!(
+        error_of(&view, &ui, "span_s").as_deref(),
+        Some("1 to 1800 s")
+    );
+
+    let (mut ui, view) = open_kind(Kind::Round);
+    assert!(!ui.commit_param(1, "decimals", "9", EN));
+    assert_eq!(error_of(&view, &ui, "decimals").as_deref(), Some("0 to 8"));
+    assert!(ui.commit_param(1, "decimals", "8", EN));
+
+    // A number without a range takes any finite number.
+    let (mut ui, view) = open_kind(Kind::Constant);
+    assert!(!ui.commit_param(1, "value", "1e400", EN));
+    assert_eq!(error_of(&view, &ui, "value").as_deref(), Some("a number"));
+    assert!(ui.commit_param(1, "value", "-3.25", EN));
+    assert_eq!(ui.draft.graph().node(1).unwrap().number("value"), -3.25);
+
+    let (mut ui, view) = open_kind(Kind::Comment);
+    assert!(!ui.commit_param(1, "width", "59", EN));
+    assert_eq!(error_of(&view, &ui, "width").as_deref(), Some("60 to 800"));
+
+    // A text has a count of characters.
+    let (mut ui, view) = open_kind(Kind::Process);
+    assert!(!ui.commit_param(1, "name", "", EN));
+    assert_eq!(
+        error_of(&view, &ui, "name").as_deref(),
+        Some("1 to 255 characters")
+    );
+    assert!(ui.commit_param(1, "name", "blender", EN));
+
+    // The label: 1 to 32 characters of letters, digits and "_". An empty text removes it.
+    assert!(!ui.commit_field(&label_key(1), "two words", EN));
+    let label = panel_of(&view, &ui).label.expect("the label");
+    assert_eq!(
+        label.error.as_deref(),
+        Some("1 to 32 letters, digits and _")
+    );
+    assert_eq!(ui.draft.graph().node(1).unwrap().label, None);
+    assert!(ui.commit_field(&label_key(1), "render_1", EN));
+    assert_eq!(
+        ui.draft.graph().node(1).unwrap().label.as_deref(),
+        Some("render_1")
+    );
+    assert!(ui.commit_label(1, "", EN));
+    assert_eq!(ui.draft.graph().node(1).unwrap().label, None);
+
+    // The countdown of a power response: 10 to 3600 s.
+    let (mut ui, view) = open_kind(Kind::ResponseEnd);
+    ui.choose_param(1, "kind", "poweroff");
+    assert!(!ui.commit_param(1, "countdown_s", "5", EN));
+    assert_eq!(
+        error_of(&view, &ui, "countdown_s").as_deref(),
+        Some("10 to 3600 s")
+    );
+    assert!(ui.commit_param(1, "countdown_s", "10", EN));
+}
+
+#[test]
+fn table_pairs_editor_takes_2_to_64_pairs() {
+    let (mut ui, view) = open_kind(Kind::Table);
+    let pairs_of = |view: &GraphView, ui: &EditorUi| match &panel_of(view, ui).rows[1].control {
+        Control::Pairs {
+            pairs,
+            can_add,
+            can_remove,
+        } => (pairs.clone(), *can_add, *can_remove),
+        other => panic!("the pairs are no pair editor: {other:?}"),
+    };
+    // A new Table has the pairs (-100, -100) and (100, 100): none can go.
+    let (pairs, can_add, can_remove) = pairs_of(&view, &ui);
+    let text = |a: &str, b: &str| (a.to_owned(), b.to_owned());
+    assert_eq!(pairs, [text("-100", "-100"), text("100", "100")]);
+    assert!(can_add && !can_remove);
+    assert!(!ui.remove_pair(1, 0));
+    assert_eq!(ui.draft.undo_steps(), 0);
+
+    // One number of a pair is one undo step.
+    assert!(ui.commit_field(&pair_key(1, 1, 1), "42,5", EN));
+    assert_eq!(
+        ui.draft.graph().node(1).unwrap().pairs(),
+        [(-100.0, -100.0), (100.0, 42.5)]
+    );
+    assert_eq!(ui.draft.undo_steps(), 1);
+    assert!(!ui.commit_field(&pair_key(1, 0, 0), "low", EN));
+    assert_eq!(ui.draft.undo_steps(), 1);
+
+    // A new pair has an input above every input. The table takes 64 pairs.
+    assert!(ui.add_pair(1));
+    assert_eq!(ui.draft.graph().node(1).unwrap().pairs()[2], (101.0, 42.5));
+    assert!(ui.remove_pair(1, 2));
+    for _ in 0..62 {
+        assert!(ui.add_pair(1));
+    }
+    assert_eq!(ui.draft.graph().node(1).unwrap().pairs().len(), 64);
+    let (pairs, can_add, can_remove) = pairs_of(&view, &ui);
+    assert_eq!(pairs.len(), 64);
+    assert!(!can_add && can_remove);
+    assert!(!ui.add_pair(1), "the 65th pair");
+    assert_eq!(model(&view, &ui).toolbar.rule, None, "64 pairs are valid");
+    assert_eq!(
+        model(&view, &ui).nodes[0].detail.as_deref(),
+        Some("64 pairs")
+    );
+
+    // The guide of the panel has the pairs in the order of their inputs.
+    match panel_of(&view, &ui).guide {
+        Some(Guide::Table { pairs, step, .. }) => {
+            assert_eq!(pairs.len(), 64);
+            assert!(pairs.windows(2).all(|pair| pair[0].0 < pair[1].0));
+            assert!(!step);
+        }
+        other => panic!("no table guide: {other:?}"),
+    }
+}
+
+#[test]
+fn sensor_picker_lists_graph_sensors() {
+    let mut state = full();
+    for (id, name, origin) in [
+        ("graph_1", "Render temperature", "graph"),
+        ("derived_1", "Hottest core", "derived"),
+    ] {
+        state.snapshot.sensors.insert(
+            id.to_owned(),
+            sensor(id, name, "temperature", "degC", origin, ""),
+        );
+    }
+    let (mut ui, view) = open_kind(Kind::SensorSource);
+    let choices_of =
+        |ui: &EditorUi| match &model_with(&state, &view, ui).panel.unwrap().rows[0].control {
+            Control::Sensor { shown, choices } => (shown.clone(), choices.clone()),
+            other => panic!("the sensor is no picker: {other:?}"),
+        };
+
+    // Every sensor of the daemon: measured, Derived and Graph sensors.
+    let (shown, choices) = choices_of(&ui);
+    assert_eq!(shown, "Choose");
+    assert_eq!(choices.len(), state.snapshot.sensors.len());
+    let graph_sensor = choices.iter().find(|c| c.id == "graph_1").unwrap();
+    assert_eq!(graph_sensor.name, "Render temperature");
+    assert_eq!(graph_sensor.caption, "graph");
+    assert_eq!(graph_sensor.value, "--");
+    assert!(!graph_sensor.selected);
+    let derived = choices.iter().find(|c| c.id == "derived_1").unwrap();
+    assert_eq!(derived.caption, "derived");
+    assert!(choices.iter().any(|c| c.id == "nct6798_temp1"));
+
+    // A choice is one undo step, and the node shows the name of the sensor.
+    assert!(ui.choose_param(1, "sensor", "graph_1"));
+    assert_eq!(ui.draft.undo_steps(), 1);
+    assert_eq!(ui.draft.graph().node(1).unwrap().text("sensor"), "graph_1");
+    let (shown, choices) = choices_of(&ui);
+    assert_eq!(shown, "Render temperature");
+    assert!(choices.iter().find(|c| c.id == "graph_1").unwrap().selected);
+    let face = &model_with(&state, &view, &ui).nodes[0];
+    assert_eq!(face.subject.as_deref(), Some("Render temperature"));
+    assert_eq!(face.unit.as_deref(), Some("°C"));
+}
+
+#[test]
+fn escape_keeps_the_old_value() {
+    let (mut ui, view) = open_kind(Kind::FallDelay);
+    assert!(ui.commit_param(1, "delay_s", "10", EN));
+
+    // A value that did not commit: the field keeps it, and the draft keeps the earlier one.
+    assert!(!ui.commit_param(1, "delay_s", "5000", EN));
+    assert!(error_of(&view, &ui, "delay_s").is_some());
+    assert_eq!(ui.draft.graph().node(1).unwrap().number("delay_s"), 10.0);
+
+    // Escape: the range text goes, and the field shows the earlier value again.
+    ui.cancel_field();
+    assert_eq!(error_of(&view, &ui, "delay_s"), None);
+    assert_eq!(
+        panel_of(&view, &ui).rows[0].control,
+        Control::Field {
+            text: "10".to_owned(),
+            unit: Some("s".to_owned())
+        }
+    );
+    assert_eq!(ui.draft.undo_steps(), 1, "Escape is no undo step");
+    assert_eq!(model(&view, &ui).nodes[0].detail.as_deref(), Some("10 s"));
+}
+
+/// The Graph of the spec scenario: a sensor source node, a switch node, a limiter node, a
+/// comment node and an end node, with no connection. The limiter is selected.
+fn open_inputs() -> (EditorUi, GraphView) {
+    let mut graph = Graph::new("graph_1", "Inputs");
+    graph.nodes = vec![
+        Node::new(1, Kind::SensorSource)
+            .with_param("sensor", "x")
+            .with_label("cpu"),
+        Node::new(2, Kind::Switch),
+        Node::new(3, Kind::Limiter),
+        Node::new(4, Kind::Comment),
+        Node::new(5, Kind::SensorEnd),
+    ];
+    let (mut ui, view) = open(spread(graph));
+    ui.selected = Some(Selected::Node(3));
+    (ui, view)
+}
+
+/// The rows of the section "Inputs" of the panel.
+fn inputs_of(view: &GraphView, ui: &EditorUi) -> Vec<InputRow> {
+    panel_of(view, ui).inputs
+}
+
+#[test]
+fn inputs_section_has_one_select_per_input_pin() {
+    let (mut ui, view) = open_inputs();
+    let labels = |ui: &EditorUi| -> Vec<String> {
+        inputs_of(&view, ui)
+            .iter()
+            .map(|row| row.label.clone())
+            .collect()
+    };
+    assert_eq!(labels(&ui), ["A"]);
+    ui.selected = Some(Selected::Node(2));
+    assert_eq!(labels(&ui), ["S", "A", "B"]);
+    // A source has no input pin, and a comment has no pin at all.
+    ui.selected = Some(Selected::Node(1));
+    assert!(labels(&ui).is_empty());
+    ui.selected = Some(Selected::Node(4));
+    assert!(labels(&ui).is_empty());
+    // The pin of an end node has a select too. It has no default.
+    ui.selected = Some(Selected::Node(5));
+    let rows = inputs_of(&view, &ui);
+    assert_eq!(rows.len(), 1);
+    assert_eq!((rows[0].pin, rows[0].shown.as_str()), ("a", "None"));
+
+    // A pin without a connection shows "None" and its default.
+    let counter = ui.draft.add_node(Kind::Counter, 0.0, 300.0);
+    ui.selected = Some(Selected::Node(counter));
+    let rows = inputs_of(&view, &ui);
+    let shown: Vec<(&str, &str)> = rows
+        .iter()
+        .map(|row| (row.label.as_str(), row.shown.as_str()))
+        .collect();
+    assert_eq!(
+        shown,
+        [
+            ("Count", "None, 0"),
+            ("Enable", "None, 1"),
+            ("Reset", "None, 0"),
+            ("Period", "None, 10")
+        ]
+    );
+    let logarithm = ui.draft.add_node(Kind::Logarithm, 0.0, 500.0);
+    ui.selected = Some(Selected::Node(logarithm));
+    assert_eq!(inputs_of(&view, &ui)[1].shown, "None, e");
+}
+
+#[test]
+fn inputs_select_lists_none_and_each_other_node_with_an_output() {
+    let (mut ui, view) = open_inputs();
+    let rows = inputs_of(&view, &ui);
+    assert_eq!(rows.len(), 1);
+    // "None", the sensor source node and the switch node: not the limiter itself, not the
+    // comment node and not the end node.
+    assert_eq!(
+        rows[0].choices,
+        [
+            (String::new(), "None, 0".to_owned(), true),
+            ("1".to_owned(), "Sensor cpu".to_owned(), false),
+            ("2".to_owned(), "Switch".to_owned(), false),
+        ]
+    );
+    assert_eq!(rows[0].shown, "None, 0");
+
+    // An entry has the title of the node: the name of its kind with its main parameter.
+    let delay = ui.draft.add_node(Kind::RiseDelay, 0.0, 300.0);
+    ui.draft.set_param(delay, "delay_s", json!(10));
+    let texts: Vec<String> = inputs_of(&view, &ui)[0]
+        .choices
+        .iter()
+        .map(|(_, text, _)| text.clone())
+        .collect();
+    assert_eq!(texts, ["None, 0", "Sensor cpu", "Switch", "On delay 10 s"]);
+}
+
+#[test]
+fn inputs_choice_connects_as_one_undo_step() {
+    let (mut ui, view) = open_inputs();
+    assert!(ui.choose_input(3, "a", Some(2), NOW_US));
+    assert_eq!(ui.draft.graph().connections, [Connection::new(2, 3, "a")]);
+    assert_eq!(ui.draft.undo_steps(), 1);
+    let row = &inputs_of(&view, &ui)[0];
+    assert_eq!(row.shown, "Switch");
+    assert!(row.choices[2].2);
+    assert!(model(&view, &ui).nodes[2].pins[0].connected);
+
+    // One Ctrl+Z removes the connection.
+    assert!(ui.press(EditorKey::Undo));
+    assert!(ui.draft.graph().connections.is_empty());
+    assert_eq!(inputs_of(&view, &ui)[0].shown, "None, 0");
+}
+
+#[test]
+fn inputs_choice_replaces_the_connection_as_one_undo_step() {
+    let (mut ui, view) = open_inputs();
+    ui.choose_input(3, "a", Some(2), NOW_US);
+    assert!(ui.choose_input(3, "a", Some(1), NOW_US));
+    // The pin A has only the connection from the sensor source node.
+    assert_eq!(ui.draft.graph().connections, [Connection::new(1, 3, "a")]);
+    assert_eq!(ui.draft.undo_steps(), 2);
+    assert_eq!(inputs_of(&view, &ui)[0].shown, "Sensor cpu");
+
+    // One Ctrl+Z gives back the connection from the switch.
+    assert!(ui.press(EditorKey::Undo));
+    assert_eq!(ui.draft.graph().connections, [Connection::new(2, 3, "a")]);
+    // The choice of the entry that the pin has is no step.
+    assert!(!ui.choose_input(3, "a", Some(2), NOW_US));
+    assert_eq!(ui.draft.undo_steps(), 1);
+}
+
+#[test]
+fn inputs_choice_that_closes_a_loop_is_refused_with_the_reason() {
+    let (mut ui, view) = open_inputs();
+    // The limiter takes its input from the switch.
+    ui.choose_input(3, "a", Some(2), NOW_US);
+    let before = ui.draft.graph().clone();
+
+    // The limiter in the select of the pin A of the switch closes a loop.
+    assert!(!ui.choose_input(2, "a", Some(3), NOW_US));
+    assert_eq!(ui.draft.graph(), &before);
+    assert_eq!(ui.draft.undo_steps(), 1);
+    assert_eq!(
+        model(&view, &ui).status.text.as_deref(),
+        Some("Not connected: the connection closes a loop")
+    );
+    // The select keeps its earlier entry, and the reason goes after 5 s.
+    ui.selected = Some(Selected::Node(2));
+    assert_eq!(inputs_of(&view, &ui)[1].shown, "None, 0");
+    let later = model_at(&online(), &view, &ui, NOW_US + 5_000_000);
+    assert_eq!(later.status.text, None);
+
+    // A node cannot take its own output, and an end node gives none.
+    assert!(!ui.choose_input(2, "a", Some(2), NOW_US));
+    assert!(!ui.choose_input(2, "a", Some(5), NOW_US));
+    assert!(!ui.choose_input(2, "a", Some(4), NOW_US));
+    assert!(!ui.choose_input(2, "x", Some(1), NOW_US));
+    assert_eq!(ui.draft.graph(), &before);
+}
+
+#[test]
+fn inputs_none_removes_the_connection() {
+    let (mut ui, view) = open_inputs();
+    ui.choose_input(3, "a", Some(2), NOW_US);
+    assert!(ui.choose_input(3, "a", None, NOW_US));
+    // The limiter takes the default 0 on the pin.
+    assert_eq!(ui.draft.graph().connection_to(3, "a"), None);
+    assert_eq!(inputs_of(&view, &ui)[0].shown, "None, 0");
+    assert!(inputs_of(&view, &ui)[0].choices[0].2);
+    assert_eq!(ui.draft.undo_steps(), 2);
+    assert!(ui.undo());
+    assert_eq!(ui.draft.graph().connections, [Connection::new(2, 3, "a")]);
+    // "None" on a pin without a connection is no step.
+    let (mut ui, _view) = open_inputs();
+    assert!(!ui.choose_input(3, "a", None, NOW_US));
+    assert_eq!(ui.draft.undo_steps(), 0);
+}
+
+#[test]
+fn inputs_of_an_end_node_connect_the_same_way() {
+    let (mut ui, view) = open_inputs();
+    // With no selection the panel shows the end node.
+    ui.selected = None;
+    let rows = inputs_of(&view, &ui);
+    assert_eq!(panel_of(&view, &ui).node, 5);
+    let texts: Vec<&str> = rows[0].choices.iter().map(|c| c.1.as_str()).collect();
+    assert_eq!(
+        texts,
+        ["None", "Sensor cpu", "Switch", "Limiter -100 to 100"]
+    );
+
+    assert!(ui.choose_input(5, "a", Some(3), NOW_US));
+    assert_eq!(ui.draft.graph().connections, [Connection::new(3, 5, "a")]);
+    assert_eq!(inputs_of(&view, &ui)[0].shown, "Limiter -100 to 100");
+    assert_eq!(ui.draft.undo_steps(), 1);
+    assert!(ui.press(EditorKey::Undo));
+    assert!(ui.draft.graph().connections.is_empty());
+}
+
+#[test]
+fn inputs_select_works_with_the_keyboard() {
+    let (mut ui, view) = open_inputs();
+    let row = inputs_of(&view, &ui).remove(0);
+    // The select opens with the mark on its current entry: "None".
+    let mut mark = row.choices.iter().position(|c| c.2).expect("the entry");
+    assert_eq!(mark, 0);
+    // Down moves the mark to the sensor source node, then to the switch node. It stops at the
+    // last entry.
+    for _ in 0..2 {
+        mark = (mark + 1).min(row.choices.len() - 1);
+    }
+    assert_eq!(row.choices[mark].1, "Switch");
+    // Enter picks the marked entry: the value of an entry is the id of its node.
+    let from = row.choices[mark].0.parse::<u32>().ok();
+    assert_eq!(from, Some(2));
+    assert!(ui.choose_input(3, row.pin, from, NOW_US));
+    assert_eq!(ui.draft.graph().connections, [Connection::new(2, 3, "a")]);
+
+    // The entry "None" has an empty value: Enter on it removes the connection.
+    let row = inputs_of(&view, &ui).remove(0);
+    assert_eq!(row.choices[0].0.parse::<u32>().ok(), None);
+    assert!(ui.choose_input(3, row.pin, None, NOW_US));
+    assert!(ui.draft.graph().connections.is_empty());
 }

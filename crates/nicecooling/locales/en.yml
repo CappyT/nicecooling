@@ -1014,6 +1014,40 @@ graph_editor:
     enable: "Enable"
     reset: "Reset"
     period: "Period"
+  panel:
+    label_caption: "A label names the node in a message: {value:water}."
+    inputs: "Inputs"
+    none: "None"
+    none_default: "None, %{value}"
+    delete_node: "Delete node"
+    created_at_apply: "Created at Apply"
+    used_by: "Used by"
+    not_used: "Not used"
+    used:
+      curve: "Curve of %{name}"
+      loop: "Loop %{name}"
+      derived: "Derived sensor %{name}"
+    add_pair: "Add pair"
+    remove_pair: "Remove pair"
+    pair_in: "Input"
+    pair_out: "Output"
+    add_argument: "Add argument"
+    remove_argument: "Remove argument"
+    choose: "Choose"
+    seconds: "s"
+    guide:
+      minimum: "Minimum %{value}"
+      maximum: "Maximum %{value}"
+      input: "A %{value}"
+  choice:
+    nearest: "Nearest"
+    down: "Down"
+    up: "Up"
+    linear: "Linear"
+    step: "Step"
+    low: "Low"
+    normal: "Normal"
+    critical: "Critical"
 alarms:
   active:
     title: Active

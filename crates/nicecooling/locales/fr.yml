@@ -1014,6 +1014,40 @@ graph_editor:
     enable: "Activer"
     reset: "Reset"
     period: "Période"
+  panel:
+    label_caption: "Une étiquette nomme le nœud dans un message : {value:water}."
+    inputs: "Entrées"
+    none: "Aucun"
+    none_default: "Aucun, %{value}"
+    delete_node: "Supprimer le nœud"
+    created_at_apply: "Créé à l'application"
+    used_by: "Utilisé par"
+    not_used: "Non utilisé"
+    used:
+      curve: "Courbe de %{name}"
+      loop: "Loop %{name}"
+      derived: "Capteur dérivé %{name}"
+    add_pair: "Ajouter une paire"
+    remove_pair: "Retirer la paire"
+    pair_in: "Entrée"
+    pair_out: "Sortie"
+    add_argument: "Ajouter un argument"
+    remove_argument: "Retirer l'argument"
+    choose: "Choisir"
+    seconds: "s"
+    guide:
+      minimum: "Minimum %{value}"
+      maximum: "Maximum %{value}"
+      input: "A %{value}"
+  choice:
+    nearest: "Au plus proche"
+    down: "Vers le bas"
+    up: "Vers le haut"
+    linear: "Linéaire"
+    step: "Par paliers"
+    low: "Basse"
+    normal: "Normale"
+    critical: "Critique"
 alarms:
   active:
     title: Actives
