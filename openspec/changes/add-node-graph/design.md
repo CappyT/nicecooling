@@ -306,7 +306,7 @@ This change converts no stored data. The Derived sensors stay.
 
 - Forward: the daemon adds the key `graph_sensors` to `state.json`. The app creates its files at the first use.
 - Back: the daemon state has no rule against unknown keys, and its schema version does not change. An older daemon loads the file, ignores `graph_sensors` and drops the key at its next save. A Curve whose Input was a Graph sensor then has a Lost Input and runs at 100%.
-- Forward again after a downgrade: the app finds that the Graph sensors of its Graphs do not exist and creates them again with new ids. The user picks the Input of each such Curve again. `docs/graphs.md` has these steps.
+- Forward again after a downgrade: the app finds that the Graph sensors of its Graphs do not exist and creates them again with new ids. The user picks the Input of each such Curve again. A new id is above every `graph_<n>` that the stored state still names, so the Curve of an old Graph sensor never reads a new one. `docs/graphs.md` has these steps.
 
 ## Risks / Trade-offs
 

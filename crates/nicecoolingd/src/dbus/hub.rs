@@ -360,6 +360,40 @@ impl Inner {
         }
     }
 
+    /// Every id that the stored state names for a sensor: the Graph sensors, the Curve Inputs of
+    /// all Profiles, the sensors of the rules, the Software sensor slots and the user names. A
+    /// downgrade drops the Graph sensors and the counter but keeps these, so a new Graph sensor
+    /// must not take one of these ids.
+    fn named_sensor_ids(&self) -> Vec<String> {
+        let state = &self.state;
+        let rules = state
+            .rule_groups
+            .iter()
+            .flat_map(|g| &g.rules)
+            .filter_map(|r| match r {
+                nicecooling_core::rules::group::RuleDef::Sensor(s) => Some(s.sensor.clone()),
+                _ => None,
+            });
+        let inputs = self
+            .profiles
+            .iter()
+            .flat_map(|p| p.channels.values())
+            .filter_map(|c| c.input.clone());
+        let slots = state
+            .software_sensors
+            .values()
+            .flat_map(|slots| slots.values().cloned());
+        state
+            .graph_sensors
+            .iter()
+            .map(|g| g.id.clone())
+            .chain(inputs)
+            .chain(rules)
+            .chain(slots)
+            .chain(state.names.keys().cloned())
+            .collect()
+    }
+
     /// The Software sensor slot that holds this sensor, or `None`.
     fn slot_user(&self, id: &str) -> Option<String> {
         self.state
@@ -1319,10 +1353,11 @@ impl Hub {
                 i.state.graph_sensors.len(),
                 MAX_GRAPH_SENSORS,
             )?;
+            let named = i.named_sensor_ids();
             let number = ids::take_number(
                 "graph_",
                 &mut i.state.graph_sensor_next,
-                i.state.graph_sensors.iter().map(|g| g.id.as_str()),
+                named.iter().map(String::as_str),
             )
             .ok_or_else(|| Error::invalid("no Graph sensor id is left"))?;
             let id = ids::graph_sensor_id(number);

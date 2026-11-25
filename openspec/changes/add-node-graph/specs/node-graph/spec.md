@@ -828,6 +828,17 @@ The counter of the Graph sensor ids SHALL NOT wrap. When no id above the counter
 - **WHEN** `graph_4294967295` exists and the app creates one more
 - **THEN** the daemon refuses it with `InvalidArgument` and the counter stays 4294967295
 
+### Requirement: Graph sensor id after a downgrade
+A new Graph sensor SHALL get an id above the counter, above every Graph sensor and above every `graph_<n>` that the stored state still names: a Curve Input of any Profile, a sensor of a rule, a Software sensor slot and a user name. A Curve that names a Graph sensor that does not exist SHALL have no value and follow the Lost Input rule.
+
+#### Scenario: New id after a downgrade
+- **WHEN** the counter is 1, a Curve of `nct6798_pwm1` has `graph_1` as Input, slot 4 holds `graph_1`, `graph_1` has the user name "Mine" and the app creates a Graph sensor
+- **THEN** `CreateGraphSensor` returns `/io/github/cappyt/NiceCooling1/sensor/graph_2`, its name is not "Mine" and no slot holds it
+
+#### Scenario: Curve on a missing sensor
+- **WHEN** a Curve has `graph_1` as Input and no Graph sensor `graph_1` exists
+- **THEN** the Curve has no value and the Channel follows the Lost Input rule
+
 ### Requirement: Graph sensor units
 The unit of a Graph sensor SHALL be one of `degC`, `rpm`, `%`, `V`, `A`, `W`, `l/h` and `mbar`. The `Kind` of the sensor SHALL come from the unit: `temperature` for `degC`, `fan` for `rpm`, `voltage` for `V`, `flow` for `l/h`, `pressure` for `mbar`, and `other` for `%`, `A` and `W`.
 
