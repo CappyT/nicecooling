@@ -1,0 +1,99 @@
+name: release
+
+# A tag v<major>.<minor>.<patch>, with an optional pre-release part (v0.2.0-beta.1), builds the RPM and the DEB
+# and publishes them on a GitHub release. The first job stops the workflow for any other tag.
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+env:
+  # The app and the daemon build in a container: the runner only needs podman and the disk space.
+  JOBS: 4
+
+jobs:
+  tag:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check the tag
+        env:
+          GITHUB_REF_NAME: ${{ github.ref_name }}
+        run: |
+          semver='^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$'
+          if ! printf '%s\n' "$GITHUB_REF_NAME" | grep -Eq "$semver"; then
+            echo "The tag $GITHUB_REF_NAME is not v<major>.<minor>.<patch>[-<pre-release>]." >&2
+            exit 1
+          fi
+          version=$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -n 1)
+          if [ "$GITHUB_REF_NAME" != "v$version" ]; then
+            echo "The tag $GITHUB_REF_NAME does not match the version $version of Cargo.toml." >&2
+            exit 1
+          fi
+
+  rpm:
+    needs: tag
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          df -h /
+
+      - name: Build the RPM
+        run: packaging/container/build-rpm.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rpm
+          path: target/rpm/RPMS/x86_64/nicecooling-*.rpm
+          if-no-files-found: error
+
+  deb:
+    needs: tag
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          df -h /
+
+      - name: Build the DEB
+        run: packaging/container/build-deb.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: deb
+          path: target/deb/nicecooling_*.deb
+          if-no-files-found: error
+
+  release:
+    needs: [tag, rpm, deb]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REF_NAME: ${{ github.ref_name }}
+        run: |
+          ls -l dist
+          flags=()
+          case "$GITHUB_REF_NAME" in
+            *-*) flags+=(--prerelease) ;;
+          esac
+          gh release create "$GITHUB_REF_NAME" dist/*.rpm dist/*.deb \
+            --repo "$GITHUB_REPOSITORY" --verify-tag --title "$GITHUB_REF_NAME" --generate-notes "${flags[@]}"
