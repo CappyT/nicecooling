@@ -196,7 +196,6 @@ impl KindRunner {
         let mut command = Command::new(&program);
         command
             .args(&args)
-            .env_clear()
             .envs(environment)
             .stdin(Stdio::null())
             .stdout(Stdio::null())

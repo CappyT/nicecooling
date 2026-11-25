@@ -145,7 +145,7 @@ The text of a notification expands these placeholders. The title, the sound name
 
 A placeholder with an unknown label, and any other text in braces, stays as written.
 
-A command response gets its values in the environment, and nothing else: the app clears the environment first. `NICECOOLING_GRAPH_ID`, `NICECOOLING_GRAPH_NAME` and `NICECOOLING_RUN_ID` hold the Graph and the run. Each labelled node has `NICECOOLING_NODE_<LABEL>` with the label in upper case. The value is decimal text rounded to 8 decimals, with no trailing zero and no exponent. It is empty for a node with no value. A node with no label has no variable.
+A command response gets its values in the environment, in addition to the environment of the app. `NICECOOLING_GRAPH_ID`, `NICECOOLING_GRAPH_NAME` and `NICECOOLING_RUN_ID` hold the Graph and the run. Each labelled node has `NICECOOLING_NODE_<LABEL>` with the label in upper case. The value is decimal text rounded to 8 decimals, with no trailing zero and no exponent. It is empty for a node with no value. A node with no label has no variable.
 
 ## MQTT topics
 

@@ -130,9 +130,10 @@ A response end node fires when its state machine says so (`docs/graphs.md`, Resp
 |---|---|---|
 | `notification` | Shows a desktop notification. A new run of the same Graph replaces its last notification. | `ok`, or `failed` when the notification thread is gone |
 | `sound` | Shows a notification with the Graph name as title and the sound as its hint. | as `notification` |
-| `command` | Starts the program and its arguments with no shell and no placeholder. The environment holds only the variables of `docs/graphs.md` (Placeholders), and the three streams are closed. The program leads its own process group. | `ok` for exit code 0, `failed` for another exit or a start error, `timeout` after the time limit (the app kills the group) |
+| `command` | Starts the program and its arguments with no shell and no placeholder. The program gets the environment of the app and the variables of `docs/graphs.md` (Placeholders), and the three streams are closed. The program leads its own process group. | `ok` for exit code 0, `failed` for another exit or a start error, `timeout` after the time limit (the app kills the group) |
 | `poweroff`, `reboot`, `suspend` | Counts down, then calls logind. | `ok`, `failed` or `cancelled` |
-| `mqtt`, `email` | The runner has no link to the MQTT publisher or the SMTP sender. | `not-configured` |
+| `mqtt` | Sends one message through the MQTT publisher. The topic is literal, and the payload template is expanded. | `ok` at the acknowledgment of the broker, `timeout` after 30 s, `failed`, or `not-configured` without a broker host |
+| `email` | Sends one plain text message in its own task, with a limit of 30 s. The subject and the text are expanded. | `ok`, `failed`, `timeout`, or `not-configured` without an SMTP account |
 
 One response end node has at most one run without an outcome. A run that starts while the node still has one gets the outcome `busy`.
 

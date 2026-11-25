@@ -609,7 +609,7 @@ fn command_environment_has_the_graph_and_labelled_node_values() {
     // is not there.
     let script = format!(
         "printf '%s\\n' \"$NICECOOLING_GRAPH_ID\" \"$NICECOOLING_GRAPH_NAME\" \"$NICECOOLING_RUN_ID\" \
-         \"$NICECOOLING_NODE_WATER\" \"${{NICECOOLING_NODE_PUMP-unset}}\" \"${{HOME-unset}}\" \
+         \"$NICECOOLING_NODE_WATER\" \"${{NICECOOLING_NODE_PUMP-unset}}\" \
          \"${{NICECOOLING_NODE_THIRD-unset}}\" > '{}'",
         out.display()
     );
@@ -632,8 +632,6 @@ fn command_environment_has_the_graph_and_labelled_node_values() {
             "46.2",
             // A node with no value is empty, and a node with no label has no variable.
             "",
-            // The environment is cleared.
-            "unset",
             "unset",
         ]
     );

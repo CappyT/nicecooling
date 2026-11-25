@@ -187,6 +187,10 @@ A command response SHALL have an absolute program path, a list of arguments and 
 - **WHEN** the Graph `graph_2` named "Hot water" fires, the node labelled `water` gives 46.2, the node labelled `pump` has no value and a third node has no label
 - **THEN** the program sees `NICECOOLING_GRAPH_ID=graph_2`, `NICECOOLING_GRAPH_NAME=Hot water`, `NICECOOLING_NODE_WATER=46.2` and `NICECOOLING_NODE_PUMP=` empty, and no variable for the third node
 
+#### Scenario: Environment of the app
+- **WHEN** the app runs with `HOME=/home/anna` and a command response starts
+- **THEN** the program sees `HOME=/home/anna` and the `NICECOOLING_` variables of the run
+
 #### Scenario: Relative path
 - **WHEN** a Graph has the path `notify-send`
 - **THEN** the validator refuses it with the code `bad-parameter`
