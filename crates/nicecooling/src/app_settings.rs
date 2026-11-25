@@ -8,6 +8,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 use crate::i18n::Language;
+use crate::mqtt::settings::{MqttSettings, lenient};
 use crate::notify::NotifyPrefs;
 
 pub const SCHEMA_VERSION: u32 = 1;
@@ -58,6 +59,9 @@ pub struct AppSettings {
     pub notifications: Notifications,
     pub hints: Hints,
     pub sensors: HiddenSensors,
+    /// A bad table gives the default table and leaves the other settings.
+    #[serde(deserialize_with = "lenient")]
+    pub mqtt: MqttSettings,
 }
 
 impl Default for AppSettings {
@@ -69,6 +73,7 @@ impl Default for AppSettings {
             notifications: Notifications::default(),
             hints: Hints::default(),
             sensors: HiddenSensors::default(),
+            mqtt: MqttSettings::default(),
         }
     }
 }

@@ -11,6 +11,7 @@ pub mod history;
 pub mod i18n;
 pub mod icons;
 pub mod model;
+pub mod mqtt;
 pub mod notify;
 pub mod screen_view;
 pub mod screens;
