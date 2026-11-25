@@ -120,10 +120,12 @@ pub fn window_samples(graph: &Graph) -> usize {
 
 /// Checks `graph` against the rules of the spec. `others` are the other Graphs of the app: the
 /// limits and the loop check across Graphs need them. A Graph in `others` with the id of `graph`
-/// is the stored version of it and does not count.
+/// is the stored version of it and does not count. Two Graphs in `others` with one id are refused
+/// with `bad-parameter` for `id`.
 pub fn validate(graph: &Graph, others: &[Graph]) -> Vec<Refusal> {
-    let others: Vec<&Graph> = others.iter().filter(|g| g.id != graph.id).collect();
     let mut out = Vec::new();
+    check_graph_ids(others, &mut out);
+    let others: Vec<&Graph> = others.iter().filter(|g| g.id != graph.id).collect();
 
     check_end_nodes(graph, &mut out);
     check_connections(graph, &mut out);
@@ -138,6 +140,19 @@ pub fn validate(graph: &Graph, others: &[Graph]) -> Vec<Refusal> {
     out.sort_by_key(|r| r.code);
     out.dedup();
     out
+}
+
+/// `others` holds each stored Graph once, the stored version of `graph` included. Two Graphs with
+/// one id would share the state of their nodes.
+fn check_graph_ids(others: &[Graph], out: &mut Vec<Refusal>) {
+    let mut ids: BTreeSet<&str> = BTreeSet::new();
+    if !others.iter().all(|g| ids.insert(g.id.as_str())) {
+        out.push(Refusal {
+            code: RefusalCode::BadParameter,
+            parameter: Some("id".to_owned()),
+            node: None,
+        });
+    }
 }
 
 fn check_end_nodes(graph: &Graph, out: &mut Vec<Refusal>) {
@@ -557,6 +572,21 @@ mod tests {
         g.sensor_id = Some("graph_1".into());
         g.nodes[0] = source(1, "graph_1");
         only(&g, RefusalCode::LoopAcrossGraphs);
+    }
+
+    #[test]
+    fn two_graphs_with_one_id_are_refused() {
+        let a = response_graph("graph_1");
+        let b = response_graph("graph_1");
+        let refusals = validate(&a, &[a.clone(), b]);
+        assert_eq!(codes(&refusals), vec![RefusalCode::BadParameter]);
+        assert_eq!(refusals[0].parameter.as_deref(), Some("id"));
+        // Two other Graphs with one id refuse a Graph with another id as well.
+        let c = response_graph("graph_2");
+        let refusals = validate(&c, &[a.clone(), a.clone(), c.clone()]);
+        assert_eq!(codes(&refusals), vec![RefusalCode::BadParameter]);
+        // The stored version of the Graph is not a second Graph.
+        assert_eq!(validate(&a, &[a.clone(), c]), vec![]);
     }
 
     #[test]

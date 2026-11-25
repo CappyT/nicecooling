@@ -208,7 +208,21 @@ impl Evaluator {
         let mut results: Vec<Option<GraphPass>> = vec![None; graphs.len()];
         for index in graph_order(graphs) {
             let graph = &graphs[index];
-            let pass = self.evaluate_graph(graph, sources, &sensors, now);
+            // The validator refuses two Graphs with one id. If the set has them anyway, the
+            // later one gets a state of its own and does not write into the state of the first.
+            let earlier = graphs[..index].iter().filter(|g| g.id == graph.id).count();
+            let pass = if earlier == 0 {
+                self.evaluate_graph(graph, sources, &sensors, now)
+            } else {
+                let renamed = Graph {
+                    id: format!("{}#{earlier}", graph.id),
+                    ..graph.clone()
+                };
+                GraphPass {
+                    graph_id: graph.id.clone(),
+                    ..self.evaluate_graph(&renamed, sources, &sensors, now)
+                }
+            };
             if let (Some(id), EndValue::Sensor(value)) = (&graph.sensor_id, &pass.end) {
                 sensors.insert(id.clone(), *value);
             }

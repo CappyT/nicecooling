@@ -7,7 +7,7 @@ Defines the Graph: a set of nodes and connections that the app evaluates once pe
 ## ADDED Requirements
 
 ### Requirement: Graph model
-A Graph SHALL have an id, a name, an enabled flag, nodes and connections. A Graph with a sensor end node SHALL have a `sensor_id` of the form `graph_<n>`, or none. A node SHALL have an id (a positive integer, unique in the Graph), a kind, an optional label, parameters and a canvas position. A connection SHALL join one output pin to one input pin. An input pin SHALL take one connection at most. An output pin SHALL take any number.
+A Graph SHALL have an id, unique among the Graphs, a name, an enabled flag, nodes and connections. A Graph with a sensor end node SHALL have a `sensor_id` of the form `graph_<n>`, or none. A node SHALL have an id (a positive integer, unique in the Graph), a kind, an optional label, parameters and a canvas position. A connection SHALL join one output pin to one input pin. An input pin SHALL take one connection at most. An output pin SHALL take any number.
 
 #### Scenario: Two connections on one input pin
 - **WHEN** a Graph holds two connections that end on the same input pin
@@ -20,6 +20,10 @@ A Graph SHALL have an id, a name, an enabled flag, nodes and connections. A Grap
 #### Scenario: Sensor link
 - **WHEN** a Graph with a sensor end node has the `sensor_id` `graph_3`
 - **THEN** its sensor end node gives the value of the Graph sensor `graph_3`
+
+#### Scenario: Duplicate Graph id
+- **WHEN** two stored Graphs have the id `graph_1`
+- **THEN** the validator returns `bad-parameter` for `id`
 
 ### Requirement: Validator refusal codes
 The validator SHALL name each refusal with one code: `no-end-node`, `two-end-nodes`, `end-node-output`, `unknown-kind`, `unknown-pin`, `pin-occupied`, `same-direction`, `same-node`, `loop`, `loop-across-graphs`, `limit-graphs`, `limit-nodes`, `limit-name`, `limit-samples`, `limit-graph-sensors`, `duplicate-label`, `duplicate-table-input`, `bad-parameter` (with the name of the parameter) and `bad-sensor-id`. It SHALL return every refusal of a Graph, the first in the order of this list first.
