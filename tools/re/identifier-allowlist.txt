@@ -28,3 +28,9 @@ aquasuite_db
 # The key `client_id` of the `[mqtt]` table of settings.toml (docs/storage.md). It is the MQTT term
 # for the client identifier.
 client_id
+
+# Type of the lettre API: the header of the e-mail body (the library, not our code).
+ContentType
+
+# Type of the rustls API: the TLS acceptor of the SMTP test server (the library, not our code).
+ServerConnection

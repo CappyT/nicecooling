@@ -10,6 +10,7 @@ pub mod fixtures;
 pub mod graphs;
 pub mod harness;
 pub mod labels;
+pub mod smtp_server;
 
 /// Point the session bus lookup of `ksni` and `notify-rust` at a private bus. Both read
 /// `DBUS_SESSION_BUS_ADDRESS` when they connect. Hold `SESSION_LOCK` for the whole test.
