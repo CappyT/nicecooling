@@ -1001,7 +1001,7 @@ async fn mqtt_response_without_a_host_is_not_configured() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn mqtt_response_expands_placeholders_in_topic_and_payload() {
+async fn mqtt_response_expands_placeholders_in_the_payload_only() {
     let broker = MqttBroker::start(BrokerBehavior::plain());
     let (client, ends) = MqttHandle::spawn(&Handle::current());
     client.configure(Some(mqtt_config(broker.port)));
