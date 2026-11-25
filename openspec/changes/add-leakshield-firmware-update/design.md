@@ -8,7 +8,7 @@ The Leakshield is the leak protection unit of Aqua Computer (USB `0c70:f014`). I
 
 "The owner" is the owner of the repository, who decides scope and risk. The owner decisions of this design are in [issue #70](https://github.com/CappyT/nicecooling/issues/70), in the comments of the spec review. The text marks them "owner decision".
 
-The protocol comes from `docs/re/firmware-update.md` (aquasuite X.96). Each statement there has a confidence:
+The protocol comes from `docs/protocol/leakshield-firmware-update.md` (aquasuite X.96). Each statement there has a confidence:
 
 - **code**: the decompiled aquasuite code defines it. This covers the step sequence, the two restart commands, the 1024-byte chunks, the report 32 layout, the CRC, the waits of the steps, the 300 ms chunk limit, the bootloader test (report 1 firmware 1 to 99 on HID interface 1), and the start from chunk 0 for a device in the bootloader. aquasuite reads no answer from the bootloader.
 - **inferred**: an incomplete image leaves the device in the bootloader, and the settings survive a flash.
@@ -22,7 +22,7 @@ State of the code today:
 - The write worker (`leakshield/worker.rs`) runs one job at a time as one blocking call. It also holds the save-settings deadline. A Profile request takes no permit and waits in the same queue.
 - `alarms/logind.rs` powers off for an Alarm with `SD_LOGIND_SKIP_INHIBITORS`. `alarms/response.rs` resolves the response of an Alarm by its event name.
 - `crates/nicecooling-protocol/src/sim.rs` simulates a Leakshield in normal operation. `crates/nicecoolingd/tests/support/sim_usb.rs` plugs and unplugs it.
-- The package database `Content/aquasuite_db.database` (4603904 bytes) has the table `firmware` with the columns `id`, `version`, `bootloader`, `hardware`, `device` and `data` (`docs/re/firmware.md`). The rows `leakshield_EN` and `leakshield_DE` hold firmware 1022, bootloader 100 and hardware 1000. The report 1 fixture of the reference device (`tests/fixtures/leakshield/fw1022/report1.bin`) holds hardware 1000 at offset 7, bootloader 100 at offset 11 and firmware 1022 at offset 13.
+- The package database `Content/aquasuite_db.database` (4603904 bytes) has the table `firmware` with the columns `id`, `version`, `bootloader`, `hardware`, `device` and `data` (`docs/protocol/leakshield-firmware.md`). The rows `leakshield_EN` and `leakshield_DE` hold firmware 1022, bootloader 100 and hardware 1000. The report 1 fixture of the reference device (`tests/fixtures/leakshield/fw1022/report1.bin`) holds hardware 1000 at offset 7, bootloader 100 at offset 11 and firmware 1022 at offset 13.
 
 ## Goals / Non-Goals
 
@@ -164,7 +164,7 @@ The job:
 - The job holds a logind inhibitor lock (`Inhibit("shutdown:sleep", "nicecooling", "Leakshield firmware update", "block")`) from its first step to the finish signal. The lock blocks the shutdown and sleep requests of the user and the system. The Alarm poweroff of the daemon skips it: an Alarm takes priority over the update, and the device then waits in the bootloader (owner decision).
 - The start is refused with `Busy` while an Action runs, or while `leakshield-unreachable` is active for the Leakshield. The job reads the running Action from the mode of report 1, with `leakshield/action.rs`.
 
-The steps follow aquasuite (`docs/re/firmware-update.md`, Sequence). Task 1.6 decides a change of a timing after the capture.
+The steps follow aquasuite (`docs/protocol/leakshield-firmware-update.md`, Sequence). Task 1.6 decides a change of a timing after the capture.
 
 | Step id | Action | Source |
 |---|---|---|

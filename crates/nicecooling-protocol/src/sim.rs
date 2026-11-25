@@ -169,7 +169,7 @@ impl State {
     }
 
     /// The commands that the bootloader takes. A complete image starts the new firmware, and an
-    /// incomplete one leaves the device in the bootloader (inferred, `docs/re/firmware-update.md`).
+    /// incomplete one leaves the device in the bootloader (inferred, `docs/protocol/leakshield-firmware-update.md`).
     fn bootloader_command(&mut self, command: Report2) -> Result<(), DeviceError> {
         let bootloader = self
             .bootloader

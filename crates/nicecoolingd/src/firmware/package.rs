@@ -390,7 +390,7 @@ mod tests {
         Value::Blob(bytes.to_vec())
     }
 
-    /// The table of the aquasuite package, as the notes describe it (`docs/re/firmware.md`).
+    /// The table of the aquasuite package, as the notes describe it (`docs/protocol/leakshield-firmware.md`).
     fn database(dir: &Path, rows: &[Row]) -> PathBuf {
         let path = dir.join("package.database");
         let conn = Connection::open(&path).unwrap();

@@ -1,6 +1,6 @@
 # LEAKSHIELD protocol
 
-This document describes the USB protocol of the Aqua Computer LEAKSHIELD (USB `0c70:f014`), firmware 1022, structure 100. The source is the code of aquasuite X.96 and X.75 (ADR-0001), checked against the dumps in `tests/fixtures/leakshield/`. All names are our own. [docs/re/leakshield-code-paths.md](../re/leakshield-code-paths.md) gives the aquasuite code for each item as `P1` to `P10`.
+This document describes the USB protocol of the Aqua Computer LEAKSHIELD (USB `0c70:f014`), firmware 1022, structure 100. The source is the code of aquasuite X.96 and X.75 (ADR-0001), checked against the dumps in `tests/fixtures/leakshield/`. All names are our own. The marks `P1` to `P11` name the items of a private note that maps each statement to the aquasuite code.
 
 The field registry [`crates/nicecooling-protocol/registry/leakshield.toml`](../../crates/nicecooling-protocol/registry/leakshield.toml) holds the risk class and the verification state of each report 3 field, the volatile mask and the report 2 commands. This document does not repeat them.
 

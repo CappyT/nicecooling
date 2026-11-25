@@ -2,7 +2,6 @@
 """Check that no identifier of the decompiled aquasuite code enters the repository (design D9).
 
 Scope: the text files of docs/protocol/, docs/api.md, docs/storage.md and crates/.
-docs/re/ is outside the scope: RE notes may cite aquasuite names as references, never code.
 
 Token rule: a token is a maximal run of [A-Za-z0-9_] with 6 or more characters that does not start
 with a digit and is a compound name: it holds an underscore between two characters, a lowercase

@@ -1,5 +1,5 @@
 //! The image container of a firmware row: an XML document with base64 segments. The bytes of a
-//! segment stay encrypted. The bootloader holds the key (`docs/re/firmware.md`).
+//! segment stay encrypted. The bootloader holds the key (`docs/protocol/leakshield-firmware.md`).
 
 use std::fmt;
 

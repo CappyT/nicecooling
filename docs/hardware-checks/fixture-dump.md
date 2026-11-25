@@ -8,7 +8,7 @@ This procedure reads reports 1, 3, 5 and 8 of the reference Leakshield into `tes
 2. Give the user a temporary ACL on that node through pkexec: `setfacl -m u:<user>:rw /dev/hidrawN`. The ACL ends at the next reboot or re-enumeration.
 3. Run the dump script with the node and `tests/fixtures/leakshield` as arguments. It names the folder from report 1 bytes 13-14.
 4. Check the sizes: 837, 750, 1028 and 3091 bytes, report ID included.
-5. Check the CRC of report 3 with `tools/re/decode_report3.py`.
+5. Check the CRC of report 3: add the folder to the test `fixtures_decode_and_reencode_to_same_bytes` in `crates/nicecooling-protocol/tests/reports.rs` and run it. `Report3::decode` refuses a wrong CRC.
 
 ## Record: 2026-11-23, serial 20417-31072, firmware 1022
 

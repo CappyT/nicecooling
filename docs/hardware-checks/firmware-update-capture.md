@@ -1,6 +1,6 @@
 # Leakshield firmware update capture
 
-This procedure watches two aquasuite firmware updates of the Leakshield in the Windows VM and records the USB traffic on the host with `usbmon`. The capture only observes. No tool of this procedure sends anything to the device. It settles the open points of `docs/re/firmware-update.md` (Open points and checks). Each step has a pass line.
+This procedure watches two aquasuite firmware updates of the Leakshield in the Windows VM and records the USB traffic on the host with `usbmon`. The capture only observes. No tool of this procedure sends anything to the device. It settles the open points of `docs/protocol/leakshield-firmware-update.md` (Open points and checks). Each step has a pass line.
 
 The update flashes the device. The leak protection is off while the device is in the VM or in its bootloader. The loop must be closed and no maintenance may run during both runs.
 

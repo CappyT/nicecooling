@@ -198,7 +198,7 @@ lines = ['# LEAKSHIELD field registry. Source of truth for the report 3 fields, 
          '# Byte offsets that the device changes by itself. Empty: no byte differs between the fw1019 and',
          '# fw1022 dumps, and the code defines none. The Verification writes check it again.',
          'volatile_mask = []', '']
-cmds = [("restart", 1, "1: restart into the bootloader, 0: plain restart (docs/re/firmware-update.md)"), ("save_settings", 2, "0"), ("factory_defaults", 3, "0"),
+cmds = [("restart", 1, "1: restart into the bootloader, 0: plain restart (docs/protocol/leakshield-firmware-update.md)"), ("save_settings", 2, "0"), ("factory_defaults", 3, "0"),
         ("show_page", 4, "page id << 16 | duration in 0.1 s"),
         ("display_on", 9, "0"), ("display_off", 10, "0"), ("reset_alarm", 11, "0"), ("set_mode", 12, "Mode or Action code"),
         ("cancel_action", 12, "0: stops the running Action"),

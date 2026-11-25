@@ -27,5 +27,5 @@ None. The capabilities of `add-nicecooling-v1` are not archived yet. This change
 
 - Code: `nicecooling-protocol` (image container and the bootloader protocol), `nicecooling-core` (the Alarm rules during an update), `nicecoolingd` (a firmware module, the device lease and the D-Bus methods), `nicecooling-api` (the contract), `nicecooling` (the update panel).
 - API: two methods, two signals, a property and an error on the `Leakshield` interface of `io.github.cappyt.NiceCooling1`.
-- Reverse engineering: `docs/re/firmware-update.md` documents the bootloader protocol of aquasuite X.96.
+- Reverse engineering: `docs/protocol/leakshield-firmware-update.md` documents the bootloader protocol of aquasuite X.96.
 - Hardware: the first flash is a supervised check with the owner. While the device is in the bootloader, the leak protection is off.

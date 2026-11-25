@@ -1,4 +1,4 @@
-//! The bootloader test, its report 1 and the restart commands (`docs/re/firmware-update.md`).
+//! The bootloader test, its report 1 and the restart commands (`docs/protocol/leakshield-firmware-update.md`).
 
 use crate::registry::Registry;
 use crate::report1::REPORT1_ID;

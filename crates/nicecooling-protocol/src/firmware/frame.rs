@@ -1,5 +1,5 @@
 //! The chunks of an image and the feature report 32 frame that carries one chunk to the
-//! bootloader (`docs/re/firmware-update.md`, Report 32 layout).
+//! bootloader (`docs/protocol/leakshield-firmware-update.md`, Report 32 layout).
 
 use std::fmt;
 

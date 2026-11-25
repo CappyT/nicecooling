@@ -18,3 +18,9 @@ InputEvent
 # Types of the nusb API (the library, not our code).
 DeviceId
 DeviceInfo
+
+# A field of the USB device descriptor (the USB specification).
+bcdDevice
+
+# The name of a file in the aquasuite package (docs/protocol/leakshield-firmware.md).
+aquasuite_db
