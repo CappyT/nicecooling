@@ -34,7 +34,7 @@ jobs:
             exit 1
           fi
           spec=$(sed -n 's/^Version:[[:space:]]*//p' packaging/nicecooling.spec)
-          if [ "$spec" != "${version/-/\~}" ]; then
+          if [ "$spec" != "${version//-/\~}" ]; then
             echo "The version $spec of packaging/nicecooling.spec does not match the version $version of Cargo.toml." >&2
             exit 1
           fi
