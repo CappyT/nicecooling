@@ -236,7 +236,7 @@ Rejected: a refresh rule that tests "no Channel in manual mode". A partial resto
 A reverse engineering pipeline outside the product code reads the aquasuite service. Its notes and its tools are not in the repository. Artifacts go to `re/`, which git ignores.
 
 - The aquasuite GUI, its service and its installer never run.
-- The repository receives only our description of the protocol in `docs/protocol/`, binary dumps of the reference device in `tests/fixtures/` and the RE notes in `docs/re/`. No decompiled code enters the repository. RE notes may cite aquasuite names and paths as references, never code.
+- The repository receives only our description of the protocol in `docs/protocol/` and binary dumps of the reference device in `tests/fixtures/`. No decompiled code enters the repository.
 - Naming rule: `docs/protocol/`, `docs/api.md`, `docs/storage.md` and `crates/` use our own snake_case names. Identifiers of aquasuite code do not appear. A user-visible aquasuite label may describe a field.
 - `tools/re/check-identifiers.py` enforces the rule. It checks the text files of `docs/protocol/`, `docs/api.md`, `docs/storage.md` and `crates/`. A token is a maximal run of `[A-Za-z0-9_]` with 6 or more characters that does not start with a digit and is a compound name (an inner underscore, a lowercase letter before an uppercase letter, or a letter before a digit). Plain words are not checked. The script compares each token, case-sensitive, by its SHA-256 with the hashes of the identifiers of the decompiled code in `tools/re/identifier-hashes.txt`, minus `tools/re/identifier-allowlist.txt`. CI runs it.
 
