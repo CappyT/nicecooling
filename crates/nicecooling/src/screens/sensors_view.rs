@@ -531,6 +531,10 @@ impl ScreenView {
             .child(
                 div()
                     .debug_selector(|| "rename-input".to_owned())
+                    // A press anywhere else leaves the input, before the click that follows.
+                    .on_mouse_down_out(cx.listener(|this, _, window, cx| {
+                        this.leave_input(window, cx);
+                    }))
                     .child(Self::field_input(&input, None, false, p)),
             )
             .into_any_element()

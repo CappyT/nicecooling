@@ -25,6 +25,49 @@ impl ScreenView {
         }
     }
 
+    /// Send a rename, unless it leaves the name as it is. An empty name of a Channel or a
+    /// sensor asks for the Board file name.
+    fn send_rename(&self, command: Option<Command>, cx: &Context<Self>) {
+        let Some(command) = command else { return };
+        let snapshot = self.state(cx).snapshot;
+        let same = |name: &str, current: &str, default: &str| {
+            name == current || (name.is_empty() && current == default)
+        };
+        let unchanged = match &command {
+            Command::SetChannelName { channel, name } => snapshot
+                .channels
+                .get(channel)
+                .is_some_and(|c| same(name, &c.name, &c.default_name)),
+            Command::SetSensorName { sensor, name } => snapshot
+                .sensors
+                .get(sensor)
+                .is_some_and(|s| same(name, &s.name, &s.default_name)),
+            Command::SetLoopName { loop_id, name } => snapshot
+                .loops
+                .iter()
+                .any(|l| l.id == *loop_id && l.name == *name),
+            Command::SetProfileName { profile, name } => snapshot
+                .profiles
+                .iter()
+                .any(|p| p.id == *profile && p.name == *name),
+            _ => false,
+        };
+        if !unchanged {
+            self.send(command);
+        }
+    }
+
+    /// Escape in a rename input: close its popover and drop the typed text.
+    pub(crate) fn drop_rename(&mut self, key: &InputKey) {
+        match key {
+            InputKey::SensorRename => self.sensors.rename = None,
+            InputKey::ChannelRename => self.channels.rename = None,
+            InputKey::LoopRename => self.loops.rename = None,
+            InputKey::ProfileRename => self.profiles.rename = None,
+            _ => {}
+        }
+    }
+
     pub(crate) fn on_input(
         &mut self,
         key: &InputKey,
@@ -51,8 +94,9 @@ impl ScreenView {
             InputKey::SensorRename => {
                 if changes && let Some(rename) = self.sensors.rename.as_mut() {
                     rename.1 = value;
-                } else if enter && let Some(command) = self.sensors.rename_command() {
-                    self.send(command);
+                } else if commits {
+                    let command = self.sensors.rename_command();
+                    self.send_rename(command, cx);
                 }
             }
             InputKey::DerivedName if changes => {
@@ -63,22 +107,25 @@ impl ScreenView {
             InputKey::ChannelRename => {
                 if changes && let Some(rename) = self.channels.rename.as_mut() {
                     rename.1 = value;
-                } else if enter && let Some(command) = self.channels.rename_command() {
-                    self.send(command);
+                } else if commits {
+                    let command = self.channels.rename_command();
+                    self.send_rename(command, cx);
                 }
             }
             InputKey::LoopRename => {
                 if changes && let Some(rename) = self.loops.rename.as_mut() {
                     rename.1 = value;
-                } else if enter && let Some(command) = self.loops.rename_command() {
-                    self.send(command);
+                } else if commits {
+                    let command = self.loops.rename_command();
+                    self.send_rename(command, cx);
                 }
             }
             InputKey::ProfileRename => {
                 if changes && let Some(rename) = self.profiles.rename.as_mut() {
                     rename.1 = value;
-                } else if enter && let Some(command) = self.profiles.rename_command() {
-                    self.send(command);
+                } else if commits {
+                    let command = self.profiles.rename_command();
+                    self.send_rename(command, cx);
                 }
             }
             InputKey::RuleDelay | InputKey::ProfileDwell if commits => {

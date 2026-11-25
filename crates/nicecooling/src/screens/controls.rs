@@ -38,9 +38,15 @@ impl ScreenView {
         view: &Entity<Self>,
     ) -> impl Fn(&MouseDownEvent, &mut Window, &mut App) + 'static {
         let view = view.clone();
-        move |event, _, cx| {
+        move |event, window, cx| {
             view.update(cx, |this, cx| {
-                let renamed = this.sensors.rename.take().map(|(sensor, _)| sensor);
+                let renamed = this
+                    .sensors
+                    .rename
+                    .as_ref()
+                    .map(|(sensor, _)| sensor.clone());
+                // The popover sees the press before its input does: commit the text before it closes.
+                this.leave_input(window, cx);
                 this.closing_press = Some((event.position, renamed));
                 this.close_popovers();
                 cx.notify();

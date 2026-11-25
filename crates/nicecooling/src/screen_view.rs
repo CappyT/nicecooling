@@ -549,6 +549,7 @@ impl Render for ScreenView {
                 if event.keystroke.key == "escape"
                     && let Some(key) = this.edited.take()
                 {
+                    this.drop_rename(&key);
                     this.reverted = Some(key);
                     cx.notify();
                 }
