@@ -3,6 +3,7 @@
 
 pub mod channel;
 pub mod kinds;
+pub mod power;
 pub mod responses;
 pub mod secrets;
 pub mod sensors;

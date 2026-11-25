@@ -35,8 +35,9 @@ impl ProcessSource for NoScan {
 struct Power(Arc<Mutex<Vec<PowerKind>>>);
 
 impl PowerCall for Power {
-    fn call(&mut self, kind: PowerKind) {
+    fn call(&mut self, kind: PowerKind) -> Result<(), String> {
         self.0.lock().unwrap().push(kind);
+        Ok(())
     }
 }
 

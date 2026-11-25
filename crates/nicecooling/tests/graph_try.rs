@@ -34,8 +34,9 @@ impl SensorLink for Sent {
 struct Powered(Arc<Mutex<Vec<PowerKind>>>);
 
 impl PowerCall for Powered {
-    fn call(&mut self, kind: PowerKind) {
+    fn call(&mut self, kind: PowerKind) -> Result<(), String> {
         self.0.lock().unwrap().push(kind);
+        Ok(())
     }
 }
 

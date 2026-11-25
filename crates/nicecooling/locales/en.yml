@@ -129,6 +129,7 @@ tray:
 notification:
   action:
     cancel_poweroff: Cancel poweroff
+    cancel_countdown: Cancel
     open: Open nicecooling
     open_channels: Open Channels
     open_leakshield: Open Leakshield
@@ -163,6 +164,23 @@ notification:
   graph_service_stopped:
     title: "Graph service stopped"
     body: "An error stopped the Graph service. No Graph runs until nicecooling starts again."
+  graph_power_failed:
+    title: "%{name}: the PC did not change its state"
+    body: "The system refused the call: %{error}"
+graph_countdown:
+  poweroff: "%{name}: power off in %{seconds} s"
+  reboot: "%{name}: restart in %{seconds} s"
+  suspend: "%{name}: suspend in %{seconds} s"
+  body: "Cancel the countdown to keep the PC as it is."
+  text: "A Graph response started this countdown. The PC changes its state when it ends."
+  ended: "The PC changes its state now."
+  graph: Graph
+  response: Graph response
+  hint: "The countdown continues in the notification and in the tray menu."
+  kind:
+    poweroff: Poweroff
+    reboot: Reboot
+    suspend: Suspend
 feedback:
   pending: Writing
   applied: "Applied %{time}"

@@ -45,8 +45,9 @@ impl ProcessSource for NoScan {
 struct Power(Arc<Mutex<Vec<PowerKind>>>);
 
 impl PowerCall for Power {
-    fn call(&mut self, kind: PowerKind) {
+    fn call(&mut self, kind: PowerKind) -> Result<(), String> {
         self.0.lock().unwrap().push(kind);
+        Ok(())
     }
 }
 
@@ -175,6 +176,7 @@ async fn tray_cancel_reaches_the_service() {
         graph_name: "Hot water".into(),
         kind: PowerKind::Poweroff,
         seconds_left: 30,
+        total_s: 30,
     };
     let view = TrayView::build(&online(), NOW_US, EN).with_graph_countdown(Some(&countdown), EN);
     let (tx, mut commands) = mpsc::unbounded_channel();

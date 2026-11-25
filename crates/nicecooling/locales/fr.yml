@@ -129,6 +129,7 @@ tray:
 notification:
   action:
     cancel_poweroff: Annuler l'extinction
+    cancel_countdown: Annuler
     open: Ouvrir nicecooling
     open_channels: Ouvrir les Canaux
     open_leakshield: Ouvrir le Leakshield
@@ -163,6 +164,23 @@ notification:
   graph_service_stopped:
     title: "Service Graph arrêté"
     body: "Une erreur a arrêté le service Graph. Aucun Graph ne fonctionne avant le redémarrage de nicecooling."
+  graph_power_failed:
+    title: "%{name} : le PC n'a pas changé d'état"
+    body: "Le système a refusé l'appel : %{error}"
+graph_countdown:
+  poweroff: "%{name} : extinction dans %{seconds} s"
+  reboot: "%{name} : redémarrage dans %{seconds} s"
+  suspend: "%{name} : mise en veille dans %{seconds} s"
+  body: "Annulez le compte à rebours pour laisser le PC dans son état."
+  text: "Une réponse Graph a lancé ce compte à rebours. À la fin, le PC change d'état."
+  ended: "Le PC change d'état maintenant."
+  graph: Graph
+  response: Réponse Graph
+  hint: "Le compte à rebours continue dans la notification et dans le menu de l'icône."
+  kind:
+    poweroff: Extinction
+    reboot: Redémarrage
+    suspend: Mise en veille
 feedback:
   pending: Écriture
   applied: "Appliqué à %{time}"

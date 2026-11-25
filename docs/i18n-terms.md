@@ -27,6 +27,7 @@ A term that Italian keeps in English stays in English in German. A term that Ita
 | Derived sensor | sensore derivato | Abgeleiteter Sensor | capteur dérivé |
 | Graph sensor | sensore Graph | Graph-Sensor | capteur Graph |
 | Graph service | servizio Graph | Graph-Dienst | service Graph |
+| Graph response | risposta Graph | Graph-Reaktion | réponse Graph |
 | Software sensor | sensore software | Software-Sensor | capteur logiciel |
 | Flow sensor | sensore di portata | Durchflusssensor | capteur de débit |
 | Water temperature | Temperatura acqua | Wassertemperatur | Température de l'eau |
@@ -38,6 +39,8 @@ A term that Italian keeps in English stays in English in German. A term that Ita
 | Event | Evento | Ereignis | Événement |
 | Source | Sorgente | Quelle | Source |
 | Poweroff | Spegnimento | Herunterfahren | Extinction |
+| Reboot | Riavvio | Neustart | Redémarrage |
+| Suspend | Sospensione | Bereitschaft | Mise en veille |
 | Countdown | conto alla rovescia | Countdown | compte à rebours |
 | Rule | Regola | Regel | Règle |
 | Rule group | Gruppo di regole | Regelgruppe | Groupe de règles |

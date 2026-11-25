@@ -19,7 +19,8 @@ use crate::command::Command;
 use crate::daemon_client::DaemonClient;
 use crate::graphs::channel::{GraphChannel, Input, Inputs};
 use crate::graphs::kinds::KindRunner;
-use crate::graphs::service::{Env, GraphService, NoLink, NoPower, SensorLink};
+use crate::graphs::power::LogindPower;
+use crate::graphs::service::{Env, GraphService, NoLink, NoPower, PowerCall, SensorLink};
 use crate::graphs::session::AlwaysActive;
 use crate::graphs::store::{GraphPaths, GraphStore};
 use crate::graphs::values::{ActiveSession, DaemonCalls, DaemonLink, LogindSession};
@@ -289,15 +290,16 @@ fn panic_text(payload: &(dyn std::any::Any + Send)) -> String {
         .unwrap_or_else(|| "a panic without a message".to_owned())
 }
 
-/// What the Graph service takes from the system bus: the link to the daemon and the session of the
-/// app in logind.
+/// What the Graph service takes from the system bus: the link to the daemon, and the session of the
+/// app and the power calls of logind.
 pub struct GraphSystem {
     pub link: Box<dyn SensorLink>,
     pub session: Box<dyn ActiveSession>,
+    pub power: Box<dyn PowerCall>,
 }
 
 /// The link of the Graph service to the daemon and to logind, on the system bus. Without a system
-/// bus the link sends nothing and the session counts as active.
+/// bus the link sends nothing, the session counts as active and a power call fails.
 pub fn graph_system(
     system: Option<(DaemonClient, zbus::Connection)>,
     runtime: &tokio::runtime::Handle,
@@ -307,9 +309,10 @@ pub fn graph_system(
         return GraphSystem {
             link: Box::new(NoLink),
             session: Box::new(AlwaysActive),
+            power: Box::new(NoPower),
         };
     };
-    let session = LogindSession::spawn(conn, runtime);
+    let session = LogindSession::spawn(conn.clone(), runtime);
     GraphSystem {
         link: Box::new(DaemonLink::new(
             DaemonCalls::new(client, runtime.clone()),
@@ -318,6 +321,7 @@ pub fn graph_system(
             view,
         )),
         session: Box::new(session),
+        power: Box::new(LogindPower::new(conn, runtime.clone())),
     }
 }
 
@@ -339,7 +343,7 @@ pub fn spawn_graphs(
             clock: Box::new(SystemClock::new()),
             link: system.link,
             scan: Box::new(ProcFs::new("/proc")),
-            power: Box::new(NoPower),
+            power: system.power,
             notify: notify.clone(),
             locale,
             view,

@@ -12,24 +12,27 @@ use nicecooling_core::clock::{Clock, SystemWallClock, WallClock};
 use nicecooling_core::rules::proc_scan::ProcessSource;
 use nicecooling_core::rules::process::ProcessList;
 use nicecooling_graph::eval::{EndValue, Evaluator, GraphPass, Pass, Sources, value_key};
-use nicecooling_graph::model::{Graph, Node, StoredGraph};
+use nicecooling_graph::model::{Graph, Kind, Node, ResponseKind, StoredGraph};
 use nicecooling_graph::pause::PowerKind;
 use nicecooling_graph::response::{Action, Timing};
 use nicecooling_graph::template::labelled_values;
 use tokio::sync::mpsc::UnboundedSender;
 
 use super::channel::GraphCommand;
+use super::power::{NOTIFICATION_KEY, Running, countdown_notification, failure_notification};
 use super::responses::{NoRunner, Outcome, Responses, Run, Runner, Started};
 use super::sensors::{self, CREATED_GRACE, SensorSpec};
 use super::session::AlwaysActive;
 use super::store::{GraphStore, describe, describe_invalid};
 use super::try_run::TryRun;
 use super::values::{ActiveSession, SensorError};
-use super::view::{Countdown, GraphRow, RowState, SharedView, TryView};
+use super::view::{GraphRow, RowState, SharedView, TryView};
 use crate::i18n::Locale;
 use crate::model::{AppState, DaemonEvent};
 use crate::notify::{Level, NotificationSpec, Plan, open_button};
 use crate::screens::format::{date_time_seconds, unit_text};
+
+pub use super::power::{NoPower, PowerCall};
 
 /// The time between two passes.
 pub const PASS_INTERVAL: Duration = Duration::from_secs(1);
@@ -68,19 +71,6 @@ enum Store {
     Enable,
     /// Disable: no call.
     Disable,
-}
-
-/// The power call at the end of a countdown. The call to logind is one implementation of it. A test
-/// records the calls.
-pub trait PowerCall: Send {
-    fn call(&mut self, kind: PowerKind);
-}
-
-/// A power call that does nothing.
-pub struct NoPower;
-
-impl PowerCall for NoPower {
-    fn call(&mut self, _kind: PowerKind) {}
 }
 
 /// A link that sends nothing.
@@ -134,14 +124,6 @@ pub struct Env {
     pub view: SharedView,
 }
 
-/// The countdown of a power response, on the monotonic clock of the service.
-struct RunningCountdown {
-    graph_id: String,
-    graph_name: String,
-    kind: PowerKind,
-    ends: Duration,
-}
-
 pub struct GraphService {
     store: GraphStore,
     evaluator: Evaluator,
@@ -153,7 +135,8 @@ pub struct GraphService {
     session: Box<dyn ActiveSession>,
     notify: UnboundedSender<Plan>,
     locale: Locale,
-    countdown: Option<RunningCountdown>,
+    /// The countdown of the power response that runs now.
+    countdown: Option<Running>,
     /// The try of a draft that runs now. It has no part in the pass of the applied Graphs.
     trying: Option<TryRun>,
     /// The last pass, for the view between two passes.
@@ -248,6 +231,7 @@ impl GraphService {
     /// sensors of the daemon.
     pub fn apply_event(&mut self, event: &DaemonEvent) {
         self.state.apply(event);
+        self.enforce_alarm_priority();
         if matches!(event, DaemonEvent::Snapshot(_)) {
             self.compare_sensors();
         }
@@ -312,51 +296,135 @@ impl GraphService {
         true
     }
 
-    /// Start the countdown of a power response. One countdown runs at a time: a second start
-    /// returns false.
+    /// Start the countdown of a power response of the Graph `graph_id`. One countdown runs at a
+    /// time: a second start returns false.
     pub fn start_countdown(&mut self, graph_id: &str, kind: PowerKind, seconds: u32) -> bool {
-        if self.countdown.is_some() {
-            return false;
-        }
         let Some(graph) = self.store.graph(graph_id) else {
             return false;
         };
-        self.countdown = Some(RunningCountdown {
+        let time_us = self.responses.wall_us();
+        let run = Run {
+            id: self.responses.next_run_id(time_us),
+            key: value_key(graph_id, 0),
             graph_id: graph_id.to_owned(),
             graph_name: graph.name.clone(),
-            kind,
-            ends: self.clock.now() + Duration::from_secs(u64::from(seconds)),
-        });
+            node: Node::new(0, Kind::ResponseEnd),
+            kind: response_kind(kind),
+            time_us,
+            time_text: date_time_seconds(time_us),
+            values: Vec::new(),
+        };
+        self.begin_power(run, kind, seconds)
+    }
+
+    /// Start the countdown of a run. A node that has a run with no outcome, and a second power
+    /// response while a countdown runs, get the outcome `busy`. While the daemon reports the
+    /// poweroff countdown of an Alarm, no power response starts. Returns whether it started.
+    fn begin_power(&mut self, run: Run, kind: PowerKind, seconds: u32) -> bool {
+        if self.alarm_poweroff_pending() {
+            return false;
+        }
+        if self.countdown.is_some() || self.responses.is_open(&run.key) {
+            self.log_run(&run, Outcome::Busy);
+            return false;
+        }
+        let now = self.clock.now();
+        self.store.state_mut().pause.start_run(kind);
+        self.responses.open(run.clone());
+        self.countdown = Some(Running::new(run, kind, seconds, now));
         self.publish_countdown();
         true
     }
 
-    /// Cancel the countdown. No power call follows.
+    /// Whether the daemon reports a poweroff countdown of an Alarm. The Alarm wins over every Graph
+    /// power response.
+    pub fn alarm_poweroff_pending(&self) -> bool {
+        self.state.is_online() && self.state.next_poweroff().is_some()
+    }
+
+    /// The countdown of a Graph power response ends when the Alarm countdown starts.
+    fn enforce_alarm_priority(&mut self) {
+        if self.countdown.is_some() && self.alarm_poweroff_pending() {
+            self.cancel_countdown();
+        }
+    }
+
+    /// Cancel the countdown. No power call follows. The run gives back its count for the Response
+    /// pause, and its outcome is `cancelled`. A cancel that comes after the call changes nothing.
     pub fn cancel_countdown(&mut self) {
-        self.countdown = None;
-        self.publish_countdown();
+        let Some(running) = self.countdown.take() else {
+            return;
+        };
+        self.store.state_mut().pause.cancel_run(running.kind);
+        self.finish_power(&running, Outcome::Cancelled);
     }
 
     fn tick_countdown(&mut self, now: Duration) {
-        let Some(countdown) = &self.countdown else {
+        self.enforce_alarm_priority();
+        let Some(running) = &self.countdown else {
             return;
         };
-        if now >= countdown.ends {
-            let kind = countdown.kind;
-            self.countdown = None;
-            self.power.call(kind);
+        if now >= running.ends {
+            self.end_countdown(now);
+        } else {
+            self.publish_countdown();
         }
+    }
+
+    /// The countdown is over: write `graph-state.json`, then call logind. A state that cannot be
+    /// written makes no call, because after a restart the response could run a second time.
+    fn end_countdown(&mut self, now: Duration) {
+        let Some(running) = self.countdown.take() else {
+            return;
+        };
+        let kind = running.kind;
+        // A session that is not active runs no response.
+        if !self.session.active() {
+            self.store.state_mut().pause.cancel_run(kind);
+            self.finish_power(&running, Outcome::Cancelled);
+            return;
+        }
+        self.store.state_mut().values = self.evaluator.stored_values();
+        let written = match self.store.file_error() {
+            Some(error) => Err(error.to_owned()),
+            None => self
+                .store
+                .write_state(now, true)
+                .map(|_| ())
+                .map_err(|error| error.to_string()),
+        };
+        let result = written.and_then(|()| self.power.call(kind));
+        let outcome = match result {
+            Ok(()) => Outcome::Ok,
+            Err(error) => {
+                eprintln!("nicecooling: {}: {error}", running.run.graph_name);
+                let spec = failure_notification(&running.run.graph_name, &error, self.locale);
+                let _ = self.notify.send(Plan::Show(spec));
+                Outcome::Failed
+            }
+        };
+        self.finish_power(&running, outcome);
+    }
+
+    /// The run of the countdown has its outcome: log it and close its notification.
+    fn finish_power(&mut self, running: &Running, outcome: Outcome) {
+        self.responses.close(&running.run.id);
+        self.log_run(&running.run, outcome);
+        let _ = self.notify.send(Plan::Close(NOTIFICATION_KEY.to_owned()));
         self.publish_countdown();
     }
 
-    fn publish_countdown(&self) {
+    /// Show the countdown in the view, and in its notification once per second.
+    fn publish_countdown(&mut self) {
         let now = self.clock.now();
-        let shown = self.countdown.as_ref().map(|c| Countdown {
-            graph_id: c.graph_id.clone(),
-            graph_name: c.graph_name.clone(),
-            kind: c.kind,
-            seconds_left: c.ends.saturating_sub(now).as_secs_f64().ceil() as u64,
-        });
+        let shown = self.countdown.as_ref().map(|running| running.view(now));
+        if let (Some(countdown), Some(running)) = (&shown, &mut self.countdown)
+            && running.shown_s != Some(countdown.seconds_left)
+        {
+            running.shown_s = Some(countdown.seconds_left);
+            let spec = countdown_notification(countdown, self.locale);
+            let _ = self.notify.send(Plan::Show(spec));
+        }
         if let Ok(mut view) = self.view.lock() {
             view.countdown = shown;
         }
@@ -636,6 +704,12 @@ impl GraphService {
             self.log_run(&run, Outcome::Busy);
             return;
         }
+        if let Some(kind) = PowerKind::from_response(run.kind) {
+            // A countdown of less than 10 s leaves no time to cancel.
+            let seconds = run.node.number("countdown_s").clamp(10.0, 3600.0) as u32;
+            self.begin_power(run, kind, seconds);
+            return;
+        }
         match self.runner.start(&run) {
             Started::Done(outcome) => self.log_run(&run, outcome),
             Started::Pending => self.responses.open(run),
@@ -809,5 +883,14 @@ fn row_of(graph: &Graph, pass: Option<&Pass>) -> GraphRow {
             .map(|r| r.values.clone())
             .unwrap_or_default(),
         end: result.map_or(nicecooling_graph::eval::EndValue::None, |r| r.end.clone()),
+    }
+}
+
+/// The response kind of a power kind.
+fn response_kind(kind: PowerKind) -> ResponseKind {
+    match kind {
+        PowerKind::Poweroff => ResponseKind::Poweroff,
+        PowerKind::Reboot => ResponseKind::Reboot,
+        PowerKind::Suspend => ResponseKind::Suspend,
     }
 }

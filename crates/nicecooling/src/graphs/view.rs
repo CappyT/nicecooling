@@ -39,6 +39,8 @@ pub struct Countdown {
     pub graph_name: String,
     pub kind: PowerKind,
     pub seconds_left: u64,
+    /// The length of the countdown in seconds.
+    pub total_s: u64,
 }
 
 /// The node values of a try.

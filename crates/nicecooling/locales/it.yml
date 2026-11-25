@@ -129,6 +129,7 @@ tray:
 notification:
   action:
     cancel_poweroff: Annulla lo spegnimento
+    cancel_countdown: Annulla
     open: Apri nicecooling
     open_channels: Apri i Canali
     open_leakshield: Apri il Leakshield
@@ -163,6 +164,23 @@ notification:
   graph_service_stopped:
     title: "Servizio Graph fermato"
     body: "Un errore ha fermato il servizio Graph. Nessun Graph funziona finché nicecooling non riparte."
+  graph_power_failed:
+    title: "%{name}: il PC non ha cambiato stato"
+    body: "Il sistema ha rifiutato la chiamata: %{error}"
+graph_countdown:
+  poweroff: "%{name}: spegnimento tra %{seconds} s"
+  reboot: "%{name}: riavvio tra %{seconds} s"
+  suspend: "%{name}: sospensione tra %{seconds} s"
+  body: "Annulla il conto alla rovescia per lasciare il PC com'è."
+  text: "Una risposta Graph ha avviato questo conto alla rovescia. Alla fine il PC cambia stato."
+  ended: "Il PC cambia stato adesso."
+  graph: Graph
+  response: Risposta Graph
+  hint: "Il conto alla rovescia continua nella notifica e nel menu dell'icona."
+  kind:
+    poweroff: Spegnimento
+    reboot: Riavvio
+    suspend: Sospensione
 feedback:
   pending: Scrittura in corso
   applied: "Applicato alle %{time}"

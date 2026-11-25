@@ -11,6 +11,7 @@ use crate::app_settings::SettingsStore;
 use crate::command::Command;
 use crate::daemon_client::DaemonClient;
 use crate::graphs::channel::{GraphChannel, QUIT_WAIT};
+use crate::graphs::view::{Countdown, SharedView};
 use crate::i18n::{Language, Locale};
 use crate::model::{AppState, DaemonEvent, Link, Severity};
 use crate::screens::{Feedback, WriteOutcome};
@@ -66,6 +67,8 @@ pub struct AppModel {
     /// The history database that the History screen reads.
     pub history_path: Option<std::path::PathBuf>,
     pub settings: SettingsStore,
+    /// What the Graph service shows. `None` in a test that runs without the service.
+    pub graph_view: Option<SharedView>,
     /// The first-run flow opens once, when the first read shows a daemon without a Loop.
     first_run_offered: bool,
     connecting_since: Instant,
@@ -82,6 +85,7 @@ impl AppModel {
             down_since_us: None,
             history_path: Some(crate::services::history_path()),
             settings: SettingsStore::default(),
+            graph_view: None,
             first_run_offered: false,
             connecting_since: Instant::now(),
         }
@@ -117,6 +121,15 @@ impl AppModel {
     /// "Connecting" lasts 2 s at most.
     fn connecting_expired(&self) -> bool {
         self.state.link == Link::Connecting && self.connecting_since.elapsed() >= CONNECTING_LIMIT
+    }
+
+    /// The countdown of the Graph power response that runs now.
+    pub fn graph_countdown(&self) -> Option<Countdown> {
+        self.graph_view
+            .as_ref()?
+            .lock()
+            .ok()
+            .and_then(|view| view.countdown.clone())
     }
 
     pub fn shell(&self) -> ShellModel {
@@ -160,9 +173,11 @@ pub fn init(cx: &mut App, mode: StartMode, backend: Backend) -> Entity<AppModel>
     // Closing the window hides it: only "Quit" ends the app.
     cx.set_quit_mode(QuitMode::Explicit);
     crate::tokens::apply_theme(cx);
+    let graph_view = graphs.as_ref().and_then(GraphChannel::view);
     let model = cx.new(|_| {
         let mut app = AppModel::new(locale);
         app.settings = settings;
+        app.graph_view = graph_view;
         app
     });
 
@@ -315,6 +330,7 @@ pub fn init(cx: &mut App, mode: StartMode, backend: Backend) -> Entity<AppModel>
                             cx.notify();
                         } else if app.state.next_poweroff().is_some()
                             || app.state.snapshot.dwell_until_us != 0
+                            || app.graph_countdown().is_some()
                         {
                             app.now_us = now_us();
                             cx.notify();

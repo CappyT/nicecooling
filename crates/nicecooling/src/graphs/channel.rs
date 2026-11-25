@@ -144,6 +144,11 @@ impl GraphChannel {
         self
     }
 
+    /// The view that the service writes, for the window.
+    pub fn view(&self) -> Option<SharedView> {
+        self.view.clone()
+    }
+
     pub fn try_send(&self, command: GraphCommand) -> Result<(), SendError> {
         self.commands
             .try_send(Input::Command(command))

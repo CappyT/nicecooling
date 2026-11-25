@@ -8,6 +8,7 @@ use notify_rust::{Notification, Timeout, Urgency};
 use tokio::sync::mpsc::UnboundedSender;
 
 use crate::command::Command;
+use crate::graphs::channel::GraphCommand;
 use crate::i18n::Locale;
 use crate::model::{AlarmEntry, AppState, Cause, DaemonEvent, Link, Response, Severity};
 use crate::shell::Page;
@@ -78,6 +79,15 @@ pub(crate) fn open_button(locale: Locale) -> Button {
         id: "open",
         label: locale.tr("notification.action.open"),
         command: Command::OpenWindow(None),
+    }
+}
+
+/// The button "Cancel" of the notification of a Graph power countdown.
+pub(crate) fn cancel_countdown_button(locale: Locale) -> Button {
+    Button {
+        id: "cancel_countdown",
+        label: locale.tr("notification.action.cancel_countdown"),
+        command: Command::Graph(GraphCommand::CancelCountdown),
     }
 }
 

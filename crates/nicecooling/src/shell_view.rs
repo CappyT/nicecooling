@@ -751,8 +751,14 @@ impl Render for ShellView {
             other => (locale.tr(other.title_key()), None),
         };
 
+        // The countdown of an Alarm has the priority over the countdown of a Graph response.
+        let graph_countdown = self.model.read(cx).graph_countdown();
         let countdown = crate::screen_view::with_screen_input(&self.model, cx, |input| {
             crate::screens::alarms::CountdownDialog::build(input)
+        })
+        .or_else(|| {
+            graph_countdown
+                .map(|found| crate::screens::alarms::CountdownDialog::for_graph(&found, locale))
         })
         .filter(|dialog| self.countdown_hidden.as_ref() != Some(&dialog.instance));
         if let Some(dialog) = &countdown

@@ -129,6 +129,7 @@ tray:
 notification:
   action:
     cancel_poweroff: Herunterfahren abbrechen
+    cancel_countdown: Abbrechen
     open: nicecooling öffnen
     open_channels: Kanäle öffnen
     open_leakshield: Leakshield öffnen
@@ -163,6 +164,23 @@ notification:
   graph_service_stopped:
     title: "Graph-Dienst angehalten"
     body: "Ein Fehler hat den Graph-Dienst angehalten. Kein Graph läuft, bis nicecooling neu startet."
+  graph_power_failed:
+    title: "%{name}: Der PC hat seinen Zustand nicht geändert"
+    body: "Das System hat den Aufruf abgelehnt: %{error}"
+graph_countdown:
+  poweroff: "%{name}: Herunterfahren in %{seconds} s"
+  reboot: "%{name}: Neustart in %{seconds} s"
+  suspend: "%{name}: Bereitschaft in %{seconds} s"
+  body: "Brechen Sie den Countdown ab, damit der PC bleibt, wie er ist."
+  text: "Eine Graph-Reaktion hat diesen Countdown gestartet. Am Ende ändert der PC seinen Zustand."
+  ended: "Der PC ändert jetzt seinen Zustand."
+  graph: Graph
+  response: Graph-Reaktion
+  hint: "Der Countdown läuft in der Benachrichtigung und im Menü des Symbols weiter."
+  kind:
+    poweroff: Herunterfahren
+    reboot: Neustart
+    suspend: Bereitschaft
 feedback:
   pending: Schreiben
   applied: "Angewendet %{time}"

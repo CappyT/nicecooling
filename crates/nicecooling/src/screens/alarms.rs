@@ -2,8 +2,13 @@
 //! response of every event type, and the history. The countdown dialog of `widgets.md` is
 //! built here too: it shows over every page.
 
+use nicecooling_graph::pause::PowerKind;
+
 use crate::command::Command;
 use crate::command::response_feedback_key;
+use crate::graphs::channel::GraphCommand;
+use crate::graphs::power::countdown_text;
+use crate::graphs::view::Countdown;
 use crate::i18n::Locale;
 use crate::model::{
     AlarmEntry, AlarmRecord, AppState, Link, Outcome, Response, ResponseRule, Severity,
@@ -597,6 +602,8 @@ pub struct CountdownDialog {
     pub ended: bool,
     /// The button that has the focus when the dialog opens.
     pub default_focus: DialogButton,
+    /// The countdown of a Graph power response, not of an Alarm.
+    pub graph: bool,
 }
 
 impl CountdownDialog {
@@ -649,10 +656,52 @@ impl CountdownDialog {
             hint: locale.tr("alarms.dialog.hint"),
             ended,
             default_focus: DialogButton::Cancel,
+            graph: false,
         })
     }
 
+    /// The dialog of the countdown of a Graph power response. It has the shape of the dialog of an
+    /// Alarm.
+    pub fn for_graph(countdown: &Countdown, locale: Locale) -> Self {
+        let total = countdown.total_s.max(countdown.seconds_left).max(1);
+        let kind = match countdown.kind {
+            PowerKind::Poweroff => "graph_countdown.kind.poweroff",
+            PowerKind::Reboot => "graph_countdown.kind.reboot",
+            PowerKind::Suspend => "graph_countdown.kind.suspend",
+        };
+        let ended = countdown.seconds_left == 0;
+        Self {
+            instance: format!("graph:{}", countdown.graph_id),
+            title: countdown_text(countdown, locale),
+            text: locale.tr(if ended {
+                "graph_countdown.ended"
+            } else {
+                "graph_countdown.text"
+            }),
+            seconds: countdown.seconds_left,
+            seconds_label: locale.fmt("alarms.dialog.seconds_of", &[("total", &total.to_string())]),
+            fraction: (countdown.seconds_left as f32 / total as f32).clamp(0.0, 1.0),
+            rows: vec![
+                (
+                    locale.tr("graph_countdown.graph"),
+                    countdown.graph_name.clone(),
+                ),
+                (locale.tr("graph_countdown.response"), locale.tr(kind)),
+            ],
+            more: None,
+            cancel: locale.tr("notification.action.cancel_countdown"),
+            hide: locale.tr("alarms.dialog.hide"),
+            hint: locale.tr("graph_countdown.hint"),
+            ended,
+            default_focus: DialogButton::Cancel,
+            graph: true,
+        }
+    }
+
     pub fn cancel_command(&self) -> Command {
+        if self.graph {
+            return Command::Graph(GraphCommand::CancelCountdown);
+        }
         Command::CancelPoweroff {
             instance: self.instance.clone(),
         }
