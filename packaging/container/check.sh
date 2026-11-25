@@ -58,6 +58,11 @@ podman exec "$name" dnf -y install /tmp/nicecooling.rpm >/dev/null
 podman exec "$name" rpm -ql nicecooling | sort > "$rpmdir/installed-paths.txt"
 echo "installed: $(wc -l < "$rpmdir/installed-paths.txt") paths"
 
+# The preset of the package enables the unit, so the daemon starts at the next boot.
+enabled=$(podman exec "$name" systemctl is-enabled nicecoolingd.service || true)
+[ "$enabled" = enabled ] || { echo "nicecoolingd.service is '$enabled' after the install, expected enabled" >&2; exit 1; }
+echo "install: unit enabled by the preset"
+
 podman exec "$name" systemd-analyze verify /usr/lib/systemd/system/nicecoolingd.service
 echo "verify nicecoolingd.service: exit 0"
 # The Fedora image has no man pages, and `verify` fails on the `man:` links of poweroff.target.
