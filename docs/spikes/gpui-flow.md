@@ -8,6 +8,10 @@ The program shows a Graph of 8 nodes and 8 connections. Its options are `--light
 
 ## Result
 
+Decision: go
+
+The owner decided on 2026-11-25: the Graph editor is built on the copy. The defects of the section "Defects and missing functions" are the first tasks of the editor.
+
 The copy needs the 11 changes of the section "Changes to the copied code". With them, every behavior of the table works on Xvfb. The owner's checks on GNOME Wayland are in `docs/hardware-checks/gpui-flow.md` and are not done.
 
 Checked on Xvfb, 2026-11-25: Xvfb 21.1.26 at 1280x800, no window manager, the software Vulkan driver lavapipe, release build, rustc 1.100.0. `xdotool` moved the pointer and `import` took the captures. The numbers come from the lines that the program prints. The captures are in `~/.cache/nicecooling-agents/flow-spike/shots/` on the machine of the check. They are not in the repository.
@@ -128,4 +132,3 @@ Not checked: a Graph of 256 nodes, the pinch zoom, a touchpad scroll, the box se
 ## Open items
 
 - The owner runs the procedure in `docs/hardware-checks/gpui-flow.md` and records the idle CPU here.
-- The owner decides (task 1.4).
