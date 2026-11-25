@@ -40,6 +40,10 @@ The validator SHALL name each refusal with one code: `no-end-node`, `two-end-nod
 - **WHEN** two nodes of a Graph have the label `water`
 - **THEN** the validator returns `duplicate-label`
 
+#### Scenario: Labels in different case
+- **WHEN** two nodes of a Graph have the labels `Water` and `water`
+- **THEN** the validator returns `duplicate-label`
+
 #### Scenario: Sensor id
 - **WHEN** a Graph with a response end node has a `sensor_id`
 - **THEN** the validator returns `bad-sensor-id`
@@ -60,7 +64,7 @@ A Graph SHALL have exactly one end node: a sensor end node or a response end nod
 - **THEN** the validator refuses the Graph with the code `end-node-output`
 
 ### Requirement: Graph limits
-The app SHALL store at most 64 Graphs and at most 256 nodes in one Graph. A Graph name SHALL have at most 64 characters. A node label SHALL have 1 to 32 characters of letters, digits and `_`, and SHALL be unique in its Graph. The validator SHALL refuse a Graph above a limit. The limits of the window samples and of the Graph sensors are in their own requirements.
+The app SHALL store at most 64 Graphs and at most 256 nodes in one Graph. A Graph name SHALL have at most 64 characters. A node label SHALL have 1 to 32 characters of letters, digits and `_`, and SHALL be unique in its Graph, with upper and lower case letters taken as equal. The validator SHALL refuse a Graph above a limit. The limits of the window samples and of the Graph sensors are in their own requirements.
 
 #### Scenario: 65th Graph
 - **WHEN** 64 Graphs exist and the user applies a new Graph

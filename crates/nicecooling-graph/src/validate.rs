@@ -309,14 +309,14 @@ fn label_is_valid(label: &str) -> bool {
 }
 
 fn check_labels(graph: &Graph, out: &mut Vec<Refusal>) {
-    let mut seen: BTreeSet<&str> = BTreeSet::new();
+    let mut seen: BTreeSet<String> = BTreeSet::new();
     for node in &graph.nodes {
         let Some(label) = node.label.as_deref() else {
             continue;
         };
         if !label_is_valid(label) {
             out.push(Refusal::parameter(node.id, "label"));
-        } else if !seen.insert(label) {
+        } else if !seen.insert(label.to_ascii_lowercase()) {
             out.push(Refusal::at(RefusalCode::DuplicateLabel, node.id));
         }
     }
@@ -673,6 +673,15 @@ mod tests {
         // A Graph with a response end node makes no Graph sensor.
         let response = response_graph("r");
         assert!(!codes(&validate(&response, &others)).contains(&RefusalCode::LimitGraphSensors));
+    }
+
+    #[test]
+    fn labels_that_differ_in_case_are_duplicates() {
+        let mut g = sensor_graph("graph_1");
+        g.nodes[0].label = Some("Water".into());
+        g.nodes.push(node(3, Kind::Constant));
+        g.nodes[2].label = Some("water".into());
+        only(&g, RefusalCode::DuplicateLabel);
     }
 
     #[test]
