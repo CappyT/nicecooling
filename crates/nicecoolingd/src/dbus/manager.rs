@@ -54,6 +54,23 @@ impl Manager {
         Ok(object(Kind::Sensor, &id))
     }
 
+    #[zbus(out_args("sensor"))]
+    async fn create_graph_sensor(
+        &self,
+        #[zbus(connection)] connection: &Connection,
+        #[zbus(header)] header: Header<'_>,
+        #[zbus(object_server)] server: &ObjectServer,
+        name: &str,
+        unit: &str,
+    ) -> Result<OwnedObjectPath> {
+        self.hub
+            .authorize(connection, &header, "Manager", "CreateGraphSensor", None)
+            .await?;
+        let id = self.hub.create_graph_sensor(name, unit)?;
+        register_sensor(server, &self.hub, &id).await?;
+        Ok(object(Kind::Sensor, &id))
+    }
+
     #[zbus(out_args("loop"))]
     async fn create_loop(
         &self,

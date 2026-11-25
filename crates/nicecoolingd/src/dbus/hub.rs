@@ -13,6 +13,7 @@ use nicecooling_api::ids::{self, Kind};
 use nicecooling_core::calibration::{CalibrationTable, Preset};
 use nicecooling_core::curve::{Curve, DEFAULT_SMOOTHING_S, DEFAULT_STEP_LIMIT};
 use nicecooling_core::derived::{DerivedKind, DerivedSensor};
+use nicecooling_core::graph_sensor::{MAX_GRAPH_SENSORS, graph_sensor_kind};
 use nicecooling_core::loops::{Loop, tach_sensor};
 use nicecooling_core::tick::TickConfig;
 use nicecooling_hwmon::identity::DeviceIdentity;
@@ -34,9 +35,9 @@ use crate::leakshield::software_sensors::Assignment;
 use crate::snapshot::{self, BiosSnapshot};
 use crate::state::profiles::DEFAULT_PROFILE;
 use crate::state::{
-    CalibrationDef, ControlKind, DaemonState, PERSIST_DELAY, Persister, ProfileChannel,
-    ProfileFile, ProfileSet, STATE_FILE, SlotScale, SlotStore, StateStore, profile_file,
-    tick_config,
+    CalibrationDef, ControlKind, DaemonState, GraphSensorDef, PERSIST_DELAY, Persister,
+    ProfileChannel, ProfileFile, ProfileSet, STATE_FILE, SlotScale, SlotStore, StateStore,
+    profile_file, tick_config,
 };
 
 /// The default Pump floor of a new Loop, in percent.
@@ -280,6 +281,12 @@ fn check_name(name: &str) -> Result<()> {
     }
 }
 
+fn check_graph_unit(unit: &str) -> Result<()> {
+    graph_sensor_kind(unit)
+        .map(|_| ())
+        .ok_or_else(|| Error::invalid(format!("{unit:?} is not a unit of a Graph sensor")))
+}
+
 fn check_point_count(what: &str, count: usize, max: usize) -> Result<()> {
     if (MIN_POINTS..=max).contains(&count) {
         Ok(())
@@ -320,6 +327,7 @@ impl Inner {
             .iter()
             .map(|s| s.id.clone())
             .chain(self.state.derived_sensors.iter().map(|d| d.id.clone()))
+            .chain(self.state.graph_sensors.iter().map(|g| g.id.clone()))
             .chain(self.loop_flow_ids().map(|(_, id)| id))
             .collect()
     }
@@ -327,7 +335,25 @@ impl Inner {
     fn sensor_exists(&self, id: &str) -> bool {
         self.sensors.iter().any(|s| s.id == id)
             || self.state.derived_sensors.iter().any(|d| d.id == id)
+            || self.state.graph_sensors.iter().any(|g| g.id == id)
             || self.loop_flow_ids().any(|(_, f)| f == id)
+    }
+
+    fn is_graph_sensor(&self, id: &str) -> bool {
+        self.state.graph_sensors.iter().any(|g| g.id == id)
+    }
+
+    /// The Software sensor slot that holds this sensor, or `None`.
+    fn slot_user(&self, id: &str) -> Option<String> {
+        self.state
+            .software_sensors
+            .iter()
+            .find_map(|(device, slots)| {
+                slots
+                    .iter()
+                    .find(|(_, sensor)| sensor.as_str() == id)
+                    .map(|(slot, _)| format!("the Software sensor slot {slot} of {device}"))
+            })
     }
 
     fn require_sensor(&self, id: &str) -> Result<()> {
@@ -399,11 +425,15 @@ impl Inner {
         }) {
             return Some(format!("a rule of the Rule group {}", group.id));
         }
-        self.state
+        if let Some(derived) = self
+            .state
             .derived_sensors
             .iter()
             .find(|d| d.sources.iter().any(|s| s == id))
-            .map(|d| format!("the Derived sensor {}", d.id))
+        {
+            return Some(format!("the Derived sensor {}", derived.id));
+        }
+        self.slot_user(id)
     }
 
     fn name_of(&self, id: &str, default: &str) -> String {
@@ -417,6 +447,10 @@ impl Inner {
     fn kind_unit(&self, id: &str, depth: u8) -> (String, String) {
         if let Some(s) = self.sensors.iter().find(|s| s.id == id) {
             return (s.kind.to_owned(), s.unit.to_owned());
+        }
+        if let Some(g) = self.state.graph_sensors.iter().find(|g| g.id == id) {
+            let kind = graph_sensor_kind(&g.unit).unwrap_or("other");
+            return (kind.to_owned(), g.unit.clone());
         }
         if let Some(d) = self.state.derived_sensors.iter().find(|d| d.id == id) {
             if let (Some(first), true) = (d.sources.first(), depth < 8) {
@@ -480,6 +514,19 @@ impl Inner {
                 kind,
                 unit,
                 origin: "derived",
+                driver: String::new(),
+                value,
+            });
+        }
+        if let Some(graph) = self.state.graph_sensors.iter().find(|g| g.id == id) {
+            let (kind, unit) = self.kind_unit(id, 0);
+            return Some(SensorView {
+                id: id.to_owned(),
+                name: self.name_of(id, &graph.name),
+                default_name: graph.name.clone(),
+                kind,
+                unit,
+                origin: "graph",
                 driver: String::new(),
                 value,
             });
@@ -1097,6 +1144,19 @@ impl Hub {
             .collect()
     }
 
+    pub fn graph_sensor_ids(&self) -> Vec<String> {
+        self.inner()
+            .state
+            .graph_sensors
+            .iter()
+            .map(|g| g.id.clone())
+            .collect()
+    }
+
+    pub fn is_graph_sensor(&self, id: &str) -> bool {
+        self.inner().is_graph_sensor(id)
+    }
+
     pub fn hwmon_sensor_ids(&self) -> Vec<String> {
         self.inner().sensors.iter().map(|s| s.id.clone()).collect()
     }
@@ -1223,6 +1283,75 @@ impl Hub {
                 return Err(Error::in_use(format!("{id} is read by {user}")));
             }
             i.state.derived_sensors.retain(|d| d.id != id);
+            i.state.names.remove(id);
+            Ok(())
+        })
+    }
+
+    /// Returns the id of the new Graph sensor. An empty name gives the id as the default name.
+    pub fn create_graph_sensor(&self, name: &str, unit: &str) -> Result<String> {
+        check_name(name)?;
+        check_graph_unit(unit)?;
+        self.edit(|i| {
+            check_count(
+                "Graph sensors",
+                i.state.graph_sensors.len(),
+                MAX_GRAPH_SENSORS,
+            )?;
+            let number = ids::take_number(
+                "graph_",
+                &mut i.state.graph_sensor_next,
+                i.state.graph_sensors.iter().map(|g| g.id.as_str()),
+            );
+            let id = ids::graph_sensor_id(number);
+            i.state.graph_sensors.push(GraphSensorDef {
+                id: id.clone(),
+                name: if name.is_empty() {
+                    id.clone()
+                } else {
+                    name.to_owned()
+                },
+                unit: unit.to_owned(),
+            });
+            Ok(id)
+        })
+    }
+
+    /// Changes the default name and the unit. A name that the user set stays in `names`.
+    pub fn set_graph_definition(&self, id: &str, name: &str, unit: &str) -> Result<()> {
+        check_name(name)?;
+        check_graph_unit(unit)?;
+        self.edit(|i| {
+            let Some(current) = i.state.graph_sensors.iter().find(|g| g.id == id) else {
+                return Err(Error::not_found(format!("no Graph sensor {id}")));
+            };
+            if current.unit != unit
+                && let Some(user) = i.slot_user(id)
+            {
+                // The slot holds the unit code of the device.
+                return Err(Error::in_use(format!("{id} is held by {user}")));
+            }
+            if let Some(graph) = i.state.graph_sensors.iter_mut().find(|g| g.id == id) {
+                graph.name = if name.is_empty() {
+                    id.to_owned()
+                } else {
+                    name.to_owned()
+                };
+                graph.unit = unit.to_owned();
+            }
+            Ok(())
+        })
+    }
+
+    pub fn delete_graph_sensor(&self, id: &str) -> Result<()> {
+        self.edit(|i| {
+            if !i.is_graph_sensor(id) {
+                return Err(Error::not_found(format!("no Graph sensor {id}")));
+            }
+            if let Some(user) = i.sensor_user(id) {
+                return Err(Error::in_use(format!("{id} is read by {user}")));
+            }
+            i.state.graph_sensors.retain(|g| g.id != id);
             i.state.names.remove(id);
             Ok(())
         })

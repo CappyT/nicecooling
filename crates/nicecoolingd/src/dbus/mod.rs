@@ -16,6 +16,7 @@ pub mod board;
 pub mod channel;
 pub mod derived_sensor;
 pub mod field_value;
+pub mod graph_sensor;
 pub mod hub;
 pub mod leakshield;
 pub mod loops;
@@ -67,7 +68,8 @@ fn root_path() -> OwnedObjectPath {
     OwnedObjectPath::try_from(ROOT_PATH).expect("the root path is valid")
 }
 
-/// Registers the objects of a sensor id: `Sensor`, and `DerivedSensor` for a Derived sensor.
+/// Registers the objects of a sensor id: `Sensor`, and `DerivedSensor` for a Derived sensor or
+/// `GraphSensor` for a Graph sensor.
 pub(crate) async fn register_sensor(
     server: &ObjectServer,
     hub: &Arc<Hub>,
@@ -87,15 +89,23 @@ pub(crate) async fn register_sensor(
                 derived_sensor::DerivedSensor::new(hub.clone(), id.to_owned()),
             )
             .await?;
+    } else if hub.is_graph_sensor(id) {
+        server
+            .at(
+                path,
+                graph_sensor::GraphSensor::new(hub.clone(), id.to_owned()),
+            )
+            .await?;
     }
     Ok(())
 }
 
-/// Removes the objects of a sensor id. A calibrated flow sensor has no `DerivedSensor`
-/// interface, and a concurrent call may have removed an interface already.
+/// Removes the objects of a sensor id. A sensor has one of the interfaces `DerivedSensor` and
+/// `GraphSensor` at most, and a concurrent call may have removed an interface already.
 pub(crate) async fn unregister_sensor(server: &ObjectServer, id: &str) -> zbus::Result<()> {
     let path = object(Kind::Sensor, id);
     remove_if_present::<derived_sensor::DerivedSensor>(server, path.clone()).await?;
+    remove_if_present::<graph_sensor::GraphSensor>(server, path.clone()).await?;
     remove_if_present::<sensor::Sensor>(server, path).await
 }
 
@@ -200,6 +210,7 @@ pub async fn serve(
         .hwmon_sensor_ids()
         .into_iter()
         .chain(hub.derived_ids())
+        .chain(hub.graph_sensor_ids())
         .chain(hub.flow_sensor_ids())
     {
         register_sensor(server, hub, &id).await?;
