@@ -60,7 +60,7 @@ impl Window {
         self.samples.push_back((now, value));
     }
 
-    fn values(&self) -> impl Iterator<Item = f64> + '_ {
+    fn values(&self) -> impl Iterator<Item = f64> + Clone + '_ {
         self.samples.iter().map(|(_, v)| *v)
     }
 
@@ -73,7 +73,7 @@ impl Window {
     }
 
     pub fn mean(&self) -> Option<f64> {
-        (!self.is_empty()).then(|| self.values().sum::<f64>() / self.len() as f64)
+        mean_of(self.values(), self.len())
     }
 
     /// The mean of the samples after the lowest and the highest are dropped in pairs.
@@ -82,26 +82,67 @@ impl Window {
         sorted.sort_by(f64::total_cmp);
         let pairs = trim_pairs(sorted.len());
         let kept = sorted.get(pairs..sorted.len() - pairs)?;
-        (!kept.is_empty()).then(|| kept.iter().sum::<f64>() / kept.len() as f64)
+        mean_of(kept.iter().copied(), kept.len())
     }
 
     /// The least-squares slope of the samples against the sample number. With fewer than 3
-    /// samples it is 0.
-    pub fn slope(&self) -> f64 {
+    /// samples it is 0. `None` when the slope is not a finite number.
+    pub fn slope(&self) -> Option<f64> {
         let n = self.len();
         if n < 3 {
-            return 0.0;
+            return Some(0.0);
         }
-        let mean_x = (n as f64 - 1.0) / 2.0;
-        let mean_y = self.mean().unwrap_or(0.0);
-        let (mut num, mut den) = (0.0, 0.0);
-        for (i, y) in self.values().enumerate() {
-            let dx = i as f64 - mean_x;
-            num += dx * (y - mean_y);
-            den += dx * dx;
+        let raw = slope_of(self.values(), n, 1.0);
+        if raw.is_some() {
+            return raw;
         }
-        num / den
+        // A difference of two large samples overflows. The slope of the samples divided by a
+        // power of 2 is the slope divided by the same number.
+        let scale = scale_of(self.values());
+        let slope = slope_of(self.values(), n, scale)? * scale;
+        slope.is_finite().then_some(slope)
     }
+}
+
+/// A power of 2 that brings every sample into -2 to 2, and 1 for samples below 2. Dividing by it
+/// is exact.
+fn scale_of<I: Iterator<Item = f64>>(values: I) -> f64 {
+    let largest = values.fold(0.0_f64, |m, v| m.max(v.abs()));
+    2.0_f64.powf((largest.log2().ceil() - 1.0).clamp(0.0, 1023.0))
+}
+
+/// The mean of `count` finite numbers. The sum overflows for large samples although their mean is
+/// finite. Then the samples are scaled down first. `None` for no samples and for a mean that is
+/// not finite.
+fn mean_of<I: Iterator<Item = f64> + Clone>(values: I, count: usize) -> Option<f64> {
+    if count == 0 {
+        return None;
+    }
+    let n = count as f64;
+    let sum: f64 = values.clone().sum();
+    let mean = if sum.is_finite() {
+        sum / n
+    } else {
+        let scale = scale_of(values.clone());
+        values.map(|v| v / scale).sum::<f64>() / n * scale
+    };
+    mean.is_finite().then_some(mean)
+}
+
+/// The least-squares slope of the `n` samples divided by `scale`, against the sample number. It
+/// takes the difference to the first sample, so equal samples give exactly 0. `None` when a step
+/// overflows.
+fn slope_of<I: Iterator<Item = f64> + Clone>(values: I, n: usize, scale: f64) -> Option<f64> {
+    let mean_x = (n as f64 - 1.0) / 2.0;
+    let first = values.clone().next()? / scale;
+    let (mut num, mut den) = (0.0, 0.0);
+    for (i, y) in values.enumerate() {
+        let dx = i as f64 - mean_x;
+        num += dx * (y / scale - first);
+        den += dx * dx;
+    }
+    let slope = num / den;
+    slope.is_finite().then_some(slope)
 }
 
 /// How many pairs of the lowest and the highest sample the low pass drops: as many as leave at
@@ -144,12 +185,12 @@ impl Filter {
         if self.window.is_empty() {
             self.damped = None;
         }
-        self.window.push(now, input?);
+        self.window.push(now, input.filter(|v| v.is_finite())?);
         match stat {
             Stat::Peak => self.window.peak().map(round5),
             Stat::Minimum => self.window.minimum().map(round5),
             Stat::Average => self.window.mean().map(round5),
-            Stat::Trend => Some(round5(self.window.slope())),
+            Stat::Trend => self.window.slope().map(round5),
             Stat::LowPass { damping } => self.low_pass(damping),
         }
     }
@@ -163,7 +204,16 @@ impl Filter {
         }
         let target = self.window.trimmed_mean()?;
         let output = match self.damped {
-            Some(last) => last + (target - last) * (1.0 - damping / 100.0),
+            Some(last) => {
+                let moved = last + (target - last) * (1.0 - damping / 100.0);
+                // The distance between two large numbers of opposite sign overflows. A weighted
+                // sum of the two stays between them.
+                if moved.is_finite() {
+                    moved
+                } else {
+                    last * (damping / 100.0) + target * (1.0 - damping / 100.0)
+                }
+            }
             None => target,
         };
         self.damped = Some(output);
