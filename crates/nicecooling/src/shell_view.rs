@@ -324,6 +324,7 @@ impl ShellView {
         });
         h_flex()
             .id(format!("nav-{}", entry.label))
+            .debug_selector(|| format!("nav-{}", entry.label))
             .h(px(34.))
             .flex_none()
             .px(px(9.))

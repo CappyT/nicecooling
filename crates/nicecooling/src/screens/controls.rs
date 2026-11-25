@@ -396,9 +396,12 @@ impl ScreenView {
         icon: Option<NcIcon>,
     ) -> Button {
         let label: SharedString = label.into();
+        let id = id.into();
+        let name = id.to_string();
         // The label of a gpui-component button has the size of the button variant. The text
         // is a child here, so it takes the 13 px of the design.
-        let button = Button::new(id.into())
+        let button = Button::new(id)
+            .debug_selector(move || name)
             .accessibility_label(label.clone())
             .h(px(28.))
             .px(px(10.))
@@ -420,7 +423,10 @@ impl ScreenView {
 
     /// A small button with an icon only: 28 px square, no fill.
     pub(crate) fn icon_button(id: impl Into<SharedString>, icon: NcIcon) -> Button {
-        Button::new(id.into())
+        let id = id.into();
+        let name = id.to_string();
+        Button::new(id)
+            .debug_selector(move || name)
             .ghost()
             .icon(text_icon(icon))
             .size(px(28.))

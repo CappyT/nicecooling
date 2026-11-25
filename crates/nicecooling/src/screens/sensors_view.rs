@@ -528,7 +528,11 @@ impl ScreenView {
         popover(p)
             .w(px(280.))
             .p(px(6.))
-            .child(Self::field_input(&input, None, false, p))
+            .child(
+                div()
+                    .debug_selector(|| "rename-input".to_owned())
+                    .child(Self::field_input(&input, None, false, p)),
+            )
             .into_any_element()
     }
 
