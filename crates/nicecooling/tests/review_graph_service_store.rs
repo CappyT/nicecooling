@@ -245,8 +245,7 @@ fn invalid_graph_counts_for_the_limit_of_64() {
     );
     let store = GraphStore::open(paths);
     assert_eq!(store.entries().len(), 64);
-    let refusals =
-        nicecooling_graph::validate::validate(&constant_graph("graph_64", 1.0), &store.graphs());
+    let refusals = store.validate(&constant_graph("graph_64", 1.0));
     assert!(
         refusals
             .iter()

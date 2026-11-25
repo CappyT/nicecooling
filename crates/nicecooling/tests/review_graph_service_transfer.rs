@@ -37,7 +37,8 @@ fn import_id_does_not_collide_with_an_invalid_graph() {
     .unwrap();
 
     let mut store = GraphStore::open(paths.clone());
-    let imported = import_text(&export_text(&constant_graph("x", 3.0)), &store.graphs()).unwrap();
+    let imported =
+        import_text(&export_text(&constant_graph("x", 3.0)), &store.all_graphs()).unwrap();
     // The window applies the imported Graph as it applies any Graph.
     store.put(imported.clone()).unwrap();
     let text = std::fs::read_to_string(&paths.graphs).unwrap();
