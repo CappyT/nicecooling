@@ -168,6 +168,10 @@ The sensor source node SHALL give the current value of the chosen sensor, rounde
 - **WHEN** the chosen sensor reads 46.123456789
 - **THEN** the node gives 46.12345679
 
+#### Scenario: Rounding down
+- **WHEN** the chosen sensor reads 46.1234567826
+- **THEN** the node gives 46.12345678
+
 #### Scenario: Exact value
 - **WHEN** the chosen sensor reads 46.5
 - **THEN** the node gives 46.5
@@ -283,7 +287,7 @@ The sine, cosine and tangent nodes SHALL take A in radians. The square root node
 - **THEN** the node gives 4
 
 ### Requirement: Round node
-The round node SHALL round A to 0 to 8 decimals in one of three modes: to the nearest, down or up. The nearest mode SHALL round a tie away from 0. The defaults SHALL be 0 decimals and the nearest mode.
+The round node SHALL round A to 0 to 8 decimals in one of three modes: to the nearest, down or up. The nearest mode SHALL round a tie away from 0. The defaults SHALL be 0 decimals and the nearest mode. All rounding of the nodes SHALL work on the shortest decimal text that reads back to the same number, so 0.29 rounded down to 2 decimals gives 0.29.
 
 #### Scenario: Nearest
 - **WHEN** a round node has 1 decimal, the nearest mode and A = 2.25
@@ -296,6 +300,18 @@ The round node SHALL round A to 0 to 8 decimals in one of three modes: to the ne
 #### Scenario: Up
 - **WHEN** a round node has 2 decimals, the up mode and A = 3.141
 - **THEN** the node gives 3.15
+
+#### Scenario: Down on a decimal step
+- **WHEN** a round node has 2 decimals, the down mode and A = 0.29
+- **THEN** the node gives 0.29
+
+#### Scenario: Down at 8 decimals
+- **WHEN** a round node has 8 decimals, the down mode and A = 1.123456789
+- **THEN** the node gives 1.12345678
+
+#### Scenario: Large value
+- **WHEN** a round node has 0 decimals, the nearest mode and A = 3000000000.3
+- **THEN** the node gives 3000000000
 
 ### Requirement: Limiter node
 The limiter node SHALL hold A between a minimum and a maximum. The defaults SHALL be -100 and 100. The validator SHALL refuse a minimum above the maximum.

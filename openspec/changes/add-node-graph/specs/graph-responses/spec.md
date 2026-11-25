@@ -187,6 +187,21 @@ A command response SHALL have an absolute program path, a list of arguments and 
 - **WHEN** the path does not exist
 - **THEN** the outcome is `failed`
 
+### Requirement: Command environment values
+The value of `NICECOOLING_NODE_<LABEL>` SHALL be the node value rounded to 8 decimals, with a tie away from 0, as decimal text with no trailing zero and no exponent.
+
+#### Scenario: Sum of two decimals
+- **WHEN** the node labelled `sum` gives 0.30000000000000004
+- **THEN** `NICECOOLING_NODE_SUM` is `0.3`
+
+#### Scenario: Eight decimals
+- **WHEN** the node labelled `water` gives 46.1234567826
+- **THEN** `NICECOOLING_NODE_WATER` is `46.12345678`
+
+#### Scenario: Whole number
+- **WHEN** the node labelled `rpm` gives 3000.000000001
+- **THEN** `NICECOOLING_NODE_RPM` is `3000`
+
 ### Requirement: E-mail response
 An e-mail response SHALL have one recipient address, a subject of up to 128 characters and a text of up to 4096 characters. The app SHALL send a plain text message through the SMTP account, with a time limit of 30 s, outside the evaluation, and SHALL strip line breaks from the subject.
 
@@ -351,11 +366,15 @@ The text of a notification, the subject and text of an e-mail and the payload te
 - **THEN** the message is "2026-11-25 14:05:09"
 
 ### Requirement: Placeholder values
-A node without a value SHALL give `--`. An unknown label SHALL keep the placeholder as written. A value SHALL have at most 2 decimals, with no trailing zero. The unit of a sensor source node SHALL be the display text of its sensor unit in the app (`°C` for `degC`). The unit of every other node SHALL be empty.
+A node without a value SHALL give `--`. An unknown label SHALL keep the placeholder as written. A value SHALL have at most 2 decimals, a tie rounded away from 0, with no trailing zero. The unit of a sensor source node SHALL be the display text of its sensor unit in the app (`°C` for `degC`). The unit of every other node SHALL be empty.
 
 #### Scenario: No value
 - **WHEN** the node labelled `water` has no value
 - **THEN** `{value:water}` gives `--`
+
+#### Scenario: Tie
+- **WHEN** the node labelled `water` gives 0.125
+- **THEN** `{value:water}` gives `0.13`
 
 #### Scenario: Unknown label
 - **WHEN** the text holds `{value:pump}` and no node has the label `pump`

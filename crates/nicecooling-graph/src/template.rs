@@ -3,6 +3,7 @@
 //! The text of the local time is an input: the crate has no clock for local time.
 
 use crate::eval::GraphPass;
+use crate::funcs::{RoundMode, round_to};
 use crate::model::{Graph, Kind};
 
 /// The value of one labelled node when a response runs.
@@ -47,14 +48,13 @@ pub fn labelled_values(
         .collect()
 }
 
-/// A value for a message: `--` for no value, otherwise at most 2 decimals and no trailing zero.
+/// A value for a message: `--` for no value, otherwise at most 2 decimals, a tie away from 0, and
+/// no trailing zero.
 pub fn format_value(value: Option<f64>) -> String {
     let Some(value) = value else {
         return "--".to_owned();
     };
-    let text = format!("{value:.2}");
-    let text = text.trim_end_matches('0').trim_end_matches('.');
-    if text == "-0" { "0" } else { text }.to_owned()
+    round_to(value, 2, RoundMode::Nearest).to_string()
 }
 
 /// Expands `{graph}`, `{time}`, `{value:<label>}` and `{unit:<label>}`. `{{` gives `{` and `}}`
@@ -108,8 +108,8 @@ fn substitute(name: &str, context: &Context<'_>) -> Option<String> {
 }
 
 /// The environment of a command response: the Graph, the run, and each labelled node as
-/// `NICECOOLING_NODE_<LABEL>` with the label in upper case. The value is decimal text, and empty
-/// for a node with no value. A node with no label has no variable.
+/// `NICECOOLING_NODE_<LABEL>` with the label in upper case. The value is decimal text rounded to
+/// 8 decimals, with no trailing zero and no exponent, and empty for a node with no value. A node with no label has no variable.
 pub fn command_environment(
     graph_id: &str,
     graph_name: &str,
@@ -124,7 +124,9 @@ pub fn command_environment(
     for node in nodes.iter().filter(|n| !n.label.is_empty()) {
         env.push((
             format!("NICECOOLING_NODE_{}", node.label.to_ascii_uppercase()),
-            node.value.map(|v| v.to_string()).unwrap_or_default(),
+            node.value
+                .map(|v| round_to(v, 8, RoundMode::Nearest).to_string())
+                .unwrap_or_default(),
         ));
     }
     env
@@ -208,6 +210,9 @@ mod tests {
         assert_eq!(format_value(Some(-0.001)), "0");
         assert_eq!(format_value(Some(-12.5)), "-12.5");
         assert_eq!(format_value(Some(100.0)), "100");
+        // A tie goes away from 0.
+        assert_eq!(format_value(Some(0.125)), "0.13");
+        assert_eq!(format_value(Some(-0.125)), "-0.13");
         assert_eq!(format_value(Some(0.0)), "0");
         let nodes = [node("water", Some(46.200_000_1), "")];
         assert_eq!(text("{value:water}", &nodes), "46.2");
@@ -284,6 +289,19 @@ mod tests {
         assert_eq!(get("NICECOOLING_NODE_WATER"), Some("46.2"));
         assert_eq!(get("NICECOOLING_NODE_PUMP_2"), Some("50"));
         assert_eq!(env.len(), 5);
+    }
+
+    #[test]
+    fn command_environment_rounds_to_8_decimals() {
+        let nodes = [
+            node("a", Some(0.1 + 0.2), ""),
+            node("b", Some(46.123_456_782_6), ""),
+            node("c", Some(3_000.000_000_001), ""),
+            node("d", Some(1e-9), ""),
+        ];
+        let env = command_environment("g", "n", "r", &nodes);
+        let values: Vec<_> = env[3..].iter().map(|(_, v)| v.as_str()).collect();
+        assert_eq!(values, ["0.3", "46.12345678", "3000", "0"]);
     }
 
     #[test]

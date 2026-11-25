@@ -51,23 +51,53 @@ pub fn logic(value: bool) -> f64 {
     if value { 1.0 } else { 0.0 }
 }
 
-/// Rounds to `decimals` places. A value within 1e-9 (relative) of a tie or of a whole step counts
-/// as exactly there, so `0.29` rounded down to 2 places stays `0.29`.
+/// Rounds to `decimals` places in decimal digits. The digits are the shortest text of the number
+/// that reads back to the same number, so `0.29` rounded down to 2 places stays `0.29`. A finite
+/// value gives a finite result.
 pub fn round_to(value: f64, decimals: u32, mode: RoundMode) -> f64 {
-    let factor = 10f64.powi(i32::try_from(decimals).unwrap_or(0));
-    let scaled = value * factor;
-    let half_steps = (scaled * 2.0).round() / 2.0;
-    let scaled = if (scaled - half_steps).abs() <= 1e-9 * scaled.abs().max(1.0) {
-        half_steps
-    } else {
-        scaled
+    if !value.is_finite() {
+        return value;
+    }
+    let text = value.to_string();
+    let (negative, unsigned) = match text.strip_prefix('-') {
+        Some(rest) => (true, rest),
+        None => (false, text.as_str()),
     };
-    let rounded = match mode {
-        RoundMode::Nearest => scaled.round(),
-        RoundMode::Down => scaled.floor(),
-        RoundMode::Up => scaled.ceil(),
+    let (whole, fraction) = unsigned.split_once('.').unwrap_or((unsigned, ""));
+    let decimals = usize::try_from(decimals).unwrap_or(usize::MAX);
+    if fraction.len() <= decimals {
+        return value;
+    }
+    let (kept, dropped) = fraction.split_at(decimals);
+    let increment = match mode {
+        RoundMode::Nearest => dropped.as_bytes()[0] >= b'5',
+        RoundMode::Down => negative && dropped.bytes().any(|d| d != b'0'),
+        RoundMode::Up => !negative && dropped.bytes().any(|d| d != b'0'),
     };
-    rounded / factor
+    let mut digits: Vec<u8> = whole.bytes().chain(kept.bytes()).collect();
+    if increment {
+        let carried = digits.iter_mut().rev().all(|d| {
+            let wrapped = *d == b'9';
+            *d = if wrapped { b'0' } else { *d + 1 };
+            wrapped
+        });
+        if carried {
+            digits.insert(0, b'1');
+        }
+    }
+    let point = digits.len() - kept.len();
+    let (whole, kept) = digits.split_at(point);
+    let mut rounded = String::from_utf8_lossy(whole).into_owned();
+    if !kept.is_empty() {
+        rounded.push('.');
+        rounded.push_str(&String::from_utf8_lossy(kept));
+    }
+    match rounded.parse::<f64>() {
+        Ok(0.0) => 0.0,
+        Ok(number) if negative => -number,
+        Ok(number) => number,
+        Err(_) => value,
+    }
 }
 
 /// The value of a sensor source node: the reading with 8 decimals.
@@ -291,6 +321,33 @@ mod tests {
     }
 
     #[test]
+    fn rounding_works_on_the_shortest_decimal_text() {
+        use RoundMode::*;
+        assert_eq!(round_to(0.29, 2, Down), 0.29);
+        assert_eq!(round_to(1.123_456_789, 8, Down), 1.123_456_78);
+        assert_eq!(round_to(1.123_456_789, 8, Up), 1.123_456_79);
+        assert_eq!(round_to(-1.123_456_789, 8, Down), -1.123_456_79);
+        assert_eq!(round_to(-1.123_456_789, 8, Up), -1.123_456_78);
+        assert_eq!(round_to(3_000.000_003, 5, Nearest), 3000.0);
+        assert_eq!(round_to(3e9 + 0.3, 0, Nearest), 3e9);
+        assert_eq!(round_to(-2.5, 0, Nearest), -3.0);
+        assert_eq!(round_to(0.125, 2, Nearest), 0.13);
+        // A carry runs through every digit.
+        assert_eq!(round_to(9.996, 2, Nearest), 10.0);
+        assert_eq!(round_to(99.991, 2, Up), 100.0);
+        assert_eq!(round_to(-99.991, 2, Down), -100.0);
+        // A value that rounds to 0 has no sign.
+        assert!(round_to(-0.4, 0, Nearest).is_sign_positive());
+        assert!(round_to(-0.4, 0, Up).is_sign_positive());
+        // A finite value stays finite.
+        for value in [f64::MAX, f64::MIN, 1e301, f64::MIN_POSITIVE, 5e-324] {
+            assert!(round_to(value, 8, Up).is_finite(), "{value}");
+            assert!(round_to(value, 0, Down).is_finite(), "{value}");
+        }
+        assert_eq!(round_to(1e301, 8, Nearest), 1e301);
+    }
+
+    #[test]
     fn limiter_range() {
         assert_eq!(limiter(95.0, 0.0, 80.0), 80.0);
         assert_eq!(limiter(42.0, 0.0, 80.0), 42.0);
@@ -403,5 +460,6 @@ mod tests {
         assert_eq!(source_value(46.5), 46.5);
         assert_eq!(source_value(-0.000_000_004), 0.0);
         assert_eq!(source_value(1e-9), 0.0);
+        assert_eq!(source_value(46.123_456_782_6), 46.123_456_78);
     }
 }
