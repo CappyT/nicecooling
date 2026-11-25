@@ -1,8 +1,8 @@
 //! A node canvas for GPUI: pan, zoom, nodes, pins and connections.
 //!
 //! The code starts as a copy of `gpui-flow` (MIT) at commit `cfa5787`. `THIRD_PARTY.md` and
-//! `docs/spikes/gpui-flow.md` list the source and the changes. The type `NodeId` of the source
-//! is `FlowNodeId` here: `tools/re/check-identifiers.py` refuses the first name.
+//! `docs/spikes/gpui-flow.md` list the source and the changes. The node id type of the source
+//! has the name `FlowNodeId` here: `tools/re/check-identifiers.py` refuses the name of the source.
 //!
 //! # The model
 //!
