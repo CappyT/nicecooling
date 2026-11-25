@@ -76,15 +76,25 @@ nicecooling is version 0.1.0 and is tested on one desktop. It writes the setting
 
 Before the first start, update the Leakshield to firmware 1022 with aquasuite (`docs/protocol/leakshield.md`).
 
-1. Build the RPM in a container: `packaging/container/build-rpm.sh`. It needs `podman` and network. The RPM is `target/rpm/RPMS/x86_64/nicecooling-<version>.rpm`.
+The packages are on the release page of each version tag (`v<major>.<minor>.<patch>`) of the GitHub repository, or come from a local build. Fedora with GNOME is the supported system: use the RPM. The DEB is for Debian and Ubuntu. It builds and installs in an Ubuntu 24.04 container and a Debian 13 container (`packaging/container/check-deb.sh`). Nobody tested it on hardware.
+
+1. Get the RPM: download it from the release page, or build it in a container with `packaging/container/build-rpm.sh`. The build needs `podman` and network. The RPM is `target/rpm/RPMS/x86_64/nicecooling-<version>.rpm`.
 2. Install it: `sudo dnf install ./target/rpm/RPMS/x86_64/nicecooling-*.rpm`. The package sets the daemon to start at boot.
 3. Start the daemon: `sudo systemctl enable --now nicecoolingd`.
 4. Check it: `systemctl is-active nicecoolingd` prints `active`.
 5. Start the app: `nicecooling`. `docs/app.md` explains the first run and the tray icon.
 
+### Debian and Ubuntu
+
+1. Get the DEB: download it from the release page, or build it in an Ubuntu 24.04 container with `packaging/container/build-deb.sh`. The build needs `podman` and network. The DEB is `target/deb/nicecooling_<version>-1_amd64.deb`.
+2. Install the DEB: `sudo apt install ./target/deb/nicecooling_*_amd64.deb`. The package enables the daemon at boot and does not start it.
+3. Continue with steps 3 to 5 above.
+
+The polkit rule of the DEB names the group `sudo`, the administrator group of Debian and Ubuntu. The RPM names `wheel`. An active local session of a member of that group changes the settings with no password prompt.
+
 The first start of the daemon takes the BIOS snapshot: the `pwm` attributes of each Channel as the BIOS left them. The snapshot is `/var/lib/nicecooling/bios-snapshot.json`. The daemon saves it before the first Channel write.
 
-The package installs the daemon, the app, the systemd unit and its preset, the `poweroff.target` drop-in, the D-Bus policy, the polkit action and rule, the desktop entries, the icons and the Board files. The RPM owns each of them.
+The package installs the daemon, the app, the systemd unit and its preset, the `poweroff.target` drop-in, the D-Bus policy, the polkit action and rule, the desktop entries, the icons and the Board files. The RPM owns each of them. The DEB installs the same files at the Debian paths.
 
 ## Hardware watchdog (optional)
 
@@ -105,7 +115,7 @@ The Migration Plan in [`openspec/changes/add-nicecooling-v1/design.md`](openspec
 
 1. Stop the service: `sudo systemctl stop nicecoolingd`. This restores the BIOS snapshot: each Channel goes back to its snapshot attributes.
 2. If wanted, restore the first Leakshield backup of the device with `RestoreBackup` (`docs/api.md`, section "Leakshield backups"). The backups are in `/var/lib/nicecooling/backups/`.
-3. Remove the package: `sudo dnf remove nicecooling`. The RPM owns each file it installs, so the removal deletes them.
+3. Remove the package: `sudo dnf remove nicecooling`. The RPM owns each file it installs, so the removal deletes them. On Debian and Ubuntu, run `sudo apt remove nicecooling`.
 
 Files that remain after the removal:
 
