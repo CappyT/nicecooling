@@ -10,7 +10,7 @@ use std::time::Duration;
 
 use gpui::SharedString;
 use nicecooling::command::Command;
-use nicecooling::graphs::channel::GraphCommand;
+use nicecooling::graphs::channel::{GraphCommand, TryRequest};
 use nicecooling::graphs::service::{Env, GraphService, NoPower, SensorLink};
 use nicecooling::graphs::store::GraphStore;
 use nicecooling::graphs::values::SensorError;
@@ -25,6 +25,7 @@ use nicecooling::screens::graph_editor::palette::{ListForm, ListKey};
 use nicecooling::screens::graph_editor::params::{
     Control, Guide, InputRow, Panel, label_key, pair_key, param_key,
 };
+use nicecooling::screens::graph_editor::try_run::{for_key, test_key};
 use nicecooling::screens::graph_editor::{EditorKey, EditorModel, EditorUi, Selected, editor_key};
 use nicecooling::screens::{Feedback, ScreenInput};
 use nicecooling_core::clock::{SimClock, SimWallClock};
@@ -1813,4 +1814,262 @@ fn reads_once_per_second() {
     ui.live.retry();
     assert!(ui.live.poll("graph_1", NOW_US + 6_000_001, &source));
     assert_eq!(source.reads.get(), 8);
+}
+
+/// A Graph whose notification response fires while the sensor `x` is above 0.
+fn response_graph(id: &str) -> Graph {
+    let mut graph = Graph::new(id, "Water too warm");
+    graph.nodes = vec![
+        Node::new(1, Kind::SensorSource).with_param("sensor", "x"),
+        Node::new(2, Kind::ResponseEnd)
+            .with_param("kind", "notification")
+            .with_param("title", "Hot"),
+    ];
+    graph.connections = vec![Connection::new(1, 2, "a")];
+    spread(graph)
+}
+
+/// The service with the limiter Graph, the sensor `x` at 46.2, and the editor on the Graph after
+/// its first read. The editor gives the source the test value 80 for `seconds`.
+fn try_rig(name: &str, seconds: &str) -> (Rig, EditorUi) {
+    let mut rig = Rig::new(name, vec![spread(limiter_graph("graph_1"))]);
+    rig.feed(46.2);
+    rig.ticks(1);
+    let mut ui = rig.open("graph_1");
+    assert!(ui.live.poll("graph_1", NOW_US, &rig.view));
+    assert!(ui.commit_field(&test_key(1), "80", EN));
+    assert!(ui.commit_field(&for_key(1), seconds, EN));
+    (rig, ui)
+}
+
+/// The values that the nodes show, without their units.
+fn numbers_of(shown: &EditorModel) -> Vec<&str> {
+    shown.nodes.iter().map(|face| face.value.as_str()).collect()
+}
+
+#[test]
+fn try_with_80_for_30s_shows_the_banner() {
+    let mut rig = Rig::new("editor-try", vec![spread(limiter_graph("graph_1"))]);
+    rig.feed(46.2);
+    rig.ticks(1);
+    let state = state_with_x();
+    let mut ui = rig.open("graph_1");
+    ui.live.poll("graph_1", NOW_US, &rig.view);
+    let view = rig.shown();
+
+    // A Sensor node has the fields "Test value", empty at first, and "For", 60 s at first.
+    ui.selected = Some(Selected::Node(1));
+    let tests = panel_of(&view, &ui).tests.expect("the test fields");
+    assert_eq!(
+        (
+            tests.title.as_str(),
+            tests.value_label.as_str(),
+            tests.value.as_str()
+        ),
+        ("Try", "Test value", "")
+    );
+    assert_eq!(
+        (
+            tests.seconds_label.as_str(),
+            tests.seconds.as_str(),
+            tests.unit.as_str()
+        ),
+        ("For", "60", "s")
+    );
+    ui.selected = Some(Selected::Node(2));
+    assert_eq!(
+        panel_of(&view, &ui).tests,
+        None,
+        "a Limiter has no test value"
+    );
+
+    // The source gets 80 for 30 s. The time is 1 to 600 s.
+    ui.selected = Some(Selected::Node(1));
+    assert!(ui.commit_field(&test_key(1), "80", EN));
+    assert!(!ui.commit_field(&test_key(1), "warm", EN));
+    for text in ["0", "601", "1.5"] {
+        assert!(!ui.commit_field(&for_key(1), text, EN), "{text}");
+        let tests = panel_of(&view, &ui).tests.unwrap();
+        assert_eq!(tests.error.as_deref(), Some("1 to 600 s"));
+    }
+    assert!(ui.commit_field(&for_key(1), "30", EN));
+    let tests = panel_of(&view, &ui).tests.unwrap();
+    assert_eq!((tests.value.as_str(), tests.seconds.as_str()), ("80", "30"));
+    assert_eq!(tests.error, None);
+    // A test value is no part of the draft, and the node has the tag "Test".
+    assert!(!ui.draft.is_dirty());
+    let shown = model_with(&state, &view, &ui);
+    assert_eq!(shown.nodes[0].tag.as_deref(), Some("Test"));
+    assert_eq!(shown.nodes[1].tag, None);
+    assert_eq!(shown.try_banner, None);
+    assert!(shown.toolbar.try_run.enabled);
+
+    // A node that exists only in the draft has a value in a try.
+    let extra = ui.draft.add_node(Kind::Constant, 0.0, 300.0);
+    ui.draft.set_param(extra, "value", json!(3));
+
+    // "Try" sends the draft with the test value and the time.
+    let command = ui.start_try().expect("the command");
+    assert_eq!(
+        command,
+        Command::Graph(GraphCommand::Try(Box::new(TryRequest {
+            graph: ui.draft.candidate(),
+            tests: vec![(1, 80.0)],
+            seconds: 30,
+        })))
+    );
+    // The banner shows at once, with the whole time, and "Try" is off while the try runs.
+    let shown = model_with(&state, &view, &ui);
+    let banner = shown.try_banner.expect("the banner");
+    assert_eq!(banner.text, "Try running, nothing is published");
+    assert_eq!(
+        (banner.left.as_str(), banner.stop.as_str()),
+        ("30 s left", "Stop")
+    );
+    assert!(!shown.toolbar.try_run.enabled);
+    assert_eq!(ui.start_try(), None);
+
+    // The service evaluates the draft: the nodes show the values of the try.
+    rig.run(command);
+    assert!(ui.live.poll("graph_1", NOW_US + 1, &rig.view));
+    assert_eq!(ui.follow_try(), None);
+    let shown = model_with(&state, &view, &ui);
+    assert_eq!(numbers_of(&shown), ["80", "60", "60", "3"]);
+    assert_eq!(shown.nodes[0].unit.as_deref(), Some("°C"));
+    assert!(shown.nodes[3].draft_only);
+    assert_eq!(shown.try_banner.unwrap().left, "30 s left");
+
+    // The service counts the time.
+    rig.ticks(6);
+    assert!(ui.live.poll("graph_1", NOW_US + 6_000_000, &rig.view));
+    assert_eq!(ui.follow_try(), None);
+    let shown = model_with(&state, &view, &ui);
+    assert_eq!(shown.try_banner.unwrap().left, "24 s left");
+    assert_eq!(numbers_of(&shown), ["80", "60", "60", "3"]);
+}
+
+#[test]
+fn stop_returns_to_the_live_values() {
+    let (mut rig, mut ui) = try_rig("editor-try-stop", "30");
+    let state = state_with_x();
+    let view = rig.shown();
+    let command = ui.start_try().expect("the command");
+    rig.run(command);
+    ui.live.poll("graph_1", NOW_US + 1, &rig.view);
+    assert_eq!(
+        numbers_of(&model_with(&state, &view, &ui)),
+        ["80", "60", "60"]
+    );
+
+    // "Stop": the banner goes at once, and the nodes show the live values again.
+    let stop = ui.stop_try().expect("the command");
+    assert_eq!(stop, Command::Graph(GraphCommand::StopTry));
+    let shown = model_with(&state, &view, &ui);
+    assert_eq!(shown.try_banner, None);
+    assert_eq!(numbers_of(&shown), ["46.2", "46.2", "46.2"]);
+    rig.run(stop);
+    assert_eq!(rig.shown().trying, None);
+    assert!(ui.live.poll("graph_1", NOW_US + 2, &rig.view));
+    assert_eq!(ui.follow_try(), None);
+    let shown = model_with(&state, &view, &ui);
+    assert_eq!(numbers_of(&shown), ["46.2", "46.2", "46.2"]);
+    assert!(shown.toolbar.try_run.enabled);
+    assert_eq!(ui.stop_try(), None, "no try runs");
+
+    // A change of the draft ends a try: the editor stops it.
+    let command = ui.start_try().expect("the command");
+    rig.run(command);
+    ui.live.poll("graph_1", NOW_US + 3, &rig.view);
+    assert_eq!(ui.follow_try(), None);
+    ui.draft.move_node(2, 300.0, 40.0);
+    assert_eq!(ui.follow_try(), Some(Command::Graph(GraphCommand::StopTry)));
+    assert_eq!(model_with(&state, &view, &ui).try_banner, None);
+}
+
+#[test]
+fn banner_goes_after_the_time() {
+    let (mut rig, mut ui) = try_rig("editor-try-time", "2");
+    let state = state_with_x();
+    let view = rig.shown();
+    let command = ui.start_try().expect("the command");
+    rig.run(command);
+    ui.live.poll("graph_1", NOW_US + 1, &rig.view);
+    assert_eq!(ui.follow_try(), None);
+    assert_eq!(
+        model_with(&state, &view, &ui).try_banner.unwrap().left,
+        "2 s left"
+    );
+
+    // The time of the test value is over: the service ends the try.
+    rig.ticks(3);
+    assert_eq!(rig.shown().trying, None);
+    assert!(ui.live.poll("graph_1", NOW_US + 3_000_000, &rig.view));
+    assert_eq!(ui.follow_try(), None);
+    let shown = model_with(&state, &view, &ui);
+    assert_eq!(shown.try_banner, None);
+    assert_eq!(numbers_of(&shown), ["46.2", "46.2", "46.2"]);
+    assert!(shown.toolbar.try_run.enabled);
+
+    // A try without a test value lasts 60 s.
+    assert!(ui.commit_field(&test_key(1), "", EN));
+    match ui.start_try() {
+        Some(Command::Graph(GraphCommand::Try(request))) => {
+            assert!(request.tests.is_empty());
+            assert_eq!(request.seconds, 60);
+        }
+        other => panic!("no try: {other:?}"),
+    }
+    // The service does not start this try: after two reads the banner goes.
+    assert!(model_with(&state, &view, &ui).try_banner.is_some());
+    ui.live.poll("graph_1", NOW_US + 4_000_000, &rig.view);
+    assert_eq!(ui.follow_try(), None);
+    assert!(model_with(&state, &view, &ui).try_banner.is_some());
+    ui.live.poll("graph_1", NOW_US + 5_000_000, &rig.view);
+    assert_eq!(ui.follow_try(), None);
+    assert_eq!(model_with(&state, &view, &ui).try_banner, None);
+}
+
+#[test]
+fn try_does_not_change_the_values_sent() {
+    let (mut rig, mut ui) = try_rig("editor-try-values", "30");
+    let command = ui.start_try().expect("the command");
+    rig.run(command);
+    rig.ticks(3);
+    // The try gives 60. The Graph sensor keeps the value of the applied Graph in every pass.
+    assert_eq!(
+        rig.shown().trying.map(|trying| trying.values[&3]),
+        Some(Some(60.0))
+    );
+    let sent = rig.link.values.lock().unwrap().clone();
+    assert_eq!(sent.len(), 4);
+    for pass in &sent {
+        assert_eq!(pass, &vec![("graph_3".to_owned(), Some(46.2))]);
+    }
+    let row = rig.shown().row("graph_1").cloned().expect("the row");
+    assert_eq!(row.end, EndValue::Sensor(Some(46.2)));
+    assert!(rig.link.created.lock().unwrap().is_empty());
+
+    // A try of a Graph with a response end node runs no response.
+    let mut rig = Rig::new("editor-try-response", vec![response_graph("graph_2")]);
+    rig.feed(0.0);
+    rig.ticks(1);
+    let state = state_with_x();
+    let mut ui = rig.open("graph_2");
+    ui.live.poll("graph_2", NOW_US, &rig.view);
+    let view = rig.shown();
+    assert_eq!(
+        model_with(&state, &view, &ui).nodes[1].state.as_deref(),
+        Some("Not fired")
+    );
+    assert!(ui.commit_field(&test_key(1), "1", EN));
+    let command = ui.start_try().expect("the command");
+    rig.run(command);
+    rig.ticks(3);
+    ui.live.poll("graph_2", NOW_US + 3_000_000, &rig.view);
+    let shown = model_with(&state, &view, &ui);
+    // The end node shows the input of the try, and says that the response does not run.
+    assert_eq!(values_of(&shown)[1], text("1", Some("true")));
+    assert_eq!(shown.nodes[1].state.as_deref(), Some("Not run in a try"));
+    assert!(rig.shown().log.is_empty(), "no response ran");
+    assert_eq!(rig.shown().row("graph_2").unwrap().run, None);
 }

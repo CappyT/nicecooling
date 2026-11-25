@@ -311,6 +311,9 @@ fn face_of(
     };
     match node.kind {
         Kind::SensorSource => {
+            if ui.has_test_value(node.id) {
+                face.tag = Some(locale.tr("graph_editor.canvas.test_tag"));
+            }
             let id = node.text("sensor");
             match sensors.get(&id) {
                 Some(sensor) => {
@@ -374,7 +377,11 @@ fn face_of(
     face.dim = !input.state.is_online() || ui.live.failed;
     let value = shown_value(ui, node, face.draft_only);
     // A response end node shows its input as a logic value.
-    let value = match (node.kind, &ui.live.end) {
+    let end = match &ui.live.trying {
+        Some(trying) if ui.shows_try() => &trying.end,
+        _ => &ui.live.end,
+    };
+    let value = match (node.kind, end) {
         (Kind::ResponseEnd, EndValue::Response(state)) if value.is_some() => {
             state.map(|on| if on { 1.0 } else { 0.0 })
         }
@@ -394,8 +401,14 @@ fn face_of(
 }
 
 /// The value that a node shows: the value of the applied Graph in the last read. A node that
-/// exists only in the draft has none before "Apply".
+/// exists only in the draft has none before "Apply". While a try runs, every node shows the
+/// value of the try.
 fn shown_value(ui: &EditorUi, node: &Node, draft_only: bool) -> Option<f64> {
+    if let Some(trying) = &ui.live.trying
+        && ui.shows_try()
+    {
+        return trying.values.get(&node.id).copied().flatten();
+    }
     if draft_only {
         return None;
     }
@@ -414,8 +427,12 @@ pub(crate) fn pin_value(ui: &EditorUi, node: u32, pin: &str) -> Option<f64> {
     shown_value(ui, source, draft_only)
 }
 
-/// The state of the response end node: "Fired 14:05:09" or "Not fired".
+/// The state of the response end node: "Fired 14:05:09" or "Not fired". A try runs no
+/// response.
 fn response_state(ui: &EditorUi, locale: Locale) -> String {
+    if ui.tries.running.is_some() {
+        return locale.tr("graph_editor.canvas.not_run_in_try");
+    }
     match ui.live.run {
         Some(run) if run.state == RunState::Run && !ui.live.failed => match run.last_run_us {
             Some(us) => locale.fmt("graph_editor.canvas.fired", &[("time", &clock(us))]),

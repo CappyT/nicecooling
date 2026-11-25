@@ -999,6 +999,8 @@ graph_editor:
     sensor_not_found: "Sensore non trovato"
     fired: "Scattata %{time}"
     disabled: "Il Grafo è disattivato. Attivalo nell'elenco."
+    test_tag: "Test"
+    not_run_in_try: "Non eseguita in una prova"
   title:
     range: "da %{min} a %{max}"
     seconds: "%{seconds} s"
@@ -1054,6 +1056,12 @@ graph_editor:
     values_error: "I valori dei nodi non sono disponibili."
     retry: "Riprova"
     no_access: "nicecooling non ha accesso al demone. I sensori Grafo non hanno valore."
+  try_run:
+    test_value: "Valore di test"
+    for: "Per"
+    banner: "Prova in corso, non viene pubblicato nulla"
+    left: "%{seconds} s rimasti"
+    stop: "Ferma"
 alarms:
   active:
     title: Attivi

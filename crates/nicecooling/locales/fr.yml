@@ -999,6 +999,8 @@ graph_editor:
     sensor_not_found: "Capteur introuvable"
     fired: "Déclenchée %{time}"
     disabled: "Le Graphe est désactivé. Activez-le dans la liste."
+    test_tag: "Test"
+    not_run_in_try: "Non exécutée dans un essai"
   title:
     range: "de %{min} à %{max}"
     seconds: "%{seconds} s"
@@ -1054,6 +1056,12 @@ graph_editor:
     values_error: "Les valeurs des nœuds ne sont pas disponibles."
     retry: "Réessayer"
     no_access: "nicecooling n'a pas accès au démon. Les capteurs Graphe n'ont pas de valeur."
+  try_run:
+    test_value: "Valeur de test"
+    for: "Pendant"
+    banner: "Essai en cours, rien n'est publié"
+    left: "%{seconds} s restantes"
+    stop: "Arrêter"
 alarms:
   active:
     title: Actives

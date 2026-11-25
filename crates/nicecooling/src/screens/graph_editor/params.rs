@@ -17,6 +17,7 @@ use serde_json::Value;
 use super::canvas::{Band, REASON_TIME_US, connection_refusal, detail_of, pin_value, value_text};
 use super::palette::family_key;
 use super::rules::{node_name, param_name, range_text};
+use super::try_run::{TestRows, test_rows};
 use super::{EditorUi, Selected, number_text};
 use crate::i18n::Locale;
 use crate::screens::ScreenInput;
@@ -188,6 +189,8 @@ pub struct Panel {
     /// "Inputs".
     pub inputs_title: String,
     pub inputs: Vec<InputRow>,
+    /// "Test value" and "For", on a Sensor node only.
+    pub tests: Option<TestRows>,
     /// "Delete node". `None` for an end node: a Graph keeps its end node.
     pub delete: Option<String>,
 }
@@ -603,6 +606,7 @@ pub fn panel(input: &ScreenInput<'_>, ui: &EditorUi) -> Option<Panel> {
         sensor: (node.kind == Kind::SensorEnd).then(|| end_sensor(input, ui)),
         inputs_title: locale.tr("graph_editor.panel.inputs"),
         inputs: input_rows(ui, node, locale),
+        tests: test_rows(ui, node.id, locale),
         delete: (!is_end).then(|| locale.tr("graph_editor.panel.delete_node")),
     })
 }
@@ -807,6 +811,8 @@ impl EditorUi {
         match (parts.first().copied(), parts.get(2).copied()) {
             (Some("param"), Some(name)) => self.commit_param(node, name, text, locale),
             (Some("label"), None) => self.commit_label(node, text, locale),
+            (Some("test"), None) => self.commit_test_value(node, text),
+            (Some("for"), None) => self.commit_test_seconds(node, text, locale),
             (Some("pair"), Some(_)) => match (number(2), number(3)) {
                 (Some(index), Some(column)) => self.commit_pair(node, index, column, text, locale),
                 _ => false,

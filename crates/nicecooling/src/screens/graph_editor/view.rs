@@ -29,7 +29,7 @@ use crate::icons::{NcIcon, icon, small_icon};
 use crate::screen_view::{InputKey, ScreenView, with_screen_input};
 use crate::screens::controls::act;
 use crate::screens::ui::Tip as _;
-use crate::screens::ui::{caption, label, popover, with_popover};
+use crate::screens::ui::{caption, heading, label, popover, with_popover};
 use crate::tokens::Palette;
 
 /// The widths of the two side columns of the editor.
@@ -497,11 +497,45 @@ impl ScreenView {
             let graph = host.ui.draft.graph().id.clone();
             host.ui.live.poll(&graph, now_us(), &source);
         }
+        // A change of the draft ends a try.
+        let stop = host.ui.follow_try();
         let model = with_screen_input(&app, cx, |input| EditorModel::build(input, shown, &host.ui));
+        if let Some(command) = stop {
+            self.send(command);
+        }
         self.sync_canvas(&model, p, cx);
 
         let view = cx.entity();
         let toolbar = self.graph_toolbar(&model, p, window, cx);
+        // The banner of a try: its text, the time left and "Stop".
+        let banner = model.try_banner.as_ref().map(|banner| {
+            h_flex()
+                .w_full()
+                .h(px(46.))
+                .flex_none()
+                .px(px(18.))
+                .gap(px(12.))
+                .items_center()
+                .bg(p.accent_tint)
+                .debug_selector(|| "graph-try-banner".to_owned())
+                .child(icon(NcIcon::Play, p.accent))
+                .child(heading(banner.text.clone()).flex_1())
+                .child(div().flex_none().child(banner.left.clone()))
+                .child(
+                    Self::small_button("graph-try-stop", banner.stop.clone(), None).on_click(act(
+                        &view,
+                        |this, _, _| {
+                            let command = this
+                                .graph_editor
+                                .as_mut()
+                                .and_then(|host| host.ui.stop_try());
+                            if let Some(command) = command {
+                                this.send(command);
+                            }
+                        },
+                    )),
+                )
+        });
         let list = (model.list.form == ListForm::Column).then(|| {
             v_flex()
                 .w(px(LIST_WIDTH))
@@ -530,6 +564,7 @@ impl ScreenView {
                 }
             })
             .child(toolbar)
+            .children(banner)
             // A plain row stretches its children to its height. `h_flex` centers them.
             .child(
                 div()
@@ -692,7 +727,16 @@ impl ScreenView {
             }))
             .child(
                 Self::small_button("graph-try", bar.try_run.label.clone(), None)
-                    .disabled(!bar.try_run.enabled),
+                    .disabled(!bar.try_run.enabled)
+                    .on_click(act(&view, |this, _, cx| {
+                        let command = this
+                            .graph_editor
+                            .as_mut()
+                            .and_then(|host| host.ui.start_try());
+                        if let Some(command) = command {
+                            this.send_graph(command, cx);
+                        }
+                    })),
             )
             .child(
                 Self::small_button("graph-apply", bar.apply.label.clone(), None)

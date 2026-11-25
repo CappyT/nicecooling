@@ -999,6 +999,8 @@ graph_editor:
     sensor_not_found: "Sensor not found"
     fired: "Fired %{time}"
     disabled: "The Graph is disabled. Turn it on in the list."
+    test_tag: "Test"
+    not_run_in_try: "Not run in a try"
   title:
     range: "%{min} to %{max}"
     seconds: "%{seconds} s"
@@ -1054,6 +1056,12 @@ graph_editor:
     values_error: "The node values are not available."
     retry: "Retry"
     no_access: "nicecooling has no access to the daemon. The Graph sensors have no value."
+  try_run:
+    test_value: "Test value"
+    for: "For"
+    banner: "Try running, nothing is published"
+    left: "%{seconds} s left"
+    stop: "Stop"
 alarms:
   active:
     title: Active

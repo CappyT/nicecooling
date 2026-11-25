@@ -12,6 +12,7 @@ pub mod palette;
 pub(crate) mod panel_view;
 pub mod params;
 pub mod rules;
+pub mod try_run;
 pub(crate) mod view;
 
 use nicecooling_graph::model::Graph;
@@ -23,6 +24,7 @@ use self::live::LiveValues;
 use self::palette::{ListForm, ListUi, NodeList, node_list};
 use self::params::{Panel, panel};
 use self::rules::first_rule_text;
+use self::try_run::{TryBanner, TryUi, try_banner};
 use crate::graphs::view::{GraphRow, GraphView, ValuesState};
 use crate::i18n::Locale;
 use crate::screens::ScreenInput;
@@ -103,6 +105,8 @@ pub struct EditorUi {
     pub field_error: Option<(String, String)>,
     /// The node values that the editor read last.
     pub live: LiveValues,
+    /// The test values of the Sensor nodes, and the try that runs.
+    pub tries: TryUi,
 }
 
 impl EditorUi {
@@ -119,6 +123,7 @@ impl EditorUi {
             refused: None,
             field_error: None,
             live: LiveValues::default(),
+            tries: TryUi::default(),
         }
     }
 
@@ -230,6 +235,8 @@ pub struct EditorModel {
     pub hint: Option<String>,
     /// The parameter panel: the selected node, or the end node.
     pub panel: Option<Panel>,
+    /// The banner under the toolbar, while a try runs.
+    pub try_banner: Option<TryBanner>,
 }
 
 impl EditorModel {
@@ -278,6 +285,7 @@ impl EditorModel {
             },
             hint,
             panel: panel(input, ui),
+            try_banner: try_banner(ui, locale),
             toolbar: Toolbar {
                 back: locale.tr("nav.graphs"),
                 name: ui.draft.graph().name.clone(),
@@ -288,7 +296,11 @@ impl EditorModel {
                 redo: Action::new(locale.tr("graph_editor.redo"), ui.draft.can_redo()),
                 rule,
                 rule_node,
-                try_run: Action::new(locale.tr("graph_editor.try"), valid),
+                // "Try" is off while the draft breaks a rule and while a try runs.
+                try_run: Action::new(
+                    locale.tr("graph_editor.try"),
+                    valid && ui.tries.running.is_none(),
+                ),
                 apply: Action::new(locale.tr("graph_editor.apply"), dirty && valid),
             },
             list,

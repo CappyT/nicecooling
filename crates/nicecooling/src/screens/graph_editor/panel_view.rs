@@ -17,6 +17,7 @@ use super::params::{
     Control, EndSensor, EndSwitch, Guide, InputRow, LabelRow, Panel, ParamRow, arg_key, label_key,
     pair_key, param_key,
 };
+use super::try_run::{for_key, test_key};
 use crate::app::now_us;
 use crate::icons::NcIcon;
 use crate::screen_view::{InputKey, ScreenView};
@@ -283,6 +284,30 @@ impl ScreenView {
         for row in &panel.inputs {
             inputs = inputs.child(self.graph_input_row(node, row, p, cx));
         }
+        // "Test value" and "For" of a Sensor node. They are not part of the draft.
+        let tests = panel.tests.as_ref().map(|rows| {
+            let value = self.graph_field(test_key(node), &rows.value, "", false, p, window, cx);
+            let seconds = self.graph_field(
+                for_key(node),
+                &rows.seconds,
+                &rows.unit,
+                rows.error.is_some(),
+                p,
+                window,
+                cx,
+            );
+            section(p)
+                .child(
+                    div()
+                        .text_size(px(12.))
+                        .font_weight(FontWeight::BOLD)
+                        .text_color(p.fg_dim)
+                        .child(rows.title.clone()),
+                )
+                .child(panel_row(rows.value_label.clone(), value))
+                .child(panel_row(rows.seconds_label.clone(), seconds))
+                .children(range_line(&rows.error, p))
+        });
         let delete = panel.delete.clone().map(|text| {
             section(p).child(
                 h_flex().child(
@@ -308,6 +333,7 @@ impl ScreenView {
             .when_some(focus, |panel, focus| panel.track_focus(&focus))
             .child(header)
             .when(!panel.inputs.is_empty(), |list| list.child(inputs))
+            .children(tests)
             .children(delete)
             .into_any_element()
     }
