@@ -938,7 +938,7 @@ The daemon SHALL accept a Graph sensor as the Input of a Curve, as the source of
 - **THEN** the daemon refuses it with `InvalidArgument`
 
 ### Requirement: Graph sensor values
-`Manager.SetGraphSensorValues(a(sbd))` SHALL take one entry per Graph sensor: the id, "has a value" and the value. The app SHALL send it once per second. An entry with "has a value" false SHALL make the sensor lose its value at once. A number that is not finite SHALL fail the whole call with `InvalidArgument`. An entry whose id is not the id of a Graph sensor SHALL be skipped.
+`Manager.SetGraphSensorValues(a(sbd))` SHALL take one entry per Graph sensor: the id, "has a value" and the value. The app SHALL send it once per second. An entry with "has a value" false SHALL make the sensor lose its value at once. A number that is not finite SHALL fail the whole call with `InvalidArgument`. An entry whose id is not the id of a Graph sensor SHALL be skipped. A sensor that a `Delete` removes during the call SHALL have no value after both end.
 
 #### Scenario: Values
 - **WHEN** the app sends (`graph_1`, true, 55.0) and (`graph_2`, false, 0.0)
@@ -951,6 +951,10 @@ The daemon SHALL accept a Graph sensor as the Input of a Curve, as the source of
 #### Scenario: Unknown id
 - **WHEN** an entry names a sensor that was removed
 - **THEN** the daemon skips it and accepts the others
+
+#### Scenario: Delete during the call
+- **WHEN** a values call with 200000 entries that holds `graph_5` runs while a client calls `Delete` on `graph_5`
+- **THEN** after both calls `graph_5` has no value in the value table
 
 #### Scenario: Entry for a measured sensor
 - **WHEN** an entry names `nct6798_temp1`

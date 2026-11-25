@@ -1461,6 +1461,11 @@ impl Hub {
                 self.values.clear(id);
             }
         }
+        // A Delete that ran during the loop cleared its value before a later publish of this call.
+        let left: BTreeSet<String> = self.graph_sensor_ids().into_iter().collect();
+        for id in graph_ids.difference(&left) {
+            self.values.clear(id);
+        }
         Ok(())
     }
 
