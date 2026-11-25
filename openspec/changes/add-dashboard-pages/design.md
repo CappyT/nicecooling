@@ -17,7 +17,7 @@ The app has these parts that this change builds on:
 
 The color and text style names of this document (`card`, `s1`, `fg`, `fg-dim`, `warning`, `warning-bg`, `warning-tint`, `alarm`, `alarm-bg`, `alarm-tint`, `track`, `border-strong`, `accent`, `caption`, `value`, `numeral`) are the tokens of `docs/ui/DESIGN.md`. A comp is an HTML mockup of a screen in `docs/ui/comps/`. The reference desktop is the machine of the owner with the reference Board and the Leakshield. "The vendor program" is aquasuite X.96: `proposal.md` names the feature study.
 
-The owner gave these decisions (issue #89, the item "product choices for the custom overview pages"). This list is their record, and this document cites them by number:
+The owner gave these decisions. Their record is [issue #89](https://github.com/CappyT/nicecooling/issues/89) of the repository `CappyT/nicecooling`, in its comments of 2026-11-25. This document cites them by number:
 
 1. Tiles on a cell grid of 12 columns. A Tile has a column span and a row span. Tiles do not overlap. No layers, no free pixel canvas.
 2. The fixed Overview stays as it is, and it stays the screen that opens on an Alarm. A page that the user builds has a name and an ordered list of Tiles.
@@ -28,6 +28,11 @@ The owner gave these decisions (issue #89, the item "product choices for the cus
 7. These pages are stored in their own file `dashboards.toml` in the configuration directory of the user, not inside `settings.toml`.
 8. Not in this change: an image Tile, a control Tile, free markup, desktop pages or separate windows, import and export.
 9. A page that the user builds is a Dashboard, and its element is a Tile. The sidebar gets one entry "Dashboards" after "Overview". The screen has one tab per Dashboard and a "More" menu.
+10. The app writes `dashboards.toml` within 2 s of a change, at most once per second, and at Quit (P11).
+11. Alt with an arrow moves a Tile to the next free place in that direction, over the Tiles in its way (P11).
+12. While the app connects at its start, the shell shows its text in place of the Dashboards screen, as on every screen (P10).
+13. The tooltip of a Tile shows on a hover only (P11).
+14. This change and `add-history-export` have no fixed order. The change that lands second adapts ("Order with the other changes").
 
 The standing owner rules also hold. No command asks for a password. The app warns and never refuses a valid choice of the user. The app has no defense against another local user. Nothing new runs in the root daemon. A Tile limit is not an Alarm and runs no alarm response.
 
@@ -296,7 +301,7 @@ Rejected: the app removes a Tile whose sensor is not found. A device that is unp
 
 "Edit" turns Edit mode on. The screen then shows the cells of the grid as outlines, a toolbar and the selection. Each command changes the Dashboards in memory and stores them. Edit mode keeps the last 50 changes of its session for "Undo" and "Redo". An entry of the undo list is the list of Dashboards and the selected Dashboard before the change. "New Dashboard" clears the undo list. "Done", Escape and a change to another screen end Edit mode and clear the undo list.
 
-- Stored at once means within 2 s. A command marks the store. The tick of the app model, which runs once per second (`app.rs`), writes a marked store. So a held key writes once per second, not at each repeat of the key.
+- Stored at once means within 2 s (decision 10). A command marks the store. The tick of the app model, which runs once per second (`app.rs`), writes a marked store. So a held key writes once per second, not at each repeat of the key.
 - The app writes a marked store before it quits.
 - A screen change has no single place in the code: an Alarm, the tray and the sidebar each set the screen. So the Dashboards screen ends Edit mode when it finds, at a render, that the app shows another screen.
 - An Alarm also closes an open dialog of the Dashboards screen. The dialog drops the input that the user did not save.
@@ -338,7 +343,7 @@ The grid is one focus stop, as `docs/ui/widgets.md` asks for a custom widget. Th
 | Escape | Close a menu | Close a dialog or a menu, else end Edit mode. During a drag: put the Tile back |
 | Tab | Leave the grid | Leave the grid |
 
-- Alt with an arrow moves the Tile by one cell when the cells there are free. Otherwise the Tile goes over the Tiles in its way, to the first place in that direction where all its cells are free. With no such place, nothing changes. So the keyboard reaches every place that a drag reaches.
+- Decision 11 gives the rule of Alt with an arrow. It moves the Tile by one cell when the cells there are free. Otherwise the Tile goes over the Tiles in its way, to the first place in that direction where all its cells are free. With no such place, nothing changes. So the keyboard reaches every place that a drag reaches.
 - The grid scrolls so that the selected Tile shows, after each key.
 - The tabs, "More", "New Dashboard", "Edit" and the toolbar buttons are focus stops before the grid, as the buttons of the other screens are. A user turns Edit mode on with Tab and Enter.
 - Left and Right stop at the first and the last Tile. They do not go around.
@@ -536,7 +541,7 @@ Two other changes in `openspec/changes/` also change the app crate. `tasks.md` n
 - The Graph sensor needs no code of this change (P6).
 - The storage document, the glossary, the terms of the four languages and the component map each get a section or rows from each change.
 
-`add-history-export` has its spec and no code. The two changes can land in either order:
+`add-history-export` has its spec and no code. The two changes can land in either order (decision 14):
 
 - `load_series` loses its argument `now` there, and every reader of the store moves to a read-only connection (its H4 and H5). This change has one read of the store, in `dashboards/chart.rs`. The change that lands second edits that one read.
 - The time that the store keeps the 1 s samples becomes a setting of 24 hours or more (its H2). `load_series` then gives 1 minute rows for a range whose 1 s samples are gone (its H4). The chart Tile draws both (P9).
@@ -585,7 +590,7 @@ This change converts no stored data.
 
 ## Product choices that the owner can change
 
-The owner decisions do not fix these choices. The owner accepts every row. The spec has the option of each row. Each row names the other option.
+Decisions 1 to 14 do not fix these choices. The owner accepts every row. The spec has the option of each row. Each row names the other option.
 
 | Choice | In the spec | Alternative |
 |---|---|---|
@@ -612,4 +617,4 @@ The owner decisions do not fix these choices. The owner accepts every row. The s
 
 ## Open Questions
 
-None.
+None. Issue #89 holds the owner answers to the six questions of the review: decisions 10 to 14 and the place of the record.

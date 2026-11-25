@@ -50,27 +50,27 @@ Priority: Blocker stops the implementation, Major changes what is built, Nit is 
 
 ## Resolution
 
-Categories: FIXED (the files of the change were edited), CONTESTED (kept, with the evidence), QUESTION (the owner decides, and the files hold the recommended option).
+Categories: FIXED (the files of the change were edited), CONTESTED (kept, with the evidence), ANSWERED (the owner decided, and the number is the owner answer below).
 
 | # | Category | Resolution |
 |---|---|---|
 | C1 | FIXED | The Dashboard store takes a new state only when the valid check of the loader accepts it. A kind change obeys the count limits and has a rule for no free place. The generator cuts a name and a title to 40 characters. Design P4, P12; spec "Count limits", "Generator from a Loop", "Titles of the generated Tiles". |
 | C2 | FIXED | The four tests and the keys Insert and Enter are in task 5.4. |
 | C3 | FIXED | The pump Tiles come from `LoopInfo::pump_channels`. `is_pump` serves only the rule "not a Pump channel of any Loop". Task 2.5 has a test with two Loops. |
-| C4 | FIXED, QUESTION 2 | The design has the section "Order with the other changes". This change uses `write_atomic` of `main` and adds no second function. P2 gives the sidebar order with "Graphs" and says that History and Settings lose their Alt number with one Leakshield. The chart Tile draws 1 s samples and 1 minute rows. The order with `add-history-export` is question 2. |
+| C4 | FIXED, ANSWERED 2 | The design has the section "Order with the other changes". This change uses `write_atomic` of `main` and adds no second function. P2 gives the sidebar order with "Graphs" and says that History and Settings lose their Alt number with one Leakshield. The chart Tile draws 1 s samples and 1 minute rows. The order with `add-history-export` is owner answer 2. |
 | C5 | FIXED | One read task at a time, only for the shown Dashboard. The interval is N / 4 s, at least 10 s. The line has one point per time bucket, 601 at most, and the buckets do not move. A failed read keeps the line, and a Tile with no good read says "The history cannot be read." The read-only connection is rejected: rusqlite sets a busy timeout of 5 s at every open (`inner_connection.rs:90`), and the History screen opens the store every 2 s. A read of only the new rows is rejected. Design P9; spec "Chart read rate", "Points of a chart line", "Breaks of a chart line". |
-| C6 | FIXED, QUESTION 4 | A command marks the store. The tick of 1 s of the app model writes a marked store, and Quit writes it. A failed write has "Try again". The store is a field of `AppModel`. Design P11, P13, P14; spec "Changes are stored at once", "Failed write". |
+| C6 | FIXED, ANSWERED 4 | A command marks the store. The tick of 1 s of the app model writes a marked store, and Quit writes it. A failed write has "Try again". The store is a field of `AppModel`. Design P11, P13, P14; spec "Changes are stored at once", "Failed write". |
 | C7 | FIXED, CONTESTED in part | The spec and P13 give the required fields, the defaults, the fields that the app writes, the ignored keys and the order. A change of a count limit or a minimum size raises `schema_version`. `from_toml` has a parse error, and a fault has the Tile number of the file. "Start with no Dashboard" replaces an older `.bad` file, and the spec says so. Contested, owner decision: a load of one Dashboard at a time. The row "A file that is not valid" of the choices table stays as the owner accepted it, and P13 gives the reason. A shared store type for three files is rejected: the three specs have different fault rules. |
 | C8 | FIXED | A Tile has 12 px of padding at the sides and 8 px at the top and the bottom, so a Tile of 1 row has 44 px inside. P5 gives the arithmetic of each kind, and P15 adds the padding to `docs/ui/DESIGN.md`. The spec has the two thresholds and the rule for the axis labels of a chart. |
 | C9 | FIXED | P15 and task 3.3 add the exception to `docs/ui/widgets.md` and one sentence to `docs/ui/screens/app-shell.md`. The commands do not use `write_gate`. Spec "Edit mode without the daemon". |
 | C10 | FIXED | P10 states the id rule of the daemon, and the Risks section has the case. |
-| C11 | FIXED, QUESTION 3 | Alt with an arrow moves a Tile to the next free place in that direction, over the Tiles in its way. The grid scrolls to the selected Tile with a `ScrollHandle` that only the Dashboards screen uses. A drag does not scroll: the Risks section says so. Spec "Keyboard move of a Tile", "Ends and ties of the keyboard selection", "Rows of the grid in Edit mode". |
+| C11 | FIXED, ANSWERED 3 | Alt with an arrow moves a Tile to the next free place in that direction, over the Tiles in its way. The grid scrolls to the selected Tile with a `ScrollHandle` that only the Dashboards screen uses. A drag does not scroll: the Risks section says so. Spec "Keyboard move of a Tile", "Ends and ties of the keyboard selection", "Rows of the grid in Edit mode". |
 | C12 | FIXED | The title, the unit and the caption are `fg` on a tint. The filled part has the text tokens `warning` and `alarm`, which have more than 4.5:1 on their tint. Design P8. |
-| C13 | FIXED, QUESTION 1 | The Context cites issue #89 and lists nine owner decisions. The choices table is "Product choices that the owner can change", after the Risks section, and "Open Questions" says "None". P7, P10, P12, P13, P14 and P15 have their reasons and rejected options. |
+| C13 | FIXED, ANSWERED 1 | The Context cites issue #89 of the repository `CappyT/nicecooling`, with its comments of 2026-11-25, and lists the owner decisions. The choices table is "Product choices that the owner can change", after the Risks section, and "Open Questions" says "None". P7, P10, P12, P13, P14 and P15 have their reasons and rejected options. |
 | C14 | CONTESTED, FIXED in part | Contested, owner decision: the fan Tiles, the undo list of 50 changes, no Duty as a source and no hysteresis are rows of the choices table that the owner accepted. Fixed: the fan rule names the Curve of the active Profile, the control kind Curve, a Derived sensor with the water temperature as a direct source, and no match for a Graph sensor. P8 gives the reason for no hysteresis. |
 | C15 | FIXED in part | `tab_strip` with its "More" menu is in `screens/ui.rs`. The Leakshield screen and `time_chart` do not move: the change does not change the Leakshield screen. The task list has the follow-up. |
 | C16 | FIXED | The Context defines the tokens, a comp, the reference desktop and the vendor program. Terms defines a Graph sensor and a count limit. P2 has the commands on a Dashboard. P10 defines online, offline and down. |
-| C17 | FIXED, QUESTION 5 | The Dashboards screen ends Edit mode at a render when the app shows another screen. An Alarm closes an open dialog, and the spec has the scenario. The selected Dashboard is in the Dashboard store of the app model. While the app connects, the shell shows its text in place of the screen: the spec requirement "Loading" says this now. |
+| C17 | FIXED, ANSWERED 5 | The Dashboards screen ends Edit mode at a render when the app shows another screen. An Alarm closes an open dialog, and the spec has the scenario. The selected Dashboard is in the Dashboard store of the app model. While the app connects, the shell shows its text in place of the screen: the spec requirement "Loading" says this now. |
 | C18 | FIXED | The tasks name `picker_rows`, `picker_list`, `select_trigger` and `opens_picker`, `shape_with` at 14 px SEMIBOLD, the window rig of `tests/keyboard.rs`, a third argument of `LoopsModel::build`, and the fact "the snapshot holds one sensor or more". The test on `ShellModel` is a window test on the status bar. |
 | C19 | FIXED | The tasks name `DashboardStore::at`, the model types, the functions of `grid.rs`, `TileColor`, `ChartKey`, `ChartEntry`, `CanAdd`, `generate` and `empty_name`. They give the drag rule by distance, the rows of Edit mode, the widths from the viewport, the undo entry and the rules of the inputs. |
 | C20 | FIXED | Each task lists its test file. The selection is in task 4.5. The task list has about 110 more test names than its first version, and they cover the scenarios that had none. The render command is the one of `docs/ui/comps/README.md` on `main`. |
@@ -78,19 +78,31 @@ Categories: FIXED (the files of the change were edited), CONTESTED (kept, with t
 | C22 | FIXED | P6 names the case. |
 | C23 | FIXED in part | The design was rewritten in the project style, and the spec and the tasks use "count limit", "time span", "screen" and "Dashboard store". The tasks keep some long sentences. This does not block the implementation. |
 | C24 | CONTESTED | The sibling designs hold their storage formats too. The numbers of the design and the spec agree after this review. |
-| C25 | FIXED, QUESTION 6 | P4 says that the accessible text is a text of the screen model, as on the Channels screen. The tooltip shows on a hover only. |
+| C25 | FIXED, ANSWERED 6 | P4 says that the accessible text is a text of the screen model, as on the Channels screen. The tooltip shows on a hover only. |
 | C26 | FIXED in part | P9 names the load of the History screen. One step of the manual check stays. |
 
-## Questions for the owner
+### Owner answers
 
-The files hold the recommended option of each question.
+The record is [issue #89](https://github.com/CappyT/nicecooling/issues/89) of the repository `CappyT/nicecooling`, in its comments of 2026-11-25. The files of the change hold each answer.
 
-1. The record of the owner decisions. No issue holds the nine decisions and the standing rules. The design lists them and cites the item "product choices for the custom overview pages" of issue #89. Options: (a) copy the list into a comment of issue #89 or into a new issue, and cite its number in the design, as `add-node-graph` does with issue #88: one edit of one line. (b) Keep the design as the only record: a later reader cannot check a rejection that rests on a decision. Recommended: (a).
-2. The order with `add-history-export`. Options: (a) no fixed order. The change that lands second edits the one read in `dashboards/chart.rs`. When this change lands first, task 2.2 of `add-history-export` gets one more caller, and a chart Tile of a sensor that the app does not record says "No data in this time span." until a follow-up task adds "Not recorded". (b) `add-history-export` lands first: the Dashboards wait for a change of about 80 tasks, and this change then uses its read-only connection and its list from the start. Recommended: (a).
-3. The keyboard move. The first version moved a Tile by one cell and stopped at a Tile, so the keyboard could not move a Tile below a wide Tile. The files now say: Alt with an arrow goes over the Tiles in its way to the next free place. Options: (a) keep this rule. (b) One cell only: the goal "a user who has no mouse can make every change" then needs a second key rule. Recommended: (a).
-4. The time of a write. The first version wrote the file at the end of each command. The files now say: within 2 s, at most one write per second, and a write at Quit. Cost: a change of the last second is lost when the app is killed. Options: (a) keep this rule. (b) Write at each command: a held key then makes about 30 writes with two `fsync` calls per second on the UI thread. Recommended: (a).
-5. The start of the app. The first version showed the frame of each Tile with a grey bar for at most 2 s. The shell shows "Connecting to the daemon" in place of every screen in that time, so the bars cannot show. Options: (a) the shell text, as on every screen: no code. (b) The grey bars: a change of the shell for one screen. Recommended: (a).
-6. The tooltip of a Tile. The first version showed it for a hover and for the keyboard selection. GPUI shows a tooltip on a hover only. Options: (a) hover only. The limit of a selected Tile is in its caption from 2 rows up, and in the Tile settings. (b) A custom element that draws the tooltip for the selected Tile. Recommended: (a).
+1. The record of the owner decisions.
+   - Question: no issue held the nine decisions and the standing rules. Is the record a comment of an issue, or the design alone?
+   - Answer: the record is issue #89 of the repository `CappyT/nicecooling`, in its comments of 2026-11-25. The Context of the design cites it.
+2. The order with `add-history-export`.
+   - Question: is the order free, or does `add-history-export` land first, so that this change uses its read-only connection and its list of not recorded sensors from the start?
+   - Answer: no fixed order. The change that lands second adapts: it edits the one read in `dashboards/chart.rs`. Design decision 14 and the section "Order with the other changes".
+3. The keyboard move.
+   - Question: does Alt with an arrow go over the Tiles in its way to the next free place, or does it move one cell only and stop at a Tile?
+   - Answer: the owner accepts the applied rule. Alt with an arrow moves a Tile to the next free place in that direction, over the Tiles in its way. Design decision 11 and P11.
+4. The time of a write.
+   - Question: does the app write `dashboards.toml` within 2 s, at most once per second and at Quit, or at the end of each command? With the first rule, a change of the last second is lost when the app is killed.
+   - Answer: the owner accepts the applied rule: the write within 2 s, at most one write per second, and a write at Quit. Design decision 10 and P11.
+5. The start of the app.
+   - Question: while the app connects, does the Dashboards screen show the shell text "Connecting to the daemon", or the frame of each Tile with a grey bar?
+   - Answer: the owner accepts the shell text at the start of the app, as on every screen. Design decision 12 and P10.
+6. The tooltip of a Tile.
+   - Question: does the tooltip show on a hover only, or also for the keyboard selection, which needs a custom element?
+   - Answer: the owner accepts the tooltip on a hover only. The caption from 2 rows up and the Tile settings show the limit of a selected Tile. Design decision 13.
 
 ## What stays open
 
