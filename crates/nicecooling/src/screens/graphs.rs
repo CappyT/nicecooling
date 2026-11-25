@@ -1,14 +1,20 @@
 //! The Graphs screen (`docs/ui/screens/graphs.md`): the Graphs of the user with their state and
 //! live result, and the Graph sensors that no Graph of this user holds.
 
+use std::collections::BTreeSet;
+use std::path::{Path, PathBuf};
+
 use nicecooling_graph::eval::EndValue;
-use nicecooling_graph::model::{Graph, Kind, Node, ParseProblem, ResponseKind, StoredGraph};
+use nicecooling_graph::model::{
+    EXPORT_FORMAT_VERSION, ExportError, Graph, Kind, Node, ParseProblem, ResponseKind, StoredGraph,
+};
 use nicecooling_graph::response::RunState;
 use nicecooling_graph::validate::MAX_GRAPHS;
 
 use crate::command::Command;
 use crate::graphs::channel::GraphCommand;
-use crate::graphs::transfer::new_graph_id;
+use crate::graphs::store::describe;
+use crate::graphs::transfer::{ImportError, export_file, import_file, new_graph_id};
 use crate::graphs::view::{GraphRow, GraphView, RowState, ValuesState};
 use crate::i18n::Locale;
 use crate::screens::format::{clock, date_time, number, optional_value, unit_text};
@@ -34,6 +40,58 @@ pub struct GraphsUi {
     /// The last command that the service can refuse, with its Graph. The refusal of the view
     /// shows in the row of this Graph.
     pub asked: Option<(String, Asked)>,
+    /// The Graphs that came from a file, until the user opens them or turns them on.
+    pub imported: BTreeSet<String>,
+    /// The row above the table: the result of the last export or import.
+    pub notice: Option<Notice>,
+}
+
+/// The result of an export or an import, above the table.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Notice {
+    pub text: String,
+    /// The file was refused or not written.
+    pub warning: bool,
+}
+
+/// A path as the screen shows it: `~` stands for the home directory.
+pub fn shown_path(path: &Path, home: Option<&Path>) -> String {
+    match home.and_then(|home| path.strip_prefix(home).ok()) {
+        Some(rest) => format!("~/{}", rest.display()),
+        None => path.display().to_string(),
+    }
+}
+
+/// The home directory of the user: the file dialogs start there.
+pub fn home_dir() -> PathBuf {
+    std::env::var_os("HOME")
+        .map(PathBuf::from)
+        .filter(|path| path.is_absolute())
+        .unwrap_or_else(std::env::temp_dir)
+}
+
+/// Why a file is not imported, as the screen says it.
+fn import_refusal(error: &ImportError, locale: Locale) -> String {
+    match error {
+        ImportError::TooLarge => locale.tr("graphs.not_imported.size"),
+        ImportError::Format(ExportError::HigherFormatVersion(found)) => locale.fmt(
+            "graphs.not_imported.version",
+            &[
+                ("found", &found.to_string()),
+                ("known", &EXPORT_FORMAT_VERSION.to_string()),
+            ],
+        ),
+        ImportError::Format(_) => locale.tr("graphs.not_imported.format"),
+        ImportError::Read(why) => locale.fmt("graphs.not_imported.other", &[("reason", why)]),
+        // The first broken rule of the validator.
+        ImportError::Invalid(refusals) => {
+            let first = refusals
+                .first()
+                .map(std::slice::from_ref)
+                .unwrap_or_default();
+            locale.fmt("graphs.not_imported.other", &[("reason", &describe(first))])
+        }
+    }
 }
 
 impl GraphsUi {
@@ -56,6 +114,63 @@ impl GraphsUi {
     pub fn edit(&mut self, view: &GraphView, graph: &str) {
         if let Some(stored) = view.row(graph).and_then(GraphRow::graph) {
             self.editor = Some(stored.clone());
+            self.imported.remove(graph);
+        }
+    }
+
+    /// "Export": the name that the file dialog proposes, and the Graph that goes to the file.
+    /// `None` for a Graph that the app cannot read.
+    pub fn export_target(view: &GraphView, graph: &str) -> Option<(String, Graph)> {
+        let stored = view.row(graph).and_then(GraphRow::graph)?;
+        // A name is free text: a path separator must not make a directory.
+        let name: String = stored
+            .name
+            .chars()
+            .map(|c| if c == '/' || c == '\0' { '_' } else { c })
+            .collect();
+        Some((format!("{name}.json"), stored.clone()))
+    }
+
+    /// Write the export file that the user chose, and say where it is.
+    pub fn export_to(&mut self, path: &Path, graph: &Graph, locale: Locale) {
+        let home = home_dir();
+        self.notice = Some(match export_file(path, graph) {
+            Ok(()) => Notice {
+                text: locale.fmt(
+                    "graphs.exported",
+                    &[("path", &shown_path(path, Some(&home)))],
+                ),
+                warning: false,
+            },
+            Err(error) => Notice {
+                text: locale.fmt("graphs.not_exported", &[("reason", &error.to_string())]),
+                warning: true,
+            },
+        });
+    }
+
+    /// Read the file that the user chose. A Graph that the app accepts gives the command that
+    /// stores it: it gets a new id and it is disabled. A file that the app refuses gives the
+    /// reason above the table.
+    pub fn import_from(
+        &mut self,
+        path: &Path,
+        view: &GraphView,
+        locale: Locale,
+    ) -> Option<Command> {
+        match import_file(path, &view.graphs()) {
+            Ok(graph) => {
+                self.notice = None;
+                self.imported.insert(graph.id.clone());
+                Some(Command::Graph(GraphCommand::Import(Box::new(graph))))
+            }
+            Err(error) => {
+                self.notice = Some(Notice {
+                    text: import_refusal(&error, locale),
+                    warning: true,
+                });
+                None
+            }
         }
     }
 
@@ -79,6 +194,9 @@ impl GraphsUi {
     /// The switch of a row: the command that enables or disables the Graph at once.
     pub fn toggle(&mut self, graph: &str, enabled: bool) -> Command {
         self.asked = enabled.then(|| (graph.to_owned(), Asked::Enable));
+        if enabled {
+            self.imported.remove(graph);
+        }
         Command::Graph(GraphCommand::Enable {
             graph: graph.to_owned(),
             enabled,
@@ -212,6 +330,9 @@ pub struct GraphsModel {
     pub file_error: Option<(String, String)>,
     /// The warning rows above the table.
     pub warnings: Vec<String>,
+    /// The result of the last export or import, with a close button.
+    pub notice: Option<Notice>,
+    pub close: String,
     pub rows: Vec<GraphLine>,
     pub orphans: Option<OrphanCard>,
     pub dialog: Option<ConfirmDialog>,
@@ -267,6 +388,8 @@ impl GraphsModel {
             empty_text: locale.tr("graphs.empty"),
             file_error: file_error.map(|error| (locale.tr("graphs.file_error"), error)),
             warnings,
+            notice: ui.notice.clone(),
+            close: locale.tr("graphs.close"),
             rows,
             orphans: view.and_then(|view| orphans_of(input, view)),
             dialog: view.and_then(|view| dialog_of(input, view, ui)),
@@ -459,6 +582,9 @@ fn line_of(input: &ScreenInput<'_>, view: &GraphView, ui: &GraphsUi, row: &Graph
             },
             true,
         ),
+        (None, StoredGraph::Valid(_)) if ui.imported.contains(&row.id) => {
+            (locale.tr("graphs.imported"), false)
+        }
         (None, StoredGraph::Valid(graph)) => {
             (locale.plural("graphs.nodes", graph.nodes.len()), false)
         }

@@ -35,6 +35,9 @@ pub struct TryRequest {
 pub enum GraphCommand {
     /// Validate a Graph and store it. The state of its nodes starts again.
     Apply(Box<Graph>),
+    /// Store a Graph that `transfer::import_file` made. It is disabled and has no Graph sensor:
+    /// no call goes to the daemon before the user enables it.
+    Import(Box<Graph>),
     Enable {
         graph: String,
         enabled: bool,

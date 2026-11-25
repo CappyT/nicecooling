@@ -14,7 +14,7 @@ use crate::screen_view::{ScreenView, skeleton};
 use crate::screens::controls::act;
 use crate::screens::graphs::{
     ConfirmDialog, EditorTarget, GraphLine, GraphsModel, GraphsState, GraphsUi, LineState,
-    OrphanCard,
+    OrphanCard, home_dir,
 };
 use crate::screens::ui::Tip as _;
 use crate::screens::ui::{
@@ -70,7 +70,23 @@ impl ScreenView {
         if let Some(note) = &model.create_note {
             tools = tools.child(caption(note.clone(), p).flex_none());
         }
-        tools = tools.child(Self::button("graph-import", model.import.clone()).disabled(!create));
+        tools = tools.child(
+            Self::button("graph-import", model.import.clone())
+                .disabled(!create)
+                .on_click(act(&view, |this, _, cx| this.import_graph(cx))),
+        );
+        // The result of the last export or import, above the table.
+        let notice = model.notice.as_ref().map(|notice| {
+            notice_row(notice.text.clone(), notice.warning, p)
+                .child(
+                    Self::icon_button("graph-notice-close", NcIcon::X)
+                        .tip(model.close.clone())
+                        .on_click(act(&view, |this, _, _| {
+                            this.graphs.notice = None;
+                        })),
+                )
+                .into_any_element()
+        });
 
         let mut content = page().child(tools);
         let titles = [
@@ -116,6 +132,7 @@ impl ScreenView {
                 for text in &model.warnings {
                     list = list.child(notice_row(text.clone(), true, p));
                 }
+                list = list.children(notice);
                 list = list.child(
                     card_row(p).child(div().flex_1().min_w_0().child(model.empty_text.clone())),
                 );
@@ -151,7 +168,9 @@ impl ScreenView {
                 for text in &model.warnings {
                     table = table.child(notice_row(text.clone(), true, p));
                 }
-                table = table.child(table_header(&titles, &widths, p));
+                table = table
+                    .children(notice)
+                    .child(table_header(&titles, &widths, p));
                 for (index, line) in model.rows.iter().enumerate() {
                     table = table.child(self.graph_line(index, line, &model, p, cx));
                 }
@@ -291,7 +310,11 @@ impl ScreenView {
             model.export.clone(),
         )
         .disabled(!line.readable)
-        .tip(line.read_tooltip.clone().unwrap_or_default());
+        .tip(line.read_tooltip.clone().unwrap_or_default())
+        .on_click(act(&view, {
+            let id = id.clone();
+            move |this, _, cx| this.export_graph(&id, cx)
+        }));
         let delete = Self::flat_button(
             SharedString::from(format!("graph-delete-{index}")),
             model.delete.clone(),
@@ -468,6 +491,58 @@ impl ScreenView {
         if let Some(shown) = self.model.read(cx).graphs() {
             self.graphs.edit(&shown, graph);
         }
+    }
+
+    /// "Export": the file dialog of the system with the name of the Graph, then the file.
+    fn export_graph(&mut self, graph: &str, cx: &mut Context<Self>) {
+        let (shown, locale) = {
+            let app = self.model.read(cx);
+            (app.graphs(), app.locale)
+        };
+        let Some((name, graph)) = shown.and_then(|shown| GraphsUi::export_target(&shown, graph))
+        else {
+            return;
+        };
+        let path = cx.prompt_for_new_path(&home_dir(), Some(&name));
+        cx.spawn(async move |this, cx| {
+            if let Ok(Ok(Some(path))) = path.await {
+                let _ = this.update(cx, |this, cx| {
+                    this.graphs.export_to(&path, &graph, locale);
+                    cx.notify();
+                });
+            }
+        })
+        .detach();
+    }
+
+    /// "Import": the file dialog of the system, then the Graph of the file or the reason of the
+    /// refusal.
+    fn import_graph(&mut self, cx: &mut Context<Self>) {
+        let paths = cx.prompt_for_paths(gpui::PathPromptOptions {
+            files: true,
+            directories: false,
+            multiple: false,
+            prompt: None,
+        });
+        cx.spawn(async move |this, cx| {
+            if let Ok(Ok(Some(mut paths))) = paths.await
+                && let Some(path) = paths.pop()
+            {
+                let _ = this.update(cx, |this, cx| {
+                    let (shown, locale) = {
+                        let app = this.model.read(cx);
+                        (app.graphs(), app.locale)
+                    };
+                    let command =
+                        shown.and_then(|shown| this.graphs.import_from(&path, &shown, locale));
+                    if let Some(command) = command {
+                        this.send_graph(command, cx);
+                    }
+                    cx.notify();
+                });
+            }
+        })
+        .detach();
     }
 
     /// Send a command of this screen. A refusal that an earlier command left does not show as

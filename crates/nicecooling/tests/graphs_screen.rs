@@ -1,5 +1,6 @@
 mod support;
 
+use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -7,13 +8,16 @@ use nicecooling::command::Command;
 use nicecooling::graphs::channel::GraphCommand;
 use nicecooling::graphs::service::{Env, GraphService, NoPower, SensorLink};
 use nicecooling::graphs::store::GraphStore;
+use nicecooling::graphs::transfer::{MAX_IMPORT_BYTES, export_file, export_text};
 use nicecooling::graphs::values::SensorError;
 use nicecooling::graphs::view::{SharedView, shared_view};
 use nicecooling::i18n::EN;
 use nicecooling::model::{AppState, DaemonEvent, Link, SensorSample};
 use nicecooling::notify::Plan;
 use nicecooling::screens::format::{clock, date_time};
-use nicecooling::screens::graphs::{Asked, GraphsModel, GraphsState, GraphsUi, LineState};
+use nicecooling::screens::graphs::{
+    Asked, GraphsModel, GraphsState, GraphsUi, LineState, Notice, shown_path,
+};
 use nicecooling::screens::{Feedback, ScreenInput, WriteOutcome};
 use nicecooling_core::clock::{SimClock, SimWallClock};
 use nicecooling_core::rules::proc_scan::ProcessSource;
@@ -41,16 +45,21 @@ struct FakeLink {
     in_use: Arc<Mutex<Option<String>>>,
     /// The text of the refusal of a create. `None`: the create works.
     no_create: Arc<Mutex<Option<String>>>,
+    /// The names of the sensors that the service asked for.
+    created: Arc<Mutex<Vec<String>>>,
     deleted: Arc<Mutex<Vec<String>>>,
 }
 
 impl SensorLink for FakeLink {
     fn values(&mut self, _values: &[(String, Option<f64>)]) {}
 
-    fn create_sensor(&mut self, _name: &str, _unit: &str) -> Result<String, SensorError> {
+    fn create_sensor(&mut self, name: &str, _unit: &str) -> Result<String, SensorError> {
         match self.no_create.lock().unwrap().clone() {
             Some(text) => Err(SensorError::Refused(text)),
-            None => Ok("graph_9".to_owned()),
+            None => {
+                self.created.lock().unwrap().push(name.to_owned());
+                Ok("graph_9".to_owned())
+            }
         }
     }
 
@@ -655,4 +664,237 @@ fn orphan_sensor_row_has_a_remove_button() {
     let row = &card.rows[0];
     assert!(!row.remove_enabled);
     assert_eq!(row.tooltip.as_deref(), Some("The daemon is offline."));
+}
+
+#[test]
+fn export_writes_a_json_file() {
+    let mut rig = Rig::new("screen-export", vec![sensor_graph("graph_1")]);
+    rig.ticks(1);
+    let mut ui = GraphsUi::default();
+    let shown = rig.view.lock().unwrap().clone();
+
+    // The file dialog proposes the name of the Graph.
+    let (name, graph) = GraphsUi::export_target(&shown, "graph_1").expect("a readable Graph");
+    assert_eq!(name, "Render temperature.json");
+    let path = rig.dir.path().join(&name);
+    ui.export_to(&path, &graph, EN);
+
+    let text = std::fs::read_to_string(&path).expect("the export file");
+    let file: serde_json::Value = serde_json::from_str(&text).expect("JSON");
+    assert_eq!(file["format"].as_str(), Some("nicecooling-graph"));
+    assert_eq!(file["format_version"].as_u64(), Some(1));
+    assert_eq!(file["graph"]["name"].as_str(), Some("Render temperature"));
+    assert_eq!(file["graph"]["nodes"].as_array().unwrap().len(), 2);
+    assert_eq!(file["graph"]["connections"].as_array().unwrap().len(), 1);
+    // No Graph sensor id, no Graph id and no enable flag.
+    assert!(!text.contains("sensor_id") && !text.contains("graph_3"));
+    assert!(file["graph"].get("id").is_none() && file["graph"].get("enabled").is_none());
+
+    // The row above the table says where the file is.
+    let notice = ui.notice.clone().expect("the row above the table");
+    assert!(!notice.warning);
+    assert!(
+        notice.text.starts_with("Exported to ") && notice.text.ends_with("Render temperature.json"),
+        "{}",
+        notice.text
+    );
+    assert_eq!(rig.model(&online(), &ui).notice, Some(notice));
+    assert_eq!(
+        shown_path(
+            Path::new("/home/u/Documents/Render temperature.json"),
+            Some(Path::new("/home/u"))
+        ),
+        "~/Documents/Render temperature.json"
+    );
+    assert_eq!(
+        shown_path(Path::new("/srv/x.json"), Some(Path::new("/home/u"))),
+        "/srv/x.json"
+    );
+
+    // A file that cannot be written gives the reason.
+    ui.export_to(&path.join("below-a-file.json"), &graph, EN);
+    let notice = ui.notice.clone().expect("the reason");
+    assert!(notice.warning);
+    assert!(notice.text.starts_with("Not exported: "), "{}", notice.text);
+
+    // A name with a path separator makes no directory.
+    let mut odd = sensor_graph("graph_4");
+    odd.name = "In/Out".to_owned();
+    odd.sensor_id = None;
+    odd.enabled = false;
+    rig.service.handle(GraphCommand::Import(Box::new(odd)));
+    let shown = rig.view.lock().unwrap().clone();
+    let (name, _) = GraphsUi::export_target(&shown, "graph_4").expect("a readable Graph");
+    assert_eq!(name, "In_Out.json");
+    assert_eq!(GraphsUi::export_target(&shown, "graph_none"), None);
+}
+
+#[test]
+fn import_adds_a_disabled_graph() {
+    let mut rig = Rig::new("screen-import", vec![sensor_graph("graph_1")]);
+    rig.ticks(1);
+    let mut ui = GraphsUi::default();
+    let state = online();
+    let path = rig.dir.path().join("render.json");
+    export_file(&path, &sensor_graph("graph_1")).unwrap();
+
+    let shown = rig.view.lock().unwrap().clone();
+    let command = ui
+        .import_from(&path, &shown, EN)
+        .expect("the Graph is accepted");
+    assert!(ui.notice.is_none());
+    rig.run(command);
+
+    // The new Graph is the last row: a new id, disabled, with no Graph sensor.
+    let model = rig.model(&state, &ui);
+    assert_eq!(model.rows.len(), 2);
+    let row = &model.rows[1];
+    assert_ne!(row.id, "graph_1");
+    assert_eq!(row.name, "Render temperature");
+    assert_eq!(row.state, LineState::Disabled);
+    assert!(!row.checked);
+    assert_eq!(row.caption, "Imported. Check it, then turn it on.");
+    assert_eq!(row.end_caption, None);
+    let id = row.id.clone();
+    let stored = rig.service.store().graph(&id).expect("stored").clone();
+    assert!(!stored.enabled);
+    assert_eq!(stored.sensor_id, None);
+    assert!(
+        rig.link.created.lock().unwrap().is_empty(),
+        "the import makes no call to the daemon"
+    );
+
+    // The same file again gives a second Graph with another id.
+    let shown = rig.view.lock().unwrap().clone();
+    let command = ui
+        .import_from(&path, &shown, EN)
+        .expect("the Graph is accepted again");
+    rig.run(command);
+    let model = rig.model(&state, &ui);
+    assert_eq!(model.rows.len(), 3);
+    assert_ne!(model.rows[2].id, id);
+    assert_ne!(model.rows[2].id, "graph_1");
+
+    // The caption stays until the user turns the Graph on. The Graph sensor is made then.
+    let command = ui.toggle(&id, true);
+    rig.run(command);
+    let model = rig.model(&state, &ui);
+    assert!(model.rows[1].checked);
+    assert_eq!(model.rows[1].caption, "2 nodes");
+    assert_eq!(model.rows[1].end_caption.as_deref(), Some("graph_9"));
+    assert_eq!(*rig.link.created.lock().unwrap(), ["Render temperature"]);
+    assert_eq!(
+        model.rows[2].caption,
+        "Imported. Check it, then turn it on."
+    );
+}
+
+#[test]
+fn import_bad_file_shows_a_message() {
+    let rig = Rig::new("screen-import-bad", vec![response_graph("graph_2")]);
+    let mut ui = GraphsUi::default();
+    let state = online();
+    let shown = rig.view.lock().unwrap().clone();
+    let refused = |ui: &mut GraphsUi, path: &Path| {
+        assert_eq!(ui.import_from(path, &shown, EN), None);
+        ui.notice.clone().expect("the reason above the table")
+    };
+
+    // A file that is no export file.
+    let path = rig.dir.path().join("hello.json");
+    std::fs::write(&path, "{\"hello\": 1}").unwrap();
+    let notice = refused(&mut ui, &path);
+    assert_eq!(
+        notice,
+        Notice {
+            text: "Not imported: the file is not a nicecooling Graph.".to_owned(),
+            warning: true,
+        }
+    );
+    let model = rig.model(&state, &ui);
+    assert_eq!(model.notice, Some(notice));
+    assert_eq!(model.close, "Close");
+    assert_eq!(model.rows.len(), 1);
+    assert!(ui.imported.is_empty());
+
+    // Text that is not JSON.
+    std::fs::write(&path, "render temperature").unwrap();
+    assert_eq!(
+        refused(&mut ui, &path).text,
+        "Not imported: the file is not a nicecooling Graph."
+    );
+
+    // A file over 1 MiB.
+    std::fs::write(&path, vec![b' '; MAX_IMPORT_BYTES as usize + 1]).unwrap();
+    assert_eq!(
+        refused(&mut ui, &path).text,
+        "Not imported: the file is larger than 1 MiB."
+    );
+
+    // A Graph that breaks a rule of the validator: the message names the first broken rule.
+    let mut two_ends = sensor_graph("graph_1");
+    two_ends.nodes.push(Node::new(3, Kind::ResponseEnd));
+    std::fs::write(&path, export_text(&two_ends)).unwrap();
+    let notice = refused(&mut ui, &path);
+    assert!(
+        notice.text.starts_with("Not imported: two-end-nodes"),
+        "{}",
+        notice.text
+    );
+
+    // Two nodes with the id 1: the message names `bad-parameter` for `id`.
+    let twice = r#"{"format":"nicecooling-graph","format_version":1,"graph":{"name":"Dup","nodes":[
+        {"id":1,"kind":"constant","label":null,"params":{"value":5},"x":0.0,"y":0.0},
+        {"id":1,"kind":"constant","label":null,"params":{"value":9},"x":0.0,"y":0.0},
+        {"id":2,"kind":"sensor_end","label":null,"params":{"unit":"degC"},"x":0.0,"y":0.0}],
+        "connections":[{"from":{"node":1,"pin":"out"},"to":{"node":2,"pin":"a"}}]}}"#;
+    std::fs::write(&path, twice).unwrap();
+    let notice = refused(&mut ui, &path);
+    assert!(
+        notice.text.starts_with("Not imported: ") && notice.text.contains("bad-parameter id"),
+        "{}",
+        notice.text
+    );
+
+    // A file that is not there.
+    let notice = refused(&mut ui, &rig.dir.path().join("none.json"));
+    assert!(notice.warning && notice.text.starts_with("Not imported: "));
+
+    // Nothing was stored. The close button takes the row away.
+    assert_eq!(rig.service.store().entries().len(), 1);
+    ui.notice = None;
+    assert!(rig.model(&state, &ui).notice.is_none());
+}
+
+#[test]
+fn import_higher_version_shows_a_message() {
+    let mut rig = Rig::new("screen-import-version", Vec::new());
+    let mut ui = GraphsUi::default();
+    let shown = rig.view.lock().unwrap().clone();
+    let path = rig.dir.path().join("newer.json");
+    let text = export_text(&sensor_graph("graph_1"))
+        .replace("\"format_version\": 1", "\"format_version\": 2");
+    assert!(text.contains("\"format_version\": 2"));
+    std::fs::write(&path, &text).unwrap();
+
+    assert_eq!(ui.import_from(&path, &shown, EN), None);
+    assert_eq!(
+        ui.notice,
+        Some(Notice {
+            text: "Not imported: the file has format version 2. This app reads version 1."
+                .to_owned(),
+            warning: true,
+        })
+    );
+    assert!(rig.service.store().entries().is_empty());
+    assert_eq!(rig.model(&online(), &ui).state, GraphsState::Empty);
+
+    // The same Graph with the format version 1 is accepted, and the message goes.
+    std::fs::write(&path, export_text(&sensor_graph("graph_1"))).unwrap();
+    let command = ui
+        .import_from(&path, &shown, EN)
+        .expect("version 1 is accepted");
+    assert!(ui.notice.is_none());
+    rig.run(command);
+    assert_eq!(rig.service.store().entries().len(), 1);
 }

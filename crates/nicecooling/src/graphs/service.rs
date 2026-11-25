@@ -437,6 +437,7 @@ impl GraphService {
     pub fn handle(&mut self, command: GraphCommand) {
         match command {
             GraphCommand::Apply(graph) => self.store_graph(*graph, Store::Apply),
+            GraphCommand::Import(graph) => self.store_graph(*graph, Store::Disable),
             GraphCommand::Enable { graph, enabled } => {
                 if let Some(mut graph) = self.store.graph(&graph).cloned() {
                     graph.enabled = enabled;

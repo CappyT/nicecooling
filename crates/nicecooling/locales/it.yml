@@ -726,6 +726,15 @@ graphs:
     remove: Rimuovi
     in_use: "Non rimosso: una regola di Profilo o uno Slot dei sensori software usa questo sensore."
     refused: "Non rimosso: il demone ha rifiutato il comando."
+  close: Chiudi
+  imported: Importato. Controllalo, poi attivalo.
+  exported: "Esportato in %{path}"
+  not_exported: "Non esportato: %{reason}"
+  not_imported:
+    format: "Non importato: il file non è un Grafo di nicecooling."
+    version: "Non importato: il file ha la versione di formato %{found}. Questa app legge la versione %{known}."
+    size: "Non importato: il file supera 1 MiB."
+    other: "Non importato: %{reason}"
 alarms:
   active:
     title: Attivi

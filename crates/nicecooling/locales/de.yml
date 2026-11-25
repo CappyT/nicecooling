@@ -726,6 +726,15 @@ graphs:
     remove: Entfernen
     in_use: "Nicht entfernt: Eine Profilregel oder ein Slot der Software-Sensoren verwendet diesen Sensor."
     refused: "Nicht entfernt: Der Daemon hat den Befehl abgelehnt."
+  close: Schließen
+  imported: Importiert. Prüfen, dann einschalten.
+  exported: "Exportiert nach %{path}"
+  not_exported: "Nicht exportiert: %{reason}"
+  not_imported:
+    format: "Nicht importiert: Die Datei ist kein nicecooling-Graph."
+    version: "Nicht importiert: Die Datei hat die Formatversion %{found}. Diese App liest die Version %{known}."
+    size: "Nicht importiert: Die Datei ist größer als 1 MiB."
+    other: "Nicht importiert: %{reason}"
 alarms:
   active:
     title: Aktiv

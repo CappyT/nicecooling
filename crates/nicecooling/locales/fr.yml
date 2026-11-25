@@ -726,6 +726,15 @@ graphs:
     remove: Retirer
     in_use: "Non retiré : une règle de Profil ou un Slot de capteur logiciel utilise ce capteur."
     refused: "Non retiré : le démon a refusé la commande."
+  close: Fermer
+  imported: Importé. Vérifiez-le, puis activez-le.
+  exported: "Exporté vers %{path}"
+  not_exported: "Non exporté : %{reason}"
+  not_imported:
+    format: "Non importé : le fichier n'est pas un Graphe nicecooling."
+    version: "Non importé : le fichier a la version de format %{found}. Cette app lit la version %{known}."
+    size: "Non importé : le fichier dépasse 1 MiB."
+    other: "Non importé : %{reason}"
 alarms:
   active:
     title: Actives
