@@ -145,3 +145,31 @@ fn quit_while_the_service_is_busy_makes_no_power_call() {
     }
     assert_eq!(calls, 0, "power calls after Quit in 12 rounds");
 }
+
+/// A panic outside the evaluation of a Graph (here in the link to the daemon) ends the service
+/// thread. The app must not lose the Graph service without a sign: the window, the tray or a
+/// notification must say so.
+#[test]
+fn panic_outside_a_graph_is_not_silent() {
+    let mut parts = parts(
+        "rv-outside-panic",
+        vec![constant_graph("graph_1", 1.0)],
+        Box::new(PanicLink),
+        Box::new(NoPower),
+    );
+    let (channel, inputs) = GraphChannel::new();
+    let (events, _keep) = broadcast::channel(8);
+    spawn_service(parts.service, events.subscribe(), inputs);
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while !channel.is_closed() && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    let gone = channel.is_closed();
+    let error = parts.view.lock().unwrap().error.clone();
+    let notified = parts.notifications.try_recv().is_ok();
+    assert!(
+        !gone || error.is_some() || notified,
+        "the service thread is gone (closed: {gone}), the view has no error and no notification came"
+    );
+    let _ = &parts.clock;
+}
