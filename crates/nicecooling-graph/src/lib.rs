@@ -9,5 +9,6 @@ pub mod pause;
 pub mod response;
 pub mod state;
 pub mod table;
+pub mod template;
 pub mod validate;
 pub mod window;
