@@ -742,6 +742,185 @@ graphs:
     version: "Non importato: il file ha la versione di formato %{found}. Questa app legge la versione %{known}."
     size: "Non importato: il file supera 1 MiB."
     other: "Non importato: %{reason}"
+graph_editor:
+  not_applied: "Non applicato"
+  undo: "Annulla"
+  redo: "Ripeti"
+  try: "Prova"
+  apply: "Applica"
+  rule:
+    one_end_node: "Un Grafo ha un solo nodo finale"
+    end_node_output: "Un nodo finale non ha uscita"
+    unknown_pin: "Pin sconosciuto: %{pin}"
+    pin_occupied: "ingresso già collegato"
+    same_direction: "collega un pin di uscita a un pin di ingresso"
+    same_node: "un nodo non può collegarsi a se stesso"
+    loop: "la connessione chiude un ciclo"
+    loop_across_graphs: "Il Grafo legge il proprio sensore Grafo attraverso il Grafo '%{name}'"
+    own_sensor: "Il Grafo legge il proprio sensore Grafo"
+    limit_graphs: "Il limite è di 64 Grafi"
+    limit_nodes: "Il limite è di 256 nodi in un Grafo"
+    limit_name: "Il nome ha al massimo 64 caratteri"
+    limit_samples: "I filtri di tutti i Grafi tengono più di 200 000 campioni. Riduci una finestra."
+    limit_graph_sensors: "Il limite di 64 sensori Grafo è raggiunto"
+    duplicate_label: "Due nodi hanno l'etichetta %{label}"
+    duplicate_table_input: "Due coppie della tabella hanno l'ingresso %{input}"
+    bad_sensor_id: "L'id del sensore Grafo di questo Grafo non è valido"
+    bad_id: "Due nodi o due Grafi hanno lo stesso id"
+    parameter: "%{node}: %{name} è %{range}"
+  range:
+    number: "da %{min} a %{max}"
+    seconds: "da %{min} a %{max} s"
+    any_number: "un numero"
+    text: "da %{min} a %{max} caratteri"
+    bytes: "al massimo %{max} byte"
+    choice: "uno dei valori elencati"
+    pairs: "da 2 a 64 coppie"
+    args: "al massimo 32 voci di 1024 caratteri"
+    path: "un percorso assoluto"
+    email: "un indirizzo e-mail"
+    topic: "un topic da 1 a 128 caratteri senza + e #"
+    unit: "un'unità dell'elenco"
+    label: "da 1 a 32 lettere, cifre e _"
+    max: "non sotto il minimo"
+  param:
+    sensor: "Sensore"
+    event: "Evento"
+    source: "Sorgente"
+    value: "Valore"
+    min: "Minimo"
+    max: "Massimo"
+    name: "Processo"
+    decimals: "Decimali"
+    mode: "Modalità"
+    pairs: "Coppie"
+    delay_s: "Ritardo"
+    span_s: "Finestra"
+    damping: "Smorzamento"
+    text: "Testo"
+    width: "Larghezza"
+    height: "Altezza"
+    unit: "Unità"
+    kind: "Tipo"
+    hold_s: "Tempo di mantenimento"
+    repeat_s: "Ripeti ogni"
+    min_interval_s: "Intervallo minimo"
+    title: "Titolo"
+    urgency: "Urgenza"
+    sound: "Suono"
+    path: "Programma"
+    args: "Argomenti"
+    time_limit_s: "Tempo limite"
+    to: "A"
+    subject: "Oggetto"
+    topic: "Topic"
+    payload: "Payload"
+    countdown_s: "Conto alla rovescia"
+    label: "Etichetta"
+    id: "Id"
+  kind:
+    sensor_source:
+      name: "Sensore"
+    alarm_event_source:
+      name: "Evento di allarme"
+    constant:
+      name: "Costante"
+    random:
+      name: "Casuale"
+    process:
+      name: "Processo"
+    add:
+      name: "Somma"
+    subtract:
+      name: "Sottrai"
+    multiply:
+      name: "Moltiplica"
+    divide:
+      name: "Dividi"
+    minimum:
+      name: "Minimo"
+    maximum:
+      name: "Massimo"
+    average:
+      name: "Media"
+    logarithm:
+      name: "Logaritmo"
+    power:
+      name: "Potenza"
+    sine:
+      name: "Seno"
+    cosine:
+      name: "Coseno"
+    tangent:
+      name: "Tangente"
+    square_root:
+      name: "Radice quadrata"
+    round:
+      name: "Arrotonda"
+    limiter:
+      name: "Limitatore"
+    table:
+      name: "Tabella"
+    less:
+      name: "Minore"
+    less_equal:
+      name: "Minore o uguale"
+    equal:
+      name: "Uguale"
+    greater_equal:
+      name: "Maggiore o uguale"
+    greater:
+      name: "Maggiore"
+    not_equal:
+      name: "Diverso"
+    and:
+      name: "E"
+    or:
+      name: "O"
+    not:
+      name: "Non"
+    switch:
+      name: "Selettore"
+    has_value:
+      name: "Ha un valore"
+    memory:
+      name: "Memoria"
+    persistent_storage:
+      name: "Memoria persistente"
+    trigger:
+      name: "Trigger"
+    on_delay:
+      name: "Ritardo all'attivazione"
+    off_delay:
+      name: "Ritardo alla disattivazione"
+    counter:
+      name: "Contatore"
+    peak:
+      name: "Filtro di picco"
+    window_minimum:
+      name: "Filtro di minimo"
+    window_average:
+      name: "Filtro di media"
+    low_pass:
+      name: "Passa basso"
+    trend:
+      name: "Tendenza"
+    generator_linear:
+      name: "Generatore lineare"
+    generator_sawtooth:
+      name: "Generatore a dente di sega"
+    generator_triangle:
+      name: "Generatore triangolare"
+    generator_sine:
+      name: "Generatore sinusoidale"
+    generator_rectangle:
+      name: "Generatore rettangolare"
+    comment:
+      name: "Commento"
+    sensor_end:
+      name: "Nodo finale sensore"
+    response_end:
+      name: "Nodo finale risposta"
 alarms:
   active:
     title: Attivi

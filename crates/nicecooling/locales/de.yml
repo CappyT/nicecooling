@@ -742,6 +742,185 @@ graphs:
     version: "Nicht importiert: Die Datei hat die Formatversion %{found}. Diese App liest die Version %{known}."
     size: "Nicht importiert: Die Datei ist größer als 1 MiB."
     other: "Nicht importiert: %{reason}"
+graph_editor:
+  not_applied: "Nicht angewendet"
+  undo: "Rückgängig"
+  redo: "Wiederholen"
+  try: "Probelauf"
+  apply: "Anwenden"
+  rule:
+    one_end_node: "Ein Graph hat einen Endknoten"
+    end_node_output: "Ein Endknoten hat keinen Ausgang"
+    unknown_pin: "Unbekannter Pin: %{pin}"
+    pin_occupied: "Eingang schon verbunden"
+    same_direction: "verbinde einen Ausgangspin mit einem Eingangspin"
+    same_node: "ein Knoten kann sich nicht mit sich selbst verbinden"
+    loop: "die Verbindung schließt eine Schleife"
+    loop_across_graphs: "Der Graph liest seinen eigenen Graph-Sensor über den Graphen '%{name}'"
+    own_sensor: "Der Graph liest seinen eigenen Graph-Sensor"
+    limit_graphs: "Das Limit ist 64 Graphen"
+    limit_nodes: "Das Limit ist 256 Knoten in einem Graphen"
+    limit_name: "Der Name hat höchstens 64 Zeichen"
+    limit_samples: "Die Filter aller Graphen halten mehr als 200 000 Messwerte. Verkürze ein Zeitfenster."
+    limit_graph_sensors: "Das Limit von 64 Graph-Sensoren ist erreicht"
+    duplicate_label: "Zwei Knoten haben das Label %{label}"
+    duplicate_table_input: "Zwei Paare der Tabelle haben den Eingang %{input}"
+    bad_sensor_id: "Die Graph-Sensor-ID dieses Graphen ist ungültig"
+    bad_id: "Zwei Knoten oder zwei Graphen haben dieselbe ID"
+    parameter: "%{node}: %{name} ist %{range}"
+  range:
+    number: "%{min} bis %{max}"
+    seconds: "%{min} bis %{max} s"
+    any_number: "eine Zahl"
+    text: "%{min} bis %{max} Zeichen"
+    bytes: "höchstens %{max} Bytes"
+    choice: "einer der aufgeführten Werte"
+    pairs: "2 bis 64 Paare"
+    args: "höchstens 32 Einträge mit 1024 Zeichen"
+    path: "ein absoluter Pfad"
+    email: "eine E-Mail-Adresse"
+    topic: "ein Topic mit 1 bis 128 Zeichen ohne + und #"
+    unit: "eine Einheit der Liste"
+    label: "1 bis 32 Buchstaben, Ziffern und _"
+    max: "nicht unter dem Minimum"
+  param:
+    sensor: "Sensor"
+    event: "Ereignis"
+    source: "Quelle"
+    value: "Wert"
+    min: "Minimum"
+    max: "Maximum"
+    name: "Prozess"
+    decimals: "Dezimalstellen"
+    mode: "Modus"
+    pairs: "Paare"
+    delay_s: "Verzögerung"
+    span_s: "Zeitfenster"
+    damping: "Dämpfung"
+    text: "Text"
+    width: "Breite"
+    height: "Höhe"
+    unit: "Einheit"
+    kind: "Art"
+    hold_s: "Haltezeit"
+    repeat_s: "Wiederholen alle"
+    min_interval_s: "Mindestabstand"
+    title: "Titel"
+    urgency: "Dringlichkeit"
+    sound: "Ton"
+    path: "Programm"
+    args: "Argumente"
+    time_limit_s: "Zeitlimit"
+    to: "An"
+    subject: "Betreff"
+    topic: "Topic"
+    payload: "Payload"
+    countdown_s: "Countdown"
+    label: "Label"
+    id: "ID"
+  kind:
+    sensor_source:
+      name: "Sensor"
+    alarm_event_source:
+      name: "Alarmereignis"
+    constant:
+      name: "Konstante"
+    random:
+      name: "Zufall"
+    process:
+      name: "Prozess"
+    add:
+      name: "Addieren"
+    subtract:
+      name: "Subtrahieren"
+    multiply:
+      name: "Multiplizieren"
+    divide:
+      name: "Dividieren"
+    minimum:
+      name: "Minimum"
+    maximum:
+      name: "Maximum"
+    average:
+      name: "Mittelwert"
+    logarithm:
+      name: "Logarithmus"
+    power:
+      name: "Potenz"
+    sine:
+      name: "Sinus"
+    cosine:
+      name: "Kosinus"
+    tangent:
+      name: "Tangens"
+    square_root:
+      name: "Quadratwurzel"
+    round:
+      name: "Runden"
+    limiter:
+      name: "Begrenzer"
+    table:
+      name: "Tabelle"
+    less:
+      name: "Kleiner"
+    less_equal:
+      name: "Kleiner oder gleich"
+    equal:
+      name: "Gleich"
+    greater_equal:
+      name: "Größer oder gleich"
+    greater:
+      name: "Größer"
+    not_equal:
+      name: "Ungleich"
+    and:
+      name: "Und"
+    or:
+      name: "Oder"
+    not:
+      name: "Nicht"
+    switch:
+      name: "Umschalter"
+    has_value:
+      name: "Hat einen Wert"
+    memory:
+      name: "Speicher"
+    persistent_storage:
+      name: "Dauerspeicher"
+    trigger:
+      name: "Trigger"
+    on_delay:
+      name: "Einschaltverzögerung"
+    off_delay:
+      name: "Ausschaltverzögerung"
+    counter:
+      name: "Zähler"
+    peak:
+      name: "Spitzenwertfilter"
+    window_minimum:
+      name: "Minimumfilter"
+    window_average:
+      name: "Mittelwertfilter"
+    low_pass:
+      name: "Tiefpass"
+    trend:
+      name: "Trend"
+    generator_linear:
+      name: "Lineargenerator"
+    generator_sawtooth:
+      name: "Sägezahngenerator"
+    generator_triangle:
+      name: "Dreieckgenerator"
+    generator_sine:
+      name: "Sinusgenerator"
+    generator_rectangle:
+      name: "Rechteckgenerator"
+    comment:
+      name: "Kommentar"
+    sensor_end:
+      name: "Sensor-Endknoten"
+    response_end:
+      name: "Reaktions-Endknoten"
 alarms:
   active:
     title: Aktiv

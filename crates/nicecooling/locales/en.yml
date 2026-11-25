@@ -742,6 +742,185 @@ graphs:
     version: "Not imported: the file has format version %{found}. This app reads version %{known}."
     size: "Not imported: the file is larger than 1 MiB."
     other: "Not imported: %{reason}"
+graph_editor:
+  not_applied: "Not applied"
+  undo: "Undo"
+  redo: "Redo"
+  try: "Try"
+  apply: "Apply"
+  rule:
+    one_end_node: "A Graph has one end node"
+    end_node_output: "An end node has no output"
+    unknown_pin: "Unknown pin: %{pin}"
+    pin_occupied: "input already connected"
+    same_direction: "connect an output pin to an input pin"
+    same_node: "a node cannot connect to itself"
+    loop: "the connection closes a loop"
+    loop_across_graphs: "The Graph reads its own Graph sensor through the Graph '%{name}'"
+    own_sensor: "The Graph reads its own Graph sensor"
+    limit_graphs: "The limit is 64 Graphs"
+    limit_nodes: "The limit is 256 nodes in a Graph"
+    limit_name: "The name has 64 characters at most"
+    limit_samples: "The filters of all Graphs hold more than 200 000 samples. Make a span shorter."
+    limit_graph_sensors: "The limit of 64 Graph sensors is reached"
+    duplicate_label: "Two nodes have the label %{label}"
+    duplicate_table_input: "Two pairs of the table have the input %{input}"
+    bad_sensor_id: "The Graph sensor id of this Graph is not valid"
+    bad_id: "Two nodes or two Graphs have one id"
+    parameter: "%{node}: %{name} is %{range}"
+  range:
+    number: "%{min} to %{max}"
+    seconds: "%{min} to %{max} s"
+    any_number: "a number"
+    text: "%{min} to %{max} characters"
+    bytes: "%{max} bytes at most"
+    choice: "one of the listed values"
+    pairs: "2 to 64 pairs"
+    args: "32 entries of 1024 characters at most"
+    path: "an absolute path"
+    email: "an e-mail address"
+    topic: "a topic of 1 to 128 characters without + and #"
+    unit: "a unit of the list"
+    label: "1 to 32 letters, digits and _"
+    max: "not below the minimum"
+  param:
+    sensor: "Sensor"
+    event: "Event"
+    source: "Source"
+    value: "Value"
+    min: "Minimum"
+    max: "Maximum"
+    name: "Process"
+    decimals: "Decimals"
+    mode: "Mode"
+    pairs: "Pairs"
+    delay_s: "Delay"
+    span_s: "Span"
+    damping: "Damping"
+    text: "Text"
+    width: "Width"
+    height: "Height"
+    unit: "Unit"
+    kind: "Kind"
+    hold_s: "Hold time"
+    repeat_s: "Repeat every"
+    min_interval_s: "Minimum interval"
+    title: "Title"
+    urgency: "Urgency"
+    sound: "Sound"
+    path: "Program"
+    args: "Arguments"
+    time_limit_s: "Time limit"
+    to: "To"
+    subject: "Subject"
+    topic: "Topic"
+    payload: "Payload"
+    countdown_s: "Countdown"
+    label: "Label"
+    id: "Id"
+  kind:
+    sensor_source:
+      name: "Sensor"
+    alarm_event_source:
+      name: "Alarm event"
+    constant:
+      name: "Constant"
+    random:
+      name: "Random"
+    process:
+      name: "Process"
+    add:
+      name: "Add"
+    subtract:
+      name: "Subtract"
+    multiply:
+      name: "Multiply"
+    divide:
+      name: "Divide"
+    minimum:
+      name: "Minimum"
+    maximum:
+      name: "Maximum"
+    average:
+      name: "Average"
+    logarithm:
+      name: "Logarithm"
+    power:
+      name: "Power"
+    sine:
+      name: "Sine"
+    cosine:
+      name: "Cosine"
+    tangent:
+      name: "Tangent"
+    square_root:
+      name: "Square root"
+    round:
+      name: "Round"
+    limiter:
+      name: "Limiter"
+    table:
+      name: "Table"
+    less:
+      name: "Less"
+    less_equal:
+      name: "Less or equal"
+    equal:
+      name: "Equal"
+    greater_equal:
+      name: "Greater or equal"
+    greater:
+      name: "Greater"
+    not_equal:
+      name: "Not equal"
+    and:
+      name: "And"
+    or:
+      name: "Or"
+    not:
+      name: "Not"
+    switch:
+      name: "Switch"
+    has_value:
+      name: "Has value"
+    memory:
+      name: "Memory"
+    persistent_storage:
+      name: "Persistent storage"
+    trigger:
+      name: "Trigger"
+    on_delay:
+      name: "On delay"
+    off_delay:
+      name: "Off delay"
+    counter:
+      name: "Counter"
+    peak:
+      name: "Peak filter"
+    window_minimum:
+      name: "Minimum filter"
+    window_average:
+      name: "Average filter"
+    low_pass:
+      name: "Low pass"
+    trend:
+      name: "Trend"
+    generator_linear:
+      name: "Linear generator"
+    generator_sawtooth:
+      name: "Sawtooth generator"
+    generator_triangle:
+      name: "Triangle generator"
+    generator_sine:
+      name: "Sine generator"
+    generator_rectangle:
+      name: "Rectangle generator"
+    comment:
+      name: "Comment"
+    sensor_end:
+      name: "Sensor end node"
+    response_end:
+      name: "Response end node"
 alarms:
   active:
     title: Active

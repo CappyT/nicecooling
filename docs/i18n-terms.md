@@ -29,6 +29,12 @@ A term that Italian keeps in English stays in English in German. A term that Ita
 | Graph service | servizio Grafo | Graph-Dienst | service Graphe |
 | Graph response | risposta Grafo | Graph-Reaktion | réponse Graphe |
 | Response pause | Pausa delle risposte | Reaktionspause | Pause des réponses |
+| Node | Nodo | Knoten | Nœud |
+| End node | Nodo finale | Endknoten | Nœud final |
+| Pin | Pin | Pin | Pin |
+| Label | Etichetta | Label | Étiquette |
+| Try | Prova | Probelauf | Essai |
+| Span | Finestra | Zeitfenster | Fenêtre |
 | Software sensor | sensore software | Software-Sensor | capteur logiciel |
 | Flow sensor | sensore di portata | Durchflusssensor | capteur de débit |
 | Water temperature | Temperatura acqua | Wassertemperatur | Température de l'eau |
