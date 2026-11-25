@@ -343,6 +343,15 @@ impl Inner {
         self.state.graph_sensors.iter().any(|g| g.id == id)
     }
 
+    /// `InvalidArgument` for a Graph sensor in a place that stays on measured values.
+    fn refuse_graph_sensor(&self, id: &str, what: &str) -> Result<()> {
+        if self.is_graph_sensor(id) {
+            Err(Error::invalid(format!("{what} the Graph sensor {id}")))
+        } else {
+            Ok(())
+        }
+    }
+
     /// The Software sensor slot that holds this sensor, or `None`.
     fn slot_user(&self, id: &str) -> Option<String> {
         self.state
@@ -688,6 +697,8 @@ impl Inner {
         }
         for source in sources {
             self.require_sensor(source)?;
+            // A Graph could read this Derived sensor and close a loop that no validator sees.
+            self.refuse_graph_sensor(source, "a Derived sensor cannot read")?;
             if let Some(own) = own_id
                 && (source == own || self.derived_reads(source, own, 0))
             {
@@ -1525,6 +1536,8 @@ impl Hub {
                 }
                 (Some(sensor), table) => {
                     i.require_sensor(sensor)?;
+                    // The Feed message carries the flow, and it stays on measured values.
+                    i.refuse_graph_sensor(sensor, "a Loop cannot take as its flow sensor")?;
                     if !i.table_exists(table) {
                         return Err(Error::not_found(format!("no Calibration table {table}")));
                     }
@@ -1553,6 +1566,7 @@ impl Hub {
             i.loop_mut(id)?;
             if let Some(sensor) = &sensor {
                 i.require_sensor(sensor)?;
+                i.refuse_graph_sensor(sensor, "a Loop cannot take as its water temperature")?;
             }
             i.loop_mut(id)?.water_temperature = sensor;
             Ok(())
