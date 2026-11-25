@@ -14,12 +14,12 @@ use tokio::sync::mpsc;
 async fn the_second_claim_finds_the_name_taken() {
     let bus = PrivateBus::start("instance-taken");
     let (tx, _rx) = mpsc::unbounded_channel();
-    let first = claim(Some(&bus.address), tx.clone()).await;
+    let first = claim(Some(bus.address.as_str()), tx.clone()).await;
     assert!(matches!(first, Claim::First(_)), "{first:?}");
-    let second = claim(Some(&bus.address), tx.clone()).await;
+    let second = claim(Some(bus.address.as_str()), tx.clone()).await;
     assert!(matches!(second, Claim::Taken), "{second:?}");
     // The failed claim did not take the name from the first instance.
-    let third = claim(Some(&bus.address), tx).await;
+    let third = claim(Some(bus.address.as_str()), tx).await;
     assert!(matches!(third, Claim::Taken), "{third:?}");
 }
 
@@ -27,10 +27,10 @@ async fn the_second_claim_finds_the_name_taken() {
 async fn the_second_start_shows_the_window_of_the_first() {
     let bus = PrivateBus::start("instance-show");
     let (tx, mut rx) = mpsc::unbounded_channel();
-    let first = claim(Some(&bus.address), tx).await;
+    let first = claim(Some(bus.address.as_str()), tx).await;
     assert!(matches!(first, Claim::First(_)), "{first:?}");
 
-    show_first(Some(&bus.address)).await.unwrap();
+    show_first(Some(bus.address.as_str())).await.unwrap();
     let command = tokio::time::timeout(Duration::from_secs(5), rx.recv())
         .await
         .expect("a command in 5 s");
@@ -40,7 +40,7 @@ async fn the_second_start_shows_the_window_of_the_first() {
 #[tokio::test(flavor = "multi_thread")]
 async fn show_without_a_first_instance_is_an_error() {
     let bus = PrivateBus::start("instance-none");
-    assert!(show_first(Some(&bus.address)).await.is_err());
+    assert!(show_first(Some(bus.address.as_str())).await.is_err());
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -54,14 +54,14 @@ async fn without_a_bus_the_app_starts_as_before() {
 async fn the_name_is_free_when_the_first_instance_ends() {
     let bus = PrivateBus::start("instance-ends");
     let (tx, _rx) = mpsc::unbounded_channel();
-    let first = claim(Some(&bus.address), tx.clone()).await;
+    let first = claim(Some(bus.address.as_str()), tx.clone()).await;
     assert!(matches!(first, Claim::First(_)), "{first:?}");
     drop(first);
 
     // The bus sees the end of the connection a moment later.
     let deadline = Instant::now() + Duration::from_secs(5);
     loop {
-        let again = claim(Some(&bus.address), tx.clone()).await;
+        let again = claim(Some(bus.address.as_str()), tx.clone()).await;
         if matches!(again, Claim::First(_)) {
             break;
         }

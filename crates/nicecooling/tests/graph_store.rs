@@ -365,3 +365,23 @@ fn a_remove_edits_the_file_that_another_writer_changed() {
         .collect();
     assert_eq!(ids, ["graph_2"]);
 }
+
+/// An edit that fails to write is not kept in memory, and the next edit works on the file.
+#[test]
+fn a_failed_write_leaves_no_edit_behind() {
+    let dir = Dir::new("failed-edit");
+    let paths = dir.graph_paths();
+    let mut store = GraphStore::open(paths.clone());
+    store.put(constant_graph("graph_1", 1.0)).unwrap();
+    let config = paths.graphs.parent().unwrap().to_owned();
+    std::fs::set_permissions(&config, std::fs::Permissions::from_mode(0o555)).unwrap();
+    let failed = store.put(constant_graph("graph_2", 2.0));
+    std::fs::set_permissions(&config, std::fs::Permissions::from_mode(0o755)).unwrap();
+    assert!(failed.is_err());
+
+    store.put(constant_graph("graph_3", 3.0)).unwrap();
+    let ids =
+        |store: &GraphStore| -> Vec<String> { store.graphs().into_iter().map(|g| g.id).collect() };
+    assert_eq!(ids(&store), ["graph_1", "graph_3"]);
+    assert_eq!(ids(&GraphStore::open(paths)), ["graph_1", "graph_3"]);
+}

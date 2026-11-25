@@ -477,3 +477,30 @@ fn service_failure_shows_in_the_view_and_names_the_service() {
     assert_eq!(spec.title, "Graph service stopped");
     assert_eq!(spec.key, "graph-service-stopped");
 }
+
+/// Only an edit of the Graph list reads `graphs.json` again. A pass reads no file.
+#[test]
+fn passes_do_not_read_the_graph_file() {
+    let mut rig = rig("no-read", vec![constant_graph("graph_1", 5.0)]);
+    let path = rig.dir.graph_paths().graphs;
+    std::fs::write(&path, "{ not json").unwrap();
+    for _ in 0..3 {
+        rig.clock.advance(Duration::from_secs(1));
+        rig.service.poll();
+    }
+    {
+        let view = rig.view.lock().unwrap();
+        assert_eq!(view.error, None);
+        assert_eq!(view.row("graph_1").unwrap().state, RowState::Running);
+    }
+
+    // An edit reads the file, finds it broken, refuses and leaves it as it is.
+    rig.service.handle(GraphCommand::Enable {
+        graph: "graph_1".into(),
+        enabled: false,
+    });
+    let view = rig.view.lock().unwrap();
+    assert!(view.refusal.is_some());
+    assert!(view.error.is_some());
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), "{ not json");
+}

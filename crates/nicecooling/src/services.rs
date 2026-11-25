@@ -270,7 +270,7 @@ pub fn spawn_service(
             }
         }));
         if let Err(payload) = run {
-            service.fail(&panic_text(payload.as_ref()));
+            service.fail(&panic_text(&*payload));
         }
     });
 }

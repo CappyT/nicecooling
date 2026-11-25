@@ -761,6 +761,14 @@ The app SHALL store all Graphs in `graphs.json` in `$XDG_CONFIG_HOME/nicecooling
 - **WHEN** `graphs.json` stops parsing while the app runs and the user applies a Graph
 - **THEN** the app refuses the Apply, shows the error and leaves the file as it is
 
+#### Scenario: Failed write
+- **WHEN** the write of an Apply fails because the directory is read-only, and the user applies another Graph after the directory is writable again
+- **THEN** the file holds the earlier Graphs and the new one, and not the Graph of the failed Apply
+
+#### Scenario: Passes read no file
+- **WHEN** `graphs.json` is broken by hand and the app runs 3 passes with no Apply, Enable or Delete
+- **THEN** the app reads no Graph file and shows no error, and the next Apply, Enable or Delete reads the file and refuses
+
 #### Scenario: Validator refusal keeps the text
 - **WHEN** one of 3 stored Graphs has two end nodes and a field `note` that the app does not know, and the user applies another Graph
 - **THEN** the file holds the text of the third Graph as it was, with `note`
