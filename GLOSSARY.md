@@ -82,7 +82,7 @@ A Duty that the user sets on a Channel that has no Curve.
 A mapping from one Input to the Duty of one Channel.
 
 **Input**:
-The sensor that a Curve reads: a measured sensor or a Derived sensor.
+The sensor that a Curve reads: a measured sensor, a Derived sensor or a Graph sensor.
 
 **Derived sensor**:
 A sensor that nicecooling computes from other sensors: a maximum, a mean or a difference such as water-to-air delta T.
@@ -126,3 +126,27 @@ The minimum time a Profile that a Rule group activated stays active.
 
 **Immediate switching**:
 The user option that removes the Rule delay and the Profile dwell, so that every Rule group change applies at once.
+
+## Graphs
+
+**Graph**:
+A named set of nodes and connections that the app evaluates once per second.
+
+**Node, pin, connection**:
+A node is one step of a Graph. It has input pins and at most one output pin. A connection joins an output pin to an input pin.
+
+**End node**:
+The node where a Graph ends: a sensor end node or a response end node.
+
+**Graph sensor**:
+The sensor that a Graph with a sensor end node gives. The app computes it and sends its value to the daemon.
+
+**Graph response**:
+What a Graph with a response end node does when its input becomes true: a notification, a command, a message, a power call. The term never names an Alarm response or a Device response.
+_Avoid_: graph action
+
+**Response pause**:
+The state in which no Graph response runs, after three poweroff or reboot responses in a row.
+
+**Graph sensor values**:
+The numbers of the Graph sensors that the app sends to the daemon once per second. The term Feed stays for the Leakshield.
