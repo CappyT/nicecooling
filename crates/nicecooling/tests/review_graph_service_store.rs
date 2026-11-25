@@ -56,6 +56,28 @@ fn unparsable_graph_file_keeps_the_state_file() {
     state_survives("{ not json", "rv-state-unparsable");
 }
 
+/// A Graph that parses but breaks a rule of the validator (two end nodes) must keep its stored
+/// text when the store writes the file for another Graph.
+#[test]
+fn validator_invalid_graph_keeps_its_bytes() {
+    let dir = Dir::new("rv-invalid-bytes");
+    let paths = dir.graph_paths();
+    let invalid = r#"{"id":"graph_2","name":"Two ends","enabled":true,"sensor_id":null,"note":"kept by hand","nodes":[{"id":1,"kind":"constant","label":null,"params":{"value":5},"x":0,"y":0},{"id":2,"kind":"sensor_end","label":null,"params":{"unit":"degC"},"x":10,"y":0},{"id":3,"kind":"sensor_end","label":null,"params":{"unit":"degC"},"x":20,"y":0}],"connections":[{"from":{"node":1,"pin":"out"},"to":{"node":2,"pin":"a"}}]}"#;
+    write(
+        &paths.graphs,
+        &format!(r#"{{"schema_version":1,"graphs":[{invalid}]}}"#),
+    );
+
+    let mut store = GraphStore::open(paths.clone());
+    assert!(matches!(&store.entries()[0], StoredGraph::Invalid(_)));
+    store.put(constant_graph("graph_1", 1.0)).unwrap();
+    let text = std::fs::read_to_string(&paths.graphs).unwrap();
+    assert!(
+        text.contains(invalid),
+        "the text of the invalid Graph changed:\n{text}"
+    );
+}
+
 /// A write into a read-only directory fails, and the Graphs in memory stay as in the file.
 #[test]
 fn read_only_directory_keeps_memory_and_file() {
