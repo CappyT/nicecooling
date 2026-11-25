@@ -105,6 +105,10 @@ The polkit action `io.github.cappyt.NiceCooling1.cancel-poweroff` allows a membe
 
 `$XDG_CONFIG_HOME` and `$XDG_DATA_HOME` replace `~/.config` and `~/.local/share` when set. `docs/storage.md` defines the formats.
 
+### Language
+
+The app has English, Italian, German and French. The setting "Language" in Settings has "System" and one entry per language, each in its own language. With "System", the app reads the first non-empty value of `LC_ALL`, `LC_MESSAGES` and `LANG`: a value that starts with `it`, `de` or `fr` gives that language, and any other value gives English. `docs/i18n-terms.md` lists the terms of the app text in each language.
+
 ### Start at login
 
 The setting is on by default, because of the system entry in `/etc/xdg/autostart/`. The switch in Settings changes it:

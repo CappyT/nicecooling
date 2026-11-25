@@ -171,7 +171,7 @@ The app is the only writer, and the Settings screen is its only editor. The app 
 
 ```toml
 schema_version = 1
-language = "system"                 # "system", "en" or "it"
+language = "system"                 # "system", "en", "it", "de" or "fr"
 tray = true
 [notifications]
 warnings = true

@@ -12,7 +12,7 @@ On Linux, the Aqua Computer LEAKSHIELD is only half supported: the kernel driver
 - Alarm handling with a configurable alarm response per Warning and Alarm, including a poweroff after a cancellable delay that aims to end in 60 s.
 - Profiles that bundle Curves and one of the four Leakshield slots, which hold the full Leakshield settings, with a Default Profile and Rule groups of sensor, process, time and interval rules.
 - A D-Bus system API with polkit authorization.
-- A GPUI desktop app: tray icon, notifications, sensor history, Curve editor, Leakshield pages, English and Italian.
+- A GPUI desktop app: tray icon, notifications, sensor history, Curve editor, Leakshield pages, English, Italian, German and French.
 - An RPM spec for Fedora, with a drop-in for `poweroff.target`.
 
 ## Capabilities

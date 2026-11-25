@@ -6,7 +6,7 @@ No comp. The screen is a settings form: one card per group, one row per setting,
 
 | Card | Rows |
 |---|---|
-| Language | "Language": select with "System", "English", "Italiano" |
+| Language | "Language": select with "System", "English", "Italiano", "Deutsch", "Français". Each language name is in its own language |
 | Start and tray | "Start at login": switch. "Tray icon": switch. The hint row for the AppIndicator extension, only when no tray host exists |
 | Notifications | "Warnings": switch. "Profile switched by a rule": switch, off by default. "External change on a Leakshield": switch. Text row: "Alarm notifications are always on." |
 | Daemon | "Connection": "Connected", "Offline" or "Down", with "Try again". "Daemon version" and "App version". "Board": the Board name and the Board file in use. "State directory": the path `/var/lib/nicecooling/`, read-only text, no control. There is no configuration file |

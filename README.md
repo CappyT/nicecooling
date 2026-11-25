@@ -65,7 +65,7 @@ The images show the app with test data.
 
 | Part | Supported |
 |---|---|
-| Operating system | Fedora on x86_64 with GNOME. The app is in English and Italian. |
+| Operating system | Fedora on x86_64 with GNOME. The app is in English, Italian, German and French. |
 | Mainboard | A Board needs a Board file in `data/boards/`. One exists: ASUS ROG CROSSHAIR VIII DARK HERO. |
 | Leakshield | Firmware 1022. The daemon reads a Leakshield with another firmware and does not write it. |
 | Flow sensor | A sensor on a fan header, with a calibration table in `data/calibration/`. One exists: Alphacool 17558. |

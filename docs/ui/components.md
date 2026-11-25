@@ -6,7 +6,7 @@ This inventory lists every screen, state and widget that the nicecooling desktop
 
 - Toolkit: GPUI with gpui-component (sidebar, tabs, select, slider, switch, input, table, dialog, notification, stepper, progress, area and line charts, plot, popover, menu, tag, settings form, resizable panels). Anything else is a custom GPUI element.
 - Linux desktop, GNOME on Wayland, light and dark theme from the system.
-- Languages: English and Italian. Layouts must hold Italian strings, which are often 20-30% longer.
+- Languages: English, Italian, German and French. Layouts must hold Italian and German strings, which are often 20-30% longer than English.
 - The app runs in the background with a tray icon. It opens a window on request or on an Alarm.
 - Units: degrees Celsius, L/h, mbar, rpm, percent Duty, ml, ml/h, mbar/min.
 
@@ -109,7 +109,7 @@ Tabs: Overview, Settings, Sensors, Display, Lighting, Alarms, Status, System, Fi
 
 ### Settings
 
-- Language: system, English, Italiano.
+- Language: system, English, Italiano, Deutsch, Français.
 - Start at login; tray icon; hint to enable the GNOME AppIndicator extension when the tray is not visible.
 - Notification options.
 - Daemon connection and version; about.

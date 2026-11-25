@@ -110,7 +110,7 @@ The daemon state is in `/var/lib/nicecooling/`. The app history is in `$XDG_DATA
 | `rusqlite` | 0.43, bundled SQLite | History. |
 | `ksni` | 0.3.7, feature `blocking` | StatusNotifierItem and DBusMenu. GPUI has no Tokio runtime, so the app uses the blocking API. |
 | `notify-rust` | 4.19 | Notifications. |
-| `rust-i18n` | 4.2 | English and Italian. |
+| `rust-i18n` | 4.2 | English, Italian, German and French. |
 | `gpui-component` | 0.10.0 | App widgets. |
 | `gpui-pre` | `=0.3.12` | GPUI. |
 | `gpui-pre-platform` | `=0.3.12`, features `wayland` and `x11` | The GPUI application entry point (`gpui_platform::application()`). |
@@ -358,7 +358,7 @@ Rejected: a group-owned Unix socket, which has no per-action authorization.
 - A spike proves a windowless GPUI process with a StatusNotifierItem and notification actions, and records its idle CPU and RAM.
 - History: the app writes samples to `$XDG_DATA_HOME/nicecooling/history.db` in batches every 10 s and prunes hourly. 1 s samples stay for 48 hours. 1 minute aggregates (mean, minimum, maximum) stay for one year. The schema is in `docs/storage.md`.
 - App settings: the app keeps its language, tray and notification switches and dismissed hints in `$XDG_CONFIG_HOME/nicecooling/settings.toml`. "Start at login" is off when the app writes `~/.config/autostart/io.github.cappyt.NiceCooling.desktop` with `Hidden=true`, which overrides the system autostart entry (`docs/storage.md`).
-- Languages: English and Italian, in the app only. The daemon sends event identifiers, not text. The app owns the text of every notification.
+- Languages: English, Italian, German and French, in the app only. The daemon sends event identifiers, not text. The app owns the text of every notification.
 - When the daemon is unreachable, the app shows it in the window and the tray icon, and disables every write control. When the unit `nicecoolingd.service` is `failed` with `Result` `start-limit-hit`, it shows "daemon down, Board on BIOS curves".
 
 Rejected: a history database in `/var/lib` written by the daemon (ADR-0005).

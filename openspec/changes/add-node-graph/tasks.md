@@ -11,7 +11,7 @@ A task marked MANUAL needs a person on the reference desktop. The person follows
 Each section ends with a checkpoint task. The checkpoint command is:
 `cargo test --workspace && cargo clippy --workspace --all-targets -- -D warnings && cargo fmt --all --check && python3 -I tools/re/check-identifiers.py && openspec validate add-node-graph --strict`.
 
-Strings of the app go in `crates/nicecooling/locales/en.yml` and `crates/nicecooling/locales/it.yml` with the task that uses them. The tests `every_key_has_both_languages` and `every_key_used_in_source_exists` in `crates/nicecooling/tests/i18n.rs` (existing) check them.
+Strings of the app go in `crates/nicecooling/locales/en.yml` and `crates/nicecooling/locales/it.yml` with the task that uses them. The tests `every_key_has_every_language` and `every_key_used_in_source_exists` in `crates/nicecooling/tests/i18n.rs` (existing) check them.
 
 The pure logic is in `crates/nicecooling-graph`. The tasks of the app connect it to the clock, the files, the D-Bus and logind. A new integration test file of the daemon is under `crates/nicecoolingd/tests/` and starts with `mod support;`. A new integration test file of the app is under `crates/nicecooling/tests/` and starts with `mod support;`.
 

@@ -274,11 +274,23 @@ The app SHALL let the user create, edit, activate and revoke Profiles, set the L
 - **THEN** the app shows "Curves applied, Leakshield failed" and offers the restore
 
 ### Requirement: Languages
-The app SHALL offer English and Italian.
+The app SHALL offer English, Italian, German and French. The language setting is `system`, `en`, `it`, `de` or `fr`. With `system`, the app uses the first non-empty value of `LC_ALL`, `LC_MESSAGES` and `LANG`: a value that starts with `it`, `de` or `fr` gives that language, and any other value gives English. The language select shows each language name in its own language. German and French write a decimal comma and group the thousands with a no-break space, as Italian does.
 
 #### Scenario: Italian system
 - **WHEN** the system language is Italian
 - **THEN** the app shows Italian text
+
+#### Scenario: German system
+- **WHEN** the system language is German
+- **THEN** the app shows German text
+
+#### Scenario: French system
+- **WHEN** the system language is French
+- **THEN** the app shows French text
+
+#### Scenario: Language chosen by the user
+- **WHEN** the user selects "Deutsch" in the language select
+- **THEN** the app shows German text and stores `language = "de"` in `settings.toml`
 
 ### Requirement: Authorization prompts
 The app SHALL NOT ask for a password and SHALL NOT mark a control with a lock icon for authorization; the read-only lock of a field that is not Verified stays. A user outside the group `wheel` gets the system polkit dialog. The app SHALL report a denial. The app SHALL warn before an action that lowers the protection and SHALL NOT refuse the choice of the user.

@@ -39,7 +39,7 @@ Draws one Loop from the Loop model. It never draws a part that the model does no
 - More than one Pump channel: one pump symbol, and the ST bubble shows the lowest speed. The caption says "2 pumps".
 - Bubble states: normal, Warning (amber fill, triangle icon before the caption), Alarm (red fill, white tag, octagon icon, value in `alarm`), offline (dashed outline, value "--").
 - Out-of-range flag: a flow above the last Calibration table point has a normal bubble and an information icon before the caption "above table range". It is a note on the value. It is not a Warning, so it has no amber and no entry in Active Alarms.
-- Captions stay short, because the space between two bubbles is about 170 px at the minimum window: "target 300", "Duty 62 %", "calibrated", "water", "below minimum 250", "above table range".
+- Captions stay short, because the space between two bubbles is about 170 px at the minimum window: "target 300", "Duty 62 %", "calibrated", "water", "below minimum 250", "above table range". A caption is at most 140 px wide, icon included. A longer caption truncates with an ellipsis, and the tooltip of the bubble has the full text.
 - Interaction: a click on a bubble opens the source (Sensors, Channels or the Leakshield). Hover or focus shows a tooltip with the full name, the value, the limits and the age. Left and Right move between bubbles. Enter opens the source.
 - Accessible text: "Main loop. Pressure 142 mbar, Alarm, below minimum 250. Pump 2 840 rpm. Flow 115 L/h. Water 31.4 degrees Celsius. Fill level 68 percent."
 

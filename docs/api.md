@@ -86,7 +86,7 @@ A Leakshield sensor has the id `<leakshield id>_<field id>`, the origin `leakshi
 
 ## Event identifiers
 
-Alarms and Warnings use one identifier each. The app maps an identifier to its text in English and Italian. The daemon sends no text.
+Alarms and Warnings use one identifier each. The app maps an identifier to its text in each language of the app. The daemon sends no text.
 
 | Event | Severity | Source |
 |---|---|---|
