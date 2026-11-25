@@ -173,3 +173,45 @@ fn panic_outside_a_graph_is_not_silent() {
     );
     let _ = &parts.clock;
 }
+
+/// The command channel has no bound: a sender that is faster than the service (a storm of Try
+/// commands while a pass is slow) grows the queue without a limit.
+#[test]
+fn command_channel_has_a_bound() {
+    let (release, hold) = std_mpsc::channel::<()>();
+    let parts = parts(
+        "rv-storm",
+        vec![constant_graph("graph_1", 1.0)],
+        Box::new(SlowLink(hold)),
+        Box::new(NoPower),
+    );
+    let (channel, inputs) = GraphChannel::new();
+    let (events, _keep) = broadcast::channel(8);
+    spawn_service(parts.service, events.subscribe(), inputs);
+    std::thread::sleep(Duration::from_millis(100));
+
+    let mut draft = constant_graph("graph_9", 2.0);
+    for id in 3..250 {
+        draft.nodes.push(nicecooling_graph::model::Node::new(
+            id,
+            nicecooling_graph::model::Kind::Comment,
+        ));
+    }
+    let request = TryRequest {
+        graph: draft,
+        tests: Vec::new(),
+        seconds: 60,
+    };
+    let mut accepted = 0_u32;
+    for _ in 0..20_000 {
+        if !channel.send(GraphCommand::Try(Box::new(request.clone()))) {
+            break;
+        }
+        accepted += 1;
+    }
+    drop(release);
+    assert!(
+        accepted < 20_000,
+        "the channel took {accepted} Try commands of 250 nodes each with no limit"
+    );
+}
