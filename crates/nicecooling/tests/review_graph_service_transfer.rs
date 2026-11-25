@@ -151,6 +151,20 @@ fn file_sensor_id_and_enabled_are_dropped() {
     assert_ne!(graph.id, "graph_1");
 }
 
+/// A file with a password field in a node. The app never writes a password to an export file, and
+/// a file from another machine must not carry one into `graphs.json` and into the next export.
+#[test]
+fn password_field_of_the_file_is_not_kept() {
+    let mut graph = constant_graph("graph_1", 1.0);
+    graph.nodes[1] = Node::new(2, Kind::ResponseEnd)
+        .with_param("kind", "email")
+        .with_param("to", "owner@example.org")
+        .with_param("password", "hunter2");
+    let imported = import_text(&export_text(&graph), &[]).unwrap();
+    let again = export_text(&imported);
+    assert!(!again.contains("hunter2"), "{again}");
+}
+
 /// Bytes that are not UTF-8 give a read message, and the message does not echo the bytes.
 #[test]
 fn non_utf8_file_is_refused() {
