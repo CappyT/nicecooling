@@ -8,8 +8,10 @@ use nicecooling_graph::eval::EndValue;
 use nicecooling_graph::model::{Graph, StoredGraph};
 use nicecooling_graph::pause::PowerKind;
 use nicecooling_graph::response::RunRecord;
+use nicecooling_graph::validate::Refusal;
 
 use super::responses::LogRow;
+use super::values::SensorError;
 
 /// Why a Graph does not run, or that it runs.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -100,6 +102,25 @@ pub struct PauseView {
     pub count: u32,
 }
 
+/// Why the service did not store the Graph of an "Apply".
+#[derive(Clone, Debug, PartialEq)]
+pub enum ApplyError {
+    /// The Graph breaks rules of the validator.
+    Rules(Vec<Refusal>),
+    /// The daemon refused the call for the Graph sensor.
+    Sensor(SensorError),
+    /// Another reason: a Graph file that cannot be written, a service that has too much to do.
+    Other(String),
+}
+
+/// The answer of the service to an "Apply".
+#[derive(Clone, Debug, PartialEq)]
+pub struct Applied {
+    /// The id of the Graph.
+    pub graph: String,
+    pub result: Result<(), ApplyError>,
+}
+
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct GraphView {
     pub rows: Vec<GraphRow>,
@@ -110,6 +131,9 @@ pub struct GraphView {
     pub file_error: Option<String>,
     /// Why the last Apply or Enable was refused. A command that works clears it.
     pub refusal: Option<String>,
+    /// The answer to the last "Apply". The editor clears it when it sends an Apply, and waits
+    /// for it: the service can wait for the daemon before it answers.
+    pub applied: Option<Applied>,
     pub countdown: Option<Countdown>,
     /// The try that runs now.
     pub trying: Option<TryView>,

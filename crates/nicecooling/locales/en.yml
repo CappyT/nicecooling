@@ -189,6 +189,7 @@ graph_countdown:
 graph_refusal:
   alarm_countdown: An Alarm poweroff countdown runs. No poweroff, reboot or suspend response starts.
   inactive_session: This session is not the active one. No response runs.
+  busy: "A call to the daemon for this Graph waits for its answer."
 feedback:
   pending: Writing
   applied: "Applied %{time}"
@@ -680,6 +681,7 @@ graphs:
   limit: The limit is 64 Graphs.
   empty: No Graph. A Graph computes a sensor or runs a response from nodes.
   file_error: nicecooling cannot read graphs.json.
+  retry: "Retry"
   no_access: nicecooling has no access to the daemon. The Graph sensors have no value. The app tries again in 60 s.
   columns:
     graph: Graph
@@ -744,6 +746,7 @@ graphs:
     other: "Not imported: %{reason}"
 graph_editor:
   not_applied: "Not applied"
+  applying: "Applying"
   add_node: "Add node"
   undo: "Undo"
   redo: "Redo"
@@ -1062,6 +1065,12 @@ graph_editor:
     banner: "Try running, nothing is published"
     left: "%{seconds} s left"
     stop: "Stop"
+  leave:
+    title: "The Graph '%{name}' has changes that are not applied."
+    discard: "Discard"
+  offline: "The daemon is offline. The Graph sensor needs the daemon."
+  not_applied_reason: "Not applied: %{reason}."
+  not_applied_curve: "Not applied: the Curve of %{name} uses the Graph sensor."
 alarms:
   active:
     title: Active

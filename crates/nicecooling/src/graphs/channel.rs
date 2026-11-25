@@ -10,7 +10,8 @@ use tokio::sync::mpsc::error::{TryRecvError, TrySendError};
 use tokio::sync::mpsc::{Receiver, Sender, UnboundedReceiver, UnboundedSender};
 use tokio::sync::mpsc::{channel, unbounded_channel};
 
-use super::view::SharedView;
+use super::values::SensorError;
+use super::view::{Applied, ApplyError, SharedView};
 use crate::command::Command;
 
 /// How long the app waits for the service at "Quit" and at SIGTERM.
@@ -58,6 +59,17 @@ pub enum GraphCommand {
     ResponsesOn,
     /// The MQTT or SMTP settings changed.
     NetworkSettingsEdited,
+    /// "Retry" after a read error of `graphs.json`: read the file again.
+    Reload,
+}
+
+/// The answer of the daemon to a Graph sensor call that the service started on a task.
+#[derive(Debug)]
+pub struct SensorAnswer {
+    /// The number that the service gave to the call.
+    pub ticket: u64,
+    /// The id of the new sensor for a create, and nothing for the two other calls.
+    pub result: Result<Option<String>, SensorError>,
 }
 
 /// One message of the channel.
@@ -66,6 +78,8 @@ pub enum Input {
     Command(GraphCommand),
     /// The stop of the app. The service answers on the sender when it has written its state.
     Stop(std_mpsc::Sender<()>),
+    /// The daemon answered a Graph sensor call.
+    Answer(SensorAnswer),
 }
 
 /// Why the channel does not take a command.
@@ -91,7 +105,19 @@ impl fmt::Display for SendError {
 
 impl std::error::Error for SendError {}
 
-/// The receiving end, for the service. The stop message comes before every command.
+/// Where the task of a Graph sensor call gives the answer of the daemon: the channel of the
+/// service. An answer has the path of the stop message, so it is never refused.
+#[derive(Clone, Debug)]
+pub struct AnswerSender(UnboundedSender<Input>);
+
+impl AnswerSender {
+    pub fn send(&self, answer: SensorAnswer) {
+        let _ = self.0.send(Input::Answer(answer));
+    }
+}
+
+/// The receiving end, for the service. The stop message and the answers of the daemon come
+/// before every command.
 #[derive(Debug)]
 pub struct Inputs {
     stop: UnboundedReceiver<Input>,
@@ -153,6 +179,11 @@ impl GraphChannel {
         self.view.clone()
     }
 
+    /// The sender for the answers of the Graph sensor calls.
+    pub fn answers(&self) -> AnswerSender {
+        AnswerSender(self.stop.clone())
+    }
+
     pub fn try_send(&self, command: GraphCommand) -> Result<(), SendError> {
         self.commands
             .try_send(Input::Command(command))
@@ -177,12 +208,23 @@ impl GraphChannel {
     pub fn route(&self, command: Command) -> Option<Command> {
         match command {
             Command::Graph(command) => {
+                let applied = match &command {
+                    GraphCommand::Apply(graph) => Some(graph.id.clone()),
+                    _ => None,
+                };
                 if let Err(error) = self.try_send(command) {
                     eprintln!("nicecooling: Graph command: {error}");
                     if let Some(view) = &self.view
                         && let Ok(mut view) = view.lock()
                     {
                         view.refusal = Some(error.to_string());
+                        // The editor waits for the answer to its Apply.
+                        if let Some(graph) = applied {
+                            view.applied = Some(Applied {
+                                graph,
+                                result: Err(ApplyError::Other(error.to_string())),
+                            });
+                        }
                     }
                 }
                 None

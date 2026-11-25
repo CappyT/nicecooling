@@ -5,6 +5,7 @@
 //! `EditorUi` is the state that the user changes, and `EditorModel` is what the window shows. The
 //! tests read both.
 
+pub mod apply;
 pub mod canvas;
 pub mod draft;
 pub mod live;
@@ -18,6 +19,7 @@ pub(crate) mod view;
 use nicecooling_graph::model::Graph;
 use nicecooling_graph::validate::validate;
 
+use self::apply::{ApplyState, ApplyUi, LeaveDialog, leave_dialog, offline_reason, refusal_text};
 use self::canvas::{EdgeFace, NodeFace, edge_faces, node_faces};
 use self::draft::Draft;
 use self::live::LiveValues;
@@ -28,6 +30,7 @@ use self::try_run::{TryBanner, TryUi, try_banner};
 use crate::graphs::view::{GraphRow, GraphView, ValuesState};
 use crate::i18n::Locale;
 use crate::screens::ScreenInput;
+use crate::screens::format::clock;
 
 /// A number of a parameter or of a node title: at most 8 decimals, no trailing zero, and the
 /// decimal mark of the language.
@@ -107,6 +110,8 @@ pub struct EditorUi {
     pub live: LiveValues,
     /// The test values of the Sensor nodes, and the try that runs.
     pub tries: TryUi,
+    /// The state of "Apply", and the question on leaving.
+    pub apply: ApplyUi,
 }
 
 impl EditorUi {
@@ -124,6 +129,7 @@ impl EditorUi {
             field_error: None,
             live: LiveValues::default(),
             tries: TryUi::default(),
+            apply: ApplyUi::default(),
         }
     }
 
@@ -195,8 +201,12 @@ pub struct Toolbar {
     /// The button that goes back to the Graphs screen.
     pub back: String,
     pub name: String,
-    /// "Not applied" while the draft differs from the stored Graph.
+    /// "Applying" while the service has not answered, "Not applied" while the draft differs
+    /// from the stored Graph, or "Applied 21:44:02" after an Apply.
     pub draft_state: Option<String>,
+    /// Why the service did not store the draft: "Not applied: the limit of 64 Graph sensors is
+    /// reached."
+    pub refused: Option<String>,
     /// The button "Add node", below a window width of 1280 px only.
     pub add_node: Option<Action>,
     pub undo: Action,
@@ -237,6 +247,8 @@ pub struct EditorModel {
     pub panel: Option<Panel>,
     /// The banner under the toolbar, while a try runs.
     pub try_banner: Option<TryBanner>,
+    /// The question on leaving with a draft that is not applied.
+    pub leave: Option<LeaveDialog>,
 }
 
 impl EditorModel {
@@ -249,6 +261,21 @@ impl EditorModel {
         let rule = first_rule_text(&refusals, &candidate, &others, locale);
         let valid = rule.is_none();
         let dirty = ui.draft.is_dirty();
+        // The buttons are off while the service has not answered an Apply.
+        let pending = ui.apply.state == ApplyState::Pending;
+        let offline = offline_reason(input, ui);
+        let draft_state = match &ui.apply.state {
+            ApplyState::Pending => Some(locale.tr("graph_editor.applying")),
+            _ if dirty => Some(locale.tr("graph_editor.not_applied")),
+            ApplyState::Applied { at_us } => {
+                Some(locale.fmt("feedback.applied", &[("time", &clock(*at_us))]))
+            }
+            _ => None,
+        };
+        let refused = match &ui.apply.state {
+            ApplyState::Refused(error) => Some(refusal_text(error, input, view, ui)),
+            _ => None,
+        };
         let rule_node = refusals.first().and_then(|refusal| refusal.node);
         let list = node_list(ui, locale);
         let hint = (ui.draft.graph().nodes.len() <= 1).then(|| {
@@ -286,22 +313,34 @@ impl EditorModel {
             hint,
             panel: panel(input, ui),
             try_banner: try_banner(ui, locale),
+            leave: leave_dialog(input, view, ui),
             toolbar: Toolbar {
                 back: locale.tr("nav.graphs"),
                 name: ui.draft.graph().name.clone(),
-                draft_state: dirty.then(|| locale.tr("graph_editor.not_applied")),
+                draft_state,
+                refused,
                 add_node: (list.form == ListForm::Popover)
                     .then(|| Action::new(locale.tr("graph_editor.add_node"), true)),
-                undo: Action::new(locale.tr("graph_editor.undo"), ui.draft.can_undo()),
-                redo: Action::new(locale.tr("graph_editor.redo"), ui.draft.can_redo()),
+                undo: Action::new(
+                    locale.tr("graph_editor.undo"),
+                    ui.draft.can_undo() && !pending,
+                ),
+                redo: Action::new(
+                    locale.tr("graph_editor.redo"),
+                    ui.draft.can_redo() && !pending,
+                ),
                 rule,
                 rule_node,
                 // "Try" is off while the draft breaks a rule and while a try runs.
                 try_run: Action::new(
                     locale.tr("graph_editor.try"),
-                    valid && ui.tries.running.is_none(),
+                    valid && !pending && ui.tries.running.is_none(),
                 ),
-                apply: Action::new(locale.tr("graph_editor.apply"), dirty && valid),
+                apply: Action {
+                    label: locale.tr("graph_editor.apply"),
+                    enabled: dirty && valid && !pending && offline.is_none(),
+                    tooltip: offline.filter(|_| dirty && valid),
+                },
             },
             list,
         }

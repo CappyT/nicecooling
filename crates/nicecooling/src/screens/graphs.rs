@@ -9,7 +9,7 @@ use nicecooling_graph::model::{
     EXPORT_FORMAT_VERSION, ExportError, Graph, Kind, Node, ParseProblem, ResponseKind, StoredGraph,
 };
 use nicecooling_graph::response::RunState;
-use nicecooling_graph::validate::MAX_GRAPHS;
+use nicecooling_graph::validate::{MAX_GRAPHS, validate};
 
 use crate::command::Command;
 use crate::graphs::channel::GraphCommand;
@@ -18,6 +18,7 @@ use crate::graphs::transfer::{ImportError, export_file, import_file, new_graph_i
 use crate::graphs::view::{GraphRow, GraphView, RowState, ValuesState};
 use crate::i18n::Locale;
 use crate::screens::format::{clock, date_time, number, optional_value, unit_text};
+use crate::screens::graph_editor::rules::first_rule_text;
 use crate::screens::sensors::{SensorUse, sensor_users};
 use crate::screens::{ScreenInput, WriteOutcome};
 
@@ -98,6 +99,10 @@ impl GraphsUi {
     /// "New sensor" and "New response": open the editor on a draft with one end node of the kind
     /// `end`. The draft has the lowest free number as its name. Nothing is stored.
     pub fn new_draft(&mut self, view: &GraphView, end: Kind, locale: Locale) {
+        // The app cannot read `graphs.json`: it would store nothing, so no editor opens.
+        if view.file_error.is_some() {
+            return;
+        }
         let name_of = |n: u32| locale.fmt("graphs.new_name", &[("n", &n.to_string())]);
         let free = (1u32..)
             .find(|n| {
@@ -112,6 +117,9 @@ impl GraphsUi {
 
     /// "Edit": open the editor on a stored Graph. A Graph that the app cannot read opens nothing.
     pub fn edit(&mut self, view: &GraphView, graph: &str) {
+        if view.file_error.is_some() {
+            return;
+        }
         if let Some(stored) = view.row(graph).and_then(GraphRow::graph) {
             self.editor = Some(stored.clone());
             self.imported.remove(graph);
@@ -177,6 +185,9 @@ impl GraphsUi {
     /// Open the editor on the Graph that holds the Graph sensor `sensor`. Returns whether a Graph
     /// of this user holds it.
     pub fn edit_sensor(&mut self, view: &GraphView, sensor: &str) -> bool {
+        if view.file_error.is_some() {
+            return false;
+        }
         let holder = view
             .rows
             .iter()
@@ -189,6 +200,12 @@ impl GraphsUi {
             }
             None => false,
         }
+    }
+
+    /// "Retry" next to a read error of `graphs.json`: the command that makes the Graph service
+    /// read the file again.
+    pub fn retry(&self) -> Command {
+        Command::Graph(GraphCommand::Reload)
     }
 
     /// The switch of a row: the command that enables or disables the Graph at once.
@@ -328,6 +345,8 @@ pub struct GraphsModel {
     pub empty_text: String,
     /// "nicecooling cannot read graphs.json." and the error text.
     pub file_error: Option<(String, String)>,
+    /// "Retry", next to the error of the file.
+    pub retry: Option<String>,
     /// The warning rows above the table.
     pub warnings: Vec<String>,
     /// The result of the last export or import, with a close button.
@@ -386,6 +405,7 @@ impl GraphsModel {
             export: locale.tr("graphs.export"),
             delete: locale.tr("graphs.delete"),
             empty_text: locale.tr("graphs.empty"),
+            retry: file_error.as_ref().map(|_| locale.tr("graphs.retry")),
             file_error: file_error.map(|error| (locale.tr("graphs.file_error"), error)),
             warnings,
             notice: ui.notice.clone(),
@@ -463,6 +483,14 @@ fn stored_end(text: &str) -> End {
                 .unwrap_or(ResponseKind::Notification),
         )
     }
+}
+
+/// The first rule of the validator that the stored text of a Graph breaks. `None` for a text
+/// that is no Graph, and for a Graph that breaks no rule.
+fn broken_rule(text: &str, view: &GraphView, locale: Locale) -> Option<String> {
+    let graph: Graph = serde_json::from_str(text).ok()?;
+    let others = view.graphs();
+    first_rule_text(&validate(&graph, &others), &graph, &others, locale)
 }
 
 /// The time of a run: "14:05:09" for a run of today, "2026-11-24 21:40" for another day.
@@ -578,7 +606,11 @@ fn line_of(input: &ScreenInput<'_>, view: &GraphView, ui: &GraphsUi, row: &Graph
                 ParseProblem::UnknownKind(kind) => {
                     locale.fmt("graphs.invalid.unknown_kind", &[("kind", kind)])
                 }
-                ParseProblem::Malformed(why) => why.clone(),
+                // A Graph that the app reads and the validator refuses: the text of its first
+                // broken rule, as the editor shows it.
+                ParseProblem::Malformed(why) => {
+                    broken_rule(invalid.text.get(), view, locale).unwrap_or_else(|| why.clone())
+                }
             },
             true,
         ),

@@ -2,13 +2,14 @@
 //! sensors that no Graph of this user holds.
 
 use gpui::prelude::*;
-use gpui::{AnyElement, Context, FontWeight, SharedString, Window, div, px};
+use gpui::{AnyElement, Context, ElementId, FontWeight, SharedString, Window, div, px};
 use gpui_component::button::ButtonVariants as _;
 use gpui_component::switch::Switch;
 use gpui_component::{Disableable as _, h_flex, v_flex};
 use nicecooling_graph::model::Kind;
 
 use crate::command::Command;
+use crate::graphs::channel::GraphCommand;
 use crate::icons::{NcIcon, icon, small_icon, text_icon};
 use crate::screen_view::{ScreenView, skeleton};
 use crate::screens::controls::act;
@@ -112,6 +113,15 @@ impl ScreenView {
             }
             GraphsState::FileError => {
                 let (text, error) = model.file_error.clone().unwrap_or_default();
+                let retry = model.retry.clone().map(|text| {
+                    Self::small_button("graph-file-retry", text, None).on_click(act(
+                        &view,
+                        |this, _, cx| {
+                            let command = this.graphs.retry();
+                            this.send_graph(command, cx);
+                        },
+                    ))
+                });
                 content = content.child(
                     card(p).child(
                         h_flex()
@@ -126,7 +136,8 @@ impl ScreenView {
                                     .gap(px(3.))
                                     .child(heading(text))
                                     .child(caption(error, p)),
-                            ),
+                            )
+                            .children(retry),
                     ),
                 );
             }
@@ -175,7 +186,7 @@ impl ScreenView {
                     .children(notice)
                     .child(table_header(&titles, &widths, p));
                 for (index, line) in model.rows.iter().enumerate() {
-                    table = table.child(self.graph_line(index, line, &model, p, cx));
+                    table = table.child(self.graph_line(index, line, &model, p, window, cx));
                 }
                 content = content.child(table);
             }
@@ -200,10 +211,19 @@ impl ScreenView {
         line: &GraphLine,
         model: &GraphsModel,
         p: &Palette,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let view = cx.entity();
         let id = line.id.clone();
+        // The row is a Tab stop: Enter on it opens the editor, as "Edit" does.
+        let focus = window
+            .use_keyed_state(ElementId::from(("graph-row-focus", index)), cx, |_, cx| {
+                cx.focus_handle().tab_stop(true)
+            })
+            .read(cx)
+            .clone();
+        let focused = focus.is_focused(window);
         let ink = if line.dim { p.fg_dim } else { p.fg };
 
         let note = caption(line.caption.clone(), p).truncate();
@@ -346,9 +366,29 @@ impl ScreenView {
             .child(delete);
 
         table_row(p)
+            .id(("graph-row", index))
             .min_h(px(48.))
             .items_center()
             .debug_selector(move || format!("graph-row-{index}"))
+            .when(line.readable, |row| {
+                let (view, id, own) = (view.clone(), line.id.clone(), focus.clone());
+                row.track_focus(&focus)
+                    .when(focused, |row| row.bg(p.hover))
+                    .on_key_down(move |event, window, cx| {
+                        let keys = &event.keystroke;
+                        // Enter on a button of the row presses that button only.
+                        if keys.key == "enter"
+                            && !keys.modifiers.modified()
+                            && own.is_focused(window)
+                        {
+                            cx.stop_propagation();
+                            view.update(cx, |this, cx| {
+                                this.edit_graph(&id, cx);
+                                cx.notify();
+                            });
+                        }
+                    })
+            })
             .child(name)
             .child(end)
             .child(state)
@@ -541,6 +581,10 @@ impl ScreenView {
             && let Ok(mut shown) = shown.lock()
         {
             shown.refusal = None;
+            // The editor waits for the answer to this Apply, not for an older one.
+            if matches!(command, Command::Graph(GraphCommand::Apply(_))) {
+                shown.applied = None;
+            }
         }
         self.send(command);
     }

@@ -2,8 +2,10 @@
 //! calls that create, rename and delete a Graph sensor.
 //!
 //! The values call has no interactive flag, so a user whom polkit does not allow gets
-//! `AccessDenied` and no password dialog. After a denial the call stops for 60 s. The calls block
-//! the service thread: a test replaces the call, the session and the clock.
+//! `AccessDenied` and no password dialog. After a denial the call stops for 60 s. The values call
+//! blocks the service thread for 2 s at most. The calls that create, rename and delete a sensor
+//! can wait for a polkit dialog: the service starts them on a task of the runtime and goes on
+//! with its passes. A test replaces the call, the session and the clock.
 
 use std::fmt;
 use std::time::Duration;
@@ -11,7 +13,7 @@ use std::time::Duration;
 use nicecooling_core::clock::Clock;
 use tokio::runtime::Handle;
 
-use super::service::SensorLink;
+use super::service::{SensorCall, SensorDone, SensorLink};
 pub use super::session::LogindSession;
 use super::view::{SharedView, ValuesState};
 use crate::daemon_client::DaemonClient;
@@ -252,5 +254,26 @@ impl SensorLink for DaemonLink {
 
     fn delete_sensor(&mut self, id: &str) -> Result<(), SensorError> {
         self.calls.delete(id)
+    }
+
+    fn deferred(&self) -> bool {
+        true
+    }
+
+    fn start(&mut self, call: SensorCall, done: SensorDone) {
+        let client = self.calls.client.clone();
+        self.calls.runtime.spawn(async move {
+            let result = match call {
+                SensorCall::Create { name, unit } => {
+                    client.create_graph_sensor(&name, &unit).await.map(Some)
+                }
+                SensorCall::Rename { id, name, unit } => client
+                    .set_graph_sensor_definition(&id, &name, &unit)
+                    .await
+                    .map(|()| None),
+                SensorCall::Delete { id } => client.delete_graph_sensor(&id).await.map(|()| None),
+            };
+            done(result.map_err(|error| SensorError::from_zbus(&error)));
+        });
     }
 }

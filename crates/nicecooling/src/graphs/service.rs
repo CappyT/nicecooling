@@ -18,7 +18,7 @@ use nicecooling_graph::response::{Action, RunRecord, Timing};
 use nicecooling_graph::template::labelled_values;
 use tokio::sync::mpsc::UnboundedSender;
 
-use super::channel::GraphCommand;
+use super::channel::{AnswerSender, GraphCommand, SensorAnswer};
 use super::power::{NOTIFICATION_KEY, Running, countdown_notification, failure_notification};
 use super::responses::{NoRunner, Outcome, Responses, Run, Runner, Started};
 use super::sensors::{self, CREATED_GRACE, SensorSpec};
@@ -26,7 +26,7 @@ use super::session::AlwaysActive;
 use super::store::{GraphStore, describe, describe_invalid};
 use super::try_run::TryRun;
 use super::values::{ActiveSession, SensorError};
-use super::view::{GraphRow, PauseView, RowState, SharedView, TryView};
+use super::view::{Applied, ApplyError, GraphRow, PauseView, RowState, SharedView, TryView};
 use crate::i18n::Locale;
 use crate::model::{AppState, DaemonEvent};
 use crate::notify::{Level, NotificationSpec, Plan, open_button};
@@ -58,6 +58,64 @@ pub trait SensorLink: Send {
 
     fn delete_sensor(&mut self, _id: &str) -> Result<(), SensorError> {
         Err(SensorError::Unavailable)
+    }
+
+    /// Whether the link makes the three calls on a task of its own. A call to the daemon can
+    /// wait, for example for a polkit dialog. The service then starts each call with `start`
+    /// and goes on with its passes and its values call while the daemon answers.
+    fn deferred(&self) -> bool {
+        false
+    }
+
+    /// Start a call on a task of the link. `done` gets the answer: the id of the new sensor for
+    /// a create, and nothing for the two other calls.
+    fn start(&mut self, _call: SensorCall, done: SensorDone) {
+        done(Err(SensorError::Unavailable));
+    }
+}
+
+/// One call that makes, renames or removes a Graph sensor.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum SensorCall {
+    Create {
+        name: String,
+        unit: String,
+    },
+    Rename {
+        id: String,
+        name: String,
+        unit: String,
+    },
+    Delete {
+        id: String,
+    },
+}
+
+/// What gets the answer of a call that a link started on its task.
+pub type SensorDone = Box<dyn FnOnce(Result<Option<String>, SensorError>) + Send>;
+
+/// What the service does when the daemon has answered a Graph sensor call.
+enum Waiting {
+    /// Store the Graph. The call made its sensor, set the definition of its sensor, or removed
+    /// the sensor that the Graph no longer has.
+    Store { graph: Graph, mode: Store },
+    /// Remove the Graph. The call removed its sensor.
+    Delete {
+        graph: String,
+        name: String,
+        sensor: String,
+    },
+    /// Store the id of the sensor that the comparison with the daemon made for the Graph.
+    Compare { graph: String, name: String },
+}
+
+impl Waiting {
+    /// The id of the Graph that the call is for.
+    fn graph_id(&self) -> &str {
+        match self {
+            Self::Store { graph, .. } => &graph.id,
+            Self::Delete { graph, .. } | Self::Compare { graph, .. } => graph,
+        }
     }
 }
 
@@ -155,6 +213,12 @@ pub struct GraphService {
     responses: Responses,
     /// Starts the responses that are no power response.
     runner: Box<dyn Runner>,
+    /// Where the task of a Graph sensor call gives its answer. `None`: the service makes each
+    /// call itself and waits for it.
+    answers: Option<AnswerSender>,
+    /// The calls that the daemon has not answered yet, by ticket.
+    waiting: BTreeMap<u64, (SensorCall, Waiting)>,
+    next_ticket: u64,
 }
 
 impl GraphService {
@@ -197,6 +261,9 @@ impl GraphService {
             created: BTreeMap::new(),
             responses: Responses::new(Box::new(SystemWallClock)),
             runner: Box::new(NoRunner),
+            answers: None,
+            waiting: BTreeMap::new(),
+            next_ticket: 1,
         };
         service.publish();
         service.publish_log();
@@ -213,6 +280,14 @@ impl GraphService {
     /// Use `runner` to start the responses that are no power response.
     pub fn with_runner(mut self, runner: Box<dyn Runner>) -> Self {
         self.runner = runner;
+        self
+    }
+
+    /// Give the answers of the Graph sensor calls to the channel of the service. With it, a
+    /// link that is `deferred` makes its calls on a task: the service does not wait for the
+    /// daemon, and `answer` goes on when the answer comes.
+    pub fn with_answers(mut self, answers: AnswerSender) -> Self {
+        self.answers = Some(answers);
         self
     }
 
@@ -247,25 +322,132 @@ impl GraphService {
             .retain(|id, at| !listed.contains_key(id) && now.saturating_sub(*at) < CREATED_GRACE);
         let graphs = self.store.graphs();
         for id in sensors::missing(&graphs, &self.state.snapshot.sensors, &self.created) {
-            let Some(mut graph) = self.store.graph(&id).cloned() else {
+            // A call for this Graph waits for the daemon: it can be the call that makes the sensor.
+            if self.waits_for(&id) {
                 continue;
-            };
-            let Some(spec) = sensors::spec_of(&graph) else {
-                continue;
-            };
-            match self.link.create_sensor(&spec.name, &spec.unit) {
-                Ok(sensor) => {
-                    self.created.insert(sensor.clone(), now);
-                    graph.sensor_id = Some(sensor);
-                    if let Err(error) = self.store.put(graph) {
-                        self.refuse(error.to_string());
-                    }
-                }
-                Err(SensorError::Unavailable) => {}
-                Err(error) => self.refuse(format!("{}: {error}", spec.name)),
             }
+            let Some(spec) = self.store.graph(&id).and_then(sensors::spec_of) else {
+                continue;
+            };
+            let call = SensorCall::Create {
+                name: spec.name.clone(),
+                unit: spec.unit,
+            };
+            self.call(
+                call,
+                Waiting::Compare {
+                    graph: id,
+                    name: spec.name,
+                },
+            );
         }
         self.publish();
+    }
+
+    /// Whether a Graph sensor call for the Graph `id` waits for the answer of the daemon.
+    fn waits_for(&self, id: &str) -> bool {
+        self.waiting
+            .values()
+            .any(|(_, waiting)| waiting.graph_id() == id)
+    }
+
+    /// Make a Graph sensor call, then do `waiting`. A deferred link makes the call on its task:
+    /// the service goes on, and `answer` does `waiting` when the daemon has answered.
+    fn call(&mut self, call: SensorCall, waiting: Waiting) {
+        if self.link.deferred()
+            && let Some(answers) = self.answers.clone()
+        {
+            let ticket = self.next_ticket;
+            self.next_ticket += 1;
+            self.waiting.insert(ticket, (call.clone(), waiting));
+            self.link.start(
+                call,
+                Box::new(move |result| answers.send(SensorAnswer { ticket, result })),
+            );
+            return;
+        }
+        let result = match &call {
+            SensorCall::Create { name, unit } => self.link.create_sensor(name, unit).map(Some),
+            SensorCall::Rename { id, name, unit } => {
+                self.link.rename_sensor(id, name, unit).map(|()| None)
+            }
+            SensorCall::Delete { id } => self.link.delete_sensor(id).map(|()| None),
+        };
+        self.answered(call, waiting, result);
+    }
+
+    /// The daemon answered a call that the link made on its task.
+    pub fn answer(&mut self, answer: SensorAnswer) {
+        if let Some((call, waiting)) = self.waiting.remove(&answer.ticket) {
+            self.answered(call, waiting, answer.result);
+        }
+    }
+
+    /// Go on after a Graph sensor call. A link without a daemon answers `Unavailable`: the
+    /// service then stores the Graph without the call.
+    fn answered(
+        &mut self,
+        call: SensorCall,
+        waiting: Waiting,
+        result: Result<Option<String>, SensorError>,
+    ) {
+        match waiting {
+            Waiting::Store { mut graph, mode } => {
+                let mut made = None;
+                match (call, result) {
+                    (SensorCall::Create { .. }, Ok(Some(sensor))) => {
+                        self.created.insert(sensor.clone(), self.clock.now());
+                        graph.sensor_id = Some(sensor.clone());
+                        made = Some(sensor);
+                    }
+                    (SensorCall::Delete { id }, Ok(_))
+                    | (
+                        SensorCall::Delete { id },
+                        Err(SensorError::Missing | SensorError::Unavailable),
+                    ) => {
+                        self.created.remove(&id);
+                    }
+                    (_, Ok(_))
+                    | (
+                        SensorCall::Create { .. } | SensorCall::Rename { .. },
+                        Err(SensorError::Unavailable),
+                    ) => {}
+                    (_, Err(error)) => {
+                        let reason = format!("{}: {error}", graph.name);
+                        self.refuse_store(&graph.id, mode, reason, ApplyError::Sensor(error));
+                        return;
+                    }
+                }
+                self.finish_store(graph, mode, made);
+            }
+            Waiting::Delete {
+                graph,
+                name,
+                sensor,
+            } => match result {
+                Ok(_) | Err(SensorError::Missing | SensorError::Unavailable) => {
+                    self.created.remove(&sensor);
+                    self.finish_delete(&graph);
+                }
+                Err(error) => self.refuse(format!("{name}: {error}")),
+            },
+            Waiting::Compare { graph, name } => {
+                match result {
+                    Ok(Some(sensor)) => {
+                        self.created.insert(sensor.clone(), self.clock.now());
+                        if let Some(mut stored) = self.store.graph(&graph).cloned() {
+                            stored.sensor_id = Some(sensor);
+                            if let Err(error) = self.store.put(stored) {
+                                self.refuse(error.to_string());
+                            }
+                        }
+                    }
+                    Ok(None) | Err(SensorError::Unavailable) => {}
+                    Err(error) => self.refuse(format!("{name}: {error}")),
+                }
+                self.publish();
+            }
+        }
     }
 
     /// The time until the service has work again: the next pass, or the end of a countdown.
@@ -475,30 +657,79 @@ impl GraphService {
             GraphCommand::RunOnce { graph } => self.run_once(*graph),
             // The MQTT and SMTP settings belong to the section of the network clients.
             GraphCommand::NetworkSettingsEdited => {}
+            GraphCommand::Reload => {
+                self.store.reload();
+                self.publish();
+            }
         }
     }
 
     /// Validate a Graph, make or rename its Graph sensor, and store it. Apply starts the state of
     /// its nodes again. A refusal of the daemon stores nothing.
-    fn store_graph(&mut self, graph: Graph, mode: Store) {
+    fn store_graph(&mut self, mut graph: Graph, mode: Store) {
         let refusals = self.store.validate(&graph);
         if !refusals.is_empty() {
-            self.refuse(format!("{}: {}", graph.name, describe(&refusals)));
+            let reason = format!("{}: {}", graph.name, describe(&refusals));
+            self.refuse_store(&graph.id, mode, reason, ApplyError::Rules(refusals));
             return;
         }
         // A Graph file that cannot be written must not leave a sensor behind.
-        if let Some(error) = self.store.file_error() {
-            self.refuse(error.to_owned());
+        if let Some(error) = self.store.file_error().map(str::to_owned) {
+            self.refuse_store(&graph.id, mode, error.clone(), ApplyError::Other(error));
+            return;
+        }
+        // One call for a Graph at a time: the answer of the daemon decides what the app stores.
+        if self.waits_for(&graph.id) {
+            let reason = self.locale.tr("graph_refusal.busy");
+            self.refuse_store(&graph.id, mode, reason.clone(), ApplyError::Other(reason));
             return;
         }
         let old = self.store.graph(&graph.id).cloned();
-        let (graph, made) = match self.sync_sensor(graph, old.as_ref(), mode) {
-            Ok(done) => done,
-            Err(reason) => {
-                self.refuse(reason);
-                return;
-            }
+        match self.sensor_call(&mut graph, old.as_ref(), mode) {
+            Some(call) => self.call(call, Waiting::Store { graph, mode }),
+            None => self.finish_store(graph, mode, None),
+        }
+    }
+
+    /// The call for the Graph sensor that the store of a Graph needs. It gives the Graph the
+    /// `sensor_id` of its stored version. `None`: the store needs no call.
+    fn sensor_call(
+        &self,
+        graph: &mut Graph,
+        old: Option<&Graph>,
+        mode: Store,
+    ) -> Option<SensorCall> {
+        let old_sensor = old.and_then(|old| old.sensor_id.clone());
+        let Some(spec) = sensors::spec_of(graph) else {
+            // The Graph no longer has a sensor end node: Apply removes its sensor.
+            graph.sensor_id = None;
+            return old_sensor
+                .filter(|_| mode == Store::Apply)
+                .map(|id| SensorCall::Delete { id });
         };
+        // A draft without the id of the stored Graph must not make a second sensor.
+        if graph.sensor_id.is_none() {
+            graph.sensor_id = old_sensor;
+        }
+        match graph.sensor_id.clone() {
+            None if mode != Store::Disable => Some(SensorCall::Create {
+                name: spec.name,
+                unit: spec.unit,
+            }),
+            Some(id) if mode == Store::Apply && self.sensor_differs(&id, &spec) => {
+                Some(SensorCall::Rename {
+                    id,
+                    name: spec.name,
+                    unit: spec.unit,
+                })
+            }
+            _ => None,
+        }
+    }
+
+    /// Write a Graph to the store after its Graph sensor call. `made` is the sensor that the
+    /// call made: a Graph file that cannot be written removes it again.
+    fn finish_store(&mut self, graph: Graph, mode: Store, made: Option<String>) {
         let id = graph.id.clone();
         match self.store.put(graph.clone()) {
             Ok(()) => {
@@ -508,73 +739,42 @@ impl GraphService {
                 self.stopped.remove(&id);
                 if let Ok(mut view) = self.view.lock() {
                     view.refusal = None;
+                    if mode == Store::Apply {
+                        view.applied = Some(Applied {
+                            graph: id,
+                            result: Ok(()),
+                        });
+                    }
                 }
             }
             Err(error) => {
                 if let Some(sensor) = made {
-                    let _ = self.link.delete_sensor(&sensor);
+                    if self.link.deferred() && self.answers.is_some() {
+                        self.link
+                            .start(SensorCall::Delete { id: sensor.clone() }, Box::new(|_| {}));
+                    } else {
+                        let _ = self.link.delete_sensor(&sensor);
+                    }
                     self.created.remove(&sensor);
                 }
-                self.refuse(error.to_string());
+                let reason = error.to_string();
+                self.refuse_store(&id, mode, reason.clone(), ApplyError::Other(reason));
             }
         }
         self.publish();
     }
 
-    /// The calls for the Graph sensor of a Graph. Returns the Graph with its `sensor_id`, and the
-    /// id of a sensor that this call made. The reason of a refusal is the error.
-    fn sync_sensor(
-        &mut self,
-        mut graph: Graph,
-        old: Option<&Graph>,
-        mode: Store,
-    ) -> Result<(Graph, Option<String>), String> {
-        let old_sensor = old.and_then(|old| old.sensor_id.clone());
-        let name = graph.name.clone();
-        let fail = |error: SensorError| format!("{name}: {error}");
-        let mut made = None;
-        match sensors::spec_of(&graph) {
-            Some(spec) => {
-                // A draft without the id of the stored Graph must not make a second sensor.
-                if graph.sensor_id.is_none() {
-                    graph.sensor_id = old_sensor;
-                }
-                match graph.sensor_id.clone() {
-                    None if mode != Store::Disable => {
-                        match self.link.create_sensor(&spec.name, &spec.unit) {
-                            Ok(sensor) => {
-                                self.created.insert(sensor.clone(), self.clock.now());
-                                graph.sensor_id = Some(sensor.clone());
-                                made = Some(sensor);
-                            }
-                            Err(SensorError::Unavailable) => {}
-                            Err(error) => return Err(fail(error)),
-                        }
-                    }
-                    Some(sensor) if mode == Store::Apply && self.sensor_differs(&sensor, &spec) => {
-                        match self.link.rename_sensor(&sensor, &spec.name, &spec.unit) {
-                            Ok(()) | Err(SensorError::Unavailable) => {}
-                            Err(error) => return Err(fail(error)),
-                        }
-                    }
-                    _ => {}
-                }
-            }
-            None => {
-                graph.sensor_id = None;
-                if mode == Store::Apply
-                    && let Some(sensor) = old_sensor
-                {
-                    match self.link.delete_sensor(&sensor) {
-                        Ok(()) | Err(SensorError::Missing | SensorError::Unavailable) => {
-                            self.created.remove(&sensor);
-                        }
-                        Err(error) => return Err(fail(error)),
-                    }
-                }
+    /// The service does not store a Graph: the view has the reason. An "Apply" gets its answer.
+    fn refuse_store(&self, id: &str, mode: Store, reason: String, error: ApplyError) {
+        if let Ok(mut view) = self.view.lock() {
+            view.refusal = Some(reason);
+            if mode == Store::Apply {
+                view.applied = Some(Applied {
+                    graph: id.to_owned(),
+                    result: Err(error),
+                });
             }
         }
-        Ok((graph, made))
     }
 
     fn sensor_differs(&self, id: &str, spec: &SensorSpec) -> bool {
@@ -583,21 +783,29 @@ impl GraphService {
 
     /// Delete a Graph. The Graph sensor goes first, and a sensor that something uses keeps the Graph.
     fn delete_graph(&mut self, id: &str) {
+        if self.waits_for(id) {
+            self.refuse(self.locale.tr("graph_refusal.busy"));
+            return;
+        }
         let held = self
             .store
             .graph(id)
             .map(|graph| (graph.name.clone(), graph.sensor_id.clone()));
-        if let Some((name, Some(sensor))) = held {
-            match self.link.delete_sensor(&sensor) {
-                Ok(()) | Err(SensorError::Missing | SensorError::Unavailable) => {
-                    self.created.remove(&sensor);
-                }
-                Err(error) => {
-                    self.refuse(format!("{name}: {error}"));
-                    return;
-                }
-            }
+        match held {
+            Some((name, Some(sensor))) => self.call(
+                SensorCall::Delete { id: sensor.clone() },
+                Waiting::Delete {
+                    graph: id.to_owned(),
+                    name,
+                    sensor,
+                },
+            ),
+            _ => self.finish_delete(id),
         }
+    }
+
+    /// Remove a Graph from the store after the daemon removed its Graph sensor.
+    fn finish_delete(&mut self, id: &str) {
         match self.store.remove(id) {
             Ok(()) => {
                 self.evaluator.remove_graph(id);

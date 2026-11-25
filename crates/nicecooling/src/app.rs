@@ -73,9 +73,21 @@ pub struct AppModel {
     /// The MQTT client. The Settings screen shows its connection state, and gives it the new
     /// config when the user changes a broker setting. `None` while no client runs.
     pub mqtt: Option<MqttHandle>,
+    /// The Graph editor holds a draft that is not applied: a change of the page asks first.
+    pub graph_draft: bool,
+    /// Where the user wants to go while the editor holds a draft. The editor asks "Cancel",
+    /// "Discard" or "Apply", and then goes there.
+    pub leave_request: Option<LeaveRequest>,
     /// The first-run flow opens once, when the first read shows a daemon without a Loop.
     first_run_offered: bool,
     connecting_since: Instant,
+}
+
+/// What the user asked for while the Graph editor holds a draft that is not applied.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum LeaveRequest {
+    Page(Page),
+    Quit,
 }
 
 impl AppModel {
@@ -91,6 +103,8 @@ impl AppModel {
             settings: SettingsStore::default(),
             graph_view: None,
             mqtt: None,
+            graph_draft: false,
+            leave_request: None,
             first_run_offered: false,
             connecting_since: Instant::now(),
         }
@@ -115,6 +129,27 @@ impl AppModel {
             DaemonEvent::Link(_) | DaemonEvent::Snapshot(_) => self.down_since_us = None,
             _ => {}
         }
+    }
+
+    /// Open a page for the user. While the Graph editor shows a draft that is not applied, the
+    /// page stays and the editor asks first.
+    pub fn request_page(&mut self, page: Page) {
+        if self.graph_draft && self.page == Page::Graphs && page != Page::Graphs {
+            self.leave_request = Some(LeaveRequest::Page(page));
+        } else {
+            self.page = page;
+        }
+    }
+
+    /// "Quit" of the window menu. Returns false when the app can quit at once. While the Graph
+    /// editor holds a draft that is not applied, the editor shows and asks first.
+    pub fn request_quit(&mut self) -> bool {
+        if !self.graph_draft {
+            return false;
+        }
+        self.page = Page::Graphs;
+        self.leave_request = Some(LeaveRequest::Quit);
+        true
     }
 
     /// "Try again": show "Connecting" again. The offline state returns after 2 s.
@@ -246,7 +281,7 @@ pub fn init(cx: &mut App, mode: StartMode, backend: Backend) -> Entity<AppModel>
                     Command::OpenWindow(page) => cx.update(|cx| {
                         if let Some(page) = page {
                             model.update(cx, |app, cx| {
-                                app.page = page;
+                                app.request_page(page);
                                 cx.notify();
                             });
                         }

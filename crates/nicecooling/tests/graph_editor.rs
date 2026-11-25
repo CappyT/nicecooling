@@ -10,14 +10,21 @@ use std::time::Duration;
 
 use gpui::SharedString;
 use nicecooling::command::Command;
-use nicecooling::graphs::channel::{GraphCommand, TryRequest};
-use nicecooling::graphs::service::{Env, GraphService, NoPower, SensorLink};
+use nicecooling::graphs::channel::{GraphChannel, GraphCommand, Input, Inputs, TryRequest};
+use nicecooling::graphs::service::{
+    Env, GraphService, NoPower, SensorCall, SensorDone, SensorLink,
+};
 use nicecooling::graphs::store::GraphStore;
+use nicecooling::graphs::transfer::{export_text, import_text};
 use nicecooling::graphs::values::SensorError;
-use nicecooling::graphs::view::{GraphRow, GraphView, RowState, SharedView, shared_view};
+use nicecooling::graphs::view::{
+    ApplyError, GraphRow, GraphView, RowState, SharedView, shared_view,
+};
 use nicecooling::i18n::{EN, IT};
 use nicecooling::model::{AppState, DaemonEvent, Link, SensorSample};
 use nicecooling::notify::Plan;
+use nicecooling::screens::format::clock;
+use nicecooling::screens::graph_editor::apply::{ApplyState, Leave};
 use nicecooling::screens::graph_editor::canvas::{self, new_flow_state, shape_of};
 use nicecooling::screens::graph_editor::draft::UNDO_LIMIT;
 use nicecooling::screens::graph_editor::live::ValueSource;
@@ -27,7 +34,9 @@ use nicecooling::screens::graph_editor::params::{
 };
 use nicecooling::screens::graph_editor::try_run::{for_key, test_key};
 use nicecooling::screens::graph_editor::{EditorKey, EditorModel, EditorUi, Selected, editor_key};
+use nicecooling::screens::graphs::{GraphsModel, GraphsState, GraphsUi, LineState};
 use nicecooling::screens::{Feedback, ScreenInput};
+use nicecooling::shell::Page;
 use nicecooling_core::clock::{SimClock, SimWallClock};
 use nicecooling_core::rules::proc_scan::ProcessSource;
 use nicecooling_core::rules::process::ProcessList;
@@ -1422,6 +1431,10 @@ struct FakeLink {
     no_create: Arc<Mutex<Option<SensorError>>>,
     no_rename: Arc<Mutex<Option<SensorError>>>,
     no_delete: Arc<Mutex<Option<SensorError>>>,
+    /// The link makes its three calls on a task: the service starts a call and goes on.
+    waits: Arc<Mutex<bool>>,
+    /// The calls that the service started and the daemon has not answered yet.
+    started: Arc<Mutex<Vec<(SensorCall, SensorDone)>>>,
 }
 
 impl SensorLink for FakeLink {
@@ -1460,6 +1473,14 @@ impl SensorLink for FakeLink {
             }
         }
     }
+
+    fn deferred(&self) -> bool {
+        *self.waits.lock().unwrap()
+    }
+
+    fn start(&mut self, call: SensorCall, done: SensorDone) {
+        self.started.lock().unwrap().push((call, done));
+    }
 }
 
 /// The Graph service with a simulated clock and the fake daemon link.
@@ -1468,7 +1489,9 @@ struct Rig {
     clock: SimClock,
     view: SharedView,
     link: FakeLink,
-    _dir: Dir,
+    /// The channel of the service: the answer of a call that waited comes here.
+    inputs: Inputs,
+    dir: Dir,
     _notifications: UnboundedReceiver<Plan>,
 }
 
@@ -1479,10 +1502,16 @@ impl Rig {
         for graph in graphs {
             store.put(graph).unwrap();
         }
+        Self::with_store(dir, store)
+    }
+
+    /// The service on a store that the test made.
+    fn with_store(dir: Dir, store: GraphStore) -> Self {
         let clock = SimClock::default();
         let view = shared_view();
         let link = FakeLink::default();
         let (notify, notifications) = unbounded_channel();
+        let (channel, inputs) = GraphChannel::new();
         let service = GraphService::new(
             store,
             Env {
@@ -1495,17 +1524,38 @@ impl Rig {
                 view: view.clone(),
             },
         )
-        .with_wall_clock(Box::new(SimWallClock::new(NOW_US)));
+        .with_wall_clock(Box::new(SimWallClock::new(NOW_US)))
+        .with_answers(channel.answers());
         let mut rig = Self {
             service,
             clock,
             view,
             link,
-            _dir: dir,
+            inputs,
+            dir,
             _notifications: notifications,
         };
         rig.service.apply_event(&DaemonEvent::Link(Link::Online));
         rig
+    }
+
+    /// As `new`, with a link whose create, set definition and delete calls wait for the daemon.
+    fn waiting(name: &str, graphs: Vec<Graph>) -> Self {
+        let rig = Self::new(name, graphs);
+        *rig.link.waits.lock().unwrap() = true;
+        rig
+    }
+
+    /// The daemon answers the oldest call that waits. The answer comes back to the service on its
+    /// channel. Returns the call.
+    fn answer(&mut self, result: Result<Option<String>, SensorError>) -> SensorCall {
+        let (call, done) = self.link.started.lock().unwrap().remove(0);
+        done(result);
+        match self.inputs.try_recv() {
+            Ok(Input::Answer(answer)) => self.service.answer(answer),
+            other => panic!("no answer on the channel: {other:?}"),
+        }
+        call
     }
 
     /// The sensor `x` of the daemon has the value `value`.
@@ -2072,4 +2122,717 @@ fn try_does_not_change_the_values_sent() {
     assert_eq!(shown.nodes[1].state.as_deref(), Some("Not run in a try"));
     assert!(rig.shown().log.is_empty(), "no response ran");
     assert_eq!(rig.shown().row("graph_2").unwrap().run, None);
+}
+
+/// Send a command of the editor, as the window does: an Apply clears the answer to an older one.
+fn send(rig: &mut Rig, command: Command) {
+    {
+        let mut view = rig.view.lock().unwrap();
+        view.refusal = None;
+        if matches!(command, Command::Graph(GraphCommand::Apply(_))) {
+            view.applied = None;
+        }
+    }
+    rig.run(command);
+}
+
+/// The editor follows the service, as each frame of the window does.
+fn follow(rig: &Rig, ui: &mut EditorUi) -> Option<Leave> {
+    ui.follow(&rig.shown(), NOW_US)
+}
+
+/// "Apply" in the editor, and the answer of a service that does not wait for the daemon.
+fn apply(rig: &mut Rig, ui: &mut EditorUi) {
+    let command = ui.apply(&rig.shown(), true).expect("the Apply command");
+    send(rig, command);
+    assert_eq!(follow(rig, ui), None);
+}
+
+/// A Graph that the app does not store yet: a sensor end node only.
+fn fresh_graph(id: &str) -> Graph {
+    let mut graph = Graph::new(id, "Graph 2");
+    graph.nodes = vec![Node::new(1, Kind::SensorEnd)];
+    graph
+}
+
+/// `full()` with the Curve of the Channel "Waterpump" on the Graph sensor `graph_3`.
+fn state_with_curve() -> AppState {
+    let mut state = full();
+    for channel in state.snapshot.channels.values_mut() {
+        if channel.name == "Waterpump" {
+            channel.curve.input = Some("graph_3".to_owned());
+        }
+    }
+    state
+}
+
+#[test]
+fn apply_turns_the_button_off() {
+    let mut rig = Rig::new("editor-apply", vec![spread(limiter_graph("graph_1"))]);
+    rig.ticks(1);
+    let state = state_with_x();
+    let mut ui = rig.open("graph_1");
+    assert_eq!(ui.apply(&rig.shown(), true), None, "nothing changed");
+
+    ui.draft.set_param(2, "max", json!(55));
+    let shown = model_with(&state, &rig.shown(), &ui);
+    assert!(shown.toolbar.apply.enabled);
+    assert_eq!(shown.toolbar.draft_state.as_deref(), Some("Not applied"));
+
+    // "Apply" sends the draft. The service stores it, and the button turns off.
+    let command = ui.apply(&rig.shown(), true).expect("the command");
+    assert_eq!(
+        command,
+        Command::Graph(GraphCommand::Apply(Box::new(ui.draft.candidate())))
+    );
+    send(&mut rig, command);
+    assert_eq!(follow(&rig, &mut ui), None);
+    assert_eq!(ui.apply.state, ApplyState::Applied { at_us: NOW_US });
+    let shown = model_with(&state, &rig.shown(), &ui);
+    assert!(!shown.toolbar.apply.enabled);
+    assert_eq!(
+        shown.toolbar.draft_state,
+        Some(format!("Applied {}", clock(NOW_US)))
+    );
+    assert_eq!(shown.toolbar.refused, None);
+    assert!(!ui.draft.is_dirty());
+    let stored = rig.service.store().graph("graph_1").expect("the Graph");
+    assert_eq!(stored.node(2).unwrap().number("max"), 55.0);
+    assert_eq!(ui.apply(&rig.shown(), true), None, "nothing changed");
+
+    // The next change is not applied.
+    ui.draft.set_param(2, "max", json!(50));
+    let shown = model_with(&state, &rig.shown(), &ui);
+    assert!(shown.toolbar.apply.enabled);
+    assert_eq!(shown.toolbar.draft_state.as_deref(), Some("Not applied"));
+
+    // A Graph with a sensor end node that the app does not store yet: Apply makes its Graph
+    // sensor first, and the Graph holds the id.
+    let mut ui = EditorUi::open(fresh_graph("graph_2"), &rig.shown());
+    ui.selected = Some(Selected::Node(1));
+    let sensor = panel_of(&rig.shown(), &ui)
+        .sensor
+        .expect("the Graph sensor");
+    assert_eq!(sensor.id, "Created at Apply");
+    apply(&mut rig, &mut ui);
+    let created = rig.link.created.lock().unwrap().clone();
+    assert_eq!(created, [("Graph 2".to_owned(), "degC".to_owned())]);
+    let stored = rig.service.store().graph("graph_2").expect("the Graph");
+    assert_eq!(stored.sensor_id.as_deref(), Some("graph_9"));
+    let sensor = panel_of(&rig.shown(), &ui)
+        .sensor
+        .expect("the Graph sensor");
+    assert_eq!((sensor.id.as_str(), sensor.has_id), ("graph_9", true));
+    // The nodes that were only in the draft have a solid outline now.
+    assert!(!model_with(&state, &rig.shown(), &ui).nodes[0].draft_only);
+}
+
+#[test]
+fn apply_shows_a_pending_state_until_the_service_answers() {
+    let mut rig = Rig::waiting("editor-pending", Vec::new());
+    let state = online();
+    let mut ui = EditorUi::open(fresh_graph("graph_2"), &rig.shown());
+    let constant = ui.draft.add_node(Kind::Constant, 0.0, 0.0);
+    ui.draft.connect(constant, 1, "a");
+
+    // The service starts the create call and does not wait for it.
+    let command = ui.apply(&rig.shown(), true).expect("the command");
+    send(&mut rig, command);
+    let started = rig.link.started.lock().unwrap().len();
+    assert_eq!(started, 1);
+    assert_eq!(rig.shown().applied, None);
+    assert!(rig.shown().rows.is_empty(), "nothing is stored yet");
+
+    // The editor shows "Applying" with its buttons off, also after two more passes.
+    for _ in 0..2 {
+        rig.ticks(1);
+        assert_eq!(follow(&rig, &mut ui), None);
+        assert_eq!(ui.apply.state, ApplyState::Pending);
+        let bar = model_with(&state, &rig.shown(), &ui).toolbar;
+        assert_eq!(bar.draft_state.as_deref(), Some("Applying"));
+        assert!(!bar.apply.enabled && !bar.try_run.enabled && !bar.undo.enabled);
+        assert_eq!(ui.apply(&rig.shown(), true), None, "an Apply waits");
+    }
+
+    // The daemon answers: the service stores the Graph, and the editor shows the result.
+    let call = rig.answer(Ok(Some("graph_9".to_owned())));
+    assert_eq!(
+        call,
+        SensorCall::Create {
+            name: "Graph 2".to_owned(),
+            unit: "degC".to_owned()
+        }
+    );
+    assert_eq!(follow(&rig, &mut ui), None);
+    assert_eq!(ui.apply.state, ApplyState::Applied { at_us: NOW_US });
+    let bar = model_with(&state, &rig.shown(), &ui).toolbar;
+    assert_eq!(bar.draft_state, Some(format!("Applied {}", clock(NOW_US))));
+    assert!(!bar.apply.enabled && bar.try_run.enabled && bar.undo.enabled);
+    let stored = rig.service.store().graph("graph_2").expect("the Graph");
+    assert_eq!(stored.sensor_id.as_deref(), Some("graph_9"));
+
+    // A refusal after a wait: the draft stays, and the toolbar has the reason.
+    ui.draft.set_name("Hot water");
+    let command = ui.apply(&rig.shown(), true).expect("the command");
+    send(&mut rig, command);
+    assert_eq!(follow(&rig, &mut ui), None);
+    assert_eq!(ui.apply.state, ApplyState::Pending);
+    let call = rig.answer(Err(SensorError::Refused("the name is too long".to_owned())));
+    assert!(matches!(call, SensorCall::Rename { .. }));
+    assert_eq!(follow(&rig, &mut ui), None);
+    let bar = model_with(&state, &rig.shown(), &ui).toolbar;
+    assert_eq!(
+        bar.refused.as_deref(),
+        Some("Not applied: the name is too long.")
+    );
+    assert_eq!(bar.draft_state.as_deref(), Some("Not applied"));
+    assert!(bar.apply.enabled);
+    assert_eq!(
+        rig.service.store().graph("graph_2").unwrap().name,
+        "Graph 2"
+    );
+}
+
+#[test]
+fn values_go_on_while_a_create_call_waits() {
+    let mut rig = Rig::waiting(
+        "editor-values-go-on",
+        vec![spread(limiter_graph("graph_1"))],
+    );
+    rig.feed(46.2);
+    rig.ticks(1);
+    let sent_before = rig.link.values.lock().unwrap().len();
+
+    // The Apply of a new Graph needs a create call. The daemon does not answer.
+    send(
+        &mut rig,
+        Command::Graph(GraphCommand::Apply(Box::new(fresh_graph("graph_2")))),
+    );
+    assert_eq!(rig.link.started.lock().unwrap().len(), 1);
+
+    // The passes and the values call go on once per second.
+    rig.ticks(3);
+    let sent = rig.link.values.lock().unwrap().clone();
+    assert_eq!(sent.len(), sent_before + 3);
+    for pass in &sent[sent_before..] {
+        assert_eq!(pass, &vec![("graph_3".to_owned(), Some(46.2))]);
+    }
+    let shown = rig.shown();
+    assert_eq!(shown.rows.len(), 1, "the new Graph is not stored yet");
+    assert_eq!(shown.applied, None);
+    assert_eq!(shown.row("graph_1").unwrap().values[&3], Some(46.2));
+
+    // A second command for the Graph that waits is refused, and starts no second call.
+    rig.run(Command::Graph(GraphCommand::Apply(Box::new(fresh_graph(
+        "graph_2",
+    )))));
+    assert_eq!(
+        rig.shown().refusal.as_deref(),
+        Some("A call to the daemon for this Graph waits for its answer.")
+    );
+    assert_eq!(rig.link.started.lock().unwrap().len(), 1);
+    rig.view.lock().unwrap().applied = None;
+
+    // The answer comes back on the channel of the service: the Graph is stored with its sensor.
+    rig.answer(Ok(Some("graph_9".to_owned())));
+    let shown = rig.shown();
+    assert_eq!(shown.rows.len(), 2);
+    assert!(matches!(&shown.applied, Some(applied) if applied.result.is_ok()));
+    rig.ticks(1);
+    let last = rig.link.values.lock().unwrap().last().cloned().unwrap();
+    assert_eq!(
+        last,
+        [
+            ("graph_3".to_owned(), Some(46.2)),
+            ("graph_9".to_owned(), None)
+        ]
+    );
+}
+
+#[test]
+fn leave_with_a_draft_asks() {
+    let mut rig = Rig::new("editor-leave", vec![spread(limiter_graph("graph_1"))]);
+    let state = state_with_x();
+    let mut ui = rig.open("graph_1");
+
+    // A draft that is applied leaves at once.
+    assert_eq!(ui.request_leave(Leave::List), Some(Leave::List));
+    assert_eq!(model_with(&state, &rig.shown(), &ui).leave, None);
+
+    // A draft that is not applied asks: "Cancel", "Discard" or "Apply".
+    ui.draft.set_param(2, "max", json!(55));
+    assert_eq!(ui.request_leave(Leave::Page(Page::Sensors)), None);
+    let dialog = model_with(&state, &rig.shown(), &ui)
+        .leave
+        .expect("the question");
+    assert_eq!(
+        dialog.title,
+        "The Graph 'Render temperature' has changes that are not applied."
+    );
+    assert_eq!(
+        (
+            dialog.cancel.as_str(),
+            dialog.discard.as_str(),
+            dialog.apply.as_str()
+        ),
+        ("Cancel", "Discard", "Apply")
+    );
+    assert!(dialog.apply_enabled && !dialog.pending);
+
+    // "Cancel": the editor stays, with its draft.
+    ui.cancel_leave();
+    assert_eq!(model_with(&state, &rig.shown(), &ui).leave, None);
+    assert!(ui.draft.is_dirty());
+
+    // "Discard": the user goes where they wanted to go, and nothing is stored.
+    assert_eq!(ui.request_leave(Leave::Quit), None);
+    assert_eq!(ui.discard_leave(), Some(Leave::Quit));
+    let stored = rig.service.store().graph("graph_1").expect("the Graph");
+    assert_eq!(stored.node(2).unwrap().number("max"), 60.0);
+
+    // "Apply": the editor closes when the service stored the draft.
+    assert_eq!(ui.request_leave(Leave::Page(Page::Sensors)), None);
+    let command = ui
+        .apply_and_leave(&rig.shown(), true)
+        .expect("the Apply command");
+    send(&mut rig, command);
+    assert_eq!(follow(&rig, &mut ui), Some(Leave::Page(Page::Sensors)));
+    let stored = rig.service.store().graph("graph_1").expect("the Graph");
+    assert_eq!(stored.node(2).unwrap().number("max"), 55.0);
+
+    // When the Apply fails, the editor stays open: the question goes, and the reason shows.
+    *rig.link.no_rename.lock().unwrap() = Some(SensorError::Refused("no".to_owned()));
+    ui.draft.set_name("Hot water");
+    assert_eq!(ui.request_leave(Leave::List), None);
+    let command = ui
+        .apply_and_leave(&rig.shown(), true)
+        .expect("the Apply command");
+    send(&mut rig, command);
+    assert_eq!(follow(&rig, &mut ui), None);
+    let shown = model_with(&state, &rig.shown(), &ui);
+    assert_eq!(shown.leave, None);
+    assert_eq!(shown.toolbar.refused.as_deref(), Some("Not applied: no."));
+    assert!(ui.draft.is_dirty());
+
+    // A draft that breaks a rule cannot be applied from the question.
+    ui.draft.add_node(Kind::SensorEnd, 0.0, 300.0);
+    assert_eq!(ui.request_leave(Leave::List), None);
+    let dialog = model_with(&state, &rig.shown(), &ui)
+        .leave
+        .expect("the question");
+    assert!(!dialog.apply_enabled);
+    assert_eq!(ui.apply_and_leave(&rig.shown(), true), None);
+}
+
+#[test]
+fn daemon_refusal_keeps_the_draft_and_shows_the_reason() {
+    let mut rig = Rig::new("editor-refusal", Vec::new());
+    let state = online();
+    // The daemon answers `InvalidArgument` to the create call.
+    *rig.link.no_create.lock().unwrap() = Some(SensorError::Refused(
+        "the limit of 64 Graph sensors is reached".to_owned(),
+    ));
+    let mut ui = EditorUi::open(fresh_graph("graph_2"), &rig.shown());
+    let draft = ui.draft.graph().clone();
+    apply(&mut rig, &mut ui);
+
+    // The editor keeps the draft and stores nothing.
+    assert!(matches!(
+        &ui.apply.state,
+        ApplyState::Refused(ApplyError::Sensor(SensorError::Refused(_)))
+    ));
+    assert_eq!(ui.draft.graph(), &draft);
+    assert!(ui.draft.is_dirty());
+    assert!(rig.service.store().entries().is_empty());
+    let bar = model_with(&state, &rig.shown(), &ui).toolbar;
+    assert_eq!(
+        bar.refused.as_deref(),
+        Some("Not applied: the limit of 64 Graph sensors is reached.")
+    );
+    assert_eq!(bar.draft_state.as_deref(), Some("Not applied"));
+    assert!(bar.apply.enabled, "the user can try again");
+
+    // The next Apply works: the reason goes.
+    *rig.link.no_create.lock().unwrap() = None;
+    apply(&mut rig, &mut ui);
+    let bar = model_with(&state, &rig.shown(), &ui).toolbar;
+    assert_eq!(bar.refused, None);
+    assert!(rig.service.store().graph("graph_2").is_some());
+}
+
+#[test]
+fn end_node_kind_change_of_a_used_sensor_fails_with_in_use() {
+    let mut rig = Rig::new("editor-in-use", vec![spread(limiter_graph("graph_1"))]);
+    *rig.link.no_delete.lock().unwrap() = Some(SensorError::InUse(
+        "graph_3 is read by the Curve of nct6798_pwm6 in profile_default".to_owned(),
+    ));
+    let mut ui = rig.open("graph_1");
+
+    // The end node becomes a response end node. The Graph then holds no Graph sensor.
+    assert!(ui.draft.set_end_kind(Kind::ResponseEnd));
+    assert!(ui.commit_param(3, "title", "Hot", EN));
+    assert_eq!(ui.draft.candidate().sensor_id, None);
+    apply(&mut rig, &mut ui);
+
+    // The daemon answers `InUse` to the delete of the sensor: the app stores nothing.
+    assert!(matches!(
+        &ui.apply.state,
+        ApplyState::Refused(ApplyError::Sensor(SensorError::InUse(_)))
+    ));
+    let stored = rig.service.store().graph("graph_1").expect("the Graph");
+    assert!(stored.sensor_end().is_some());
+    assert_eq!(stored.sensor_id.as_deref(), Some("graph_3"));
+    assert!(rig.link.deleted.lock().unwrap().is_empty());
+    // The snapshot gives the name of the Channel.
+    let bar = model_with(&state_with_curve(), &rig.shown(), &ui).toolbar;
+    assert_eq!(
+        bar.refused.as_deref(),
+        Some("Not applied: the Curve of Waterpump uses the Graph sensor.")
+    );
+    // Without the Curve in the snapshot the toolbar has the reason of the daemon.
+    let bar = model_with(&online(), &rig.shown(), &ui).toolbar;
+    assert_eq!(
+        bar.refused.as_deref(),
+        Some("Not applied: graph_3 is read by the Curve of nct6798_pwm6 in profile_default.")
+    );
+
+    // Nothing uses the sensor: the sensor goes, and the Graph has a response end node.
+    *rig.link.no_delete.lock().unwrap() = None;
+    apply(&mut rig, &mut ui);
+    assert_eq!(*rig.link.deleted.lock().unwrap(), ["graph_3"]);
+    let stored = rig.service.store().graph("graph_1").expect("the Graph");
+    assert!(stored.response_end().is_some());
+    assert_eq!(stored.sensor_id, None);
+}
+
+#[test]
+fn unit_change_calls_set_definition() {
+    let mut rig = Rig::new("editor-unit", vec![spread(limiter_graph("graph_1"))]);
+    let mut ui = rig.open("graph_1");
+    ui.selected = Some(Selected::Node(3));
+    assert!(ui.choose_param(3, "unit", "rpm"));
+    apply(&mut rig, &mut ui);
+    // The Graph keeps its sensor: the daemon gets the new unit for the same id.
+    let call = |id: &str, name: &str, unit: &str| (id.to_owned(), name.to_owned(), unit.to_owned());
+    assert_eq!(
+        *rig.link.renamed.lock().unwrap(),
+        [call("graph_3", "Render temperature", "rpm")]
+    );
+    assert!(rig.link.created.lock().unwrap().is_empty());
+    let stored = rig.service.store().graph("graph_1").expect("the Graph");
+    assert_eq!(stored.sensor_end().unwrap().text("unit"), "rpm");
+    assert_eq!(stored.sensor_id.as_deref(), Some("graph_3"));
+
+    // The name of the Graph is the name of its Graph sensor.
+    ui.draft.set_name("Pump speed");
+    apply(&mut rig, &mut ui);
+    assert_eq!(
+        rig.link.renamed.lock().unwrap().last(),
+        Some(&call("graph_3", "Pump speed", "rpm"))
+    );
+
+    // A Software sensor slot uses the sensor: the daemon refuses the new unit with `InUse`.
+    *rig.link.no_rename.lock().unwrap() = Some(SensorError::InUse(
+        "Software sensor 4 uses the Graph sensor".to_owned(),
+    ));
+    assert!(ui.choose_param(3, "unit", "degC"));
+    apply(&mut rig, &mut ui);
+    let bar = model_with(&online(), &rig.shown(), &ui).toolbar;
+    assert_eq!(
+        bar.refused.as_deref(),
+        Some("Not applied: Software sensor 4 uses the Graph sensor.")
+    );
+    let stored = rig.service.store().graph("graph_1").expect("the Graph");
+    assert_eq!(stored.sensor_end().unwrap().text("unit"), "rpm");
+}
+
+/// The Graphs screen, as the window builds it.
+fn graphs_model(rig: &Rig, state: &AppState, ui: &GraphsUi) -> GraphsModel {
+    let feedback = Feedback::default();
+    GraphsModel::build(
+        &ScreenInput {
+            state,
+            now_us: NOW_US,
+            locale: EN,
+            down_since_us: None,
+            feedback: &feedback,
+        },
+        Some(&rig.shown()),
+        ui,
+    )
+}
+
+/// The service with one imported Graph: disabled, with a sensor end node and no Graph sensor.
+fn imported_rig(name: &str) -> (Rig, String) {
+    let mut rig = Rig::new(name, Vec::new());
+    let text = export_text(&constant_graph("graph_7", 5.0));
+    let graph = import_text(&text, &rig.shown().graphs()).expect("the Graph of the file");
+    assert!(!graph.enabled);
+    assert_eq!(graph.sensor_id, None);
+    let id = graph.id.clone();
+    rig.run(Command::Graph(GraphCommand::Import(Box::new(graph))));
+    assert!(rig.link.created.lock().unwrap().is_empty());
+    (rig, id)
+}
+
+#[test]
+fn enable_imported_graph_creates_the_sensor() {
+    let (mut rig, id) = imported_rig("editor-enable-imported");
+    let mut ui = GraphsUi::default();
+    let row = &graphs_model(&rig, &online(), &ui).rows[0];
+    assert!(!row.checked && row.switch_enabled);
+    assert_eq!(row.state, LineState::Disabled);
+
+    // The switch of the row: the service makes the Graph sensor, then stores the Graph enabled.
+    let command = ui.toggle(&id, true);
+    rig.run(command);
+    let created = rig.link.created.lock().unwrap().clone();
+    assert_eq!(created, [("Five".to_owned(), "degC".to_owned())]);
+    let stored = rig.service.store().graph(&id).expect("the Graph");
+    assert!(stored.enabled);
+    assert_eq!(stored.sensor_id.as_deref(), Some("graph_9"));
+    let row = &graphs_model(&rig, &online(), &ui).rows[0];
+    assert!(row.checked);
+    assert_eq!(row.end_caption.as_deref(), Some("graph_9"));
+
+    // The daemon is offline: the switch of such a Graph is off.
+    let (rig, _id) = imported_rig("editor-enable-offline");
+    let mut offline = online();
+    offline.link = Link::Offline;
+    let row = &graphs_model(&rig, &offline, &ui).rows[0];
+    assert!(!row.switch_enabled);
+}
+
+#[test]
+fn enable_at_the_limit_keeps_the_graph_disabled() {
+    let (mut rig, id) = imported_rig("editor-enable-limit");
+    *rig.link.no_create.lock().unwrap() = Some(SensorError::Refused(
+        "the limit of 64 Graph sensors is reached".to_owned(),
+    ));
+    let mut ui = GraphsUi::default();
+    let command = ui.toggle(&id, true);
+    rig.run(command);
+
+    // The daemon refuses the create call: the Graph stays disabled, and the row says why.
+    let stored = rig.service.store().graph(&id).expect("the Graph");
+    assert!(!stored.enabled);
+    assert_eq!(stored.sensor_id, None);
+    let row = &graphs_model(&rig, &online(), &ui).rows[0];
+    assert!(!row.checked);
+    assert_eq!(row.state, LineState::Disabled);
+    assert_eq!(
+        row.caption,
+        "Not turned on: the limit of 64 Graph sensors is reached"
+    );
+    assert!(row.caption_warns);
+}
+
+#[test]
+fn offline_keeps_the_draft_and_turns_apply_off_for_a_sensor_end_node() {
+    let rig = Rig::new(
+        "editor-offline",
+        vec![spread(limiter_graph("graph_1")), response_graph("graph_2")],
+    );
+    let mut offline = state_with_x();
+    offline.link = Link::Offline;
+    let view = rig.shown();
+
+    // A Graph with a sensor end node: every edit works, and "Apply" is off with the reason.
+    let mut ui = rig.open("graph_1");
+    ui.draft.set_param(2, "max", json!(55));
+    let added = ui.draft.add_node(Kind::Constant, 0.0, 300.0);
+    assert!(ui.undo());
+    assert!(ui.redo());
+    assert!(ui.draft.graph().node(added).is_some());
+    let shown = model_with(&offline, &view, &ui);
+    assert!(!shown.toolbar.apply.enabled);
+    assert_eq!(
+        shown.toolbar.apply.tooltip.as_deref(),
+        Some("The daemon is offline. The Graph sensor needs the daemon.")
+    );
+    assert_eq!(shown.toolbar.draft_state.as_deref(), Some("Not applied"));
+    assert!(shown.toolbar.try_run.enabled && shown.toolbar.undo.enabled);
+    assert_eq!(ui.apply(&view, false), None);
+    assert!(ui.draft.is_dirty(), "the draft stays");
+    // The values are dim, and the source shows no value.
+    assert!(shown.nodes.iter().all(|face| face.dim));
+    assert_eq!(shown.nodes[0].value, "--");
+    // With the daemon online "Apply" is on again.
+    let shown = model_with(&state_with_x(), &view, &ui);
+    assert!(shown.toolbar.apply.enabled);
+    assert_eq!(shown.toolbar.apply.tooltip, None);
+
+    // A Graph with a response end node can be applied while the daemon is offline.
+    let mut ui = rig.open("graph_2");
+    assert!(ui.commit_param(2, "title", "Too hot", EN));
+    let shown = model_with(&offline, &view, &ui);
+    assert!(shown.toolbar.apply.enabled);
+    assert_eq!(shown.toolbar.apply.tooltip, None);
+    assert!(ui.apply(&view, false).is_some());
+}
+
+#[test]
+fn graph_file_error_shows_retry_and_no_editor() {
+    // `graphs.json` is no JSON: the app cannot read it.
+    let dir = Dir::new("editor-file-error");
+    let paths = dir.graph_paths();
+    std::fs::create_dir_all(paths.graphs.parent().unwrap()).unwrap();
+    std::fs::write(&paths.graphs, "not json").unwrap();
+    let mut rig = Rig::with_store(dir, GraphStore::open(paths));
+    rig.ticks(1);
+    let state = online();
+    let mut ui = GraphsUi::default();
+
+    // The Graphs screen shows the error and "Retry".
+    let shown = graphs_model(&rig, &state, &ui);
+    assert_eq!(shown.state, GraphsState::FileError);
+    let (text, error) = shown.file_error.expect("the error");
+    assert_eq!(text, "nicecooling cannot read graphs.json.");
+    assert!(error.starts_with("the file is not JSON"), "{error}");
+    assert_eq!(shown.retry.as_deref(), Some("Retry"));
+    assert!(!shown.create_enabled);
+
+    // No editor opens: not on a new Graph, and not on a Graph sensor.
+    let view = rig.shown();
+    ui.new_draft(&view, Kind::SensorEnd, EN);
+    assert_eq!(ui.editor, None);
+    ui.edit(&view, "graph_1");
+    assert_eq!(ui.editor, None);
+    assert!(!ui.edit_sensor(&view, "graph_3"));
+    assert_eq!(ui.editor, None);
+
+    // "Retry" with the file as it is: the error stays.
+    let retry = ui.retry();
+    assert_eq!(retry, Command::Graph(GraphCommand::Reload));
+    rig.run(retry);
+    assert_eq!(
+        graphs_model(&rig, &state, &ui).state,
+        GraphsState::FileError
+    );
+
+    // The user repairs the file. "Retry" makes the service read it again.
+    let stored = serde_json::to_string(&constant_graph("graph_1", 5.0)).unwrap();
+    std::fs::write(
+        &rig.dir.graph_paths().graphs,
+        format!(r#"{{"schema_version":1,"graphs":[{stored}]}}"#),
+    )
+    .unwrap();
+    rig.run(ui.retry());
+    let shown = graphs_model(&rig, &state, &ui);
+    assert_eq!(shown.state, GraphsState::Ready);
+    assert_eq!((shown.file_error, shown.retry), (None, None));
+    assert_eq!(shown.rows.len(), 1);
+    // The editor opens again.
+    ui.edit(&rig.shown(), "graph_1");
+    assert_eq!(ui.editor.map(|graph| graph.id), Some("graph_1".to_owned()));
+}
+
+/// A source of node values whose read fails.
+struct Broken;
+
+impl ValueSource for Broken {
+    fn read(&self) -> Option<GraphView> {
+        None
+    }
+}
+
+#[test]
+fn value_read_error_shows_dim_dashes() {
+    let mut rig = Rig::new("editor-read-error", vec![spread(limiter_graph("graph_1"))]);
+    rig.feed(46.2);
+    rig.ticks(1);
+    let state = state_with_x();
+    let mut ui = rig.open("graph_1");
+    let view = rig.shown();
+    ui.live.poll("graph_1", NOW_US, &rig.view);
+    assert_eq!(numbers_of(&model_with(&state, &view, &ui)), ["46.2"; 3]);
+
+    // The read of the next second fails: every node shows "--" in `fg-dim`.
+    assert!(ui.live.poll("graph_1", NOW_US + 1_000_000, &Broken));
+    let shown = model_with(&state, &view, &ui);
+    assert_eq!(numbers_of(&shown), ["--"; 3]);
+    assert!(shown.nodes.iter().all(|face| face.dim));
+    assert_eq!(shown.nodes[1].band.unwrap().input, None);
+    // The status line says so, with "Retry".
+    assert_eq!(
+        shown.status.text.as_deref(),
+        Some("The node values are not available.")
+    );
+    assert_eq!(shown.status.retry.as_deref(), Some("Retry"));
+
+    // The draft and every edit still work.
+    assert!(ui.draft.set_param(2, "max", json!(55)));
+    assert!(ui.undo());
+    assert!(model_with(&state, &view, &ui).toolbar.try_run.enabled);
+
+    // "Retry" reads at once. A read that works shows the values again.
+    ui.live.retry();
+    assert!(ui.live.poll("graph_1", NOW_US + 1_000_001, &rig.view));
+    let shown = model_with(&state, &view, &ui);
+    assert_eq!(numbers_of(&shown), ["46.2"; 3]);
+    assert_eq!((shown.status.text, shown.status.retry), (None, None));
+
+    // The view of the service gives no values after a panic of a writer.
+    let poisoned = shared_view();
+    let writer = poisoned.clone();
+    let _ = std::thread::spawn(move || {
+        let _guard = writer.lock().unwrap();
+        panic!("a writer panics with the lock");
+    })
+    .join();
+    assert_eq!(ValueSource::read(&poisoned), None);
+}
+
+#[test]
+fn unbound_source_shows_the_warning_and_apply_stays_on() {
+    // The source reads a sensor that this machine does not have.
+    let mut graph = spread(limiter_graph("graph_1"));
+    graph.nodes[0] = Node::new(1, Kind::SensorSource).with_param("sensor", "it8689_temp9");
+    let mut rig = Rig::new("editor-unbound", vec![graph]);
+    rig.ticks(1);
+    let state = state_with_x();
+    let mut ui = rig.open("graph_1");
+    let view = rig.shown();
+    ui.live.poll("graph_1", NOW_US, &rig.view);
+
+    // The node has the Warning icon, the stored id in mono text and "Sensor not found".
+    let shown = model_with(&state, &view, &ui);
+    let face = &shown.nodes[0];
+    assert!(face.warns);
+    assert_eq!(face.subject.as_deref(), Some("it8689_temp9"));
+    assert!(face.subject_mono);
+    assert_eq!(face.note.as_deref(), Some("Sensor not found"));
+    assert_eq!(face.value, "--");
+    // The node is one caption row higher than a bound source.
+    assert_eq!(face.height, canvas::node_height(Kind::SensorSource, true));
+    // The Graph is valid: no rule is broken, and "Apply" stays on for a change.
+    assert_eq!(shown.toolbar.rule, None);
+    ui.draft.move_node(2, 300.0, 0.0);
+    assert!(model_with(&state, &view, &ui).toolbar.apply.enabled);
+    assert!(ui.apply(&view, true).is_some());
+
+    // The panel has the sensor picker, so the user can choose another sensor.
+    ui.selected = Some(Selected::Node(1));
+    match &model_with(&state, &view, &ui).panel.unwrap().rows[0].control {
+        Control::Sensor { shown, choices } => {
+            assert_eq!(shown, "it8689_temp9");
+            assert!(choices.iter().any(|choice| choice.id == "x"));
+        }
+        other => panic!("the sensor is no picker: {other:?}"),
+    }
+    assert!(ui.choose_param(1, "sensor", "x"));
+    let shown = model_with(&state, &view, &ui);
+    let face = &shown.nodes[0];
+    assert!(!face.warns && !face.subject_mono);
+    assert_eq!(face.subject.as_deref(), Some("Water temperature"));
+    assert_eq!(face.note, None);
+
+    // While the daemon is offline the app does not know the sensors: no node warns.
+    let mut ui = rig.open("graph_1");
+    ui.live.poll("graph_1", NOW_US, &rig.view);
+    let mut offline = state_with_x();
+    offline.link = Link::Offline;
+    let face = &model_with(&offline, &view, &ui).nodes[0];
+    assert!(!face.warns);
+    assert_eq!(face.note, None);
 }

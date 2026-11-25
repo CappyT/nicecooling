@@ -189,6 +189,7 @@ graph_countdown:
 graph_refusal:
   alarm_countdown: È in corso il conto alla rovescia di spegnimento di un Allarme. Nessuna risposta di spegnimento, riavvio o sospensione parte.
   inactive_session: Questa sessione non è quella attiva. Nessuna risposta parte.
+  busy: "Una chiamata al demone per questo Grafo attende la risposta."
 feedback:
   pending: Scrittura in corso
   applied: "Applicato alle %{time}"
@@ -680,6 +681,7 @@ graphs:
   limit: Il limite è di 64 Grafi.
   empty: Nessun Grafo. Un Grafo calcola un sensore o esegue una risposta a partire dai nodi.
   file_error: nicecooling non riesce a leggere graphs.json.
+  retry: "Riprova"
   no_access: "nicecooling non ha accesso al demone. I sensori Grafo non hanno valore. L'app riprova tra 60 s."
   columns:
     graph: Grafo
@@ -744,6 +746,7 @@ graphs:
     other: "Non importato: %{reason}"
 graph_editor:
   not_applied: "Non applicato"
+  applying: "Applicazione in corso"
   add_node: "Aggiungi nodo"
   undo: "Annulla"
   redo: "Ripeti"
@@ -1062,6 +1065,12 @@ graph_editor:
     banner: "Prova in corso, non viene pubblicato nulla"
     left: "%{seconds} s rimasti"
     stop: "Ferma"
+  leave:
+    title: "Il Grafo '%{name}' ha modifiche non applicate."
+    discard: "Scarta"
+  offline: "Il demone è offline. Il sensore Grafo ha bisogno del demone."
+  not_applied_reason: "Non applicato: %{reason}."
+  not_applied_curve: "Non applicato: la Curva di %{name} usa il sensore Grafo."
 alarms:
   active:
     title: Attivi

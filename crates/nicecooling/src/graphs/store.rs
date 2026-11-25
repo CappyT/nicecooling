@@ -254,6 +254,15 @@ impl GraphStore {
         self.file_error.as_deref()
     }
 
+    /// Read `graphs.json` again: "Retry" after a file that the app could not use. The state and
+    /// the response log stay as the store holds them.
+    pub fn reload(&mut self) {
+        let (entries, error) = load_graphs(&self.paths.graphs);
+        self.entries = entries;
+        self.file_error = error;
+        self.prune_state();
+    }
+
     /// Add a Graph, or replace the Graph with the same id, and write the file. The caller runs the
     /// validator first. An entry that is not a valid Graph is never replaced: its id is taken.
     pub fn put(&mut self, graph: Graph) -> std::io::Result<()> {

@@ -266,6 +266,7 @@ pub fn spawn_service(
                     Wake::Event(Err(RecvError::Closed)) | Wake::Input(None) => break,
                     Wake::Event(Err(RecvError::Lagged(_))) | Wake::Timer => {}
                     Wake::Input(Some(Input::Command(command))) => service.handle(command),
+                    Wake::Input(Some(Input::Answer(answer))) => service.answer(answer),
                     Wake::Input(Some(Input::Stop(done))) => {
                         stop = Some(done);
                         break;
@@ -378,7 +379,8 @@ pub fn spawn_graphs(
         },
     )
     .with_session(system.session)
-    .with_runner(Box::new(runner));
+    .with_runner(Box::new(runner))
+    .with_answers(channel.answers());
     spawn_service(service, events, inputs);
     channel
 }

@@ -267,7 +267,7 @@ impl ScreenView {
 
     pub(crate) fn go(&self, page: Page, cx: &mut Context<Self>) {
         self.model.update(cx, |app, cx| {
-            app.page = page;
+            app.request_page(page);
             cx.notify();
         });
     }
@@ -277,7 +277,7 @@ impl ScreenView {
         let model = self.model.clone();
         move |page, _, cx| {
             model.update(cx, |app, cx| {
-                app.page = page;
+                app.request_page(page);
                 cx.notify();
             });
         }

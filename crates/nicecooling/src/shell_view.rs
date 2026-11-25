@@ -136,7 +136,7 @@ impl ShellView {
 
     fn go(&mut self, page: Page, cx: &mut Context<Self>) {
         self.model.update(cx, |app, cx| {
-            app.page = page;
+            app.request_page(page);
             cx.notify();
         });
     }
@@ -632,6 +632,7 @@ impl ShellView {
     ) -> impl IntoElement {
         let locale = self.model.read(cx).locale;
         let commands = self.commands.clone();
+        let model = self.model.clone();
         let item = |id: &'static str, label: String| Button::new(id).ghost().small().label(label);
         let _ = shell;
         v_flex()
@@ -646,8 +647,15 @@ impl ShellView {
             .child(item("menu-shortcuts", locale.tr("menu.shortcuts")))
             .child(item("menu-about", locale.tr("menu.about")))
             .child(
-                item("menu-quit", locale.tr("menu.quit")).on_click(move |_, _, _| {
-                    let _ = commands.send(Command::Quit);
+                item("menu-quit", locale.tr("menu.quit")).on_click(move |_, _, cx| {
+                    // A draft of the Graph editor that is not applied asks first.
+                    let asks = model.update(cx, |app, cx| {
+                        cx.notify();
+                        app.request_quit()
+                    });
+                    if !asks {
+                        let _ = commands.send(Command::Quit);
+                    }
                 }),
             )
     }

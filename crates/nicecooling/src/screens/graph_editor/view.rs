@@ -16,6 +16,7 @@ use gpui_component::{Disableable as _, Selectable as _, h_flex, v_flex};
 use nicecooling_flow::{FlowEvent, FlowGraph, FlowNode, FlowState};
 use nicecooling_graph::model::Kind;
 
+use super::apply::{Leave, LeaveDialog};
 use super::canvas::{
     CAPTION_ROW, GUIDE_ROW, NodeFace, PIN_ROW, SUBJECT_ROW, Shape, TITLE_ROW, VALUE_ROW,
     canvas_point, flow_edges, flow_nodes, flow_selection, new_flow_state, opening_view, shape_of,
@@ -23,13 +24,14 @@ use super::canvas::{
 };
 use super::palette::{ListForm, ListKey, ListRow, NodeList, family_key};
 use super::{EditorKey, EditorModel, EditorUi, Selected, editor_key};
-use crate::app::now_us;
+use crate::app::{LeaveRequest, now_us};
+use crate::command::Command;
 use crate::graphs::view::GraphView;
 use crate::icons::{NcIcon, icon, small_icon};
 use crate::screen_view::{InputKey, ScreenView, with_screen_input};
 use crate::screens::controls::act;
 use crate::screens::ui::Tip as _;
-use crate::screens::ui::{caption, heading, label, popover, with_popover};
+use crate::screens::ui::{caption, heading, label, modal, popover, with_popover};
 use crate::tokens::Palette;
 
 /// The widths of the two side columns of the editor.
@@ -67,6 +69,10 @@ pub(crate) struct EditorHost {
     add_focus: FocusHandle,
     /// The focus of the parameter panel: Enter on the canvas moves the focus there.
     pub(super) panel_focus: FocusHandle,
+    /// The focus of "Apply" in the question on leaving.
+    leave_focus: FocusHandle,
+    /// The question on leaving showed in the last frame.
+    leave_shown: bool,
 }
 
 /// A color of the palette as 0xRRGGBB, for the canvas.
@@ -399,6 +405,8 @@ impl ScreenView {
             list_focus: cx.focus_handle().tab_stop(true),
             add_focus: cx.focus_handle().tab_stop(true),
             panel_focus: cx.focus_handle(),
+            leave_focus: cx.focus_handle().tab_stop(true),
+            leave_shown: false,
         });
     }
 
@@ -499,11 +507,41 @@ impl ScreenView {
         }
         // A change of the draft ends a try.
         let stop = host.ui.follow_try();
+        // The answer of the service to an Apply. A sidebar entry or "Quit" asks first when the
+        // draft is not applied.
+        let mut leave = host.ui.follow(shown, now_us());
+        let asked = app.update(cx, |app, _| app.leave_request.take());
+        if let Some(request) = asked {
+            leave = host.ui.request_leave(match request {
+                LeaveRequest::Page(page) => Leave::Page(page),
+                LeaveRequest::Quit => Leave::Quit,
+            });
+        }
+        let dirty = host.ui.draft.is_dirty();
+        if app.read(cx).graph_draft != dirty {
+            app.update(cx, |app, _| app.graph_draft = dirty);
+        }
+        if let Some(target) = leave {
+            if let Some(command) = stop {
+                self.send(command);
+            }
+            self.leave_graph_editor(target, cx);
+            return div().into_any_element();
+        }
         let model = with_screen_input(&app, cx, |input| EditorModel::build(input, shown, &host.ui));
         if let Some(command) = stop {
             self.send(command);
         }
         self.sync_canvas(&model, p, cx);
+        let question = model
+            .leave
+            .as_ref()
+            .map(|dialog| self.graph_leave_dialog(dialog, p, window, cx));
+        if question.is_none()
+            && let Some(host) = self.graph_editor.as_mut()
+        {
+            host.leave_shown = false;
+        }
 
         let view = cx.entity();
         let toolbar = self.graph_toolbar(&model, p, window, cx);
@@ -576,7 +614,125 @@ impl ScreenView {
                     .child(canvas)
                     .children(panel),
             )
+            .children(question)
             .into_any_element()
+    }
+
+    /// "Apply": send the draft to the Graph service. `leaving` is the "Apply" of the question
+    /// on leaving: the editor then closes when the service stored the draft.
+    fn apply_graph(&mut self, leaving: bool, cx: &mut Context<Self>) {
+        let (shown, online) = {
+            let app = self.model.read(cx);
+            (app.graphs(), app.state.is_online())
+        };
+        let (Some(shown), Some(host)) = (shown, self.graph_editor.as_mut()) else {
+            return;
+        };
+        let command = if leaving {
+            host.ui.apply_and_leave(&shown, online)
+        } else {
+            host.ui.apply(&shown, online)
+        };
+        if let Some(command) = command {
+            self.send_graph(command, cx);
+        }
+    }
+
+    /// The back button, an entry of the sidebar or "Quit": leave at once, or ask first when the
+    /// draft is not applied.
+    fn request_graph_leave(&mut self, target: Leave, cx: &mut Context<Self>) {
+        let leave = match self.graph_editor.as_mut() {
+            Some(host) => host.ui.request_leave(target),
+            None => Some(target),
+        };
+        if let Some(target) = leave {
+            self.leave_graph_editor(target, cx);
+        }
+    }
+
+    /// Close the editor and go where the user wanted to go. A try of the draft stops.
+    fn leave_graph_editor(&mut self, target: Leave, cx: &mut Context<Self>) {
+        let stop = self
+            .graph_editor
+            .as_mut()
+            .and_then(|host| host.ui.stop_try());
+        if let Some(command) = stop {
+            self.send(command);
+        }
+        self.graphs.editor = None;
+        self.close_graph_editor();
+        self.model.update(cx, |app, cx| {
+            app.graph_draft = false;
+            app.leave_request = None;
+            if let Leave::Page(page) = &target {
+                app.page = page.clone();
+            }
+            cx.notify();
+        });
+        if target == Leave::Quit {
+            self.send(Command::Quit);
+        }
+    }
+
+    /// The question on leaving with a draft: "Cancel", "Discard" and "Apply". "Apply" has the
+    /// focus first.
+    fn graph_leave_dialog(
+        &mut self,
+        dialog: &LeaveDialog,
+        p: &Palette,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let view = cx.entity();
+        let focus = self.graph_editor.as_mut().map(|host| {
+            let first = !std::mem::replace(&mut host.leave_shown, true);
+            (host.leave_focus.clone(), first)
+        });
+        // The scrim takes the focus when it draws. "Apply" takes it after that frame.
+        if let Some((focus, true)) = &focus {
+            let focus = focus.clone();
+            cx.defer_in(window, move |_, window, cx| {
+                window.focus(&focus, cx);
+            });
+        }
+        let cancel = Self::button("graph-leave-cancel", dialog.cancel.clone())
+            .disabled(dialog.pending)
+            .on_click(act(&view, |this, _, _| {
+                if let Some(host) = this.graph_editor.as_mut() {
+                    host.ui.cancel_leave();
+                    host.leave_shown = host.ui.apply.leave.is_some();
+                }
+            }));
+        let discard = Self::button("graph-leave-discard", dialog.discard.clone())
+            .disabled(dialog.pending)
+            .on_click(act(&view, |this, _, cx| {
+                let leave = this
+                    .graph_editor
+                    .as_mut()
+                    .and_then(|host| host.ui.discard_leave());
+                if let Some(target) = leave {
+                    this.leave_graph_editor(target, cx);
+                }
+            }));
+        let mut apply = Self::button("graph-leave-apply", dialog.apply.clone())
+            .primary()
+            .disabled(dialog.pending || !dialog.apply_enabled)
+            .on_click(act(&view, |this, _, cx| this.apply_graph(true, cx)));
+        if let Some((focus, _)) = &focus {
+            apply = apply.track_focus(focus);
+        }
+        modal(
+            dialog.title.clone(),
+            "",
+            Vec::new(),
+            vec![
+                cancel.into_any_element(),
+                discard.into_any_element(),
+                apply.into_any_element(),
+            ],
+            p,
+        )
+        .into_any_element()
     }
 
     /// A key of the editor: undo, redo and the zoom of the canvas. Returns whether the editor
@@ -698,8 +854,8 @@ impl ScreenView {
             .child(
                 Self::small_button("graph-editor-back", bar.back.clone(), Some(NcIcon::Left))
                     .ghost()
-                    .on_click(act(&view, |this, _, _| {
-                        this.graphs.editor = None;
+                    .on_click(act(&view, |this, _, cx| {
+                        this.request_graph_leave(Leave::List, cx);
                     })),
             )
             .child(
@@ -725,6 +881,16 @@ impl ScreenView {
                     .child(icon(NcIcon::Warn, p.warning))
                     .child(label(text))
             }))
+            // The reason of a refused Apply, with the octagon.
+            .children(bar.refused.clone().map(|text| {
+                h_flex()
+                    .min_w_0()
+                    .gap(px(6.))
+                    .items_center()
+                    .text_color(p.alarm)
+                    .child(icon(NcIcon::Alarm, p.alarm))
+                    .child(label(text))
+            }))
             .child(
                 Self::small_button("graph-try", bar.try_run.label.clone(), None)
                     .disabled(!bar.try_run.enabled)
@@ -741,7 +907,9 @@ impl ScreenView {
             .child(
                 Self::small_button("graph-apply", bar.apply.label.clone(), None)
                     .primary()
-                    .disabled(!bar.apply.enabled),
+                    .disabled(!bar.apply.enabled)
+                    .tip(bar.apply.tooltip.clone().unwrap_or_default())
+                    .on_click(act(&view, |this, _, cx| this.apply_graph(false, cx))),
             )
             .into_any_element()
     }

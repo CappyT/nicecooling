@@ -110,7 +110,7 @@ The Graph service evaluates the Graphs (`docs/graphs.md`). It runs on its own th
 
 - At each pass the service sends the value of each Graph sensor with `SetGraphSensorValues` (`docs/api.md`, Graph sensors). A disabled Graph and a value that is not finite go as the no-value entry. The call waits at most 2 s.
 - The call has no interactive flag. When polkit refuses it, the call stops for 60 s and the shared view holds the state "no access". The app never opens a password dialog for it.
-- Apply and Enable make the Graph sensor with `CreateGraphSensor` when the Graph has none. Apply renames it with `SetDefinition` when the name or the unit differs. A Graph that loses its sensor end node deletes its sensor, and a delete of a Graph deletes its sensor first. These calls can open the polkit prompt. A refusal of the daemon, for example `InUse` or the limit of 64, keeps the Graph as it was and shows the reason.
+- Apply and Enable make the Graph sensor with `CreateGraphSensor` when the Graph has none. Apply renames it with `SetDefinition` when the name or the unit differs. A Graph that loses its sensor end node deletes its sensor, and a delete of a Graph deletes its sensor first. These calls can open the polkit prompt, so each one runs as a task on the Tokio runtime of the app. The service thread does not wait for it: the passes and the values call go on, and the answer comes back on the channel of the service. One call for a Graph runs at a time, and a second command for that Graph is refused while it waits. The Graph editor shows "Applying" until the service answers. A refusal of the daemon, for example `InUse` or the limit of 64, keeps the Graph as it was and shows the reason.
 - At each new snapshot of the daemon, the service makes the Graph sensor of each Graph that holds an id the daemon does not list. A Graph sensor that no Graph holds stays on the daemon. It can belong to the app of another user, so the app leaves it and lists it in the shared view.
 
 ### Active session
@@ -158,7 +158,7 @@ Three poweroff or reboot runs in a row start the Response pause. The pause prote
 
 ### Stop path
 
-"Quit" in the tray or in the primary menu, and SIGTERM (the end of the session), send the same command. The app asks the Graph service to stop and waits at most 2 s. The service cancels a running countdown, so it makes no power call after the stop. It then writes `graph-state.json` whatever the time since the last write, and answers. The app logs a line when the service does not answer. Then the app ends. The state file is also written at most every 30 s while a value or a run state changes, and before a power call.
+"Quit" in the tray or in the primary menu, and SIGTERM (the end of the session), send the same command. "Quit" in the primary menu asks first while the Graph editor holds a draft that is not applied. The app asks the Graph service to stop and waits at most 2 s. The service cancels a running countdown, so it makes no power call after the stop. It then writes `graph-state.json` whatever the time since the last write, and answers. The app logs a line when the service does not answer. Then the app ends. The state file is also written at most every 30 s while a value or a run state changes, and before a power call.
 
 ### MQTT and SMTP clients
 

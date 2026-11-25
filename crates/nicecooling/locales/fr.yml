@@ -189,6 +189,7 @@ graph_countdown:
 graph_refusal:
   alarm_countdown: Le compte à rebours d'extinction d'une Alarme est en cours. Aucune réponse d'extinction, de redémarrage ou de mise en veille ne démarre.
   inactive_session: Cette session n'est pas la session active. Aucune réponse ne s'exécute.
+  busy: "Un appel au démon pour ce Graphe attend sa réponse."
 feedback:
   pending: Écriture
   applied: "Appliqué à %{time}"
@@ -680,6 +681,7 @@ graphs:
   limit: La limite est de 64 Graphes.
   empty: Aucun Graphe. Un Graphe calcule un capteur ou exécute une réponse à partir de nœuds.
   file_error: nicecooling ne peut pas lire graphs.json.
+  retry: "Réessayer"
   no_access: "nicecooling n'a pas accès au démon. Les capteurs Graphe n'ont pas de valeur. L'app réessaie dans 60 s."
   columns:
     graph: Graphe
@@ -744,6 +746,7 @@ graphs:
     other: "Non importé : %{reason}"
 graph_editor:
   not_applied: "Non appliqué"
+  applying: "Application en cours"
   add_node: "Ajouter un nœud"
   undo: "Annuler"
   redo: "Rétablir"
@@ -1062,6 +1065,12 @@ graph_editor:
     banner: "Essai en cours, rien n'est publié"
     left: "%{seconds} s restantes"
     stop: "Arrêter"
+  leave:
+    title: "Le Graphe '%{name}' a des modifications non appliquées."
+    discard: "Abandonner"
+  offline: "Le démon est hors ligne. Le capteur Graphe a besoin du démon."
+  not_applied_reason: "Non appliqué : %{reason}."
+  not_applied_curve: "Non appliqué : la Courbe de %{name} utilise le capteur Graphe."
 alarms:
   active:
     title: Actives
