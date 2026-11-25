@@ -120,7 +120,7 @@ When the app cannot read the Views file, the History screen SHALL show "The save
 - **THEN** "Save view as" is off with the text "The Views file is from a newer version of nicecooling."
 
 ### Requirement: Series style
-Each Series of the chart SHALL have a color, a line width and a fill switch. The color SHALL be one of the six series colors or a custom color `#RRGGBB`. The line width SHALL be 1, 2, 3 or 4 px, with the default 2 px. With the fill on, the chart SHALL fill the area from the line to the lower edge of the plot in the color of the Series at 10% opacity. The fill SHALL be off by default. A Series at position 7 or later of the legend SHALL have a dashed line. A change SHALL show in the chart at once.
+Each Series of the chart SHALL have a color, a line width and a fill switch. The color SHALL be one of the six series colors or a custom color `#RRGGBB`. The line width SHALL be 1, 2, 3 or 4 px, with the default 2 px. With the fill on, the chart SHALL fill the area from the line to the lower edge of the plot in the color of its line at 10% opacity. The fill SHALL be off by default. A Series at position 7 or later of the legend SHALL have a dashed line. A change SHALL show in the chart at once.
 
 #### Scenario: Default style
 - **WHEN** the user selects a third sensor

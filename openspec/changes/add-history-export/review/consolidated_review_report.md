@@ -58,14 +58,14 @@ Priority: Blocker stops the implementation, Major changes what is built, Nit is 
 
 ## Resolution
 
-Categories: FIXED (the files of the change were edited), CONTESTED (kept, with the reason), QUESTION (it waits for the owner; the review asked the owner nothing).
+Categories: FIXED (the files of the change were edited), CONTESTED (kept, with the reason), ANSWERED (the owner decided, and the files of the change hold the answer).
 
 | # | Category | Resolution |
 |---|---|---|
-| C1 | FIXED | The Context links issue #89 ("Owner decisions of 2026-11-25") and ADR-0007 and ADR-0005. The two rejections have a technical reason. Open point: issue #89 holds the first set of decisions. The period choices, the details of the image and "the other rows stay" came with the review task and are not in the issue yet. |
+| C1 | FIXED | The Context links issue #89 of the repository `CappyT/nicecooling`, which holds the owner decisions in its comments of 2026-11-25, and ADR-0007 and ADR-0005. The two rejections have a technical reason. |
 | C2 | FIXED | Task 2.2 removes the constants together with `Resolution::of_window`. |
 | C3 | FIXED | Design H10: only a delete that the user confirmed compacts. The copy is a file in the directory of the store (`SQLITE_TMPDIR`, `temp_store = FILE`). The service thread reads the free space first and needs twice the pages in use. The WAL file has a limit of 64 MiB. Spec "Compaction" and "Compaction that does not run or fails". Task 3.5. |
-| C4 | QUESTION | Question 1 below. The row "Disk space after a delete" of the product choices keeps 1 000 000 rows. The free space check of C3 bounds the harm. |
+| C4 | ANSWERED | Owner answer 1 below. Design H10, spec "Compaction", task 3.5 and the row "Disk space after a delete" of the product choices have the rule of 25% and 64 MB. The free space check of C3 stays. |
 | C5 | CONTESTED: owner decision | The row "What a Note is" of the product choices puts a Note in `history.db`, and the owner changed no row. Design H14 now gives the reason against the Views case: a Note belongs to a time of the data and leaves with the file. The conflict with the spec is fixed: the Note commands are off while a history operation runs. |
 | C6 | FIXED | Design H5 and H3: `SettingsStore` shares the history settings behind a mutex, the service thread reads them at each step, and the app writes the setting before it sends the prune request. |
 | C7 | FIXED | Design H5 and H11: a writer open for the service thread and a read-only reader open for every read. Task 1.3 with `OpenError`. |
@@ -73,7 +73,7 @@ Categories: FIXED (the files of the change were edited), CONTESTED (kept, with t
 | C9 | CONTESTED: owner decision | The row "Colors of a Series" has the custom color, and owner decision 5 asks for a color per Series. The dash is now a rule of the position (design H13, spec "Series style"). |
 | C10 | FIXED | Design H18: the Samples wait in the event channel and keep their times. The service thread closes a minute from the Sample times, and "events were lost" is its own result. Spec "Samples during a long operation". Task 1.8. |
 | C11 | FIXED | Design H8 and H9: the service thread keeps the range and drops each Sample of it that arrives later. The delete of the whole history drops the minute sums too. Tasks 3.3 and 3.4. |
-| C12 | QUESTION | Question 2 below. The design keeps the periods in `settings.toml` and names the risk. |
+| C12 | ANSWERED | Owner answer 2 below. The two periods are two keys in the table `meta` of `history.db`. Design H2, H3, H5 and H11, the design section "Storage", the spec requirements on the periods, and tasks 1.1 to 1.5, 1.7, 2.1, 2.4, 4.2 and 5.1. |
 | C13 | FIXED | Design H19: one statement per Series on the primary key, with a commit after each Series. Tests read the query plan. Task 3.6 measures the count. |
 | C14 | FIXED | The Context has the path of an event, the snapshot and the glossary terms. The section "Terms" defines the shown Series, a window, the app window, the two channels and the list of not recorded sensors. The dialog lists the ids of the list that the snapshot does not hold. |
 | C15 | FIXED | Design H5 states what a second process does not get, and H9 keeps the table `series`, so an id never names another sensor. `docs/app.md` says it (task 8.3). |
@@ -95,19 +95,16 @@ Categories: FIXED (the files of the change were edited), CONTESTED (kept, with t
 | C31 | FIXED | A View has no id and the file has no read limit. H11 and H16 have a rejected alternative. A year is 365 days. The two risks are in the list. Task 8.3 changes the sentence of ADR-0005. |
 | C32 | CONTESTED | One state "operation running" is simpler than one state per kind, and the design says so. A newer database is the result of a downgrade that the user did, and the charts of every screen are then empty. The specs hold the numbers, and the design repeats only those that a decision needs. |
 
-## Questions for the owner
+### Owner answers
+
+The record is [issue #89](https://github.com/CappyT/nicecooling/issues/89) of the repository `CappyT/nicecooling`, in its comments of 2026-11-25.
 
 1. The trigger of the compaction (C4, design H10).
-   - Evidence: `VACUUM` writes every row that stays. With the trigger "1 000 000 removed rows", a range delete of 23 MB in a store of 10 GB writes 10 GB again and needs 20 GB of free space (zo-1, ic-2, dc-8).
-   - Option A, in the specs now: after a confirmed delete of 1 000 000 rows or more. Cost: the case above. The free space check stops a compaction that the disk cannot hold.
-   - Option B, recommended: after a confirmed delete, when the free pages are 25% of the file or more and 64 MB or more (`freelist_count`, `page_count`, no scan). Cost: two numbers in place of one, and a change of task 3.5, of one requirement sentence and of the row of the product choices.
-   - Option C: the incremental vacuum mode of SQLite. Cost: a step rule in the service thread and one full `VACUUM` for each database that exists.
+   - Question: `VACUUM` writes every row that stays. Which delete starts it: a delete of a fixed number of rows, a delete that leaves a share of the file free, or the incremental vacuum mode of SQLite?
+   - Answer: the app compacts the database after a confirmed delete only when the free pages are 25% of the file or more and 64 MB or more. It reads `freelist_count` and `page_count`, with no table scan. The check of the free disk space before a compaction stays. A file of 10 GB with 23 MB of free pages does not compact. A file of 400 MB with 120 MB of free pages compacts.
 2. The place of the two periods (C12, design H2).
-   - Evidence: `AppSettings::load` gives the defaults for a file that is absent or does not parse (`app_settings.rs:77-82`). The next prune then deletes with 48 hours and 1 year, with no count and no question, against the rule of design H3. The same occurs when the user removes the settings directory.
-   - Option A, in the specs now: the table `[history]` of `settings.toml`. Cost: the risk above stays, as a named risk.
-   - Option B, recommended: two keys in the table `meta` of `history.db`, which the service thread writes. The periods stay with the data. Cost: the Settings screen reads the periods with the reader open, the period rows are off when the store is not open, and tasks 1.2, 2.1, 2.4 and 5.1 change.
-
-The scenarios of the specs hold for options A and B of each question.
+   - Question: `AppSettings::load` gives the defaults for a `settings.toml` that is absent or does not parse. Are the two periods in that file, or in the table `meta` of `history.db`?
+   - Answer: the Sample period and the Minute period are two keys in the table `meta` of `history.db`, written by the service thread. They are not in `settings.toml`. A settings file that is absent or broken changes no period and deletes no row. A database with no such keys gets the defaults 48 hours and 1 year at the first open. A key with a value that is not a choice reads as the default of that key, and the app does not prune its rows until the user confirms the period in the Settings screen. When the store is not open, the two period rows of the Settings screen are off with a text. The list of not recorded sensors stays in `settings.toml`.
 
 ## What stays open
 

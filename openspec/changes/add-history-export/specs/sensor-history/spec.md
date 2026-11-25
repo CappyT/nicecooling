@@ -71,19 +71,60 @@ The sensor picker of the History screen and the legend SHALL mark a sensor of th
 - **THEN** the gaps come from the recorded sensor and have the label "No data: the app did not run"
 
 ### Requirement: Sample period and Minute period
-The app SHALL have two settings. The Sample period SHALL be 24 hours, 48 hours, 7 days or 30 days, with the default 48 hours. The Minute period SHALL be 30 days, 90 days, 1 year, 2 years or 5 years, with the default 1 year. A year SHALL be 365 days. Both settings SHALL survive a restart of the app. A stored value that is not one of the choices SHALL read as the default of that setting, and the other settings SHALL keep their values.
+The app SHALL have two settings. The Sample period SHALL be 24 hours, 48 hours, 7 days or 30 days, with the default 48 hours. The Minute period SHALL be 30 days, 90 days, 1 year, 2 years or 5 years, with the default 1 year. A year SHALL be 365 days. The app SHALL store both periods in the table `meta` of `history.db` and SHALL NOT store them in `settings.toml`. Both settings SHALL survive a restart of the app.
 
 #### Scenario: Defaults
-- **WHEN** no period is stored
-- **THEN** the Sample period is 48 hours and the Minute period is 1 year
+- **WHEN** the app creates a new `history.db`
+- **THEN** the Sample period is 48 hours and the Minute period is 1 year, and the table `meta` holds `sample_period` = `48h` and `minute_period` = `1y`
 
 #### Scenario: Stored choice
 - **WHEN** the user sets the Sample period to 7 days and the Minute period to 2 years and restarts the app
 - **THEN** the Settings screen shows 7 days and 2 years
 
+#### Scenario: Settings file removed
+- **WHEN** the Sample period is 30 days, the Minute period is 5 years, and the user removes `settings.toml` and restarts the app
+- **THEN** the periods are still 30 days and 5 years, and the prune at the start deletes no Sample that is 29 days old and no Minute row that is 4 years old
+
+#### Scenario: Settings file that does not parse
+- **WHEN** the Sample period is 7 days and `settings.toml` is not valid TOML at the start of the app
+- **THEN** the Sample period is still 7 days and the prune deletes no Sample that is 6 days old
+
+### Requirement: Database with no stored period
+When the service thread, which records the Samples, opens a database that does not hold the key of a period, it SHALL write the default of that key: 48 hours for the Sample period and 1 year for the Minute period. A key that the database holds SHALL keep its value.
+
+#### Scenario: Version 1 database
+- **WHEN** the app opens a version 1 database, which holds no key of a period
+- **THEN** the table `meta` holds `sample_period` = `48h` and `minute_period` = `1y`
+
+#### Scenario: One key is absent
+- **WHEN** the database holds `sample_period` = `30d` and no key `minute_period`
+- **THEN** the Sample period is still 30 days and the Minute period is 1 year
+
+### Requirement: Stored period that is not a choice
+When the stored value of a period is not one of its choices, the Settings screen SHALL show the default of that period with the text "The stored period is not valid. Choose a period." The app SHALL NOT prune the rows of that period until the user picks a choice in the Settings screen. A pick of any choice, also of the default, SHALL follow the rules of a change of a period. The other period SHALL keep its value and its prune.
+
 #### Scenario: Unknown value
-- **WHEN** the stored Sample period is `"3d"` and the stored language is `"it"`
-- **THEN** the Sample period is 48 hours and the language is Italian
+- **WHEN** the stored Sample period is `3d` and the store holds a Sample that is 20 days old
+- **THEN** the Settings screen shows 48 hours with the text, and the hourly prune does not delete that Sample
+
+#### Scenario: Other period
+- **WHEN** the stored Sample period is `3d`, the Minute period is 90 days and a Minute row is 91 days old at the prune
+- **THEN** the prune deletes the Minute row
+
+#### Scenario: User confirms the default
+- **WHEN** the stored Sample period is `3d`, the user picks 48 hours, and the store holds 5 184 000 Samples older than 48 hours
+- **THEN** the dialog reads "This deletes 5 184 000 samples older than 48 hours.", and after "Delete samples" the stored Sample period is `48h` and the prune deletes these Samples
+
+### Requirement: Period rows without the store
+When the app cannot open the history database, the two period rows of the Settings screen SHALL be off with the text "The history database is not open." Their estimates SHALL then read `--`. The app SHALL then prune nothing.
+
+#### Scenario: Newer database
+- **WHEN** `history.db` has the schema version 3 and the user opens the Settings screen
+- **THEN** both period rows are off with the text "The history database is not open."
+
+#### Scenario: Database that cannot be opened
+- **WHEN** the app has no read access to `history.db`
+- **THEN** both period rows are off with the text, and both estimates read `--`
 
 ### Requirement: Prune
 At its start and then once per hour, the app SHALL delete each Sample that is older than the Sample period. It SHALL also delete each Minute row that is older than the Minute period.
@@ -105,7 +146,7 @@ At its start and then once per hour, the app SHALL delete each Sample that is ol
 - **THEN** the prune deletes the Minute row
 
 ### Requirement: Change of a period
-A change to a shorter period that deletes one row or more SHALL show a confirmation that names the number of rows. After the confirmation, the app SHALL store the setting and SHALL start the delete of these rows within 2 s. Without the confirmation, the setting SHALL keep its old value. A change that deletes no row SHALL apply with no question.
+A change to a shorter period that deletes one row or more SHALL show a confirmation that names the number of rows. After the confirmation, the app SHALL store the period in the database and SHALL start the delete of these rows within 2 s. Without the confirmation, the stored period SHALL keep its value. A change that deletes no row SHALL apply with no question.
 
 #### Scenario: Shorter Sample period
 - **WHEN** the user changes the Sample period from 48 hours to 24 hours and the store holds 5 184 000 Samples older than 24 hours
@@ -398,14 +439,26 @@ The Settings screen SHALL delete every Sample and every Minute row of the store.
 - **THEN** the store holds no Note
 
 ### Requirement: Compaction
-The app SHALL compact the database file after one confirmed operation that removes 1 000 000 rows or more. Such an operation is a range delete, a delete of the whole history or a change to a shorter period. The file SHALL then give the free space back to the disk. A smaller delete SHALL leave the file size as it is. The app SHALL NOT compact the file after a prune at its start or after an hourly prune.
+After a range delete, a delete of the whole history or a change to a shorter period that the user confirmed, the app SHALL compact the database file when its free pages are 25% of the file or more and 64 MB or more. It SHALL read both sizes from `freelist_count` and `page_count` and SHALL scan no table. The file SHALL then give the free space back to the disk. The app SHALL NOT compact the file after a prune at its start or after an hourly prune.
 
 #### Scenario: Whole history
 - **WHEN** the user deletes a history of 10 368 000 Samples in a file of 238 MB
-- **THEN** after the compaction the database files are smaller than 1 MB in sum
+- **THEN** the free pages are more than 25% of the file and more than 64 MB, and after the compaction the database files are smaller than 1 MB in sum
 
-#### Scenario: Small range delete
-- **WHEN** a range delete removes 1 800 Samples from a file that had no free pages
+#### Scenario: Large file with few free pages
+- **WHEN** a range delete leaves 23 MB of free pages in a file of 10 GB
+- **THEN** the app does not compact the file, and the file is still 10 GB
+
+#### Scenario: Free pages above both limits
+- **WHEN** a range delete leaves 120 MB of free pages in a file of 400 MB
+- **THEN** the app compacts the file, and the file is then about 280 MB
+
+#### Scenario: Free pages below 64 MB
+- **WHEN** a range delete leaves 60 MB of free pages in a file of 200 MB
+- **THEN** the app does not compact the file
+
+#### Scenario: Free pages below 25%
+- **WHEN** a change to a shorter period leaves 100 MB of free pages in a file of 1 GB
 - **THEN** the app does not compact the file
 
 #### Scenario: Hourly prune
@@ -413,14 +466,14 @@ The app SHALL compact the database file after one confirmed operation that remov
 - **THEN** the app does not compact the file
 
 #### Scenario: Prune at the start after a weekend
-- **WHEN** the app starts after 60 hours and the prune at the start removes 10 368 000 Samples
+- **WHEN** the app starts after 60 hours and the prune at the start leaves 230 MB of free pages in a file of 238 MB
 - **THEN** the app does not compact the file
 
 ### Requirement: Compaction that does not run or fails
-Before a compaction, the app SHALL read the free disk space. With less than twice the size of the pages in use, which hold the rows that stay, it SHALL NOT compact. When a compaction does not run or fails, the app SHALL show "The file was not compacted" with the reason, and the deleted rows SHALL stay deleted.
+Before a compaction, the app SHALL read the free disk space. With less than twice the size of the pages in use, which hold the rows that stay, it SHALL NOT compact. When the free disk space stops a compaction or a compaction fails, the app SHALL show "The file was not compacted" with the reason, and the deleted rows SHALL stay deleted.
 
 #### Scenario: No space for the compaction
-- **WHEN** the pages in use are 2 GB after a delete and the disk has 3 GB of free space
+- **WHEN** a delete leaves 2 GB of pages in use and 1 GB of free pages in a file of 3 GB, and the disk has 3 GB of free space
 - **THEN** the app does not compact, shows "The file was not compacted" with the reason, and the rows stay deleted
 
 #### Scenario: Compaction fails

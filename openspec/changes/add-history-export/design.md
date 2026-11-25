@@ -25,7 +25,7 @@ The current history, in `crates/nicecooling/src/history/` and `docs/storage.md`:
 - The chart setup of the History screen is in memory only (`HistoryUi`).
 - Nothing stops a second app process of the same user, for example in a second session. Both processes then record the same Samples to the same file.
 
-The owner decisions that bind this design are in [issue #89](https://github.com/CappyT/nicecooling/issues/89), "Owner decisions of 2026-11-25":
+The owner decisions that bind this design are in [issue #89](https://github.com/CappyT/nicecooling/issues/89) of the repository `CappyT/nicecooling`, in its comments of 2026-11-25:
 
 1. The app records every sensor, as now, with a switch per sensor that stops its recording, and with settings for the two periods. The Sample period choices are 24 hours, 48 hours, 7 days and 30 days. The Minute period choices are 30 days, 90 days, 1 year, 2 years and 5 years. The defaults stay 48 hours and 1 year.
 2. The export writes the shown range and the shown Series to CSV: comma, decimal point, ISO 8601 time with the UTC offset, UTF-8, one header row.
@@ -34,6 +34,8 @@ The owner decisions that bind this design are in [issue #89](https://github.com/
 5. The rich chart manager: saved Views, axis limits per unit, a color, a line width and a fill per Series, Notes on the chart, and "Save as image".
 6. "Save as image" gives one PNG of 1920 x 1080 px in the theme that the app shows, with the title, the range, the charts, the legend, the Notes and the Alarm markers. It has no dialog of options.
 7. The app records, never the daemon (ADR-0005).
+8. After a delete that the user confirmed, the app compacts the database file only when the free pages are 25% of the file or more and 64 MB or more. It reads `freelist_count` and `page_count` and scans no table. The check of the free disk space before a compaction stays.
+9. The Sample period and the Minute period are two keys in the table `meta` of `history.db`, which the service thread writes. They are not in `settings.toml`. A settings file that is absent or broken changes no period and deletes no row.
 
 The standing owner rules of ADR-0007 also hold. No action asks a password. The app warns and never refuses a valid choice of the user. The design has no defense against other local users. Nothing new runs in the root daemon.
 
@@ -111,11 +113,27 @@ Rejected: the list of hidden sensors of the Sensors screen (`[sensors] hidden`) 
 
 Rejected: a delete of the stored rows when the switch goes off. A switch that deletes data needs a confirmation with a count, and the range delete of H8 does that already.
 
-### H2. The two periods are fixed choices in the app settings (sensor-history)
+### H2. The two periods are fixed choices in the database (sensor-history)
 
-`[history]` of `settings.toml` holds `sample_period` (`"24h"`, `"48h"`, `"7d"`, `"30d"`) and `minute_period` (`"30d"`, `"90d"`, `"1y"`, `"2y"`, `"5y"`). The defaults are the current constants: `"48h"` and `"1y"`. A year is 365 days: `"1y"` is 365 days, `"2y"` is 730 days and `"5y"` is 1 825 days. Every Minute period is as long as the longest Sample period or longer, so the two settings need no rule between them.
+The table `meta` of `history.db` holds the two keys `sample_period` (`24h`, `48h`, `7d`, `30d`) and `minute_period` (`30d`, `90d`, `1y`, `2y`, `5y`) (owner decision 9). The defaults are the current constants: `48h` and `1y`. A year is 365 days: `1y` is 365 days, `2y` is 730 days and `5y` is 1 825 days. Every Minute period is as long as the longest Sample period or longer, so the two settings need no rule between them.
 
-The loader reads each of the two values as text. A text that is not a choice gives the default of that key. Reason: the current loader gives the defaults for the whole file when one field does not parse. A wrong period must not reset the language.
+Reason: the periods stay with the data that they keep. `AppSettings::load` gives the defaults for a `settings.toml` that is absent or that does not parse. A period in that file would then go back to its default, and the next prune would delete rows with no count and no question, against H3. With the keys in the database, a settings file that is absent or broken changes no period and deletes no row. A user who removes `history.db` removes the periods together with their rows.
+
+The service thread is the only writer of the two keys (H5):
+
+- The writer open writes the default of each key that the file does not hold. So a new file and a version 1 file get `48h` and `1y`. These defaults remove no row that would stay without them: the app that wrote a file with no key pruned at 48 hours and 365 days.
+- A change in the Settings screen is a period request (H3). The service thread writes the key and then prunes, in one request.
+- The service thread reads both keys before each prune.
+
+A stored value that is not a choice is not valid. It comes from an edit of the file by hand, or from another version of the app with other choices.
+
+- The Settings screen shows the default of that key with the text "The stored period is not valid. Choose a period."
+- The prune removes no row of that key until the user picks a choice in the Settings screen: no Sample for `sample_period`, no Minute row for `minute_period`. The other key keeps its value and its prune.
+- A pick of any choice, also of the default, follows H3: the count, the confirmation when rows go, and then the write of the key.
+
+Reason: the default can be shorter than the period that the user chose. A prune with the default would delete rows with no question.
+
+The Settings screen reads the two keys with the reader open (H5), when it opens and after each history operation. A file with no key reads as the defaults, because the writer open writes them there. When the reader open gives no database or an error, the store is not open. The two period rows are then off with the text "The history database is not open.", and their estimates show `--`. This is the case for a file of a newer version (H11) and for a file that the app cannot open.
 
 The Settings screen shows an estimate next to each choice. The numbers are 23 bytes per Sample and 44 bytes per Minute row.
 
@@ -145,13 +163,15 @@ Rejected: a free number of hours or days. Owner decision 1 fixes the choices, an
 
 Rejected: the choice "forever" for the Minute period. A store with no upper size has no estimate to show.
 
+Rejected: the two periods in the table `[history]` of `settings.toml`. A user who removes the settings directory to start again would lose up to 28 days of Samples and 4 years of Minute rows at the next prune.
+
 ### H3. A shorter period is a delete with a confirmation (sensor-history)
 
 A change to a shorter period removes rows at the next prune. The app counts these rows first and shows the count in a confirmation, as for every other delete (owner decision 4). The dialog shows a counting state until the count is there.
 
-After the confirmation the app writes the setting and then sends a prune request to the service thread. The service thread looks at its requests once per second (H5), so the delete starts within 2 s. The request carries no period: the service thread reads the stored periods when it handles the request.
+After the confirmation the app window sends a period request with the new period to the service thread. The service thread looks at its requests once per second (H5), so the delete starts within 2 s. It writes the key of the period (H2) and then prunes, in this order. So no prune runs with a period that the user did not confirm, and a write of the key that fails deletes nothing.
 
-A change that removes no row, and a change to a longer period, apply with no question. A longer period restores nothing: the store grows from that time on.
+A change that removes no row, and a change to a longer period, send the period request with no question. A longer period restores nothing: the store grows from that time on.
 
 Rejected: apply the setting and let the hourly prune delete the rows. The user would lose up to 29 days of Samples with no count and no question.
 
@@ -180,18 +200,18 @@ Rejected: Samples for every window inside the Sample period. A window of 30 days
 
 ### H5. One writer: the service thread (sensor-history, history-chart)
 
-Every write to `history.db` runs in the service thread: the batch, the prune, the delete, the Notes and the compaction. The app window sends a request on the request channel and gets one reply with the result. The service thread looks at the request channel after each wait of `next_event`. So a request starts within 1 s when the thread is not in a write.
+Every write to `history.db` runs in the service thread: the batch, the prune, the delete, the two period keys, the Notes and the compaction. The app window sends a request on the request channel and gets one reply with the result. The service thread looks at the request channel after each wait of `next_event`. So a request starts within 1 s when the thread is not in a write.
 
 `HistoryDb` has two open functions:
 
 - The writer open creates the file, checks the schema version and migrates (H11). Only the service thread calls it.
 - The reader open is read-only. It changes no schema and no row, and it gives the error of H11 for a version above 2. A file that does not exist reads as an empty store. A version 1 file reads as a store with no Notes.
 
-Every read uses the reader open: the chart, the two Overview charts, the sparkline of the Sensors screen, the counts of a confirmation, the export and the Notes of a window. WAL mode lets these read while the service thread writes.
+Every read uses the reader open: the chart, the two Overview charts, the sparkline of the Sensors screen, the counts of a confirmation, the two periods of the Settings screen, the export and the Notes of a window. WAL mode lets these read while the service thread writes.
 
 Reason for the two open functions: the current `HistoryDb::open` runs the schema statements at each open, and every chart read calls it. With one open function, a reader would migrate the file, against the rule of one writer.
 
-The service thread gets the history settings from `SettingsStore`. `SettingsStore` shares the list of not recorded sensors and the two periods behind a mutex, as it shares the notification settings. The service thread reads them at each step: the list before it records, and the periods before a prune.
+The service thread gets the list of not recorded sensors from `SettingsStore`. `SettingsStore` shares the list behind a mutex, as it shares the notification settings. The service thread reads the list at each step, before it records. It reads the two periods from the table `meta` before each prune (H2).
 
 The service thread also owns the Samples that are not yet in the store. A delete must drop them (H8), and only the service thread can.
 
@@ -202,7 +222,8 @@ Both open functions set a busy timeout of 5 s. Reason: a second app process of t
 "One writer" is a rule inside one app process. This design gives a second process of the same user no new link:
 
 - A delete in one process does not reach the memory of the other process. The other process can write back the Samples of its last 10 s and the Minute row of its minute in progress.
-- A change of a period or of the list of not recorded sensors reaches the other process at its next start. Until then, each process prunes with the periods that it loaded.
+- A change of a period reaches the other process at its next prune, because each prune reads the two keys.
+- A change of the list of not recorded sensors reaches the other process at its next start.
 - `docs/app.md` says this.
 
 Rejected: a second write connection in the app window for the Notes and the deletes. Two writers need a retry rule for a busy database, and the Samples in memory would come back after a delete.
@@ -271,11 +292,27 @@ Rejected: empty the table `series` too. The ids would start again, and a second 
 
 Rejected: delete the three database files. The Overview keeps a connection open and would read the removed file until the app restarts.
 
-### H10. A large delete that the user confirmed compacts the file (sensor-history)
+### H10. A confirmed delete compacts the file when enough pages are free (sensor-history)
 
-SQLite keeps the pages of deleted rows in the file and uses them for new rows. After a change from 30 days to 48 hours, about 3.3 GB would stay in the file with no use. So the service thread compacts the file after a confirmed delete that removes 1 000 000 rows or more. This is about 23 MB of Samples. Such a delete is a range delete, a delete of the whole history or a change to a shorter period. The compaction is a `VACUUM` and then a WAL checkpoint that truncates.
+SQLite keeps the pages of deleted rows in the file and uses them for new rows. After a change from 30 days to 48 hours, about 3.3 GB would stay in the file with no use. So the service thread checks the file after each delete that the user confirmed: a range delete, a delete of the whole history or a change to a shorter period. It compacts the file when both conditions hold (owner decision 8):
 
-A prune of the schedule, at the start and once per hour, never compacts. Reason: the prune at the start removes more than 1 000 000 rows after about 5 hours without the app. A compaction at each such start would write the whole store again, and the Samples of the next hours fill the free pages.
+- The free pages are 25% of the file or more.
+- The free pages are 64 MB or more, which is 64 000 000 bytes.
+
+The service thread reads `freelist_count`, `page_count` and `page_size`. SQLite keeps these numbers in the header of the file, so the check scans no table. The compaction is a `VACUUM` and then a WAL checkpoint that truncates.
+
+| File | Free pages | Share of the file | Compaction |
+|---|---|---|---|
+| 10 GB | 23 MB | 0.2% | No |
+| 400 MB | 120 MB | 30% | Yes |
+| 200 MB | 60 MB | 30% | No: less than 64 MB |
+| 1 GB | 100 MB | 10% | No: less than 25% |
+
+Reason for 25%: a compaction writes every row that stays. With this rule, that cost gives back one quarter of the file or more. Reason for 64 MB: 60 Series write about 5 MB of Samples per hour, so the store fills a smaller free space again in less than 13 hours.
+
+The rule reads the state of the file and not the size of the delete. The free pages of earlier prunes count too.
+
+A prune of the schedule, at the start and once per hour, never compacts. Reason: after a weekend without the app, the prune at the start frees most of the pages of the Samples. A compaction at each such start would write the whole store again, and the Samples of the next hours fill the free pages.
 
 The compaction writes every row that stays, first to a copy and then through the WAL file. The SQLite that the app builds keeps this copy in a file.
 
@@ -286,18 +323,21 @@ The compaction writes every row that stays, first to a copy and then through the
 
 The Samples of the compaction time wait in the event channel (H18). Task 3.6 measures the time for the database of the size test and writes it to `docs/app.md`.
 
-A compaction that fails changes no row. The app shows the error, and the next large delete tries again.
+A compaction that fails changes no row. The app shows the error, and the next confirmed delete checks the file again.
 
 Rejected: a button "Compact". The user would have to know that a delete gives no space back.
 
-Rejected: the incremental vacuum mode of SQLite (`auto_vacuum = INCREMENTAL`). It gives free pages back in steps and writes no copy of the file. A database that exists needs one full `VACUUM` to get the mode, and the app would need a rule for the size and the time of each step. The open question on the compaction trigger keeps it as an option.
+Rejected: a trigger by the number of rows that a delete removes. A delete of 23 MB in a store of 10 GB would write 10 GB again and would need 20 GB of free disk space.
 
-### H11. Schema version 2 adds the Notes, and a newer file is not written (sensor-history)
+Rejected: the incremental vacuum mode of SQLite (`auto_vacuum = INCREMENTAL`). It gives free pages back in steps and writes no copy of the file. A database that exists needs one full `VACUUM` to get the mode, and the app would need a rule for the size and the time of each step.
+
+### H11. Schema version 2 adds the Notes and the two periods, and a newer file is not written (sensor-history)
 
 Both open functions of `HistoryDb` (H5) read `schema_version` first. Only the writer open changes the file.
 
-- A new file gets version 2.
-- A version 1 file gets the table `notes`, its index and version 2 in one transaction. No row of `samples`, `minutes` or `series` changes.
+- A new file gets version 2, with the two period keys at their defaults (H2).
+- A version 1 file gets the table `notes`, its index, the two period keys at their defaults and version 2 in one transaction. No row of `samples`, `minutes` or `series` changes.
+- A version 2 file with no key of a period gets the default of that key.
 - A version above 2 gives an error in both open functions. The app writes nothing, records nothing and draws no chart from the file. The History screen shows its database error state with a text that says that a newer version of nicecooling wrote the file.
 
 `docs/storage.md` has the same rule for the files of the daemon: a file with a higher schema version than the program knows is not written.
@@ -423,20 +463,26 @@ Rejected: a second index on the time. It adds a second tree to the largest table
 CREATE TABLE notes (id INTEGER PRIMARY KEY, t INTEGER NOT NULL, text TEXT NOT NULL);  -- t: Unix s
 CREATE INDEX notes_t ON notes (t);
 -- meta: schema_version = 2
+-- meta: sample_period = '48h'   -- '24h', '48h', '7d' or '30d'
+-- meta: minute_period = '1y'    -- '30d', '90d', '1y', '2y' or '5y'
 ```
 
-The tables `meta`, `series`, `samples` and `minutes` keep their columns.
+The tables `meta`, `series`, `samples` and `minutes` keep their columns. The table `meta` gets the two period keys. The service thread is their only writer.
+
+- Migration: the writer open brings a version 1 file to version 2 in one transaction and writes each period key that the file does not hold, with its default (H11). No stored row changes.
+- A value of a period key that is not a choice stops the prune of that key until the user picks a period (H2).
+- Downgrade: an older app ignores the table `notes` and the two period keys and keeps them. It prunes at 48 hours and 365 days.
 
 ### `settings.toml`, new table
 
 ```toml
 [history]
-sample_period = "48h"   # "24h", "48h", "7d" or "30d"
-minute_period = "1y"    # "30d", "90d", "1y", "2y" or "5y"
 excluded = []           # ids of the sensors and Channels that the app does not record
 ```
 
-`schema_version` stays 1. A file without the table loads with these defaults.
+`schema_version` stays 1. A file without the table loads with an empty list. The file holds no period: a settings file that is absent or that does not parse changes no period and deletes no row.
+
+- Downgrade: an older app ignores the table `[history]` and removes it at its next save of the settings. The app then records every sensor again, and no stored row changes.
 
 ### `history-views.toml`, new file
 
@@ -494,7 +540,7 @@ Sizes and capacities:
 | History operations at one time | 1 | H5 |
 | Start of a request in the service thread | 1 s when the thread is not in a write | H5 |
 | Events that wait while the service thread works | 1024, about 17 minutes at one event per second | H18 |
-| Compaction | After a delete that the user confirmed and that removed 1 000 000 rows or more | H10 |
+| Compaction | After a delete that the user confirmed, when the free pages are 25% of the file or more and 64 MB or more | H10 |
 | Free disk space for a compaction | Twice the size of the pages in use | H10 |
 | WAL file after a checkpoint | 64 MiB | H10 |
 | Image | 1920 x 1080 px, 8 294 400 bytes before the PNG compression | H15 |
@@ -533,7 +579,7 @@ Two other changes are on `main` next to this one. Each task of this change reads
 - A chart Tile of a sensor that is not recorded draws the stored rows and then nothing, as the Overview charts do (H1).
 - A chart Tile draws no Note (H14).
 - A click on a Tile opens the History screen with one sensor. As for the Sensors screen, the History screen then loads no View.
-- `SettingsStore`: `add-dashboard-pages` adds the field for the Dashboards, and this change adds the shared history settings. Both use the atomic write function of `app_settings.rs`.
+- `SettingsStore`: `add-dashboard-pages` adds the field for the Dashboards, and this change adds the shared list of not recorded sensors. Both use the atomic write function of `app_settings.rs`.
 - `docs/ui/DESIGN.md`: both changes add to the rule that red and amber are for Alarms and Warnings. H13 adds the caption of a custom color, and `add-dashboard-pages` adds the Tile limits.
 - `docs/app.md`: both changes add a row to the table "Settings and files". Each change has its downgrade steps in a subsection "Downgrade" of its own section.
 - `GLOSSARY.md`, `docs/storage.md`, `docs/i18n-terms.md`, `docs/ui/components.md` and the four locale files: both changes add entries.
@@ -556,24 +602,25 @@ This change is archived after `add-nicecooling-v1`, because it extends a require
 
 ## Migration and rollback
 
-- Forward: the first start of the new app brings `history.db` to version 2 (H11). `settings.toml` gets the table `[history]` at the first change of a setting. `history-views.toml` appears at the first saved View. No stored row is converted.
-- Back: an older app opens a version 2 database. It does not read the version, it ignores the table `notes`, and it records as before. Its prune uses 48 hours and 365 days again, at its first run after the start. At that prune, a user with a longer period loses the rows beyond these two times. The older app ignores the table `[history]` and removes it at its next save of the settings. It never reads `history-views.toml`.
+- Forward: the first start of the new app brings `history.db` to version 2 and writes the two period keys with the defaults 48 hours and 1 year (H11). `settings.toml` gets the table `[history]` at the first change of the list of not recorded sensors. `history-views.toml` appears at the first saved View. No stored row is converted.
+- Back: an older app opens a version 2 database. It does not read the version, it ignores the table `notes` and the two period keys, and it records as before. Its prune uses 48 hours and 365 days, at its first run after the start. At that prune, a user with a longer period loses the rows beyond these two times. The older app ignores the table `[history]` and removes it at its next save of the settings. It never reads `history-views.toml`.
 - Before a downgrade: export what must stay, or copy `history.db`. `docs/app.md` has these steps in a subsection "Downgrade" of its section "History".
-- Forward again: the Notes and the Views are still there. If the older app saved the settings, the two periods and the list of not recorded sensors are the defaults. The check of H4 makes the chart right for the rows that the older app removed.
+- Forward again: the Notes, the Views and the two period keys are still there, so the periods are the ones that the user chose. The check of H4 makes the chart right for the rows that the older app removed. If the older app saved the settings, the list of not recorded sensors is empty, and the app records every sensor again.
 
-Task 1.7 tests the two "back" statements with the old loader and the old schema text as test fixtures.
+Task 1.7 tests the "back" statements with the old loader and the old schema text as test fixtures.
 
 ## Risks / Trade-offs
 
 - [The estimate of 44 bytes per Minute row is computed, not measured] -> task 2.6 measures it with the size test. When the measured number is below 40 or above 48, task 2.6 sets it in the code, in `docs/storage.md`, in this design and in the specs, before the Settings card is built.
 - [One year of Minute rows for 60 Series is about 1.4 GB, more than the 238 MB of the Samples] -> the Settings card shows both estimates and the size on disk, and the Minute period has two shorter choices.
-- [A compaction holds the service thread for its length] -> it runs only after a delete of 1 000 000 rows or more, which the user started and confirmed. The Samples of that time wait in the event channel (H18). Task 3.6 measures the time.
+- [A compaction holds the service thread for its length] -> it runs only after a delete that the user started and confirmed, and only when it gives back 25% of the file or more (H10). The Samples of that time wait in the event channel (H18). Task 3.6 measures the time.
 - [A compaction needs free disk space of up to twice the size of the rows that stay] -> the service thread reads the free space first and does not compact with less (H10).
-- [A compaction after 1 000 000 removed rows writes the whole store again, also when the store is 10 GB and the delete freed 23 MB] -> the open question on the compaction trigger.
+- [A file keeps free pages that are below the rule of H10: less than 25% of the file, or less than 64 MB] -> new rows use these pages, and the row "Size on disk" shows the real size.
 - [An operation with more than 1024 waiting events leaves a gap] -> the event channel gives about 17 minutes. Task 3.6 measures the count, the delete and the compaction of the size test.
 - [The count of a confirmation reads every row that the delete removes, so the dialog waits] -> the dialog shows a counting state, and task 3.6 measures the count of the size test.
-- [A second app process of the same user does not see a delete or a new period of the first] -> H5 states the limit, and `docs/app.md` says it. The data of the range can come back for up to one minute, and the user can delete again.
-- [A settings file that is absent or that does not parse gives the default periods, and the next prune deletes with them] -> the open question on the place of the periods.
+- [A second app process of the same user does not see a delete of the first, and sees a new period only at its next prune] -> H5 states the limit, and `docs/app.md` says it. The data of the range can come back for up to one minute, and the user can delete again.
+- [A settings file that is absent or that does not parse gives an empty list of not recorded sensors] -> the app records every sensor again and deletes no row. The user turns the switches off again. The two periods are not in that file (H2).
+- [A period key with a value that is not a choice stops the prune of its rows, so the store grows] -> the Settings screen shows the text of H2 until the user picks a period.
 - [A delete cannot be undone] -> every delete has a confirmation with the exact count, the destructive button and the text "You cannot undo this."
 - [A downgrade prunes at 48 hours and 365 days] -> the subsection "Downgrade" of `docs/app.md` says it and gives the steps.
 - [A stop of the app during an export or an image save leaves a file `<name>.part`] -> the file is next to the chosen file and has its name. The user removes it.
@@ -587,7 +634,7 @@ Task 1.7 tests the two "back" statements with the old loader and the old schema 
 
 ## Product choices that the owner can change
 
-Each row is a choice that the owner decisions do not close. The specs hold the option of the column "In the specs", and a row changes only when the owner changes it.
+Each row is a product choice of this design. Owner decision 8 fixes the row "Disk space after a delete". The owner decisions do not close the other rows. The specs hold the option of the column "In the specs", and a row changes only when the owner changes it.
 
 | Choice | In the specs | Alternative |
 |---|---|---|
@@ -599,7 +646,7 @@ Each row is a choice that the owner decisions do not close. The specs hold the o
 | Two Series with the same name | The id in square brackets after the name | The same header twice |
 | Edge minutes of a range delete | A Minute row that overlaps the range is deleted whole | Keep the Minute rows that are only partly in the range |
 | Notes at the delete of the whole history | They stay, with a switch to delete them | Always delete them |
-| Disk space after a delete | Automatic compaction after 1 000 000 removed rows | A button "Compact", or no compaction |
+| Disk space after a delete | Automatic compaction after a confirmed delete, when the free pages are 25% of the file or more and 64 MB or more | A button "Compact", or no compaction |
 | Place of the style and the axis limits | In the View | One style per sensor for every chart |
 | Colors of a Series | Six series colors or a custom `#RRGGBB`, with a caption for red and amber | The six series colors only |
 | Line width | 1 to 4 px | Up to 8 px |
@@ -610,14 +657,6 @@ Each row is a choice that the owner decisions do not close. The specs hold the o
 
 ## Open Questions
 
-Two questions are open for the owner. The specs and the tasks hold the option "In the specs" of each question. The design recommends the option "Recommended". The scenarios of the specs hold for these two options of each question.
-
-1. The trigger of the compaction (H10).
-   - In the specs: after a confirmed delete of 1 000 000 rows or more. The rule is one number. The cost: a delete of 23 MB in a store of 10 GB writes 10 GB again and needs 20 GB of free space.
-   - Recommended: after a confirmed delete, when the free pages are 25% of the file or more and 64 MB or more. SQLite gives both numbers with no scan (`freelist_count`, `page_count`). The compaction then runs only when it gives back 25% of the file or more. The cost: two numbers in place of one.
-   - Other: the incremental vacuum mode. It never writes the whole store again after the first time. The cost: a step rule in the service thread and one full `VACUUM` for each database that exists.
-2. The place of the two periods (H2).
-   - In the specs: the table `[history]` of `settings.toml`. A settings file that is absent or that does not parse gives 48 hours and 1 year. The next prune then deletes the rows beyond these times with no count and no question, against the rule of H3. The same occurs when the user removes the settings directory to start again.
-   - Recommended: two keys in the table `meta` of `history.db`, which the service thread writes after the confirmation of H3. The periods then stay with the data that they keep, and a prune uses only a period that the user chose. The list of not recorded sensors stays in `settings.toml`. The cost: the service thread writes the periods, the Settings screen reads them with the reader open, and the period rows are off when the store is not open.
+None. Issue #89 holds the owner answers on the trigger of the compaction (H10, owner decision 8) and on the place of the two periods (H2, owner decision 9).
 
 The three things that tasks measure or check (the bytes of a Minute row, the time of a compaction, the look of the image) change no decision of this design.
