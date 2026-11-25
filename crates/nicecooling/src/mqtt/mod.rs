@@ -2,5 +2,6 @@
 //! The daemon has no MQTT code.
 
 pub mod backoff;
+pub mod client;
 pub mod queue;
 pub mod settings;

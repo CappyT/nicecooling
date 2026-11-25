@@ -22,6 +22,8 @@ use rustls::{ServerConfig, ServerConnection, StreamOwned};
 pub struct TestPki {
     /// The DER of the CA certificate. A client adds it as an extra root.
     pub ca_der: Vec<u8>,
+    /// The same certificate in PEM form, for a client that reads a CA file.
+    pub ca_pem: String,
     pub server_config: Arc<ServerConfig>,
 }
 
@@ -61,6 +63,7 @@ impl TestPki {
             .expect("server TLS configuration");
         Self {
             ca_der: ca_cert.der().to_vec(),
+            ca_pem: ca_cert.pem(),
             server_config: Arc::new(server_config),
         }
     }

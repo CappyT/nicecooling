@@ -24,6 +24,7 @@ use crate::graphs::view::SharedView;
 use crate::history::{HistoryDb, HistoryWriter};
 use crate::i18n::Locale;
 use crate::model::{AppState, DaemonEvent, FLAG_NO_VALUE};
+use crate::mqtt::client::{MqttConfig, MqttHandle, ResponseEnd};
 use crate::notify::{Notifier, NotifyPrefs, Plan, plan};
 use crate::tray::{Tray, TrayView};
 
@@ -328,6 +329,18 @@ pub fn spawn_graphs(
     );
     spawn_service(service, events, inputs);
     channel
+}
+
+/// The MQTT client: one task on the multi-thread runtime of the app. `None` leaves MQTT off, as an
+/// empty host does. The caller sends messages through the handle and reads the end of each
+/// response message from the receiver, so a broker that is down or slow never blocks the caller.
+pub fn spawn_mqtt_client(
+    runtime: &tokio::runtime::Handle,
+    config: Option<MqttConfig>,
+) -> (MqttHandle, UnboundedReceiver<ResponseEnd>) {
+    let (client, ends) = MqttHandle::spawn(runtime);
+    client.configure(config);
+    (client, ends)
 }
 
 /// `$XDG_DATA_HOME/nicecooling/history.db`.

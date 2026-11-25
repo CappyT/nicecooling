@@ -34,3 +34,7 @@ ContentType
 
 # Type of the rustls API: the TLS acceptor of the SMTP test server (the library, not our code).
 ServerConnection
+
+# Variants of the `QoS` enum of the rumqttc API (the library, not our code).
+AtLeastOnce
+AtMostOnce

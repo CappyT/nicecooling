@@ -130,6 +130,11 @@ impl Outbox {
         }
     }
 
+    /// The base topic changed. The values wait under the old topics, so they go. The queue stays.
+    pub fn clear_values(&mut self) {
+        self.slots.clear();
+    }
+
     /// The host is cleared. The values and the queue go. A response message gets `Failed`.
     pub fn clear(&mut self) -> Vec<Report> {
         self.slots.clear();
@@ -198,6 +203,18 @@ mod tests {
         assert_eq!(outbox.pop_next(), None);
         outbox.mark_all_unsent();
         assert_eq!(text(outbox.pop_next()), "a99");
+    }
+
+    #[test]
+    fn clear_values_keeps_the_queue() {
+        let mut outbox = Outbox::new();
+        outbox.set_value("t/a", b"a".to_vec());
+        outbox.enqueue("t/event/x", b"raise".to_vec(), None);
+        outbox.clear_values();
+        assert_eq!(outbox.value_count(), 0);
+        assert_eq!(outbox.queue_len(), 1);
+        assert_eq!(text(outbox.pop_next()), "raise");
+        assert_eq!(outbox.pop_next(), None);
     }
 
     #[test]

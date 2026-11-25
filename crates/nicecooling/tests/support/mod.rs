@@ -10,6 +10,7 @@ pub mod fixtures;
 pub mod graphs;
 pub mod harness;
 pub mod labels;
+pub mod mqtt_broker;
 pub mod smtp_server;
 
 /// Point the session bus lookup of `ksni` and `notify-rust` at a private bus. Both read
