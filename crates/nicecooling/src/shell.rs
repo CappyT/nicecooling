@@ -67,12 +67,18 @@ pub enum BannerStyle {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum BannerAction {
-    CancelPoweroff { instance: String },
+    CancelPoweroff {
+        instance: String,
+    },
     TryAgain,
     ShowHowToStart,
-    OpenFields { leakshield: String },
+    OpenFields {
+        leakshield: String,
+    },
     OpenProfiles,
     ShowNotices,
+    /// The button "Turn the Graph responses on" of the Response pause.
+    TurnResponsesOn,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -80,6 +86,7 @@ pub enum BannerKind {
     Poweroff,
     DaemonOffline,
     DaemonDown,
+    ResponsePause,
     UnknownFirmware,
     ImmediateSwitching,
     MoreNotices,
@@ -129,9 +136,29 @@ const MAX_BANNERS: usize = 3;
 
 impl ShellModel {
     pub fn build(state: &AppState, now_us: u64, locale: Locale) -> Self {
-        let mut banners = banners(state, now_us, locale);
+        Self::build_with(state, now_us, locale, None)
+    }
+
+    /// As `build`, with the Response pause of the Graph service: `response_pause` is the count of
+    /// power responses in a row while the pause is on.
+    pub fn build_with(
+        state: &AppState,
+        now_us: u64,
+        locale: Locale,
+        response_pause: Option<u32>,
+    ) -> Self {
+        let mut banners = banners(state, now_us, locale, response_pause);
         let mut more_notices = Vec::new();
         if banners.len() > MAX_BANNERS {
+            // The Response pause banner shows on every screen: it never goes into the list.
+            if let Some(at) = banners
+                .iter()
+                .position(|banner| banner.kind == BannerKind::ResponsePause)
+                && at >= MAX_BANNERS - 1
+            {
+                let pause = banners.remove(at);
+                banners.insert(MAX_BANNERS - 2, pause);
+            }
             more_notices = banners.split_off(MAX_BANNERS - 1);
             banners.push(Banner {
                 kind: BannerKind::MoreNotices,
@@ -263,7 +290,12 @@ fn last_digits(serial: &str, count: usize) -> String {
         .collect()
 }
 
-fn banners(state: &AppState, now_us: u64, locale: Locale) -> Vec<Banner> {
+fn banners(
+    state: &AppState,
+    now_us: u64,
+    locale: Locale,
+    response_pause: Option<u32>,
+) -> Vec<Banner> {
     let mut list = Vec::new();
     let leakshield = locale.tr("nav.leakshield");
 
@@ -315,6 +347,23 @@ fn banners(state: &AppState, now_us: u64, locale: Locale) -> Vec<Banner> {
             )),
         }),
         Link::Connecting | Link::Online => {}
+    }
+
+    if let Some(count) = response_pause {
+        list.push(Banner {
+            kind: BannerKind::ResponsePause,
+            style: BannerStyle::Warning,
+            title: locale.fmt(
+                "banner.response_pause.title",
+                &[("count", &count.to_string())],
+            ),
+            detail: Some(locale.tr("banner.response_pause.detail")),
+            countdown: None,
+            button: Some((
+                locale.tr("banner.response_pause.button"),
+                BannerAction::TurnResponsesOn,
+            )),
+        });
     }
 
     // The last read stays on screen while the daemon is away, so these two keep their banner.

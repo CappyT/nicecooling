@@ -44,9 +44,10 @@ pub enum GraphCommand {
     },
     Try(Box<TryRequest>),
     StopTry,
-    /// Run the response of a Graph once, whatever its state and timing.
+    /// Run the response of a Graph once, whatever its state, its timing and the Response pause. The
+    /// Graph is the draft of the editor: the response runs with its parameters.
     RunOnce {
-        graph: String,
+        graph: Box<Graph>,
     },
     /// Cancel the running countdown of a power response.
     CancelCountdown,

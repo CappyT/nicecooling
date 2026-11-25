@@ -132,8 +132,14 @@ impl AppModel {
             .and_then(|view| view.countdown.clone())
     }
 
+    /// The count of power responses in a row while the Response pause is on.
+    pub fn response_pause(&self) -> Option<u32> {
+        let view = self.graph_view.as_ref()?.lock().ok()?;
+        view.pause.paused.then_some(view.pause.count)
+    }
+
     pub fn shell(&self) -> ShellModel {
-        ShellModel::build(&self.state, self.now_us, self.locale)
+        ShellModel::build_with(&self.state, self.now_us, self.locale, self.response_pause())
     }
 }
 

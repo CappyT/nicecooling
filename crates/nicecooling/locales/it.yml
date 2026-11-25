@@ -43,6 +43,10 @@ banner:
     title: Il demone è fermo. La protezione di nicecooling è spenta.
     detail: Nessuna Curva, nessun Feed, nessuna risposta agli allarmi. La Scheda usa le sue curve Hardware dallo snapshot del BIOS.
     button: Mostra come avviarlo
+  response_pause:
+    title: "Pausa delle risposte: %{count} risposte di spegnimento o riavvio di fila"
+    detail: Nessuna risposta Graph parte da sola. I sensori Graph continuano a funzionare.
+    button: Riattiva le risposte Graph
   unknown_firmware:
     title: "Il firmware %{firmware} del Leakshield è sconosciuto. Ogni campo è in sola lettura."
     button: Apri i Campi
@@ -181,6 +185,9 @@ graph_countdown:
     poweroff: Spegnimento
     reboot: Riavvio
     suspend: Sospensione
+graph_refusal:
+  alarm_countdown: È in corso il conto alla rovescia di spegnimento di un Allarme. Nessuna risposta di spegnimento, riavvio o sospensione parte.
+  inactive_session: Questa sessione non è quella attiva. Nessuna risposta parte.
 feedback:
   pending: Scrittura in corso
   applied: "Applicato alle %{time}"

@@ -26,7 +26,7 @@ use super::session::AlwaysActive;
 use super::store::{GraphStore, describe, describe_invalid};
 use super::try_run::TryRun;
 use super::values::{ActiveSession, SensorError};
-use super::view::{GraphRow, RowState, SharedView, TryView};
+use super::view::{GraphRow, PauseView, RowState, SharedView, TryView};
 use crate::i18n::Locale;
 use crate::model::{AppState, DaemonEvent};
 use crate::notify::{Level, NotificationSpec, Plan, open_button};
@@ -200,6 +200,7 @@ impl GraphService {
         };
         service.publish();
         service.publish_log();
+        service.publish_pause();
         service
     }
 
@@ -428,6 +429,8 @@ impl GraphService {
         if let Ok(mut view) = self.view.lock() {
             view.countdown = shown;
         }
+        // Every start and every end of a countdown can change the count of the Response pause.
+        self.publish_pause();
     }
 
     /// One command of the window, the tray or a notification.
@@ -452,6 +455,7 @@ impl GraphService {
             GraphCommand::ResponsesOn => {
                 self.store.state_mut().pause.turn_on();
                 self.write_state(self.clock.now(), true);
+                self.publish_pause();
             }
             GraphCommand::Try(request) => {
                 let now = self.clock.now();
@@ -467,9 +471,9 @@ impl GraphService {
                 self.trying = None;
                 self.publish_try(None);
             }
-            // "Run once" and the MQTT and SMTP settings belong to the sections of the responses and
-            // the network clients.
-            GraphCommand::RunOnce { .. } | GraphCommand::NetworkSettingsEdited => {}
+            GraphCommand::RunOnce { graph } => self.run_once(*graph),
+            // The MQTT and SMTP settings belong to the section of the network clients.
+            GraphCommand::NetworkSettingsEdited => {}
         }
     }
 
@@ -668,10 +672,78 @@ impl GraphService {
                 now,
                 &mut self.store.state_mut().responses,
             );
-            if action == Action::Run {
+            // The Response pause: no response runs by itself. The state machine has moved on, so a
+            // condition that stays true runs nothing when the pause ends.
+            if action == Action::Run && !self.store.state().pause.paused {
                 let run = self.make_run(graph, node, result, key);
                 self.start_run(run);
             }
+        }
+    }
+
+    /// "Run once": run the response of the draft `draft` one time at once. It ignores the state
+    /// machine, the minimum interval and the Response pause. A poweroff or reboot counts for the
+    /// pause. No power response starts while the daemon reports the poweroff countdown of an
+    /// Alarm, and an app of a session that is not active runs nothing.
+    fn run_once(&mut self, draft: Graph) {
+        let Some(node) = draft.response_end().cloned() else {
+            eprintln!(
+                "nicecooling: run once: the Graph {} has no response end node",
+                draft.id
+            );
+            return;
+        };
+        let kind = node.response_kind();
+        if !self.session.active() {
+            self.refuse(self.locale.tr("graph_refusal.inactive_session"));
+            return;
+        }
+        if kind.is_power() && self.alarm_poweroff_pending() {
+            self.refuse(self.locale.tr("graph_refusal.alarm_countdown"));
+            return;
+        }
+        // The values come from the last pass of the applied Graph with the same id.
+        let time_us = self.responses.wall_us();
+        let sensors = &self.state.snapshot.sensors;
+        let values = match (self.store.graph(&draft.id), self.last_pass.as_ref()) {
+            (Some(applied), Some(pass)) => pass
+                .graph(&applied.id)
+                .map(|result| {
+                    labelled_values(applied, result, |id| {
+                        sensors
+                            .get(id)
+                            .map(|sensor| unit_text(&sensor.unit).to_owned())
+                            .unwrap_or_default()
+                    })
+                })
+                .unwrap_or_default(),
+            _ => Vec::new(),
+        };
+        let run = Run {
+            id: self.responses.next_run_id(time_us),
+            key: value_key(&draft.id, node.id),
+            graph_id: draft.id.clone(),
+            graph_name: draft.name.clone(),
+            node,
+            kind,
+            time_us,
+            time_text: date_time_seconds(time_us),
+            values,
+        };
+        if let Ok(mut view) = self.view.lock() {
+            view.refusal = None;
+        }
+        self.start_run(run);
+    }
+
+    /// The Response pause for the window.
+    fn publish_pause(&self) {
+        let pause = self.store.state().pause;
+        if let Ok(mut view) = self.view.lock() {
+            view.pause = PauseView {
+                paused: pause.paused,
+                count: pause.count,
+            };
         }
     }
 

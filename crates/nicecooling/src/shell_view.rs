@@ -13,6 +13,7 @@ use tokio::sync::mpsc::UnboundedSender;
 
 use crate::app::AppModel;
 use crate::command::Command;
+use crate::graphs::channel::GraphCommand;
 use crate::icons::{NcIcon, icon, small_icon, text_icon};
 use crate::model::{Link, Severity};
 use crate::screen_view::ScreenView;
@@ -215,6 +216,9 @@ impl ShellView {
                 });
             }
             BannerAction::OpenProfiles => view.update(cx, |this, cx| this.go(Page::Profiles, cx)),
+            BannerAction::TurnResponsesOn => {
+                let _ = commands.send(Command::Graph(GraphCommand::ResponsesOn));
+            }
         }
     }
 
@@ -281,6 +285,8 @@ impl ShellView {
                 button
                     .track_focus(&self.banner_focus)
                     .debug_selector(|| "banner-cancel".to_owned())
+            } else if matches!(action, BannerAction::TurnResponsesOn) {
+                button.debug_selector(|| "banner-responses-on".to_owned())
             } else {
                 button
             };

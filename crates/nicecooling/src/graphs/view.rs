@@ -75,6 +75,14 @@ pub enum ValuesState {
     Failed(String),
 }
 
+/// The Response pause as the window shows it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct PauseView {
+    pub paused: bool,
+    /// The poweroff and reboot runs in a row.
+    pub count: u32,
+}
+
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct GraphView {
     pub rows: Vec<GraphRow>,
@@ -89,6 +97,8 @@ pub struct GraphView {
     /// The state of the call that sends the Graph sensor values.
     pub values: ValuesState,
     pub foreign_sensors: Vec<ForeignSensor>,
+    /// The Response pause: no Graph response runs by itself while it is on.
+    pub pause: PauseView,
     /// The response log, in the order of the runs: the newest 500 rows of all Graphs.
     pub log: Vec<LogRow>,
 }

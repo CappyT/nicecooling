@@ -43,6 +43,10 @@ banner:
     title: Le démon est arrêté. La protection de nicecooling est désactivée.
     detail: Aucune Courbe, aucun Feed, aucune réponse aux alarmes. La Carte mère applique ses Courbes matérielles à partir de l'instantané du BIOS.
     button: Voir comment le démarrer
+  response_pause:
+    title: "Pause des réponses : %{count} réponses d'extinction ou de redémarrage à la suite"
+    detail: Aucune réponse Graph ne s'exécute seule. Les capteurs Graph continuent de fonctionner.
+    button: Réactiver les réponses Graph
   unknown_firmware:
     title: "Le firmware %{firmware} du Leakshield est inconnu. Tous les champs sont en lecture seule."
     button: Ouvrir les Champs
@@ -181,6 +185,9 @@ graph_countdown:
     poweroff: Extinction
     reboot: Redémarrage
     suspend: Mise en veille
+graph_refusal:
+  alarm_countdown: Le compte à rebours d'extinction d'une Alarme est en cours. Aucune réponse d'extinction, de redémarrage ou de mise en veille ne démarre.
+  inactive_session: Cette session n'est pas la session active. Aucune réponse ne s'exécute.
 feedback:
   pending: Écriture
   applied: "Appliqué à %{time}"

@@ -28,6 +28,7 @@ A term that Italian keeps in English stays in English in German. A term that Ita
 | Graph sensor | sensore Graph | Graph-Sensor | capteur Graph |
 | Graph service | servizio Graph | Graph-Dienst | service Graph |
 | Graph response | risposta Graph | Graph-Reaktion | réponse Graph |
+| Response pause | Pausa delle risposte | Reaktionspause | Pause des réponses |
 | Software sensor | sensore software | Software-Sensor | capteur logiciel |
 | Flow sensor | sensore di portata | Durchflusssensor | capteur de débit |
 | Water temperature | Temperatura acqua | Wassertemperatur | Température de l'eau |

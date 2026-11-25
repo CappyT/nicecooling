@@ -43,6 +43,10 @@ banner:
     title: Der Daemon ist ausgefallen. Der Schutz von nicecooling ist aus.
     detail: Keine Kurve, kein Feed, keine Alarmreaktion. Das Mainboard nutzt seine Hardware-Kurven aus dem BIOS-Snapshot.
     button: Start anzeigen
+  response_pause:
+    title: "Reaktionspause: %{count} Graph-Reaktionen zum Herunterfahren oder Neustart in Folge"
+    detail: Keine Graph-Reaktion läuft von selbst. Die Graph-Sensoren arbeiten weiter.
+    button: Graph-Reaktionen einschalten
   unknown_firmware:
     title: "Die Leakshield-Firmware %{firmware} ist unbekannt. Alle Felder sind schreibgeschützt."
     button: Felder öffnen
@@ -181,6 +185,9 @@ graph_countdown:
     poweroff: Herunterfahren
     reboot: Neustart
     suspend: Bereitschaft
+graph_refusal:
+  alarm_countdown: Der Countdown zum Herunterfahren eines Alarms läuft. Keine Reaktion zum Herunterfahren, Neustart oder zur Bereitschaft startet.
+  inactive_session: Diese Sitzung ist nicht die aktive. Keine Reaktion läuft.
 feedback:
   pending: Schreiben
   applied: "Angewendet %{time}"

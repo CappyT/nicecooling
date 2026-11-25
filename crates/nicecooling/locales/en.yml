@@ -43,6 +43,10 @@ banner:
     title: The daemon is down. nicecooling protection is off.
     detail: No Curve, no Feed, no alarm response. The Board runs its Hardware curves from the BIOS snapshot.
     button: Show how to start it
+  response_pause:
+    title: "Response pause: %{count} power responses in a row"
+    detail: No Graph response runs by itself. The Graph sensors still work.
+    button: Turn the Graph responses on
   unknown_firmware:
     title: "Leakshield firmware %{firmware} is unknown. Every field is read-only."
     button: Open Fields
@@ -181,6 +185,9 @@ graph_countdown:
     poweroff: Poweroff
     reboot: Reboot
     suspend: Suspend
+graph_refusal:
+  alarm_countdown: An Alarm poweroff countdown runs. No poweroff, reboot or suspend response starts.
+  inactive_session: This session is not the active one. No response runs.
 feedback:
   pending: Writing
   applied: "Applied %{time}"
