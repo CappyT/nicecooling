@@ -121,7 +121,7 @@ Not checked: a Graph of 256 nodes, the pinch zoom, a touchpad scroll, the box se
 | Delete except the end node | `FlowNode::deletable` exists. Not checked |
 | Add a node at a position | `Viewport::screen_to_flow` and `FlowState::to_canvas` give the position. There is no drop target |
 | Tests without a display (task 8.1) | The connect, zoom and pan logic is in closures of `FlowGraph::render`. The four tests of task 8.1 need this logic as functions of `FlowState` |
-| Lints of the workspace (task 8.1) | `cargo clippy` with its default lints gives 29 warnings on the copy. The copy is not formatted with `rustfmt` |
+| Lints of the workspace (task 8.1) | `cargo clippy` with its default lints gives 29 warnings on the copy. The copy is not formatted with `rustfmt`. **Fixed in `crates/nicecooling-flow`:** the crate is formatted and passes `cargo clippy -- -D warnings` with no crate-level `allow`. One function keeps `allow(clippy::too_many_arguments)` with its reason |
 
 ## Build notes
 

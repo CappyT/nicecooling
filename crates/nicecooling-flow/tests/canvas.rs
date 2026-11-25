@@ -466,3 +466,21 @@ fn the_zero_key_goes_back_to_100_percent_around_the_center() {
     let after = state.viewport.screen_to_flow(300.0, 200.0);
     assert!((center.x - after.x).abs() < 1e-3 && (center.y - after.y).abs() < 1e-3);
 }
+
+#[test]
+fn a_press_on_a_connection_selects_it_and_a_press_beside_it_clears_the_selection() {
+    let mut state = pins();
+    connect(&mut state, "src", "a");
+    let id = state.edges[0].id.clone();
+    state.take_events();
+    // The curve from (100, 30) to (300, 20) passes through the middle of the two pins.
+    state.press_canvas((200.0, 25.0));
+    assert_eq!(state.selection(), Some(Selection::Connection(id)));
+    assert!(
+        state.pan_drag.is_none(),
+        "a press on a connection does not pan"
+    );
+    state.press_canvas((200.0, 120.0));
+    assert_eq!(state.selection(), None);
+    assert!(state.pan_drag.is_some());
+}

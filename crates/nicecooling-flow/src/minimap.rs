@@ -59,7 +59,6 @@ impl Render for Minimap {
             )
             .on_mouse_down(MouseButton::Left, {
                 let state = state_for_mouse.clone();
-                let entity_id = entity_id;
                 move |event, _window, cx| {
                     let mx = event.position.x.as_f32();
                     let my = event.position.y.as_f32();
@@ -69,7 +68,6 @@ impl Render for Minimap {
             })
             .on_mouse_move({
                 let state = state_for_mouse.clone();
-                let entity_id = entity_id;
                 move |event, _window, cx| {
                     if event.pressed_button == Some(MouseButton::Left) {
                         let mx = event.position.x.as_f32();
@@ -195,7 +193,7 @@ fn paint_minimap(
             builder.move_to(Point::new(px(sx), px(sy)));
             builder.line_to(Point::new(px(tx), px(ty)));
             if let Ok(path) = builder.build() {
-                window.paint_path(path, edge_color.clone());
+                window.paint_path(path, edge_color);
             }
         }
     }
@@ -231,7 +229,7 @@ fn paint_minimap(
             height: px(1.0),
         },
     );
-    window.paint_quad(fill(top, border_color.clone()));
+    window.paint_quad(fill(top, border_color));
     let bottom = Bounds::new(
         Point::new(px(vx), px(vy + vh)),
         Size {
@@ -239,7 +237,7 @@ fn paint_minimap(
             height: px(1.0),
         },
     );
-    window.paint_quad(fill(bottom, border_color.clone()));
+    window.paint_quad(fill(bottom, border_color));
     let left = Bounds::new(
         Point::new(px(vx), px(vy)),
         Size {
@@ -247,7 +245,7 @@ fn paint_minimap(
             height: px(vh),
         },
     );
-    window.paint_quad(fill(left, border_color.clone()));
+    window.paint_quad(fill(left, border_color));
     let right = Bounds::new(
         Point::new(px(vx + vw), px(vy)),
         Size {

@@ -38,7 +38,7 @@ impl Render for Controls {
             .flex_col()
             .gap_1()
             .p_1()
-            .bg(gpui::rgba(0x18181b_ee))
+            .bg(gpui::rgba(0x18181bee))
             .rounded_md()
             .border_1()
             .border_color(gpui::rgb(0x27272a))

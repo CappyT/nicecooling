@@ -75,11 +75,11 @@ pub fn paint_edges(
         }
 
         let color: Background = if edge.selected {
-            selected_color.clone()
+            selected_color
         } else if let Some(c) = edge.color {
             gpui::rgb(c).into()
         } else {
-            edge_color.clone()
+            edge_color
         };
         let stroke = edge.stroke_width.unwrap_or(2.0);
 
@@ -104,7 +104,7 @@ pub fn paint_edges(
                 );
 
                 if let Ok(path) = builder.build() {
-                    window.paint_path(path, color.clone());
+                    window.paint_path(path, color);
                 }
 
                 // Draw arrowhead at target
@@ -125,7 +125,7 @@ pub fn paint_edges(
                 builder.line_to(Point::new(px(straight.target.0), px(straight.target.1)));
 
                 if let Ok(path) = builder.build() {
-                    window.paint_path(path, color.clone());
+                    window.paint_path(path, color);
                 }
 
                 paint_arrowhead(
@@ -161,12 +161,12 @@ pub fn paint_edges(
 
                 let mut builder = PathBuilder::stroke(px(stroke));
                 builder.move_to(Point::new(px(step.points[0].0), px(step.points[0].1)));
-                for i in 1..n {
-                    builder.line_to(Point::new(px(step.points[i].0), px(step.points[i].1)));
+                for point in &step.points[1..] {
+                    builder.line_to(Point::new(px(point.0), px(point.1)));
                 }
 
                 if let Ok(path) = builder.build() {
-                    window.paint_path(path, color.clone());
+                    window.paint_path(path, color);
                 }
 
                 paint_arrowhead(window, last.0, last.1, prev.0, prev.1, color);
@@ -298,16 +298,13 @@ pub fn hit_test_edges(state: &FlowState, mx: f32, my: f32, threshold: f32) -> Op
                     curvature,
                 );
                 point_to_cubic_bezier_distance(
-                    mx,
-                    my,
-                    bezier.source.0,
-                    bezier.source.1,
-                    bezier.source_control.0,
-                    bezier.source_control.1,
-                    bezier.target_control.0,
-                    bezier.target_control.1,
-                    bezier.target.0,
-                    bezier.target.1,
+                    (mx, my),
+                    [
+                        bezier.source,
+                        bezier.source_control,
+                        bezier.target_control,
+                        bezier.target,
+                    ],
                     20,
                 )
             }
@@ -340,16 +337,8 @@ fn point_to_segment_distance(px: f32, py: f32, x1: f32, y1: f32, x2: f32, y2: f3
 
 /// Approximate distance from point to cubic bezier by sampling.
 fn point_to_cubic_bezier_distance(
-    px: f32,
-    py: f32,
-    x0: f32,
-    y0: f32,
-    cx0: f32,
-    cy0: f32,
-    cx1: f32,
-    cy1: f32,
-    x1: f32,
-    y1: f32,
+    (px, py): (f32, f32),
+    [(x0, y0), (cx0, cy0), (cx1, cy1), (x1, y1)]: [(f32, f32); 4],
     samples: usize,
 ) -> f32 {
     let mut min_dist = f32::MAX;
@@ -373,10 +362,10 @@ fn find_handle_position(
     handle_type: HandleType,
 ) -> HandlePosition {
     // Try exact match first
-    if let Some(id) = handle_id {
-        if let Some(def) = node.handles.iter().find(|h| h.id.as_ref() == Some(id)) {
-            return def.position;
-        }
+    if let Some(id) = handle_id
+        && let Some(def) = node.handles.iter().find(|h| h.id.as_ref() == Some(id))
+    {
+        return def.position;
     }
 
     // Fall back to first handle of the right type

@@ -50,19 +50,6 @@
 //!
 //! A connection by keyboard is not in the canvas: the app offers its own control for it.
 
-// The copy breaks these lints of the workspace. Each lint is fixed or kept with its reason in a
-// later commit. Source: `gpui-flow` at commit `cfa5787`.
-#![allow(
-    clippy::clone_on_copy,
-    clippy::collapsible_if,
-    clippy::derivable_impls,
-    clippy::needless_bool,
-    clippy::needless_range_loop,
-    clippy::redundant_locals,
-    clippy::too_many_arguments,
-    clippy::unusual_byte_groupings
-)]
-
 pub mod controls;
 pub mod edges;
 pub mod graph;

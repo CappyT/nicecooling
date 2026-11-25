@@ -334,10 +334,10 @@ impl FlowState {
         }
         if let Some(drag) = self.drag_state.take() {
             for (id, from) in drag.node_origins {
-                if let Some(to) = self.get_node(&id).map(|node| node.position) {
-                    if to != from {
-                        self.events.push(FlowEvent::NodeMoved { id, from, to });
-                    }
+                if let Some(to) = self.get_node(&id).map(|node| node.position)
+                    && to != from
+                {
+                    self.events.push(FlowEvent::NodeMoved { id, from, to });
                 }
             }
             for node in &mut self.nodes {
@@ -770,22 +770,20 @@ impl FlowState {
                     let dy = mouse_y - hy;
                     let dist = (dx * dx + dy * dy).sqrt();
 
-                    if dist <= radius {
-                        if best.is_none() || dist < best.as_ref().unwrap().0 {
-                            best = Some((
-                                dist,
-                                SnapTarget {
-                                    node_id: node.id.clone(),
-                                    handle_id: handle.id.clone(),
-                                    handle_type: handle.handle_type,
-                                    position: handle.position,
-                                    point: (hx, hy),
-                                    refusal: self
-                                        .check(&draft.connection_to(&node.id, &handle.id))
-                                        .err(),
-                                },
-                            ));
-                        }
+                    if dist <= radius && best.as_ref().is_none_or(|(nearest, _)| dist < *nearest) {
+                        best = Some((
+                            dist,
+                            SnapTarget {
+                                node_id: node.id.clone(),
+                                handle_id: handle.id.clone(),
+                                handle_type: handle.handle_type,
+                                position: handle.position,
+                                point: (hx, hy),
+                                refusal: self
+                                    .check(&draft.connection_to(&node.id, &handle.id))
+                                    .err(),
+                            },
+                        ));
                     }
                 }
             }

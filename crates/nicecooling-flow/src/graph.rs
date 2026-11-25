@@ -274,6 +274,9 @@ impl FlowGraph {
     }
 
     /// Render handle dots for a node.
+    // The pin colors and sizes come one by one from the one caller. A struct for them adds a type
+    // and no clarity.
+    #[allow(clippy::too_many_arguments)]
     fn render_handles(
         handles: &[HandleDef],
         node_id: &FlowNodeId,
@@ -592,24 +595,24 @@ impl Render for FlowGraph {
             let bg = self.bg_color;
             let mut edge_label_elements: Vec<AnyElement> = Vec::new();
             for edge in &state.edges {
-                if let Some(ref label) = edge.label {
-                    if let Some((lx, ly)) = edges::compute_edge_label_position(state, edge) {
-                        let label_color = edge.color.unwrap_or(self.edge_color);
-                        edge_label_elements.push(
-                            div()
-                                .absolute()
-                                .left(px(lx))
-                                .top(px(ly))
-                                .px_2()
-                                .py_0p5()
-                                .bg(gpui::rgb(bg))
-                                .rounded_sm()
-                                .text_xs()
-                                .text_color(gpui::rgb(label_color))
-                                .child(label.to_string())
-                                .into_any_element(),
-                        );
-                    }
+                if let Some(ref label) = edge.label
+                    && let Some((lx, ly)) = edges::compute_edge_label_position(state, edge)
+                {
+                    let label_color = edge.color.unwrap_or(self.edge_color);
+                    edge_label_elements.push(
+                        div()
+                            .absolute()
+                            .left(px(lx))
+                            .top(px(ly))
+                            .px_2()
+                            .py_0p5()
+                            .bg(gpui::rgb(bg))
+                            .rounded_sm()
+                            .text_xs()
+                            .text_color(gpui::rgb(label_color))
+                            .child(label.to_string())
+                            .into_any_element(),
+                    );
                 }
             }
 
