@@ -96,11 +96,86 @@ All four call `CancelPoweroff` of the daemon (`docs/api.md`). The Alarm stays ac
 
 The polkit action `io.github.cappyt.NiceCooling1.cancel-poweroff` allows a member of `wheel` in a local session, active or not. A user outside `wheel` must give the administrator password (`docs/api.md`, Authorization). The app of a second session of a `wheel` member cancels the poweroff too.
 
+## Graph service
+
+The Graph service evaluates the Graphs (`docs/graphs.md`). It runs on its own thread, in the one app instance of the user session. It follows the events of the daemon and takes the commands of the window, the tray and the notifications through one channel. The channel holds 256 commands. A command that comes while the channel is full is refused, and the refusal text goes to the shared view. The stop message has its own path and is never refused.
+
+- A pass runs once per second. It reads the sensor values and the Alarms from the last events of the daemon, and it scans `/proc` for the process nodes only when a Graph has one. A pass that is late does not run again to catch up.
+- A Graph that panics in a pass is stored as disabled, and a notification names it. A panic outside the evaluation of a Graph ends the service. The window shows the error and a notification says that the service stopped.
+- The service writes its state for the screens to one shared view: the rows of the Graphs, the countdown, the Response pause, the state of the values call, the response log and the refusals (`docs/ui/screens/graphs.md`).
+- "Try" of the Graph editor runs a draft with its own state. It sends no value to the daemon and starts no response.
+- `docs/storage.md` defines the files. The app is the only writer and the daemon never reads them.
+
+### Links to the daemon
+
+- At each pass the service sends the value of each Graph sensor with `SetGraphSensorValues` (`docs/api.md`, Graph sensors). A disabled Graph and a value that is not finite go as the no-value entry. The call waits at most 2 s.
+- The call has no interactive flag. When polkit refuses it, the call stops for 60 s and the shared view holds the state "no access". The app never opens a password dialog for it.
+- Apply and Enable make the Graph sensor with `CreateGraphSensor` when the Graph has none. Apply renames it with `SetDefinition` when the name or the unit differs. A Graph that loses its sensor end node deletes its sensor, and a delete of a Graph deletes its sensor first. These calls can open the polkit prompt. A refusal of the daemon, for example `InUse` or the limit of 64, keeps the Graph as it was and shows the reason.
+- At each new snapshot of the daemon, the service makes the Graph sensor of each Graph that holds an id the daemon does not list. A Graph sensor that no Graph holds stays on the daemon. It can belong to the app of another user, so the app leaves it and lists it in the shared view.
+
+### Active session
+
+Only the app of the active session of the seat sends Graph sensor values and runs Graph responses. The app finds its session with `XDG_SESSION_ID` and `GetSession` of `org.freedesktop.login1.Manager`, reads the property `Active` of `org.freedesktop.login1.Session` and follows its `PropertiesChanged` signal. Without an id, or when logind does not know it, the alias `auto` of logind stands in.
+
+- Until logind answers, the session counts as not active.
+- A desktop with no `Active` property, or an app with no system bus, counts as active.
+- The Graphs are evaluated in every session. An app of a session that is not active sends no value, steps no response state machine and changes no run state. The countdown of a power response that ends in such a session ends as `cancelled`. "Run once" shows a refusal.
+- The Graph sensor of a user stays on the daemon while the session is away. The daemon counts a value older than 3 s as no value, so the Inputs of that sensor go to Lost Input.
+
+### Responses
+
+A response end node fires when its state machine says so (`docs/graphs.md`, Response state machine). The run gets an id `run_<time_us>_<n>`, and each run writes one row to `response-log.json` with its outcome.
+
+| Kind | What the app does | Outcome |
+|---|---|---|
+| `notification` | Shows a desktop notification. A new run of the same Graph replaces its last notification. | `ok`, or `failed` when the notification thread is gone |
+| `sound` | Shows a notification with the Graph name as title and the sound as its hint. | as `notification` |
+| `command` | Starts the program and its arguments with no shell and no placeholder. The environment holds only the variables of `docs/graphs.md`, and the three streams are closed. The program leads its own process group. | `ok` for exit code 0, `failed` for another exit or a start error, `timeout` after the time limit (the app kills the group) |
+| `poweroff`, `reboot`, `suspend` | Counts down, then calls logind. | `ok`, `failed` or `cancelled` |
+| `mqtt`, `email` | The runner has no link to the MQTT publisher or the SMTP sender. | `not-configured` |
+
+One response end node has at most one run without an outcome. A run that starts while the node still has one gets the outcome `busy`.
+
+### Power responses and logind
+
+- A power response counts down for `countdown_s` seconds, limited to 10 to 3600. One countdown runs at a time. A second power response during it gets `busy`.
+- The countdown shows as a critical notification with the button "Cancel", as an entry of the tray menu and in the shared view. Each shows the seconds left. The button and the tray entry send the command `CancelCountdown`. A cancel gives the count back to the Response pause and ends the run as `cancelled`. A cancel after the power call changes nothing.
+- While the daemon reports the poweroff countdown of an Alarm, no Graph power response starts, and a running Graph countdown is cancelled. The Alarm wins. "Run once" of a power response shows a refusal in that time.
+- At the end of the countdown the service writes `graph-state.json`, then calls logind on the system bus: `PowerOff`, `Reboot` or `Suspend` of `org.freedesktop.login1.Manager`, with the argument `interactive` false. logind then asks for no password. A state file that cannot be written means no call, because after a restart the response could run again. The call waits at most 15 s.
+- A refusal, an error or a timeout of logind gives the outcome `failed` and a critical notification with the reason.
+
+### Response pause
+
+Three poweroff or reboot runs in a row start the Response pause. The pause protects against a loop of reboots that a Graph causes.
+
+- A run counts when it starts, not when its countdown ends. A suspend does not count. "Run once" counts.
+- The count goes back to 0 after 60 minutes of app run time without a counted run. The app run time adds up over restarts, and `graph-state.json` holds it.
+- A run that the user cancels, or that stops with the app before the power call, gives its count back.
+- While the pause is on, no response runs by itself. The state machines keep their state, so a condition that stays true runs nothing when the pause ends.
+- The pause does not end by itself. The command `ResponsesOn` (the button "Turn the Graph responses on" of `docs/ui/screens/app-shell.md`) ends it and sets the count to 0.
+- "Run once" runs while the pause is on.
+
+### Stop path
+
+"Quit" in the tray or in the primary menu, and SIGTERM (the end of the session), send the same command. The app asks the Graph service to stop and waits at most 2 s. The service cancels a running countdown, so it makes no power call after the stop. It then writes `graph-state.json` whatever the time since the last write, and answers. The app logs a line when the service does not answer. Then the app ends. The state file is also written at most every 30 s while a value or a run state changes, and before a power call.
+
+### MQTT and SMTP clients
+
+- The MQTT client only publishes. It runs as one task on the Tokio runtime of the app and never blocks a caller: a broker that is down costs nothing. It stays off while `host` of `[mqtt]` is empty. It connects with the keep-alive of 30 s, a clean session and the Last Will `offline` on `<base>/status`. After the connect it publishes `online` on that topic and the values of all sensors at once. After a lost connection it waits 1 s, then doubles the wait to 60 s. A connection that lasts 30 s or more resets the wait.
+- The client publishes the sensor values, one retained message each (QoS 0) on `<base>/sensor/<id>`, at `interval_s`. A sensor that the user hid on the Sensors screen has no message. A sensor with no value, also a Graph sensor of a disabled Graph, has the value `null`. The Alarm events go to `<base>/event/<event id>` (QoS 1, no retain), one message for the raise and one for the clear. An Alarm that is active at the start of the app has no raise message. The queue of events keeps 256 messages across reconnects and drops the oldest at the limit.
+- The service reads `[mqtt]` and the password at the start of the app. A change in the settings file reaches the client at the next start.
+- The SMTP sender sends one plain text message with a limit of 30 s. It runs in its own task, so a slow server never delays a pass. The modes are `starttls` (port 587), `tls` (port 465) and `none` (port 25). The secure modes check the certificate and the host name. The sender logs in when a user name is set, in every mode. It removes line breaks from the subject. An account needs a host and a sender address. Without one the outcome is `not-configured`.
+- The password of each client is in `secrets.toml` (mode 0600). The app never shows it, never writes it to a log and never puts it in an export file.
+
 ## Settings and files
 
 | File | Content |
 |---|---|
-| `~/.config/nicecooling/settings.toml` | The app settings: language, tray, notification choices, closed hints, hidden sensors. The app is the only writer. A missing file gives the defaults. |
+| `~/.config/nicecooling/settings.toml` | The app settings: language, tray, notification choices, closed hints, hidden sensors, and the tables `[mqtt]` and `[smtp]`. The app is the only writer. A missing file gives the defaults. |
+| `~/.config/nicecooling/graphs.json` | All Graphs. |
+| `~/.config/nicecooling/secrets.toml` | The MQTT and SMTP passwords, mode 0600. |
+| `~/.local/share/nicecooling/graph-state.json` | The stored values, the run state of the response end nodes and the Response pause. |
+| `~/.local/share/nicecooling/response-log.json` | The newest 500 response runs. |
 | `~/.config/autostart/io.github.cappyt.NiceCooling.desktop` | The "Start at login" override. It exists only when the setting is off. |
 | `~/.local/share/nicecooling/history.db` | The history store. |
 
@@ -139,4 +214,4 @@ Run it on request. The test is `#[ignore]`, and it writes the database in the te
 
 - `sudo systemctl disable --now nicecoolingd`. The daemon restores the BIOS snapshot at stop.
 - Delete the files that Install put in place.
-- Delete `~/.config/nicecooling/`, `~/.local/share/nicecooling/` and the autostart override of each user, if wanted.
+- Delete `~/.config/nicecooling/`, `~/.local/share/nicecooling/` and the autostart override of each user, if wanted. The Graph sensors stay on the daemon until each is deleted (`docs/api.md`, Graph sensors).
