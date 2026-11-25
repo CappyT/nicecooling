@@ -711,6 +711,8 @@ settings:
     system: Système
     en: English
     it: Italiano
+    de: Deutsch
+    fr: Français
   start:
     title: Démarrage et zone de notification
     login: Démarrer à l'ouverture de session
