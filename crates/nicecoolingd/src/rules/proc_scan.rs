@@ -1,12 +1,10 @@
-//! The process list for the process rules. The daemon scans `/proc` once per second. The root
-//! of the tree is a parameter: tests point it at a fake tree.
+//! The process list for the process rules. The daemon scans `/proc` once per second with the
+//! scan of `nicecooling-core`. The root of the tree is a parameter: tests point it at a fake tree.
 
-use std::fs;
-use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
-use nicecooling_core::rules::process::{ProcessEntry, ProcessList};
+pub use nicecooling_core::rules::proc_scan::{ProcFs, ProcessSource};
 use tokio::task::JoinHandle;
 use tokio::time::MissedTickBehavior;
 
@@ -14,64 +12,6 @@ use crate::leakshield::blocking;
 use crate::value_table::ValueTable;
 
 pub const SCAN_PERIOD: Duration = Duration::from_secs(1);
-
-/// Where the process list comes from.
-pub trait ProcessSource: Send + Sync + 'static {
-    fn scan(&self) -> ProcessList;
-}
-
-/// A `/proc` tree: `<root>/<pid>/{comm, exe, cmdline}`.
-pub struct ProcFs {
-    root: PathBuf,
-}
-
-impl ProcFs {
-    pub fn new(root: impl Into<PathBuf>) -> Self {
-        Self { root: root.into() }
-    }
-}
-
-impl ProcessSource for ProcFs {
-    /// A process that exits during the scan, or that the daemon cannot read, has no entry or a
-    /// partial one. A kernel thread has an empty `cmdline` and no `exe`.
-    fn scan(&self) -> ProcessList {
-        let Ok(dir) = fs::read_dir(&self.root) else {
-            return ProcessList::default();
-        };
-        let entries = dir
-            .filter_map(Result::ok)
-            .filter(|e| {
-                e.file_name()
-                    .to_str()
-                    .is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))
-            })
-            .filter_map(|e| {
-                let path = e.path();
-                // The kernel cuts `comm` at 15 bytes, so it can end inside a UTF-8 character.
-                let comm = fs::read(path.join("comm")).ok()?;
-                let comm = String::from_utf8_lossy(&comm);
-                let exe = fs::read_link(path.join("exe"))
-                    .ok()
-                    .and_then(|target| {
-                        target
-                            .file_name()
-                            .map(|name| name.to_string_lossy().into_owned())
-                    })
-                    .unwrap_or_default();
-                let cmdline = fs::read(path.join("cmdline"))
-                    .map(|bytes| {
-                        String::from_utf8_lossy(&bytes)
-                            .replace('\0', " ")
-                            .trim_end()
-                            .to_owned()
-                    })
-                    .unwrap_or_default();
-                Some(ProcessEntry::new(comm.trim_end(), &exe, &cmdline))
-            })
-            .collect();
-        ProcessList { entries }
-    }
-}
 
 /// Scans every `period` and publishes the list to the value table, where the tick reads it.
 pub fn spawn(
@@ -91,9 +31,11 @@ pub fn spawn(
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
+    use std::path::PathBuf;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
-    use nicecooling_core::rules::process::{MatchMode, MatchOn, ProcessRule};
+    use nicecooling_core::rules::process::{MatchMode, MatchOn, ProcessList, ProcessRule};
     use nicecooling_core::tick::ValueSource;
 
     use super::*;

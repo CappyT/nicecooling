@@ -118,7 +118,8 @@ impl ProcessRule {
         Ok(())
     }
 
-    fn name_matches(&self, name: &str, list: &ProcessList) -> bool {
+    /// Whether one name matches a process of the list, with the `match_on` of the rule.
+    pub fn name_matches(&self, name: &str, list: &ProcessList) -> bool {
         let name = name.to_lowercase();
         list.entries.iter().any(|p| match self.match_on {
             MatchOn::Name => p.comm == name || p.exe == name,

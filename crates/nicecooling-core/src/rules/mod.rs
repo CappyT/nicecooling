@@ -4,6 +4,7 @@
 
 pub mod group;
 pub mod interval;
+pub mod proc_scan;
 pub mod process;
 pub mod sensor;
 pub mod time;
