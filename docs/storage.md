@@ -7,6 +7,7 @@ This file defines every file that nicecooling writes or ships. Design decision D
 - Every JSON or TOML file has a top-level `schema_version` integer. This document defines version 1.
 - A daemon that finds a higher `schema_version` than it knows does not write the file. It loads the last-known-good copy and raises the `state-fallback` Warning.
 - Atomic write: write `<file>.tmp` in the same directory, `fsync` the file, rename it over `<file>`, `fsync` the directory.
+- The app uses the same steps with its own temporary file: a new file `.<file>.<pid>.<n>.tmp` in the same directory, created with `O_EXCL` and the final mode. The app never deletes or replaces a file `<file>.tmp` of the user. When `<file>` is a symbolic link, the app writes the target of the link and the link stays a link. A crash can leave a temporary file: the app never reads it.
 - Last-known-good copy: `<file>.lkg`. After a load that succeeds, the daemon writes the loaded content to `<file>.lkg` with the same atomic write, when the content differs.
 - Times are microseconds since the Unix epoch, UTC. Identifiers follow `api.md`.
 

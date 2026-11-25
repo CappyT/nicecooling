@@ -772,6 +772,21 @@ The app SHALL give a new Graph (an import, a new draft) an id that no stored ent
 - **WHEN** the user applies a Graph with the id `graph_2` and `graph_2` is invalid
 - **THEN** the validator refuses it with `bad-parameter` for `id` and the file does not change
 
+### Requirement: Atomic write of the app files
+The app SHALL write each file that it owns (`graphs.json`, `graph-state.json`, `secrets.toml`, `settings.toml`, an export file) to a new temporary file in the directory of the target, with a name of its own and the final mode, then `fsync` and rename it. It SHALL never delete or replace a file `<name>.tmp` of the user. When the path is a symbolic link, it SHALL write the target of the link and leave the link in place.
+
+#### Scenario: File of the user next to the export
+- **WHEN** the user keeps notes in `graph.json.tmp` and exports a Graph to `graph.json` in the same directory
+- **THEN** `graph.json.tmp` still holds the notes
+
+#### Scenario: Two writers
+- **WHEN** two threads write `graphs.json` 300 times each and a reader reads it all the time
+- **THEN** every read gives one complete content and no write fails
+
+#### Scenario: Symbolic link
+- **WHEN** `graphs.json` is a link to `dotfiles/graphs.json` and the user applies a Graph
+- **THEN** `dotfiles/graphs.json` holds the Graph and `graphs.json` is still a link
+
 ### Requirement: Graph state storage
 `graph-state.json` in `$XDG_DATA_HOME/nicecooling/` SHALL hold `schema_version` (1), `values` (the persistent storage nodes, keyed `<graph id>/<node id>`), `responses` (the same key, with `state` as `run` or `not_run` and `last_run_us`) and `pause` (`count`, `quiet_s`, `paused`). The app SHALL write it at most every 30 s when a value changed, at its stop and before a power call.
 

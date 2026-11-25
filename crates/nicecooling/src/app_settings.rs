@@ -4,6 +4,7 @@
 use std::io::Write as _;
 use std::os::unix::fs::OpenOptionsExt as _;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU32, Ordering};
 
 use serde::{Deserialize, Serialize};
 
@@ -128,26 +129,77 @@ impl AppSettings {
     }
 }
 
-/// Write a file atomically: temporary file `<name>.tmp`, `fsync`, rename, `fsync` of the
-/// directory. The temporary file is new, so `mode` (before the umask) holds at no moment
-/// wider. A settings file passes 0o666 and a file with a secret passes 0o600.
+/// Write a file atomically: a new temporary file in the directory of the target, `fsync`, rename,
+/// `fsync` of the directory. The temporary file has a name of its own, `.<name>.<pid>.<n>.tmp`,
+/// and is created with `O_EXCL`: two writers never share it, a file `<name>.tmp` of the user
+/// stays, and `mode` (before the umask) holds at no moment wider. A settings file passes 0o666 and
+/// a file with a secret passes 0o600. A path that is a symbolic link writes to the target of the
+/// link, and the link stays a link.
 pub fn write_atomic(path: &Path, bytes: &[u8], mode: u32) -> std::io::Result<()> {
+    let path = link_target(path);
     let dir = path.parent().unwrap_or_else(|| Path::new("."));
     std::fs::create_dir_all(dir)?;
-    let mut name = path.file_name().unwrap_or_default().to_os_string();
-    name.push(".tmp");
-    let temporary = path.with_file_name(name);
-    // A temporary file that an earlier crash left keeps its old mode, so it goes first.
-    let _ = std::fs::remove_file(&temporary);
-    let mut file = std::fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .mode(mode)
-        .open(&temporary)?;
+    let (file, temporary) = create_temporary(&path, mode)?;
+    if let Err(error) = fill_and_rename(file, &temporary, &path, bytes) {
+        let _ = std::fs::remove_file(&temporary);
+        return Err(error);
+    }
+    std::fs::File::open(dir)?.sync_all()
+}
+
+fn fill_and_rename(
+    mut file: std::fs::File,
+    temporary: &Path,
+    path: &Path,
+    bytes: &[u8],
+) -> std::io::Result<()> {
     file.write_all(bytes)?;
     file.sync_all()?;
-    std::fs::rename(&temporary, path)?;
-    std::fs::File::open(dir)?.sync_all()
+    std::fs::rename(temporary, path)
+}
+
+/// The file that a chain of symbolic links ends on. A path that is not a link, or that does not
+/// exist, is its own target.
+fn link_target(path: &Path) -> PathBuf {
+    let mut path = path.to_path_buf();
+    // The same limit as the kernel: a loop of links ends here.
+    for _ in 0..40 {
+        let Ok(target) = std::fs::read_link(&path) else {
+            break;
+        };
+        path = match path.parent() {
+            Some(dir) => dir.join(target),
+            None => target,
+        };
+    }
+    path
+}
+
+/// A new file next to `path`, with a name that no other writer has.
+fn create_temporary(path: &Path, mode: u32) -> std::io::Result<(std::fs::File, PathBuf)> {
+    static COUNTER: AtomicU32 = AtomicU32::new(0);
+    for _ in 0..16 {
+        let mut name = std::ffi::OsString::from(".");
+        name.push(path.file_name().unwrap_or_default());
+        name.push(format!(
+            ".{}.{}.tmp",
+            std::process::id(),
+            COUNTER.fetch_add(1, Ordering::Relaxed)
+        ));
+        let temporary = path.with_file_name(name);
+        match std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(mode)
+            .open(&temporary)
+        {
+            Ok(file) => return Ok((file, temporary)),
+            // A file that an earlier crash left: the next number is free.
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+            Err(error) => return Err(error),
+        }
+    }
+    Err(std::io::ErrorKind::AlreadyExists.into())
 }
 
 pub fn config_home() -> PathBuf {

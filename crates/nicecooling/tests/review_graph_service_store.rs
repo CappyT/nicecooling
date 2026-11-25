@@ -129,7 +129,8 @@ fn secrets_write_over_a_left_temporary_file() {
     let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
     assert_eq!(mode, 0o600);
     assert_eq!(std::fs::read_to_string(&victim).unwrap(), "keep");
-    assert!(!path.with_file_name("secrets.toml.tmp").exists());
+    // The link is a file of the user: the write leaves it where it is.
+    assert!(path.with_file_name("secrets.toml.tmp").is_symlink());
 }
 
 /// No error text of the secrets file holds the password: a file that does not parse, and a write
