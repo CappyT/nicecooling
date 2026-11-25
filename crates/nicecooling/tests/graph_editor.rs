@@ -3,20 +3,33 @@
 
 mod support;
 
+use std::cell::Cell;
 use std::collections::BTreeMap;
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use gpui::SharedString;
-use nicecooling::graphs::view::{GraphRow, GraphView, RowState};
-use nicecooling::i18n::EN;
-use nicecooling::model::AppState;
+use nicecooling::command::Command;
+use nicecooling::graphs::channel::GraphCommand;
+use nicecooling::graphs::service::{Env, GraphService, NoPower, SensorLink};
+use nicecooling::graphs::store::GraphStore;
+use nicecooling::graphs::values::SensorError;
+use nicecooling::graphs::view::{GraphRow, GraphView, RowState, SharedView, shared_view};
+use nicecooling::i18n::{EN, IT};
+use nicecooling::model::{AppState, DaemonEvent, Link, SensorSample};
+use nicecooling::notify::Plan;
 use nicecooling::screens::graph_editor::canvas::{self, new_flow_state, shape_of};
 use nicecooling::screens::graph_editor::draft::UNDO_LIMIT;
+use nicecooling::screens::graph_editor::live::ValueSource;
 use nicecooling::screens::graph_editor::palette::{ListForm, ListKey};
 use nicecooling::screens::graph_editor::params::{
     Control, Guide, InputRow, Panel, label_key, pair_key, param_key,
 };
 use nicecooling::screens::graph_editor::{EditorKey, EditorModel, EditorUi, Selected, editor_key};
 use nicecooling::screens::{Feedback, ScreenInput};
+use nicecooling_core::clock::{SimClock, SimWallClock};
+use nicecooling_core::rules::proc_scan::ProcessSource;
+use nicecooling_core::rules::process::ProcessList;
 use nicecooling_flow::{
     ConnectOutcome, FlowNodeId, FlowState, HandlePosition, HandleType, Selection, Viewport,
 };
@@ -24,7 +37,8 @@ use nicecooling_graph::eval::EndValue;
 use nicecooling_graph::model::{Connection, Family, Graph, Kind, Node, ResponseKind, StoredGraph};
 use serde_json::json;
 use support::fixtures::{full, online, sensor};
-use support::graphs::constant_graph;
+use support::graphs::{Dir, constant_graph};
+use tokio::sync::mpsc::{UnboundedReceiver, unbounded_channel};
 
 /// The wall clock of the tests: 2025-12-17 19:33:20 UTC.
 const NOW_US: u64 = 1_766_000_000_000_000;
@@ -1383,4 +1397,420 @@ fn inputs_select_works_with_the_keyboard() {
     assert_eq!(row.choices[0].0.parse::<u32>().ok(), None);
     assert!(ui.choose_input(3, row.pin, None, NOW_US));
     assert!(ui.draft.graph().connections.is_empty());
+}
+
+struct NoScan;
+
+impl ProcessSource for NoScan {
+    fn scan(&self) -> ProcessList {
+        ProcessList::default()
+    }
+}
+
+/// A daemon that makes, renames and removes Graph sensors, and that can refuse each call.
+#[derive(Clone, Default)]
+struct FakeLink {
+    /// The values of each pass, as the service sends them to the daemon.
+    values: Arc<Mutex<Vec<Vec<(String, Option<f64>)>>>>,
+    /// The name and the unit of each sensor that the service asked for.
+    created: Arc<Mutex<Vec<(String, String)>>>,
+    /// The id, the name and the unit of each definition that the service set.
+    renamed: Arc<Mutex<Vec<(String, String, String)>>>,
+    deleted: Arc<Mutex<Vec<String>>>,
+    /// The answer to a create, a set definition and a delete. `None`: the call works.
+    no_create: Arc<Mutex<Option<SensorError>>>,
+    no_rename: Arc<Mutex<Option<SensorError>>>,
+    no_delete: Arc<Mutex<Option<SensorError>>>,
+}
+
+impl SensorLink for FakeLink {
+    fn values(&mut self, values: &[(String, Option<f64>)]) {
+        self.values.lock().unwrap().push(values.to_vec());
+    }
+
+    fn create_sensor(&mut self, name: &str, unit: &str) -> Result<String, SensorError> {
+        match self.no_create.lock().unwrap().clone() {
+            Some(error) => Err(error),
+            None => {
+                let mut created = self.created.lock().unwrap();
+                created.push((name.to_owned(), unit.to_owned()));
+                Ok(format!("graph_{}", 8 + created.len()))
+            }
+        }
+    }
+
+    fn rename_sensor(&mut self, id: &str, name: &str, unit: &str) -> Result<(), SensorError> {
+        match self.no_rename.lock().unwrap().clone() {
+            Some(error) => Err(error),
+            None => {
+                let call = (id.to_owned(), name.to_owned(), unit.to_owned());
+                self.renamed.lock().unwrap().push(call);
+                Ok(())
+            }
+        }
+    }
+
+    fn delete_sensor(&mut self, id: &str) -> Result<(), SensorError> {
+        match self.no_delete.lock().unwrap().clone() {
+            Some(error) => Err(error),
+            None => {
+                self.deleted.lock().unwrap().push(id.to_owned());
+                Ok(())
+            }
+        }
+    }
+}
+
+/// The Graph service with a simulated clock and the fake daemon link.
+struct Rig {
+    service: GraphService,
+    clock: SimClock,
+    view: SharedView,
+    link: FakeLink,
+    _dir: Dir,
+    _notifications: UnboundedReceiver<Plan>,
+}
+
+impl Rig {
+    fn new(name: &str, graphs: Vec<Graph>) -> Self {
+        let dir = Dir::new(name);
+        let mut store = GraphStore::open(dir.graph_paths());
+        for graph in graphs {
+            store.put(graph).unwrap();
+        }
+        let clock = SimClock::default();
+        let view = shared_view();
+        let link = FakeLink::default();
+        let (notify, notifications) = unbounded_channel();
+        let service = GraphService::new(
+            store,
+            Env {
+                clock: Box::new(clock.clone()),
+                link: Box::new(link.clone()),
+                scan: Box::new(NoScan),
+                power: Box::new(NoPower),
+                notify,
+                locale: EN,
+                view: view.clone(),
+            },
+        )
+        .with_wall_clock(Box::new(SimWallClock::new(NOW_US)));
+        let mut rig = Self {
+            service,
+            clock,
+            view,
+            link,
+            _dir: dir,
+            _notifications: notifications,
+        };
+        rig.service.apply_event(&DaemonEvent::Link(Link::Online));
+        rig
+    }
+
+    /// The sensor `x` of the daemon has the value `value`.
+    fn feed(&mut self, value: f64) {
+        self.service
+            .apply_event(&DaemonEvent::Sensors(SensorSample {
+                time_us: 1,
+                sensors: vec![("x".into(), value, 0)],
+                channels: Vec::new(),
+            }));
+    }
+
+    fn ticks(&mut self, seconds: u32) {
+        for _ in 0..seconds {
+            self.clock.advance(Duration::from_secs(1));
+            self.service.poll();
+        }
+    }
+
+    /// Give a command of the editor to the service, as the app does.
+    fn run(&mut self, command: Command) {
+        match command {
+            Command::Graph(command) => self.service.handle(command),
+            other => panic!("not a Graph command: {other:?}"),
+        }
+    }
+
+    /// What the service shows now.
+    fn shown(&self) -> GraphView {
+        self.view.lock().unwrap().clone()
+    }
+
+    /// The editor on the stored Graph `id`.
+    fn open(&self, id: &str) -> EditorUi {
+        let view = self.shown();
+        let graph = view.row(id).and_then(GraphRow::graph).expect("the Graph");
+        EditorUi::open(graph.clone(), &view)
+    }
+}
+
+/// The daemon state of the tests of the live values: online, with the sensor `x` in degrees
+/// Celsius.
+fn state_with_x() -> AppState {
+    let mut state = online();
+    state.snapshot.sensors.insert(
+        "x".to_owned(),
+        sensor(
+            "x",
+            "Water temperature",
+            "temperature",
+            "degC",
+            "hwmon",
+            "nct6798",
+        ),
+    );
+    state
+}
+
+/// The value and the unit that each node shows, in the order of the draft.
+fn values_of(shown: &EditorModel) -> Vec<(String, Option<String>)> {
+    shown
+        .nodes
+        .iter()
+        .map(|face| (face.value.clone(), face.unit.clone()))
+        .collect()
+}
+
+fn text(value: &str, unit: Option<&str>) -> (String, Option<String>) {
+    (value.to_owned(), unit.map(str::to_owned))
+}
+
+#[test]
+fn value_shows_within_2s() {
+    let mut rig = Rig::new("editor-live", vec![spread(limiter_graph("graph_1"))]);
+    rig.ticks(1);
+    let state = state_with_x();
+    let mut ui = rig.open("graph_1");
+    let view = rig.shown();
+
+    // Loading: the nodes show "--" before the first values arrive.
+    let shown = model_with(&state, &view, &ui);
+    assert_eq!(shown.nodes[0].value, "--");
+    assert!(!ui.live.loaded);
+
+    // The editor opens: the first read is at once. The sensor has no value yet.
+    assert!(ui.live.poll("graph_1", NOW_US, &rig.view));
+    assert!(ui.live.loaded);
+    let dashes = [
+        text("--", Some("°C")),
+        text("--", None),
+        text("--", Some("°C")),
+    ];
+    assert_eq!(values_of(&model_with(&state, &view, &ui)), dashes);
+
+    // The sensor gives 46.2. The pass of the next second has the value, and the read of that
+    // second shows it: 1 s after the node gave it.
+    rig.feed(46.2);
+    rig.ticks(1);
+    assert!(!ui.live.poll("graph_1", NOW_US + 900_000, &rig.view));
+    assert_eq!(values_of(&model_with(&state, &view, &ui)), dashes);
+    assert!(ui.live.poll("graph_1", NOW_US + 1_000_000, &rig.view));
+    let shown = model_at(&state, &view, &ui, NOW_US + 1_000_000);
+    assert_eq!(
+        values_of(&shown),
+        [
+            text("46.2", Some("°C")),
+            text("46.2", None),
+            text("46.2", Some("°C"))
+        ]
+    );
+    assert!(shown.nodes.iter().all(|face| !face.dim && !face.draft_only));
+    // The value that the node shows is the value that the service sends to the daemon.
+    let sent = rig.link.values.lock().unwrap().last().cloned();
+    assert_eq!(sent, Some(vec![("graph_3".to_owned(), Some(46.2))]));
+    // The band of the Limiter has the value of its input A, on the node and in the panel.
+    assert_eq!(shown.nodes[1].band.unwrap().input, Some(46.2));
+    ui.selected = Some(Selected::Node(2));
+    match panel_of(&view, &ui).guide {
+        Some(Guide::Band { band, input, .. }) => {
+            assert_eq!(band.input, Some(46.2));
+            assert_eq!(input.as_deref(), Some("A 46.2"));
+        }
+        other => panic!("no band guide: {other:?}"),
+    }
+
+    // A value shows 4 significant digits at most, with the decimal mark of the language.
+    for (value, shown) in [
+        (46.2, "46.2"),
+        (182.0, "182"),
+        (1234.56, "1235"),
+        (0.5, "0.5"),
+        (-3.0, "-3"),
+        (0.0, "0"),
+    ] {
+        assert_eq!(canvas::value_text(EN, value), shown);
+    }
+    assert_eq!(canvas::value_text(IT, 46.2), "46,2");
+    assert_eq!(canvas::value_text(EN, f64::NAN), "--");
+}
+
+#[test]
+fn no_value_shows_dashes() {
+    // A comparison after the limiter: a node after a node with no value has no value too.
+    let mut graph = spread(limiter_graph("graph_1"));
+    graph.nodes.push(Node::new(4, Kind::Greater));
+    graph.connections.push(Connection::new(2, 4, "a"));
+    let mut rig = Rig::new("editor-no-value", vec![graph]);
+    let state = state_with_x();
+    let mut ui = rig.open("graph_1");
+    let view = rig.shown();
+
+    // The source has no value: no node has one, and no logic node says "true" or "false".
+    rig.ticks(1);
+    ui.live.poll("graph_1", NOW_US, &rig.view);
+    let shown = model_with(&state, &view, &ui);
+    assert!(shown.nodes.iter().all(|face| face.value == "--"));
+    assert_eq!(shown.nodes[3].unit, None);
+    assert_eq!(shown.nodes[1].band.unwrap().input, None);
+    assert_eq!(shown.status.text, None);
+
+    // With a value the comparison shows 1 and "true".
+    rig.feed(46.2);
+    rig.ticks(1);
+    ui.live.poll("graph_1", NOW_US + 1_000_000, &rig.view);
+    let shown = model_with(&state, &view, &ui);
+    assert_eq!(values_of(&shown)[3], text("1", Some("true")));
+
+    // The daemon is offline: the values are dim.
+    let mut offline = state_with_x();
+    offline.link = Link::Offline;
+    assert!(
+        model_with(&offline, &view, &ui)
+            .nodes
+            .iter()
+            .all(|face| face.dim)
+    );
+
+    // A disabled Graph is not evaluated: every node shows "--", and the status line says why.
+    rig.run(Command::Graph(GraphCommand::Enable {
+        graph: "graph_1".to_owned(),
+        enabled: false,
+    }));
+    rig.ticks(1);
+    ui.live.poll("graph_1", NOW_US + 2_000_000, &rig.view);
+    let shown = model_with(&state, &view, &ui);
+    assert!(shown.nodes.iter().all(|face| face.value == "--"));
+    assert_eq!(
+        shown.status.text.as_deref(),
+        Some("The Graph is disabled. Turn it on in the list.")
+    );
+    assert_eq!(shown.status.retry, None);
+}
+
+#[test]
+fn draft_only_node_shows_dashes_until_apply() {
+    let mut rig = Rig::new("editor-draft-only", vec![constant_graph("graph_1", 5.0)]);
+    rig.ticks(1);
+    let state = online();
+    let mut ui = rig.open("graph_1");
+    ui.live.poll("graph_1", NOW_US, &rig.view);
+
+    // A new node exists only in the draft: a dashed outline and no value.
+    let id = ui.draft.add_node(Kind::Constant, 0.0, 200.0);
+    ui.draft.set_param(id, "value", json!(7));
+    let view = rig.shown();
+    let shown = model_with(&state, &view, &ui);
+    let face = shown.nodes.iter().find(|face| face.id == id).unwrap();
+    assert!(face.draft_only);
+    assert_eq!(face.value, "--");
+    // The nodes of the applied Graph keep their values.
+    assert_eq!(shown.nodes[0].value, "5");
+    assert!(!shown.nodes[0].draft_only);
+    // A changed parameter of an applied node still shows the value of the applied Graph.
+    ui.draft.set_param(1, "value", json!(6));
+    assert_eq!(model_with(&state, &view, &ui).nodes[0].value, "5");
+    let shape = shape_of(&shown.nodes, &shown.edges);
+    assert!(
+        shape
+            .nodes
+            .iter()
+            .find(|node| node.id == id)
+            .unwrap()
+            .dashed
+    );
+
+    // A read does not give the new node a value: the service does not know it.
+    rig.ticks(1);
+    ui.live.poll("graph_1", NOW_US + 1_000_000, &rig.view);
+    let shown = model_with(&state, &rig.shown(), &ui);
+    assert_eq!(shown.nodes.iter().find(|f| f.id == id).unwrap().value, "--");
+
+    // Apply stores the draft. The node gets a solid outline and its value.
+    rig.run(Command::Graph(GraphCommand::Apply(Box::new(
+        ui.draft.candidate(),
+    ))));
+    rig.ticks(1);
+    let view = rig.shown();
+    ui.draft
+        .set_stored(view.row("graph_1").and_then(GraphRow::graph).cloned());
+    ui.live.poll("graph_1", NOW_US + 2_000_000, &rig.view);
+    let shown = model_with(&state, &view, &ui);
+    let face = shown.nodes.iter().find(|face| face.id == id).unwrap();
+    assert!(!face.draft_only);
+    assert_eq!(face.value, "7");
+    assert_eq!(shown.nodes[0].value, "6");
+}
+
+/// A source of node values that counts its reads.
+struct Counting {
+    view: SharedView,
+    reads: Cell<u32>,
+}
+
+impl ValueSource for Counting {
+    fn read(&self) -> Option<GraphView> {
+        self.reads.set(self.reads.get() + 1);
+        self.view.read()
+    }
+}
+
+#[test]
+fn no_reads_after_close() {
+    let mut rig = Rig::new("editor-close", vec![constant_graph("graph_1", 5.0)]);
+    rig.ticks(1);
+    let mut ui = rig.open("graph_1");
+    let source = Counting {
+        view: rig.view.clone(),
+        reads: Cell::new(0),
+    };
+    assert!(ui.live.poll("graph_1", NOW_US, &source));
+    assert!(ui.live.poll("graph_1", NOW_US + 1_000_000, &source));
+    assert_eq!(source.reads.get(), 2);
+
+    // The editor closes: no read follows, however long the time.
+    ui.live.close();
+    for seconds in 2..=30 {
+        assert!(
+            !ui.live
+                .poll("graph_1", NOW_US + seconds * 1_000_000, &source)
+        );
+    }
+    assert_eq!(source.reads.get(), 2);
+    assert_eq!(ui.live.reads(), 2);
+}
+
+#[test]
+fn reads_once_per_second() {
+    let mut rig = Rig::new("editor-reads", vec![constant_graph("graph_1", 5.0)]);
+    rig.ticks(1);
+    let mut ui = rig.open("graph_1");
+    let source = Counting {
+        view: rig.view.clone(),
+        reads: Cell::new(0),
+    };
+    // A frame every 100 ms for 5 s: one read at the start, then one per second.
+    for frame in 0..=50 {
+        let read = ui.live.poll("graph_1", NOW_US + frame * 100_000, &source);
+        assert_eq!(read, frame % 10 == 0, "frame {frame}");
+    }
+    assert_eq!(source.reads.get(), 6);
+    assert_eq!(ui.live.reads(), 6);
+    assert!(!ui.live.poll("graph_1", NOW_US + 5_999_999, &source));
+    assert!(ui.live.poll("graph_1", NOW_US + 6_000_000, &source));
+
+    // "Retry" reads at the next frame.
+    ui.live.retry();
+    assert!(ui.live.poll("graph_1", NOW_US + 6_000_001, &source));
+    assert_eq!(source.reads.get(), 8);
 }

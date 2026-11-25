@@ -997,6 +997,8 @@ graph_editor:
     logic_true: "vero"
     logic_false: "falso"
     sensor_not_found: "Sensore non trovato"
+    fired: "Scattata %{time}"
+    disabled: "Il Grafo è disattivato. Attivalo nell'elenco."
   title:
     range: "da %{min} a %{max}"
     seconds: "%{seconds} s"
@@ -1048,6 +1050,10 @@ graph_editor:
     low: "Bassa"
     normal: "Normale"
     critical: "Critica"
+  live:
+    values_error: "I valori dei nodi non sono disponibili."
+    retry: "Riprova"
+    no_access: "nicecooling non ha accesso al demone. I sensori Grafo non hanno valore."
 alarms:
   active:
     title: Attivi

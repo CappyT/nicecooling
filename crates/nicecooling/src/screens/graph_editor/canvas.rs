@@ -11,14 +11,17 @@ use nicecooling_flow::{
     ALREADY_CONNECTED, Connection as FlowConnection, FlowEdge, FlowEvent, FlowNode, FlowPoint,
     FlowState, HandleDef, HandlePosition, SAME_NODE, Selection, Viewport,
 };
+use nicecooling_graph::eval::EndValue;
+use nicecooling_graph::funcs::is_true;
 use nicecooling_graph::model::{Connection, Graph, Kind, Node, OUTPUT_PIN};
+use nicecooling_graph::response::RunState;
 use nicecooling_graph::validate::RefusalCode;
 
 use super::rules::{connection_reason, kind_name};
 use super::{EditorUi, Selected, number_text};
 use crate::i18n::Locale;
 use crate::screens::ScreenInput;
-use crate::screens::format::unit_text;
+use crate::screens::format::{clock, unit_text};
 
 /// The sizes of a node, in units of the canvas. One unit is 1 px at a zoom of 100%.
 pub const NODE_WIDTH: f32 = 152.0;
@@ -347,13 +350,13 @@ fn face_of(
         Kind::ResponseEnd => {
             let kind = node.response_kind();
             face.subject = Some(locale.tr(&format!("graphs.kind.{}", kind.as_str())));
-            face.state = Some(locale.tr("graphs.not_fired"));
+            face.state = Some(response_state(ui, locale));
         }
         Kind::Limiter => {
             face.band = Some(Band {
                 min: node.number("min"),
                 max: node.number("max"),
-                input: None,
+                input: pin_value(ui, node.id, "a"),
             });
         }
         Kind::Comment => {
@@ -367,7 +370,59 @@ fn face_of(
     } else {
         node_height(node.kind, face.note.is_some())
     };
+    // The daemon is offline, or the read of the values failed: the values are dim.
+    face.dim = !input.state.is_online() || ui.live.failed;
+    let value = shown_value(ui, node, face.draft_only);
+    // A response end node shows its input as a logic value.
+    let value = match (node.kind, &ui.live.end) {
+        (Kind::ResponseEnd, EndValue::Response(state)) if value.is_some() => {
+            state.map(|on| if on { 1.0 } else { 0.0 })
+        }
+        _ => value,
+    };
+    if let Some(value) = value {
+        face.value = value_text(locale, value);
+        if is_logic(node.kind) {
+            face.unit = Some(locale.tr(if is_true(value) {
+                "graph_editor.canvas.logic_true"
+            } else {
+                "graph_editor.canvas.logic_false"
+            }));
+        }
+    }
     face
+}
+
+/// The value that a node shows: the value of the applied Graph in the last read. A node that
+/// exists only in the draft has none before "Apply".
+fn shown_value(ui: &EditorUi, node: &Node, draft_only: bool) -> Option<f64> {
+    if draft_only {
+        return None;
+    }
+    ui.live.value(node.id)
+}
+
+/// The value on an input pin of a node: the value of the node whose output the pin takes.
+pub(crate) fn pin_value(ui: &EditorUi, node: u32, pin: &str) -> Option<f64> {
+    let graph = ui.draft.graph();
+    let from = graph.connection_to(node, pin)?.from.node;
+    let source = graph.node(from)?;
+    let draft_only = ui
+        .draft
+        .stored()
+        .is_none_or(|stored| stored.node(from).is_none());
+    shown_value(ui, source, draft_only)
+}
+
+/// The state of the response end node: "Fired 14:05:09" or "Not fired".
+fn response_state(ui: &EditorUi, locale: Locale) -> String {
+    match ui.live.run {
+        Some(run) if run.state == RunState::Run && !ui.live.failed => match run.last_run_us {
+            Some(us) => locale.fmt("graph_editor.canvas.fired", &[("time", &clock(us))]),
+            None => locale.tr("graphs.fired"),
+        },
+        _ => locale.tr("graphs.not_fired"),
+    }
 }
 
 /// The faces of the nodes of the draft, in the order of the draft.

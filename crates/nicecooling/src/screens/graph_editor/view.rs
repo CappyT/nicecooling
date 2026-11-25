@@ -348,7 +348,8 @@ fn node_element(node: &FlowNode, look: &CanvasLook) -> AnyElement {
 impl ScreenView {
     /// Close the editor: its draft, its canvas and its text inputs go.
     pub(crate) fn close_graph_editor(&mut self) {
-        if self.graph_editor.take().is_some() {
+        if let Some(mut host) = self.graph_editor.take() {
+            host.ui.live.close();
             self.inputs
                 .retain(|key, _| !matches!(key, InputKey::Graph(_)));
         }
@@ -491,6 +492,11 @@ impl ScreenView {
         };
         host.ui.zoom = zoom;
         host.ui.view_centre = centre;
+        // One read of the node values per second, while the editor shows.
+        if let Some(source) = app.read(cx).graph_view.clone() {
+            let graph = host.ui.draft.graph().id.clone();
+            host.ui.live.poll(&graph, now_us(), &source);
+        }
         let model = with_screen_input(&app, cx, |input| EditorModel::build(input, shown, &host.ui));
         self.sync_canvas(&model, p, cx);
 
@@ -1023,6 +1029,16 @@ impl ScreenView {
                     .items_center()
                     .child(icon(NcIcon::Info, p.fg_dim))
                     .child(label(text))
+            }))
+            .children(model.status.retry.clone().map(|text| {
+                Self::link_button("graph-values-retry", text, p).on_click(act(
+                    &view,
+                    |this, _, _| {
+                        if let Some(host) = this.graph_editor.as_mut() {
+                            host.ui.live.retry();
+                        }
+                    },
+                ))
             }))
             .child(div().flex_1())
             .child(zoom(

@@ -14,7 +14,7 @@ use nicecooling_graph::model::{
 use nicecooling_graph::validate::MAX_LABEL_CHARS;
 use serde_json::Value;
 
-use super::canvas::{Band, REASON_TIME_US, connection_refusal, detail_of};
+use super::canvas::{Band, REASON_TIME_US, connection_refusal, detail_of, pin_value, value_text};
 use super::palette::family_key;
 use super::rules::{node_name, param_name, range_text};
 use super::{EditorUi, Selected, number_text};
@@ -546,12 +546,9 @@ pub fn panel(input: &ScreenInput<'_>, ui: &EditorUi) -> Option<Panel> {
     let guide = match node.kind {
         Kind::Limiter => {
             let (min, max) = (node.number("min"), node.number("max"));
+            let input = pin_value(ui, node.id, "a");
             Some(Guide::Band {
-                band: Band {
-                    min,
-                    max,
-                    input: None,
-                },
+                band: Band { min, max, input },
                 minimum: locale.fmt(
                     "graph_editor.panel.guide.minimum",
                     &[("value", &number_text(locale, min))],
@@ -560,7 +557,12 @@ pub fn panel(input: &ScreenInput<'_>, ui: &EditorUi) -> Option<Panel> {
                     "graph_editor.panel.guide.maximum",
                     &[("value", &number_text(locale, max))],
                 ),
-                input: None,
+                input: input.map(|value| {
+                    locale.fmt(
+                        "graph_editor.panel.guide.input",
+                        &[("value", &value_text(locale, value))],
+                    )
+                }),
             })
         }
         Kind::Table => {
@@ -569,7 +571,7 @@ pub fn panel(input: &ScreenInput<'_>, ui: &EditorUi) -> Option<Panel> {
             Some(Guide::Table {
                 pairs,
                 step: node.text("mode") == "step",
-                input: None,
+                input: pin_value(ui, node.id, "a"),
             })
         }
         _ => None,

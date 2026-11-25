@@ -997,6 +997,8 @@ graph_editor:
     logic_true: "wahr"
     logic_false: "falsch"
     sensor_not_found: "Sensor nicht gefunden"
+    fired: "Ausgelöst %{time}"
+    disabled: "Der Graph ist ausgeschaltet. Schalte ihn in der Liste ein."
   title:
     range: "%{min} bis %{max}"
     seconds: "%{seconds} s"
@@ -1048,6 +1050,10 @@ graph_editor:
     low: "Niedrig"
     normal: "Normal"
     critical: "Kritisch"
+  live:
+    values_error: "Die Knotenwerte sind nicht verfügbar."
+    retry: "Erneut versuchen"
+    no_access: "nicecooling hat keinen Zugriff auf den Daemon. Die Graph-Sensoren haben keinen Wert."
 alarms:
   active:
     title: Aktiv

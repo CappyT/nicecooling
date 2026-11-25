@@ -7,6 +7,7 @@
 
 pub mod canvas;
 pub mod draft;
+pub mod live;
 pub mod palette;
 pub(crate) mod panel_view;
 pub mod params;
@@ -18,10 +19,11 @@ use nicecooling_graph::validate::validate;
 
 use self::canvas::{EdgeFace, NodeFace, edge_faces, node_faces};
 use self::draft::Draft;
+use self::live::LiveValues;
 use self::palette::{ListForm, ListUi, NodeList, node_list};
 use self::params::{Panel, panel};
 use self::rules::first_rule_text;
-use crate::graphs::view::{GraphRow, GraphView};
+use crate::graphs::view::{GraphRow, GraphView, ValuesState};
 use crate::i18n::Locale;
 use crate::screens::ScreenInput;
 
@@ -99,6 +101,8 @@ pub struct EditorUi {
     /// The key of the field that holds a value that did not commit, and the range that the
     /// panel shows under it.
     pub field_error: Option<(String, String)>,
+    /// The node values that the editor read last.
+    pub live: LiveValues,
 }
 
 impl EditorUi {
@@ -114,6 +118,7 @@ impl EditorUi {
             zoom: 1.0,
             refused: None,
             field_error: None,
+            live: LiveValues::default(),
         }
     }
 
@@ -202,8 +207,11 @@ pub struct Toolbar {
 /// The line under the canvas.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct StatusLine {
-    /// The reason of a refused connection, for 5 s.
+    /// The reason of a refused connection for 5 s, or a read error, or why the nodes have no
+    /// value.
     pub text: Option<String>,
+    /// "Retry", next to a read error of the node values.
+    pub retry: Option<String>,
     pub zoom_out: String,
     pub zoom_in: String,
     /// "100 %".
@@ -243,11 +251,27 @@ impl EditorModel {
             })
         });
         let percent = (f64::from(ui.zoom) * 100.0).round().to_string();
+        // The line has one text: the reason of a refused connection first, then a read error,
+        // then why the nodes have no value.
+        let reason = ui.refusal_reason(input.now_us, locale);
+        let read_error = reason.is_none() && ui.live.failed;
+        let status_text = reason.or_else(|| {
+            if ui.live.failed {
+                Some(locale.tr("graph_editor.live.values_error"))
+            } else if !ui.live.enabled {
+                Some(locale.tr("graph_editor.canvas.disabled"))
+            } else if ui.live.access == ValuesState::NoAccess {
+                Some(locale.tr("graph_editor.live.no_access"))
+            } else {
+                None
+            }
+        });
         Self {
             nodes: node_faces(input, ui, rule_node),
             edges: edge_faces(ui),
             status: StatusLine {
-                text: ui.refusal_reason(input.now_us, locale),
+                text: status_text,
+                retry: read_error.then(|| locale.tr("graph_editor.live.retry")),
                 zoom_out: locale.tr("graph_editor.canvas.zoom_out"),
                 zoom_in: locale.tr("graph_editor.canvas.zoom_in"),
                 zoom: locale.fmt("graph_editor.canvas.zoom", &[("percent", &percent)]),

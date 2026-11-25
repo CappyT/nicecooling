@@ -997,6 +997,8 @@ graph_editor:
     logic_true: "vrai"
     logic_false: "faux"
     sensor_not_found: "Capteur introuvable"
+    fired: "Déclenchée %{time}"
+    disabled: "Le Graphe est désactivé. Activez-le dans la liste."
   title:
     range: "de %{min} à %{max}"
     seconds: "%{seconds} s"
@@ -1048,6 +1050,10 @@ graph_editor:
     low: "Basse"
     normal: "Normale"
     critical: "Critique"
+  live:
+    values_error: "Les valeurs des nœuds ne sont pas disponibles."
+    retry: "Réessayer"
+    no_access: "nicecooling n'a pas accès au démon. Les capteurs Graphe n'ont pas de valeur."
 alarms:
   active:
     title: Actives
