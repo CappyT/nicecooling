@@ -60,7 +60,7 @@ In the state "run" with repeat on, the node SHALL run its response again when th
 - **THEN** the response runs once
 
 ### Requirement: Minimum interval
-A run that would start before the last run plus the minimum interval SHALL be dropped. The minimum interval SHALL count wall clock time. A dropped run SHALL leave the state at "run" and SHALL not write a log row. A dropped first run SHALL not be tried again unless repeat is on.
+A run that would start before the last run plus the minimum interval SHALL be dropped. The minimum interval SHALL count wall clock time. A dropped run SHALL leave the state at "run" and SHALL not write a log row. A dropped first run SHALL not be tried again unless repeat is on. A last run that is later than the wall clock SHALL be set to the wall clock, so the wait is at most one minimum interval.
 
 #### Scenario: Second rise inside the interval
 - **WHEN** the minimum interval is 300 s, the response ran at second 100, and the input falls and rises at second 200
@@ -69,6 +69,14 @@ A run that would start before the last run plus the minimum interval SHALL be dr
 #### Scenario: Interval over
 - **WHEN** the input rises again at second 420
 - **THEN** the response runs
+
+#### Scenario: Wall clock goes back
+- **WHEN** a poweroff response ran at 10:00:00 with the minimum interval 600 s, and the wall clock is set back to 09:00:00 with the input true
+- **THEN** the response does not run before 09:10:00 and runs after
+
+#### Scenario: Wall clock goes back with no interval
+- **WHEN** a notification response with the minimum interval 0 s ran at 10:00:00, and the wall clock is set back to 09:00:00 with the input true
+- **THEN** the response runs at once
 
 #### Scenario: Interval over a reboot
 - **WHEN** a poweroff response ran at 10:00:00 with the minimum interval 600 s and the PC starts again at 10:03:00 with the input true

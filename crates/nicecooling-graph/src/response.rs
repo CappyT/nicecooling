@@ -113,8 +113,9 @@ impl Response {
     /// trigger time. In the state "not run" the response runs when the input has been true for the
     /// hold time. In the state "run" with repeat on it runs again after the repeat interval.
     ///
-    /// The minimum interval compares `wall_us` with the last run. A wall clock that went back keeps
-    /// the interval open, which is the safe side for a power response.
+    /// The minimum interval compares `wall_us` with the last run. A last run that is later than
+    /// `wall_us` moves back to `wall_us`: the wait is then at most one interval, not the time that
+    /// the clock went back.
     pub fn step(
         &mut self,
         timing: &Timing,
@@ -154,6 +155,9 @@ impl Response {
         self.state = RunState::Run;
         self.last_attempt = Some(now);
         let interval_us = u64::try_from(timing.min_interval.as_micros()).unwrap_or(u64::MAX);
+        if let Some(last) = self.last_run_us.as_mut() {
+            *last = (*last).min(wall_us);
+        }
         if let Some(last) = self.last_run_us
             && wall_us < last.saturating_add(interval_us)
         {
@@ -329,12 +333,58 @@ mod tests {
             r.step(&t, Some(true), secs(4), ten + 600_000_000),
             Action::Run
         );
-        // A wall clock that went back keeps the interval open.
+        // A wall clock that went back moves the last run back with it: the interval starts there.
         let mut r = Response::restore(&record, Duration::ZERO);
         assert_eq!(
             r.step(&t, Some(true), Duration::ZERO, ten - 5_000_000),
             Action::Dropped
         );
+    }
+
+    fn response_timing(kind: &str, min_interval_s: u64) -> Timing {
+        use crate::model::{Kind, Node};
+        let node = Node::new(1, Kind::ResponseEnd)
+            .with_param("kind", kind)
+            .with_param("min_interval_s", min_interval_s);
+        Timing::from_node(&node)
+    }
+
+    #[test]
+    fn wall_clock_back_waits_one_interval_for_a_power_response() {
+        // The last poweroff ran at BASE_US and the clock went back one day. The default interval
+        // is 600 s: the wait is 600 s of the new clock, not a day.
+        let record = RunRecord {
+            state: RunState::NotRun,
+            last_run_us: Some(BASE_US),
+        };
+        let t = response_timing("poweroff", 600);
+        assert_eq!(t.min_interval, secs(600));
+        let back = BASE_US - 86_400 * 1_000_000;
+        let mut r = Response::restore(&record, Duration::ZERO);
+        assert_eq!(r.step(&t, Some(true), secs(0), back), Action::Dropped);
+        assert_eq!(r.record().last_run_us, Some(back));
+        assert_eq!(r.step(&t, Some(false), secs(1), back), Action::Nothing);
+        let almost = back + 599 * 1_000_000;
+        assert_eq!(r.step(&t, Some(true), secs(2), almost), Action::Dropped);
+        assert_eq!(r.step(&t, Some(false), secs(3), almost), Action::Nothing);
+        assert_eq!(
+            r.step(&t, Some(true), secs(4), back + 600 * 1_000_000),
+            Action::Run
+        );
+    }
+
+    #[test]
+    fn wall_clock_back_runs_a_notification_with_no_interval_at_once() {
+        let record = RunRecord {
+            state: RunState::NotRun,
+            last_run_us: Some(BASE_US),
+        };
+        let t = response_timing("notification", 0);
+        assert_eq!(t.min_interval, Duration::ZERO);
+        let back = BASE_US - 86_400 * 1_000_000;
+        let mut r = Response::restore(&record, Duration::ZERO);
+        assert_eq!(r.step(&t, Some(true), secs(0), back), Action::Run);
+        assert_eq!(r.record().last_run_us, Some(back));
     }
 
     #[test]
