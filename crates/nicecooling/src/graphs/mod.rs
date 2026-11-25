@@ -2,6 +2,7 @@
 //! app. The engine is in `nicecooling-graph`.
 
 pub mod channel;
+pub mod responses;
 pub mod secrets;
 pub mod sensors;
 pub mod service;

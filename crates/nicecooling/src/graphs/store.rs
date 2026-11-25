@@ -17,6 +17,7 @@ use nicecooling_graph::validate::{Refusal, RefusalCode, validate};
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 
+use super::responses::{LOG_LIMIT, LogRow};
 use crate::app_settings::{config_home, data_home, write_atomic};
 
 /// The state file changes at most this often.
@@ -31,6 +32,8 @@ pub struct GraphPaths {
     pub state: PathBuf,
     /// `$XDG_CONFIG_HOME/nicecooling/secrets.toml`
     pub secrets: PathBuf,
+    /// `$XDG_DATA_HOME/nicecooling/response-log.json`
+    pub log: PathBuf,
 }
 
 impl GraphPaths {
@@ -39,6 +42,7 @@ impl GraphPaths {
             graphs: config.join("graphs.json"),
             state: data.join("graph-state.json"),
             secrets: config.join("secrets.toml"),
+            log: data.join("response-log.json"),
         }
     }
 
@@ -83,6 +87,24 @@ impl StateFile {
     }
 }
 
+/// The content of `response-log.json`.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct LogFile {
+    pub schema_version: u32,
+    /// The rows in the order of their runs.
+    pub rows: Vec<LogRow>,
+}
+
+impl Default for LogFile {
+    fn default() -> Self {
+        Self {
+            schema_version: SCHEMA_VERSION,
+            rows: Vec::new(),
+        }
+    }
+}
+
 /// The text of the refusals of one Graph, for the list of invalid Graphs.
 pub fn describe(refusals: &[Refusal]) -> String {
     refusals
@@ -123,12 +145,17 @@ pub struct GraphStore {
     /// The state that the file holds, `None` while there is no file.
     written: Option<StateFile>,
     last_write: Option<Duration>,
+    /// The newest rows of `response-log.json`, at most `LOG_LIMIT`.
+    log: Vec<LogRow>,
+    /// Why `response-log.json` cannot be used. The app writes nothing over such a file.
+    log_error: Option<String>,
 }
 
 impl GraphStore {
     pub fn open(paths: GraphPaths) -> Self {
         let (entries, file_error) = load_graphs(&paths.graphs);
         let (state, state_error, written) = load_state(&paths.state);
+        let (log, log_error) = load_log(&paths.log);
         let mut store = Self {
             paths,
             entries,
@@ -137,6 +164,8 @@ impl GraphStore {
             state_error,
             written,
             last_write: None,
+            log,
+            log_error,
         };
         store.prune_state();
         store
@@ -213,9 +242,12 @@ impl GraphStore {
         })
     }
 
-    /// The error of `graphs.json`, or of `graph-state.json`.
+    /// The error of `graphs.json`, of `graph-state.json`, or of `response-log.json`.
     pub fn error(&self) -> Option<&str> {
-        self.file_error.as_deref().or(self.state_error.as_deref())
+        self.file_error
+            .as_deref()
+            .or(self.state_error.as_deref())
+            .or(self.log_error.as_deref())
     }
 
     pub fn file_error(&self) -> Option<&str> {
@@ -281,6 +313,30 @@ impl GraphStore {
         }
         self.prune_state();
         Ok(())
+    }
+
+    /// The rows of the response log, in the order of their runs.
+    pub fn log(&self) -> &[LogRow] {
+        &self.log
+    }
+
+    /// Add a row to the response log and write the file. The log keeps the newest `LOG_LIMIT`
+    /// rows. A log file that does not load stays as it is, and the row is lost.
+    pub fn push_log(&mut self, row: LogRow) -> std::io::Result<()> {
+        if let Some(error) = &self.log_error {
+            return Err(io_error(error.clone()));
+        }
+        self.log.push(row);
+        if self.log.len() > LOG_LIMIT {
+            let excess = self.log.len() - LOG_LIMIT;
+            self.log.drain(..excess);
+        }
+        let file = LogFile {
+            schema_version: SCHEMA_VERSION,
+            rows: self.log.clone(),
+        };
+        let text = serde_json::to_string_pretty(&file).map_err(std::io::Error::other)?;
+        write_atomic(&self.paths.log, text.as_bytes(), 0o666)
     }
 
     pub fn state(&self) -> &StateFile {
@@ -413,6 +469,34 @@ fn load_graphs(path: &Path) -> (Vec<StoredGraph>, Option<String>) {
         })
         .collect();
     (entries, None)
+}
+
+fn load_log(path: &Path) -> (Vec<LogRow>, Option<String>) {
+    let text = match std::fs::read_to_string(path) {
+        Ok(text) => text,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return (Vec::new(), None),
+        Err(error) => return (Vec::new(), Some(error.to_string())),
+    };
+    match serde_json::from_str::<LogFile>(&text) {
+        Ok(file) if file.schema_version > SCHEMA_VERSION => (
+            Vec::new(),
+            Some(format!(
+                "the response log has the schema version {}, and this version knows {SCHEMA_VERSION}",
+                file.schema_version
+            )),
+        ),
+        Ok(mut file) => {
+            if file.rows.len() > LOG_LIMIT {
+                let excess = file.rows.len() - LOG_LIMIT;
+                file.rows.drain(..excess);
+            }
+            (file.rows, None)
+        }
+        Err(error) => (
+            Vec::new(),
+            Some(format!("the response log is not valid: {error}")),
+        ),
+    }
 }
 
 fn load_state(path: &Path) -> (StateFile, Option<String>, Option<StateFile>) {

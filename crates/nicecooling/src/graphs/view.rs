@@ -7,6 +7,8 @@ use std::sync::{Arc, Mutex};
 use nicecooling_graph::eval::EndValue;
 use nicecooling_graph::pause::PowerKind;
 
+use super::responses::LogRow;
+
 /// Why a Graph does not run, or that it runs.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum RowState {
@@ -85,11 +87,21 @@ pub struct GraphView {
     /// The state of the call that sends the Graph sensor values.
     pub values: ValuesState,
     pub foreign_sensors: Vec<ForeignSensor>,
+    /// The response log, in the order of the runs: the newest 500 rows of all Graphs.
+    pub log: Vec<LogRow>,
 }
 
 impl GraphView {
     pub fn row(&self, id: &str) -> Option<&GraphRow> {
         self.rows.iter().find(|row| row.id == id)
+    }
+
+    /// The rows of the response log that belong to one Graph, in the order of the runs.
+    pub fn log_rows_of(&self, graph_id: &str) -> Vec<&LogRow> {
+        self.log
+            .iter()
+            .filter(|row| row.graph_id == graph_id)
+            .collect()
     }
 }
 

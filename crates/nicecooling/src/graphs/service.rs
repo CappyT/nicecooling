@@ -8,15 +8,18 @@ use std::cell::OnceCell;
 use std::collections::{BTreeMap, BTreeSet};
 use std::time::Duration;
 
-use nicecooling_core::clock::Clock;
+use nicecooling_core::clock::{Clock, SystemWallClock, WallClock};
 use nicecooling_core::rules::proc_scan::ProcessSource;
 use nicecooling_core::rules::process::ProcessList;
-use nicecooling_graph::eval::{Evaluator, Pass, Sources};
-use nicecooling_graph::model::{Graph, StoredGraph};
+use nicecooling_graph::eval::{EndValue, Evaluator, GraphPass, Pass, Sources, value_key};
+use nicecooling_graph::model::{Graph, Node, StoredGraph};
 use nicecooling_graph::pause::PowerKind;
+use nicecooling_graph::response::{Action, Timing};
+use nicecooling_graph::template::labelled_values;
 use tokio::sync::mpsc::UnboundedSender;
 
 use super::channel::GraphCommand;
+use super::responses::{NoRunner, Outcome, Responses, Run, Runner, Started};
 use super::sensors::{self, CREATED_GRACE, SensorSpec};
 use super::session::AlwaysActive;
 use super::store::{GraphStore, describe, describe_invalid};
@@ -26,6 +29,7 @@ use super::view::{Countdown, GraphRow, RowState, SharedView, TryView};
 use crate::i18n::Locale;
 use crate::model::{AppState, DaemonEvent};
 use crate::notify::{Level, NotificationSpec, Plan, open_button};
+use crate::screens::format::{date_time_seconds, unit_text};
 
 /// The time between two passes.
 pub const PASS_INTERVAL: Duration = Duration::from_secs(1);
@@ -164,6 +168,10 @@ pub struct GraphService {
     /// The Graph sensors that this service made, with the time of the call. A snapshot that the
     /// client read before the call does not list them, and must not make a second sensor.
     created: BTreeMap<String, Duration>,
+    /// The state machines of the response end nodes, the run ids and the open runs.
+    responses: Responses,
+    /// Starts the responses that are no power response.
+    runner: Box<dyn Runner>,
 }
 
 impl GraphService {
@@ -204,9 +212,24 @@ impl GraphService {
             stopped: BTreeSet::new(),
             state_error: None,
             created: BTreeMap::new(),
+            responses: Responses::new(Box::new(SystemWallClock)),
+            runner: Box::new(NoRunner),
         };
         service.publish();
+        service.publish_log();
         service
+    }
+
+    /// Use another wall clock for the minimum interval and the run times.
+    pub fn with_wall_clock(mut self, wall: Box<dyn WallClock>) -> Self {
+        self.responses = Responses::new(wall);
+        self
+    }
+
+    /// Use `runner` to start the responses that are no power response.
+    pub fn with_runner(mut self, runner: Box<dyn Runner>) -> Self {
+        self.runner = runner;
+        self
     }
 
     /// Use the session of logind instead of the session that is always active.
@@ -274,6 +297,7 @@ impl GraphService {
     /// the last one. Returns whether a pass ran.
     pub fn poll(&mut self) -> bool {
         let now = self.clock.now();
+        self.collect_outcomes();
         self.tick_countdown(now);
         if now < self.next_pass {
             return false;
@@ -531,11 +555,114 @@ impl GraphService {
             self.stop_graph(&id);
         }
         self.link.values(&pass.sensor_values());
+        self.run_responses(now, &graphs, &pass);
         self.store.state_mut().values = self.evaluator.stored_values();
         self.write_state(now, false);
         self.last_pass = Some(pass);
         self.step_try(now);
         self.publish();
+    }
+
+    /// Step the response end nodes of one pass and start the runs that are due. An app of a session
+    /// that is not active steps nothing: it runs no response and changes no run state.
+    fn run_responses(&mut self, now: Duration, graphs: &[Graph], pass: &Pass) {
+        let seconds = self.responses.app_seconds(now);
+        self.store.state_mut().pause.advance(seconds);
+        let keys: BTreeSet<String> = graphs
+            .iter()
+            .filter(|graph| graph.enabled)
+            .filter_map(|graph| {
+                graph
+                    .response_end()
+                    .map(|node| value_key(&graph.id, node.id))
+            })
+            .collect();
+        // The machine of a node that is gone or off starts again from its stored record.
+        self.responses.retain(&keys);
+        if !self.session.active() {
+            return;
+        }
+        for graph in graphs.iter().filter(|graph| graph.enabled) {
+            let Some(node) = graph.response_end() else {
+                continue;
+            };
+            let Some(result) = pass.graph(&graph.id).filter(|result| result.evaluated) else {
+                continue;
+            };
+            let EndValue::Response(input) = result.end else {
+                continue;
+            };
+            let key = value_key(&graph.id, node.id);
+            let action = self.responses.step(
+                &key,
+                &Timing::from_node(node),
+                input,
+                now,
+                &mut self.store.state_mut().responses,
+            );
+            if action == Action::Run {
+                let run = self.make_run(graph, node, result, key);
+                self.start_run(run);
+            }
+        }
+    }
+
+    /// The run of a response end node that fires in this pass.
+    fn make_run(&mut self, graph: &Graph, node: &Node, result: &GraphPass, key: String) -> Run {
+        let time_us = self.responses.wall_us();
+        let sensors = &self.state.snapshot.sensors;
+        let values = labelled_values(graph, result, |id| {
+            sensors
+                .get(id)
+                .map(|sensor| unit_text(&sensor.unit).to_owned())
+                .unwrap_or_default()
+        });
+        Run {
+            id: self.responses.next_run_id(time_us),
+            key,
+            graph_id: graph.id.clone(),
+            graph_name: graph.name.clone(),
+            node: node.clone(),
+            kind: node.response_kind(),
+            time_us,
+            time_text: date_time_seconds(time_us),
+            values,
+        }
+    }
+
+    /// Start a run. A node that has a run with no outcome gets the outcome `busy`.
+    fn start_run(&mut self, run: Run) {
+        if self.responses.is_open(&run.key) {
+            self.log_run(&run, Outcome::Busy);
+            return;
+        }
+        match self.runner.start(&run) {
+            Started::Done(outcome) => self.log_run(&run, outcome),
+            Started::Pending => self.responses.open(run),
+        }
+    }
+
+    /// The runs that had no outcome and have one now.
+    fn collect_outcomes(&mut self) {
+        for (id, outcome) in self.runner.finished() {
+            if let Some(run) = self.responses.close(&id) {
+                self.log_run(&run, outcome);
+            }
+        }
+    }
+
+    /// Write the row of a run to the response log.
+    fn log_run(&mut self, run: &Run, outcome: Outcome) {
+        if let Err(error) = self.store.push_log(run.row(outcome)) {
+            eprintln!("nicecooling: response log: {error}");
+        }
+        self.publish_log();
+    }
+
+    fn publish_log(&self) {
+        if let Ok(mut view) = self.view.lock() {
+            view.log = self.store.log().to_vec();
+        }
     }
 
     /// One evaluation of the try, and the end of it after its time. A try sends no Graph sensor

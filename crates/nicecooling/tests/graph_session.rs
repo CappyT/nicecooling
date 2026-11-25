@@ -3,17 +3,20 @@ mod support;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use nicecooling::graphs::responses::{Outcome, Run, Runner, Started};
 use nicecooling::graphs::service::{Env, GraphService, NoPower, SensorLink};
 use nicecooling::graphs::session::LogindSession;
 use nicecooling::graphs::store::GraphStore;
 use nicecooling::graphs::values::ActiveSession;
 use nicecooling::graphs::view::{SharedView, shared_view};
 use nicecooling::i18n::EN;
+use nicecooling::model::{DaemonEvent, Link};
 use nicecooling::notify::Plan;
 use nicecooling_core::clock::SimClock;
 use nicecooling_core::rules::proc_scan::ProcessSource;
 use nicecooling_core::rules::process::ProcessList;
 use nicecooling_graph::eval::EndValue;
+use nicecooling_graph::model::{Connection, Graph, Kind, Node};
 use support::bus::PrivateBus;
 use support::fake_logind::FakeLogind;
 use support::graphs::{Dir, constant_graph};
@@ -149,4 +152,73 @@ async fn evaluation_continues_while_inactive() {
         view.row("graph_1").unwrap().end,
         EndValue::Sensor(Some(5.0))
     );
+}
+
+/// A runner that counts the runs.
+#[derive(Clone, Default)]
+struct CountRuns(Arc<Mutex<u32>>);
+
+impl Runner for CountRuns {
+    fn start(&mut self, _run: &Run) -> Started {
+        *self.0.lock().unwrap() += 1;
+        Started::Done(Outcome::Ok)
+    }
+
+    fn finished(&mut self) -> Vec<(String, Outcome)> {
+        Vec::new()
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn inactive_session_starts_no_response() {
+    let bus = PrivateBus::start("session-response");
+    let fake = FakeLogind::start(bus.connect().await, "3", false).await;
+    let session =
+        LogindSession::spawn_for(bus.connect().await, &Handle::current(), Some("3".into()));
+    wait_for(|| session.resolved()).await;
+
+    // A response whose input is true from the start.
+    let dir = Dir::new("session-response");
+    let mut store = GraphStore::open(dir.graph_paths());
+    let mut graph = Graph::new("graph_1", "Overheat");
+    graph.nodes = vec![
+        Node::new(1, Kind::Constant).with_param("value", 1.0),
+        Node::new(2, Kind::ResponseEnd)
+            .with_param("kind", "notification")
+            .with_param("title", "Hot"),
+    ];
+    graph.connections = vec![Connection::new(1, 2, "a")];
+    store.put(graph).unwrap();
+    let clock = SimClock::default();
+    let runs = CountRuns::default();
+    let (notify, _notifications) = unbounded_channel();
+    let mut service = GraphService::new(
+        store,
+        Env {
+            clock: Box::new(clock.clone()),
+            link: Box::new(Recorder(Calls::default())),
+            scan: Box::new(NoScan),
+            power: Box::new(NoPower),
+            notify,
+            locale: EN,
+            view: shared_view(),
+        },
+    )
+    .with_session(Box::new(session.clone()))
+    .with_runner(Box::new(runs.clone()));
+    service.apply_event(&DaemonEvent::Link(Link::Online));
+
+    // The session is not active: the Graph is evaluated and no response runs.
+    for _ in 0..5 {
+        clock.advance(Duration::from_secs(1));
+        assert!(service.poll());
+    }
+    assert_eq!(*runs.0.lock().unwrap(), 0);
+
+    // The user switches back: the condition is true and the response runs.
+    fake.set_active(true).await;
+    wait_for(|| service.runs_responses()).await;
+    clock.advance(Duration::from_secs(1));
+    service.poll();
+    assert_eq!(*runs.0.lock().unwrap(), 1);
 }
