@@ -1,12 +1,16 @@
 mod support;
 
 use nicecooling::command::Command;
+use nicecooling::graphs::view::{GraphRow, GraphView, RowState};
 use nicecooling::i18n::{EN, IT};
 use nicecooling::model::{AppState, DerivedDef, Link, Severity};
+use nicecooling::screens::graphs::{GraphsModel, GraphsUi};
 use nicecooling::screens::sensors::{
-    DerivedEditor, DerivedEditorModel, SensorsModel, SensorsState, SensorsUi,
+    DerivedEditor, DerivedEditorModel, GraphSensorLink, SensorsModel, SensorsState, SensorsUi,
 };
-use nicecooling::screens::{Feedback, ScreenInput};
+use nicecooling::screens::{Feedback, ScreenInput, WriteOutcome};
+use nicecooling_graph::eval::EndValue;
+use nicecooling_graph::model::{Graph, Kind, Node, StoredGraph};
 use support::bus::PrivateBus;
 use support::fake_daemon::{FakeDaemon, Options};
 use support::fixtures::{LEAKSHIELD, NOW_US, alarm, full, sensor};
@@ -511,5 +515,223 @@ fn sensors_labels() {
     assert_eq!(
         water.hide_reason.as_deref(),
         Some("Una Curva usa questo sensore.")
+    );
+}
+
+/// What the Graph service shows: one Graph with a sensor end node, which holds `graph_3`.
+fn graph_view() -> GraphView {
+    let mut graph = Graph::new("graph_1", "Render temperature");
+    graph.nodes = vec![
+        Node::new(1, Kind::Constant).with_param("value", 46.2),
+        Node::new(2, Kind::SensorEnd),
+    ];
+    graph.sensor_id = Some("graph_3".to_owned());
+    GraphView {
+        rows: vec![GraphRow {
+            id: graph.id.clone(),
+            name: graph.name.clone(),
+            enabled: true,
+            state: RowState::Running,
+            values: Default::default(),
+            end: EndValue::Sensor(Some(46.2)),
+            stored: StoredGraph::Valid(graph),
+            run: None,
+        }],
+        ..Default::default()
+    }
+}
+
+/// `full()` with the Graph sensor `graph_3` of the Graph, and `graph_7`, which no Graph holds.
+fn with_graph_sensors() -> AppState {
+    let mut state = full();
+    for (id, name) in [
+        ("graph_3", "Render temperature"),
+        ("graph_7", "Case air delta"),
+    ] {
+        state.snapshot.sensors.insert(
+            id.to_owned(),
+            sensor(id, name, "temperature", "degC", "graph", ""),
+        );
+    }
+    if let Some(sample) = state.sensors.as_mut() {
+        sample.sensors.push(("graph_3".to_owned(), 46.2, 0));
+    }
+    state
+}
+
+#[test]
+fn graph_sensor_row_opens_the_editor() {
+    let shown = graph_view();
+    let state = with_graph_sensors();
+    let feedback = Feedback::default();
+    let mut ui = SensorsUi::default();
+    let built = SensorsModel::build_with(&input(&state, &feedback), &ui, Some(&shown));
+
+    // The group "Graph sensors" is the last one. It has the link "New sensor".
+    let group = built.groups.last().expect("a group");
+    assert_eq!(group.title, "Graph sensors");
+    assert_eq!(group.link.as_deref(), Some("New sensor"));
+    assert_eq!(group.rows.len(), 2);
+    assert_eq!(built.groups.iter().filter(|g| g.link.is_some()).count(), 1);
+
+    // A Graph sensor of a Graph of this user: its id in mono text, its value and "Open Graph".
+    let held = row(&built, "graph_3");
+    assert_eq!(held.name, "Render temperature");
+    assert_eq!(held.caption.as_deref(), Some("graph_3"));
+    assert!(held.caption_mono);
+    assert_eq!(held.value, "46.2 °C");
+    assert_eq!(
+        held.graph_link,
+        Some(GraphSensorLink::Open {
+            graph: "graph_1".to_owned(),
+            label: "Open Graph".to_owned(),
+        })
+    );
+
+    // "Open Graph" opens the Graph editor on the Graph of the sensor.
+    let mut graphs_ui = GraphsUi::default();
+    assert!(graphs_ui.edit_sensor(&shown, "graph_3"));
+    assert_eq!(
+        graphs_ui.editor.as_ref().map(|graph| graph.id.as_str()),
+        Some("graph_1")
+    );
+    let page = GraphsModel::build(&input(&state, &feedback), Some(&shown), &graphs_ui);
+    assert_eq!(
+        page.editor.map(|editor| editor.name),
+        Some("Render temperature".to_owned())
+    );
+
+    // "New sensor" starts a Graph with a sensor end node.
+    let mut graphs_ui = GraphsUi::default();
+    graphs_ui.new_draft(&shown, Kind::SensorEnd, EN);
+    let draft = graphs_ui.editor.expect("the draft");
+    assert_eq!(draft.name, "Graph 1");
+    assert_eq!(
+        draft.nodes.iter().map(|node| node.kind).collect::<Vec<_>>(),
+        [Kind::SensorEnd]
+    );
+
+    // A Graph sensor that no Graph of this user holds: the text, no value and "Remove".
+    let orphan = row(&built, "graph_7");
+    assert_eq!(
+        orphan.caption.as_deref(),
+        Some("No Graph of this user holds this sensor.")
+    );
+    assert!(!orphan.caption_mono && orphan.no_value);
+    assert_eq!(orphan.value, "--");
+    assert_eq!(
+        orphan.graph_link,
+        Some(GraphSensorLink::Remove {
+            label: "Remove".to_owned(),
+            enabled: true,
+            tooltip: None,
+        })
+    );
+    assert!(!GraphsUi::default().edit_sensor(&shown, "graph_7"));
+    // A sensor that is no Graph sensor has neither.
+    assert_eq!(row(&built, "nct6798_temp1").graph_link, None);
+
+    // "Remove" asks, as on the Graphs screen, then sends the delete of the sensor.
+    ui.remove = Some("graph_7".to_owned());
+    let dialog = SensorsModel::build_with(&input(&state, &feedback), &ui, Some(&shown))
+        .remove_dialog
+        .expect("the question");
+    assert_eq!(dialog.title, "Remove the Graph sensor 'Case air delta'?");
+    assert_eq!(
+        dialog.text,
+        "No Graph of this user holds it. It can belong to another user."
+    );
+    assert_eq!(
+        (dialog.cancel.as_str(), dialog.confirm.as_str()),
+        ("Cancel", "Remove")
+    );
+    assert_eq!(
+        ui.confirm_remove(),
+        Some(Command::DeleteGraphSensor {
+            sensor: "graph_7".to_owned()
+        })
+    );
+    assert_eq!(ui.remove, None);
+
+    // A sensor in use is not removed, and the row names its user.
+    let mut used = with_graph_sensors();
+    for channel in used.snapshot.channels.values_mut() {
+        if channel.name == "Waterpump" {
+            channel.curve.input = Some("graph_7".to_owned());
+        }
+    }
+    let mut refused = Feedback::default();
+    refused.set(
+        "graph-sensor:graph_7".to_owned(),
+        WriteOutcome::Refused {
+            error: "InUse".to_owned(),
+        },
+    );
+    let built = SensorsModel::build_with(&input(&used, &refused), &ui, Some(&shown));
+    assert_eq!(
+        row(&built, "graph_7").feedback.as_deref(),
+        Some("The Curve of Waterpump uses this sensor.")
+    );
+
+    // Offline, "Remove" is off.
+    let mut offline = with_graph_sensors();
+    offline.link = Link::Offline;
+    let built = SensorsModel::build_with(&input(&offline, &feedback), &ui, Some(&shown));
+    assert!(matches!(
+        &row(&built, "graph_7").graph_link,
+        Some(GraphSensorLink::Remove {
+            enabled: false,
+            tooltip: Some(_),
+            ..
+        })
+    ));
+
+    // Without a Graph sensor the group shows with its text.
+    let bare = full();
+    let built =
+        SensorsModel::build_with(&input(&bare, &feedback), &ui, Some(&GraphView::default()));
+    let group = built.groups.last().expect("a group");
+    assert_eq!(group.title, "Graph sensors");
+    assert!(group.rows.is_empty());
+    assert_eq!(group.empty_text.as_deref(), Some("No Graph sensor."));
+    assert_eq!(group.link.as_deref(), Some("New sensor"));
+    // Without the Graph service the screen has no such group.
+    assert!(model(&bare, &ui).groups.iter().all(|g| g.id != "graph"));
+}
+
+#[test]
+fn derived_dialog_still_opens() {
+    let shown = graph_view();
+    let state = with_graph_sensors();
+    let feedback = Feedback::default();
+
+    // "New Derived sensor" opens the Derived sensor editor, with Graph sensors on the screen.
+    let mut ui = SensorsUi {
+        editor: Some(DerivedEditor::new_sensor()),
+        ..Default::default()
+    };
+    let built = SensorsModel::build_with(&input(&state, &feedback), &ui, Some(&shown));
+    assert_eq!(built.state, SensorsState::Ready);
+    assert!(built.remove_dialog.is_none());
+    let editor = ui.editor.as_mut().expect("the dialog is open");
+    let dialog = DerivedEditorModel::build(&input(&state, &feedback), editor);
+    assert_eq!(dialog.title, "New Derived sensor");
+    assert!(dialog.name_editable && !dialog.can_save);
+    assert_eq!(dialog.function, "maximum");
+    assert_eq!(dialog.slots.len(), 2);
+
+    // The editor works as before: a name and two sources give the command of "Save".
+    editor.name = "Hottest".to_owned();
+    editor.set_source(0, Some("nct6798_temp1".to_owned()));
+    editor.set_source(1, Some("k10temp_tctl".to_owned()));
+    let dialog = DerivedEditorModel::build(&input(&state, &feedback), editor);
+    assert!(dialog.can_save, "{:?}", dialog.save_reason);
+    assert_eq!(
+        DerivedEditorModel::save_command(editor),
+        Some(Command::CreateDerivedSensor {
+            name: "Hottest".to_owned(),
+            function: "maximum".to_owned(),
+            sources: vec!["nct6798_temp1".to_owned(), "k10temp_tctl".to_owned()],
+        })
     );
 }

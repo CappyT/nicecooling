@@ -300,6 +300,13 @@ sensors:
     nvme: NVMe
     calibrated: Débit étalonné
     derived: Capteurs dérivés
+    graph: Capteurs Graphe
+  graph:
+    new: Nouveau capteur
+    open: Ouvrir le Graphe
+    remove: Retirer
+    empty: Aucun capteur Graphe.
+    orphan: Aucun Graphe de cet utilisateur ne détient ce capteur.
   used:
     curve: "Courbe de %{name}"
   in_use:

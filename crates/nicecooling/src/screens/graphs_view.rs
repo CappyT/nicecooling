@@ -21,6 +21,7 @@ use crate::screens::ui::{
     TagKind, caption, card, card_header, card_row, cell, heading, label, modal, notice_row, page,
     table_header, table_row, tag,
 };
+use crate::shell::Page;
 use crate::tokens::Palette;
 
 /// The widths of the cells after the name. The name takes the rest of the row.
@@ -473,6 +474,28 @@ impl ScreenView {
     /// What the user changed on the Graphs screen: a test opens a dialog or the editor with it.
     pub fn graphs_ui(&mut self) -> &mut GraphsUi {
         &mut self.graphs
+    }
+
+    /// Open the Graph editor on a new Graph with an end node of the kind `end`, on the page
+    /// "Graphs": the link "New sensor" of the Sensors screen.
+    pub fn open_new_graph(&mut self, end: Kind, cx: &mut Context<Self>) {
+        self.new_graph(end, cx);
+        if self.graphs.editor.is_some() {
+            self.go(Page::Graphs, cx);
+        }
+    }
+
+    /// Open the Graph editor on the Graph that holds the Graph sensor `sensor`: "Open Graph" of
+    /// the Sensors screen.
+    pub fn open_graph_of(&mut self, sensor: &str, cx: &mut Context<Self>) {
+        let held = self
+            .model
+            .read(cx)
+            .graphs()
+            .is_some_and(|shown| self.graphs.edit_sensor(&shown, sensor));
+        if held {
+            self.go(Page::Graphs, cx);
+        }
     }
 
     /// "New sensor" and "New response": open the Graph editor on a draft.

@@ -8,19 +8,22 @@ use gpui_component::button::ButtonVariants as _;
 use gpui_component::switch::Switch;
 use gpui_component::{Disableable as _, h_flex, v_flex};
 
+use nicecooling_graph::model::Kind;
+
 use crate::command::Command;
 use crate::icons::{NcIcon, icon, small_icon};
 use crate::model::Severity;
 use crate::screen_view::{InputKey, ScreenView, skeleton};
 use crate::screens::controls::{ListKey, act, list_key};
+use crate::screens::graphs::ConfirmDialog;
 use crate::screens::sensors::{
-    DerivedEditor, DerivedEditorModel, FUNCTIONS, SensorRow, SensorSection, SensorsModel,
-    SensorsState,
+    DerivedEditor, DerivedEditorModel, FUNCTIONS, GraphSensorLink, SensorRow, SensorSection,
+    SensorsModel, SensorsState,
 };
 use crate::screens::ui::Tip as _;
 use crate::screens::ui::{
-    caption, card, heading, page, popover, seg, seg_item, select_trigger, severity_icon, table_row,
-    with_popover,
+    caption, card, heading, modal, page, popover, seg, seg_item, select_trigger, severity_icon,
+    table_row, with_popover,
 };
 use crate::tokens::Palette;
 use crate::widgets::paint::{at, polyline};
@@ -42,6 +45,9 @@ const VALUE: f32 = 96.;
 const CHART: f32 = 120.;
 const USED_BY: f32 = 220.;
 const BUTTONS: f32 = 90.;
+/// The room of "Open Graph" or "Remove" in the row of a Graph sensor. It comes from the cell
+/// "Used by", so the cells before it stay in their columns.
+const GRAPH_LINK: f32 = 110.;
 
 impl ScreenView {
     pub(crate) fn render_sensors(
@@ -50,7 +56,10 @@ impl ScreenView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let model = self.with_input(cx, |input| SensorsModel::build(input, &self.sensors));
+        let shown = self.model.read(cx).graphs();
+        let model = self.with_input(cx, |input| {
+            SensorsModel::build_with(input, &self.sensors, shown.as_ref())
+        });
         let locale = self.model.read(cx).locale;
         let search = self.input(
             InputKey::SensorSearch,
@@ -139,7 +148,42 @@ impl ScreenView {
         if let Some(editor) = self.sensors.editor.clone() {
             root = root.child(self.derived_dialog(&editor, p, window, cx));
         }
+        if let Some(dialog) = &model.remove_dialog {
+            root = root.child(self.remove_sensor_dialog(dialog, p, cx));
+        }
         root.into_any_element()
+    }
+
+    /// The question of "Remove" for a Graph sensor that no Graph of this user holds. "Cancel" is
+    /// the first button: it takes the focus first.
+    fn remove_sensor_dialog(
+        &self,
+        dialog: &ConfirmDialog,
+        p: &Palette,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let view = cx.entity();
+        let cancel = Self::button("sensor-remove-cancel", dialog.cancel.clone()).on_click(act(
+            &view,
+            |this, _, _| {
+                this.sensors.remove = None;
+            },
+        ));
+        let confirm = Self::button("sensor-remove-confirm", dialog.confirm.clone())
+            .danger()
+            .on_click(act(&view, |this, _, _| {
+                if let Some(command) = this.sensors.confirm_remove() {
+                    this.send(command);
+                }
+            }));
+        modal(
+            dialog.title.clone(),
+            dialog.text.clone(),
+            Vec::new(),
+            vec![cancel.into_any_element(), confirm.into_any_element()],
+            p,
+        )
+        .into_any_element()
     }
 
     fn sensor_columns(&self, p: &Palette, cx: &mut Context<Self>) -> AnyElement {
@@ -194,6 +238,7 @@ impl ScreenView {
     ) -> AnyElement {
         let id = group.id.clone();
         let view = cx.entity();
+        let link_view = view.clone();
         let folded = group.folded;
         // One shared scale per unit inside a group.
         let mut scales: Vec<(String, f64, f64)> = Vec::new();
@@ -245,8 +290,26 @@ impl ScreenView {
                         .caption
                         .clone()
                         .map(|text| caption(text, p).flex_1().truncate()),
-                ),
+                )
+                .when(group.caption.is_none(), |row| row.child(div().flex_1()))
+                // "New sensor" opens the Graph editor: the press does not fold the group.
+                .children(group.link.clone().map(|text| {
+                    Self::link_button(SharedString::from(format!("group-link-{id}")), text, p)
+                        .on_click(move |_, _, cx| {
+                            cx.stop_propagation();
+                            link_view.update(cx, |this, cx| {
+                                this.open_new_graph(Kind::SensorEnd, cx);
+                                cx.notify();
+                            })
+                        })
+                })),
         );
+        if !folded
+            && group.rows.is_empty()
+            && let Some(text) = &group.empty_text
+        {
+            column = column.child(table_row(p).child(caption(text.clone(), p)));
+        }
         if !folded {
             for (row, points) in group.rows.iter().zip(sparks) {
                 let scale = scales
@@ -281,7 +344,12 @@ impl ScreenView {
                 .child(div().min_w_0().truncate().child(row.name.clone())),
         );
         if let Some(text) = &row.caption {
-            name = name.child(caption(text.clone(), p));
+            let text = caption(text.clone(), p);
+            name = name.child(if row.caption_mono {
+                text.font_family("Adwaita Mono")
+            } else {
+                text
+            });
         }
         if let Some(text) = &row.warning {
             name = name.child(
@@ -335,11 +403,58 @@ impl ScreenView {
             .as_ref()
             .is_some_and(|(sensor, _)| sensor == &row.id);
         // The buttons: an icon each, with the name of the command as tooltip.
+        let link_room = if row.graph_link.is_some() {
+            GRAPH_LINK
+        } else {
+            0.
+        };
         let mut buttons = h_flex()
-            .w(px(BUTTONS))
+            .w(px(BUTTONS + link_room))
             .flex_none()
             .gap(px(3.))
             .justify_end();
+        match &row.graph_link {
+            Some(GraphSensorLink::Open { label, .. }) => {
+                let (view, sensor) = (view.clone(), row.id.clone());
+                buttons = buttons.child(
+                    Self::link_button(
+                        SharedString::from(format!("open-graph-{}", row.id)),
+                        label.clone(),
+                        p,
+                    )
+                    .on_click(move |_, _, cx| {
+                        cx.stop_propagation();
+                        view.update(cx, |this, cx| {
+                            this.open_graph_of(&sensor, cx);
+                            cx.notify();
+                        })
+                    }),
+                );
+            }
+            Some(GraphSensorLink::Remove {
+                label,
+                enabled,
+                tooltip,
+            }) => {
+                let (view, sensor) = (view.clone(), row.id.clone());
+                buttons = buttons.child(
+                    Self::flat_button(
+                        SharedString::from(format!("remove-graph-{}", row.id)),
+                        label.clone(),
+                    )
+                    .disabled(!enabled)
+                    .tip(tooltip.clone().unwrap_or_default())
+                    .on_click(move |_, _, cx| {
+                        cx.stop_propagation();
+                        view.update(cx, |this, cx| {
+                            this.sensors.remove = Some(sensor.clone());
+                            cx.notify();
+                        })
+                    }),
+                );
+            }
+            None => {}
+        }
         let enabled = row.rename_enabled;
         buttons = buttons.child({
             let (sensor, current) = (row.id.clone(), row.name.clone());
@@ -461,7 +576,7 @@ impl ScreenView {
             .child(div().w(px(CHART)).flex_none().child(spark))
             .child(
                 div()
-                    .w(px(USED_BY))
+                    .w(px(USED_BY - link_room))
                     .flex_none()
                     .truncate()
                     .text_color(p.fg_dim)

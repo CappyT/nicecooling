@@ -300,6 +300,13 @@ sensors:
     nvme: NVMe
     calibrated: Portata calibrata
     derived: Sensori derivati
+    graph: Sensori Grafo
+  graph:
+    new: Nuovo sensore
+    open: Apri il Grafo
+    remove: Rimuovi
+    empty: Nessun sensore Grafo.
+    orphan: Nessun Grafo di questo utente usa questo sensore.
   used:
     curve: "Curva di %{name}"
   in_use:

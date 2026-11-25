@@ -300,6 +300,13 @@ sensors:
     nvme: NVMe
     calibrated: Kalibrierter Durchfluss
     derived: Abgeleitete Sensoren
+    graph: Graph-Sensoren
+  graph:
+    new: Neuer Sensor
+    open: Graph öffnen
+    remove: Entfernen
+    empty: Kein Graph-Sensor.
+    orphan: Kein Graph dieses Benutzers hält diesen Sensor.
   used:
     curve: "Kurve von %{name}"
   in_use:

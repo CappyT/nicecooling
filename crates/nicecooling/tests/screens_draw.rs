@@ -796,3 +796,101 @@ fn the_graphs_screen_draws_rows_dialogs_and_the_editor(cx: &mut TestAppContext) 
     window.update(cx, |_, _, cx| cx.notify()).unwrap();
     draw_window(cx);
 }
+
+#[gpui::test]
+fn the_sensors_screen_draws_the_graph_sensors_and_opens_the_editor(cx: &mut TestAppContext) {
+    use gpui::AppContext as _;
+    use nicecooling::graphs::view::{GraphRow, RowState, shared_view};
+    use nicecooling::screen_view::ScreenView;
+    use nicecooling_graph::eval::EndValue;
+    use nicecooling_graph::model::{Graph, Kind, Node, StoredGraph};
+    use support::fixtures::sensor;
+
+    let mut graph = Graph::new("graph_1", "Render temperature");
+    graph.nodes = vec![Node::new(1, Kind::SensorEnd)];
+    graph.sensor_id = Some("graph_3".to_owned());
+    let shared = shared_view();
+    shared.lock().unwrap().rows = vec![GraphRow {
+        id: graph.id.clone(),
+        name: graph.name.clone(),
+        enabled: true,
+        state: RowState::Running,
+        values: Default::default(),
+        end: EndValue::Sensor(None),
+        stored: StoredGraph::Valid(graph),
+        run: None,
+    }];
+
+    let (model, rig) = start(cx, Language::English);
+    let state = full();
+    let mut snapshot = state.snapshot.clone();
+    for (id, name) in [
+        ("graph_3", "Render temperature"),
+        ("graph_7", "Case air delta"),
+    ] {
+        snapshot.sensors.insert(
+            id.to_owned(),
+            sensor(id, name, "temperature", "degC", "graph", ""),
+        );
+    }
+    rig.events
+        .send(DaemonEvent::Snapshot(Box::new(snapshot)))
+        .unwrap();
+    cx.run_until_parked();
+    let (commands, _inbox) = mpsc::unbounded_channel();
+    let window = cx.update(|cx| {
+        cx.open_window(gpui::WindowOptions::default(), |_, cx| {
+            cx.new(|cx| ScreenView::new(model.clone(), commands.clone(), cx))
+        })
+        .expect("a window")
+    });
+    cx.update_window(window.into(), |_, _, cx| {
+        model.update(cx, |app, _| {
+            app.graph_view = Some(shared.clone());
+            app.page = Page::Sensors;
+        });
+    })
+    .unwrap();
+    let draw_window = |cx: &mut TestAppContext| {
+        cx.run_until_parked();
+        let mut visual = VisualTestContext::from_window(window.into(), cx);
+        visual.update(|window, cx| window.draw(cx).clear(cx));
+    };
+    // The group "Graph sensors" with a sensor of a Graph and a sensor that no Graph holds.
+    draw_window(cx);
+
+    // "Open Graph" shows the page "Graphs" with the editor on the Graph of the sensor.
+    window
+        .update(cx, |view, _, cx| view.open_graph_of("graph_3", cx))
+        .unwrap();
+    draw_window(cx);
+    assert_eq!(
+        cx.read_entity(&model, |app, _| app.page.clone()),
+        Page::Graphs
+    );
+    let edited = window
+        .update(cx, |view, _, _| view.graphs_ui().editor.clone())
+        .unwrap();
+    assert_eq!(edited.map(|graph| graph.id), Some("graph_1".to_owned()));
+
+    // A sensor that no Graph holds opens nothing. "New sensor" starts a draft.
+    window
+        .update(cx, |view, _, cx| {
+            view.graphs_ui().editor = None;
+            view.open_graph_of("graph_7", cx);
+        })
+        .unwrap();
+    let edited = window
+        .update(cx, |view, _, _| view.graphs_ui().editor.clone())
+        .unwrap();
+    assert_eq!(edited, None);
+    window
+        .update(cx, |view, _, cx| view.open_new_graph(Kind::SensorEnd, cx))
+        .unwrap();
+    draw_window(cx);
+    let draft = window
+        .update(cx, |view, _, _| view.graphs_ui().editor.clone())
+        .unwrap()
+        .expect("the draft");
+    assert_eq!(draft.nodes[0].kind, Kind::SensorEnd);
+}

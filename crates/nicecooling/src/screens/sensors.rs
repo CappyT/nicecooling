@@ -6,8 +6,10 @@ use std::collections::BTreeSet;
 use nicecooling_core::derived::{DerivedKind, compute};
 
 use crate::command::Command;
+use crate::graphs::view::{GraphRow, GraphView};
 use crate::model::{AppState, Control, DerivedDef, Link, SensorInfo, Severity};
 use crate::screens::format::{optional_value, unit_text, value_text};
+use crate::screens::graphs::ConfirmDialog;
 use crate::screens::{ScreenInput, WriteOutcome};
 
 pub const FUNCTIONS: [&str; 3] = ["maximum", "mean", "difference"];
@@ -65,12 +67,30 @@ pub fn sensor_users(state: &AppState, sensor: &str) -> Vec<SensorUse> {
     users
 }
 
+/// What the row of a Graph sensor offers next to rename and hide.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum GraphSensorLink {
+    /// "Open Graph": the Graph of this user that holds the sensor.
+    Open { graph: String, label: String },
+    /// "Remove": no Graph of this user holds the sensor.
+    Remove {
+        label: String,
+        enabled: bool,
+        tooltip: Option<String>,
+    },
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct SensorRow {
     pub id: String,
     pub name: String,
-    /// The Board file name, shown when the user gave another name.
+    /// The Board file name, shown when the user gave another name. A Graph sensor has its id
+    /// here, or the text that no Graph of this user holds it.
     pub caption: Option<String>,
+    /// The caption is an id: it shows in mono text.
+    pub caption_mono: bool,
+    /// `None` for a sensor that is no Graph sensor, and without the Graph service.
+    pub graph_link: Option<GraphSensorLink>,
     pub value: String,
     pub no_value: bool,
     pub dim: bool,
@@ -101,6 +121,10 @@ pub struct SensorSection {
     pub caption: Option<String>,
     pub folded: bool,
     pub rows: Vec<SensorRow>,
+    /// The link at the right of the group row: "New sensor" in the group "Graph sensors".
+    pub link: Option<String>,
+    /// The text of a group that shows without a sensor: "No Graph sensor."
+    pub empty_text: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -119,6 +143,8 @@ pub struct SensorsModel {
     pub writes_tooltip: Option<String>,
     pub show_hidden: bool,
     pub search: String,
+    /// The question of "Remove" for a Graph sensor that no Graph of this user holds.
+    pub remove_dialog: Option<ConfirmDialog>,
 }
 
 /// The state of the screen that the user changes: search, hidden sensors, selection.
@@ -133,6 +159,8 @@ pub struct SensorsUi {
     /// The sensor whose rename popover is open, with the text of its input.
     pub rename: Option<(String, String)>,
     pub editor: Option<DerivedEditor>,
+    /// The Graph sensor that "Remove" asks about.
+    pub remove: Option<String>,
 }
 
 impl SensorsUi {
@@ -147,6 +175,12 @@ impl SensorsUi {
             sensor,
             name: name.trim().to_owned(),
         })
+    }
+
+    /// "Remove" in the dialog: the delete of a Graph sensor that no Graph of this user holds.
+    pub fn confirm_remove(&mut self) -> Option<Command> {
+        let sensor = self.remove.take()?;
+        Some(Command::DeleteGraphSensor { sensor })
     }
 
     pub fn toggle_hidden(&mut self, sensor: &str) {
@@ -164,6 +198,12 @@ impl SensorsUi {
 
 impl SensorsModel {
     pub fn build(input: &ScreenInput<'_>, ui: &SensorsUi) -> Self {
+        Self::build_with(input, ui, None)
+    }
+
+    /// As `build`, with what the Graph service shows. The group "Graph sensors" then shows also
+    /// without a sensor, and each Graph sensor has the Graph that holds it.
+    pub fn build_with(input: &ScreenInput<'_>, ui: &SensorsUi, graphs: Option<&GraphView>) -> Self {
         let locale = input.locale;
         let state = input.state;
         let writes = input.writes();
@@ -179,6 +219,7 @@ impl SensorsModel {
                     None,
                 ),
                 "derived" => ("derived".into(), locale.tr("sensors.group.derived"), None),
+                "graph" => ("graph".into(), locale.tr("sensors.group.graph"), None),
                 "calibrated" => (
                     "calibrated".into(),
                     locale.tr("sensors.group.calibrated"),
@@ -209,6 +250,7 @@ impl SensorsModel {
             "gpu" => 2,
             "nvme" => 3,
             "calibrated" => 4,
+            "graph" => 6,
             _ => 5,
         };
 
@@ -232,7 +274,7 @@ impl SensorsModel {
                     continue;
                 }
             }
-            let row = row_of(input, ui, sensor, sample, hidden, online);
+            let row = row_of(input, ui, sensor, sample, hidden, online, graphs);
             match groups.iter_mut().find(|g| g.id == group_id) {
                 Some(group) => group.rows.push(row),
                 None => groups.push(SensorSection {
@@ -241,7 +283,27 @@ impl SensorsModel {
                     title,
                     caption,
                     rows: vec![row],
+                    link: None,
+                    empty_text: None,
                 }),
+            }
+        }
+        // With the Graph service the group "Graph sensors" shows also without a sensor, and it
+        // has the link that starts a Graph with a sensor end node.
+        if graphs.is_some() {
+            if search.is_empty() && !groups.iter().any(|group| group.id == "graph") {
+                groups.push(SensorSection {
+                    id: "graph".to_owned(),
+                    title: locale.tr("sensors.group.graph"),
+                    caption: None,
+                    folded: ui.folded.contains("graph"),
+                    rows: Vec::new(),
+                    link: None,
+                    empty_text: Some(locale.tr("sensors.graph.empty")),
+                });
+            }
+            if let Some(group) = groups.iter_mut().find(|group| group.id == "graph") {
+                group.link = Some(locale.tr("sensors.graph.new"));
             }
         }
         groups.sort_by(|a, b| order(&a.id).cmp(&order(&b.id)).then(a.id.cmp(&b.id)));
@@ -261,6 +323,16 @@ impl SensorsModel {
             writes_tooltip: writes.tooltip,
             show_hidden: ui.show_hidden,
             search: ui.search.clone(),
+            remove_dialog: ui
+                .remove
+                .as_ref()
+                .and_then(|sensor| state.snapshot.sensors.get(sensor))
+                .map(|sensor| ConfirmDialog {
+                    title: locale.fmt("graphs.remove_dialog.title", &[("name", &sensor.name)]),
+                    text: locale.tr("graphs.remove_dialog.text"),
+                    cancel: locale.tr("graphs.cancel"),
+                    confirm: locale.tr("graphs.orphans.remove"),
+                }),
         }
     }
 }
@@ -272,6 +344,7 @@ fn row_of(
     sample: Option<&crate::model::SensorSample>,
     hidden: bool,
     online: bool,
+    graphs: Option<&GraphView>,
 ) -> SensorRow {
     let locale = input.locale;
     let state = input.state;
@@ -336,6 +409,59 @@ fn row_of(
         .get(&format!("sensor-name:{}", sensor.id))
         .filter(|outcome| outcome.is_failure())
         .map(|outcome| outcome.text(locale, &locale.tr("sensors.rename_refused")));
+    // A Graph sensor: the Graph of this user that holds it, or none.
+    let is_graph = sensor.origin == "graph";
+    let graph_link = graphs.filter(|_| is_graph).map(|view| {
+        let holder = view
+            .rows
+            .iter()
+            .filter_map(GraphRow::graph)
+            .find(|graph| graph.sensor_id.as_deref() == Some(sensor.id.as_str()));
+        match holder {
+            Some(graph) => GraphSensorLink::Open {
+                graph: graph.id.clone(),
+                label: locale.tr("sensors.graph.open"),
+            },
+            None => GraphSensorLink::Remove {
+                label: locale.tr("sensors.graph.remove"),
+                enabled: writes.enabled,
+                tooltip: writes.tooltip.clone(),
+            },
+        }
+    });
+    // "Remove" did not remove a sensor in use: the row names its user.
+    let removal = input
+        .feedback
+        .get(&format!("graph-sensor:{}", sensor.id))
+        .filter(|_| is_graph)
+        .and_then(|outcome| match outcome {
+            WriteOutcome::Refused { error } if error == "InUse" => Some(match users.first() {
+                Some(SensorUse::Curve { name, .. }) => {
+                    locale.fmt("sensors.delete_refused.curve", &[("name", name)])
+                }
+                Some(SensorUse::Loop { name, .. }) => {
+                    locale.fmt("sensors.delete_refused.loop", &[("name", name)])
+                }
+                Some(SensorUse::Derived { name, .. }) => {
+                    locale.fmt("sensors.delete_refused.derived", &[("name", name)])
+                }
+                None => locale.tr("graphs.orphans.in_use"),
+            }),
+            other if other.is_failure() => {
+                Some(other.text(locale, &locale.tr("graphs.orphans.refused")))
+            }
+            _ => None,
+        });
+    let feedback = feedback.or(removal);
+    let (caption, caption_mono) = match &graph_link {
+        Some(GraphSensorLink::Remove { .. }) => (Some(locale.tr("sensors.graph.orphan")), false),
+        _ if is_graph => (Some(sensor.id.clone()), true),
+        _ => (
+            (sensor.name != sensor.default_name && !sensor.default_name.is_empty())
+                .then(|| sensor.default_name.clone()),
+            false,
+        ),
+    };
     let flow_loop = (sensor.kind == "flow" && sensor.origin == "hwmon")
         .then(|| {
             state
@@ -350,8 +476,9 @@ fn row_of(
     SensorRow {
         id: sensor.id.clone(),
         name: sensor.name.clone(),
-        caption: (sensor.name != sensor.default_name && !sensor.default_name.is_empty())
-            .then(|| sensor.default_name.clone()),
+        caption,
+        caption_mono,
+        graph_link,
         value: optional_value(locale, value_shown, &sensor.unit),
         no_value: value_shown.is_none(),
         dim: !online || hidden,
