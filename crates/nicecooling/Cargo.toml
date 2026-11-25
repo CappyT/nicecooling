@@ -18,7 +18,10 @@ gpui-pre.workspace = true
 gpui-pre-platform.workspace = true
 ksni.workspace = true
 notify-rust.workspace = true
+rumqttc.workspace = true
 rusqlite.workspace = true
+rustls.workspace = true
+rustls-native-certs.workspace = true
 rust-i18n.workspace = true
 serde.workspace = true
 serde_json = { workspace = true, features = ["raw_value"] }
@@ -33,3 +36,4 @@ toml.workspace = true
 [dev-dependencies]
 gpui-pre = { workspace = true, features = ["test-support"] }
 serde-saphyr = "1.2"
+rcgen.workspace = true
