@@ -43,6 +43,9 @@ pub struct HandleDef {
     pub position: HandlePosition,
     /// Whether this handle can accept/start connections. Default: true.
     pub is_connectable: bool,
+    /// Distance in flow units from the top of the node (Left, Right) or from its left edge
+    /// (Top, Bottom) to the handle center. None: the middle of the side.
+    pub offset: Option<f32>,
 }
 
 impl HandleDef {
@@ -52,6 +55,7 @@ impl HandleDef {
             handle_type: HandleType::Source,
             position,
             is_connectable: true,
+            offset: None,
         }
     }
 
@@ -61,6 +65,7 @@ impl HandleDef {
             handle_type: HandleType::Target,
             position,
             is_connectable: true,
+            offset: None,
         }
     }
 
@@ -71,6 +76,11 @@ impl HandleDef {
 
     pub fn id(mut self, id: impl Into<SharedString>) -> Self {
         self.id = Some(id.into());
+        self
+    }
+
+    pub fn offset(mut self, offset: f32) -> Self {
+        self.offset = Some(offset);
         self
     }
 }

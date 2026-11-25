@@ -14,6 +14,33 @@ pub struct ResolvedHandle {
     pub bounds: Bounds<Pixels>,
 }
 
+/// Screen-space center of a handle, relative to the canvas origin.
+///
+/// The measured size of a node and the offset of a handle are in flow units.
+pub fn handle_center(
+    node: &FlowNode,
+    handle_id: &Option<SharedString>,
+    position: HandlePosition,
+    viewport: &Viewport,
+) -> (f32, f32) {
+    let (sx, sy) = viewport.flow_to_screen(node.position);
+    let zoom = viewport.zoom;
+    let w = node.measured_width.map(|p| p.as_f32()).unwrap_or(114.0) * zoom;
+    let h = node.measured_height.map(|p| p.as_f32()).unwrap_or(54.0) * zoom;
+    let offset = node
+        .handles
+        .iter()
+        .find(|handle| handle.id == *handle_id && handle.position == position)
+        .and_then(|handle| handle.offset)
+        .map(|offset| offset * zoom);
+    match position {
+        HandlePosition::Top => (sx + offset.unwrap_or(w / 2.0), sy),
+        HandlePosition::Bottom => (sx + offset.unwrap_or(w / 2.0), sy + h),
+        HandlePosition::Left => (sx, sy + offset.unwrap_or(h / 2.0)),
+        HandlePosition::Right => (sx + w, sy + offset.unwrap_or(h / 2.0)),
+    }
+}
+
 /// Key for looking up a handle: (node_id, handle_id).
 pub type HandleKey = (NodeId, Option<SharedString>);
 
@@ -45,6 +72,11 @@ pub struct FlowState {
     pub snap_to_grid: bool,
     pub snap_grid: (f32, f32),
     pub connection_radius: f32,
+    /// The wheel zooms without a modifier key. Default: false, the wheel pans.
+    pub zoom_on_scroll: bool,
+    /// Window coordinates of the canvas origin, set at each paint. The mouse events have
+    /// window coordinates, and the nodes and edges have coordinates relative to the canvas.
+    pub origin: (f32, f32),
 }
 
 impl FlowState {
@@ -71,6 +103,8 @@ impl FlowState {
             snap_to_grid: false,
             snap_grid: (20.0, 20.0),
             connection_radius: 20.0,
+            zoom_on_scroll: false,
+            origin: (0.0, 0.0),
         }
     }
 
@@ -224,31 +258,26 @@ impl FlowState {
         self.handle_bounds.insert(key, resolved);
     }
 
-    /// Find the screen-space center of a handle.
+    /// A mouse position in window coordinates, relative to the canvas origin.
+    pub fn to_canvas(&self, position: gpui::Point<Pixels>) -> (f32, f32) {
+        (
+            position.x.as_f32() - self.origin.0,
+            position.y.as_f32() - self.origin.1,
+        )
+    }
+
+    /// Find the screen-space center of a handle, relative to the canvas origin.
     ///
     /// Computes the position directly from the node's flow coordinates + viewport,
     /// using measured wrapper dimensions when available.
     pub fn find_handle_center(
         &self,
         node_id: &NodeId,
-        _handle_id: &Option<SharedString>,
+        handle_id: &Option<SharedString>,
         handle_position: HandlePosition,
     ) -> Option<(f32, f32)> {
         let node = self.get_node(node_id)?;
-        let (sx, sy) = self.viewport.flow_to_screen(node.position);
-
-        // Use measured wrapper dimensions if available, otherwise estimate.
-        // measured_width/height store the full wrapper size (set by the measurement canvas).
-        let w = node.measured_width.map(|p| p.as_f32()).unwrap_or(114.0);
-        let h = node.measured_height.map(|p| p.as_f32()).unwrap_or(54.0);
-
-        let (cx, cy) = match handle_position {
-            HandlePosition::Top => (sx + w / 2.0, sy),
-            HandlePosition::Bottom => (sx + w / 2.0, sy + h),
-            HandlePosition::Left => (sx, sy + h / 2.0),
-            HandlePosition::Right => (sx + w, sy + h / 2.0),
-        };
-        Some((cx, cy))
+        Some(handle_center(node, handle_id, handle_position, &self.viewport))
     }
 
     /// Fit the viewport to show all nodes with padding.
