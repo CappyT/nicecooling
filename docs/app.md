@@ -130,7 +130,7 @@ A response end node fires when its state machine says so (`docs/graphs.md`, Resp
 |---|---|---|
 | `notification` | Shows a desktop notification. A new run of the same Graph replaces its last notification. | `ok`, or `failed` when the notification thread is gone |
 | `sound` | Shows a notification with the Graph name as title and the sound as its hint. | as `notification` |
-| `command` | Starts the program and its arguments with no shell and no placeholder. The environment holds only the variables of `docs/graphs.md`, and the three streams are closed. The program leads its own process group. | `ok` for exit code 0, `failed` for another exit or a start error, `timeout` after the time limit (the app kills the group) |
+| `command` | Starts the program and its arguments with no shell and no placeholder. The environment holds only the variables of `docs/graphs.md` (Placeholders), and the three streams are closed. The program leads its own process group. | `ok` for exit code 0, `failed` for another exit or a start error, `timeout` after the time limit (the app kills the group) |
 | `poweroff`, `reboot`, `suspend` | Counts down, then calls logind. | `ok`, `failed` or `cancelled` |
 | `mqtt`, `email` | The runner has no link to the MQTT publisher or the SMTP sender. | `not-configured` |
 
@@ -162,9 +162,9 @@ Three poweroff or reboot runs in a row start the Response pause. The pause prote
 ### MQTT and SMTP clients
 
 - The MQTT client only publishes. It runs as one task on the Tokio runtime of the app and never blocks a caller: a broker that is down costs nothing. It stays off while `host` of `[mqtt]` is empty. It connects with the keep-alive of 30 s, a clean session and the Last Will `offline` on `<base>/status`. After the connect it publishes `online` on that topic and the values of all sensors at once. After a lost connection it waits 1 s, then doubles the wait to 60 s. A connection that lasts 30 s or more resets the wait.
-- The client publishes the sensor values, one retained message each (QoS 0) on `<base>/sensor/<id>`, at `interval_s`. A sensor that the user hid on the Sensors screen has no message. A sensor with no value, also a Graph sensor of a disabled Graph, has the value `null`. The Alarm events go to `<base>/event/<event id>` (QoS 1, no retain), one message for the raise and one for the clear. An Alarm that is active at the start of the app has no raise message. The queue of events keeps 256 messages across reconnects and drops the oldest at the limit.
+- The topics and the messages are in `docs/graphs.md` (MQTT topics). A sensor that the user hid on the Sensors screen has no message. The queue keeps the latest value of each sensor topic, and at most 256 messages for events and responses, across reconnects. At the limit it drops the oldest message and logs a line.
 - The service reads `[mqtt]` and the password at the start of the app. A change in the settings file reaches the client at the next start.
-- The SMTP sender sends one plain text message with a limit of 30 s. It runs in its own task, so a slow server never delays a pass. The modes are `starttls` (port 587), `tls` (port 465) and `none` (port 25). The secure modes check the certificate and the host name. The sender logs in when a user name is set, in every mode. It removes line breaks from the subject. An account needs a host and a sender address. Without one the outcome is `not-configured`.
+- The SMTP sender runs in its own task with a limit of 30 s, so a slow server never delays a pass. The account is in `docs/graphs.md` (SMTP account).
 - The password of each client is in `secrets.toml` (mode 0600). The app never shows it, never writes it to a log and never puts it in an export file.
 
 ## Settings and files
