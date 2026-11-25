@@ -79,7 +79,7 @@ nicecooling is version 0.1.0 and is tested on one desktop. It writes the setting
 
 Before the first start, update the Leakshield to firmware 1022 with aquasuite (`docs/protocol/leakshield.md`).
 
-The packages are on the release page of each version tag (`v<major>.<minor>.<patch>`) of the GitHub repository, or come from a local build. Fedora with GNOME is the supported system: use the RPM. The DEB is for Debian and Ubuntu. It builds and installs in an Ubuntu 24.04 container and a Debian 13 container (`packaging/container/check-deb.sh`). Nobody tested it on hardware.
+The packages are on the release page of each version tag (`v<major>.<minor>.<patch>`, or `v<major>.<minor>.<patch>-<pre-release>`) of the GitHub repository, or come from a local build. Fedora with GNOME is the supported system: use the RPM. The DEB is for Debian and Ubuntu. It builds and installs in an Ubuntu 24.04 container and a Debian 13 container (`packaging/container/check-deb.sh`). Nobody tested it on hardware.
 
 1. Get the RPM: download it from the release page, or build it in a container with `packaging/container/build-rpm.sh`. The build needs `podman` and network. The RPM is `target/rpm/RPMS/x86_64/nicecooling-<version>.rpm`.
 2. Install it: `sudo dnf install ./target/rpm/RPMS/x86_64/nicecooling-*.rpm`. The package sets the daemon to start at boot.
@@ -98,6 +98,23 @@ The polkit rule of the DEB names the group `sudo`, the administrator group of De
 The first start of the daemon takes the BIOS snapshot: the `pwm` attributes of each Channel as the BIOS left them. The snapshot is `/var/lib/nicecooling/bios-snapshot.json`. The daemon saves it before the first Channel write.
 
 The package installs the daemon, the app, the systemd unit and its preset, the `poweroff.target` drop-in, the D-Bus policy, the polkit action and rule, the desktop entries, the icons and the Board files. The RPM owns each of them. The DEB installs the same files at the Debian paths.
+
+## Release
+
+A release has two version fields. They must agree with the tag:
+
+- `version` in `[workspace.package]` of `Cargo.toml`, for example `0.2.0-beta.1`. Update `Cargo.lock` with `cargo update --workspace --offline`.
+- `Version:` in `packaging/nicecooling.spec`, for example `0.2.0~beta.1`.
+
+A pre-release part starts with `-` in Cargo and with `~` in the RPM and the DEB. Write every `-` of the Cargo version as `~` in the spec. `~` sorts before the empty string, so `0.2.0~beta.1` is older than `0.2.0` and `dnf` and `apt` upgrade it to `0.2.0`. `packaging/deb/make-deb.sh` makes the DEB version (`0.2.0~beta.1-1`) from `Cargo.toml` and needs no edit.
+
+The tag is `v<major>.<minor>.<patch>` with an optional `-<pre-release>` part, for example `v0.2.0` or `v0.2.0-beta.1`. It equals `v` plus the Cargo version. Push the tag after the commit that sets both fields. The workflow `.github/workflows/release.yml` then:
+
+1. Stops when the tag has another form, or when the tag, `Cargo.toml` and the spec disagree.
+2. Builds the RPM (`packaging/container/build-rpm.sh`) and the DEB (`packaging/container/build-deb.sh`).
+3. Publishes `nicecooling-*.rpm` and `nicecooling_*.deb` on a GitHub release named after the tag. A tag with a `-` part makes a pre-release.
+
+Run `packaging/container/check.sh` and `packaging/container/check-deb.sh` before the tag. Each one fails when the package version differs from `Cargo.toml`.
 
 ## Hardware watchdog (optional)
 
