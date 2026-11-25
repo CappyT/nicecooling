@@ -45,6 +45,8 @@ The daemon creates the files of the four slots of a Leakshield when it first rea
 | `loops` | array | `{"id", "name", "pump_channels": [id], "flow_sensor", "calibration_table", "water_temperature", "leakshield", "pump_floor"}`. An absent link is `null`. |
 | `alarm_responses` | object | Map from key to `{"response", "delay_s"}`. The key `<event>` is the default of the event. The key `<event>@<source>` is the override of a `leakshield.*` event for the Leakshield `<source>`. A key without an entry uses the next step of the resolution (`api.md`, Alarm response per Leakshield). A state file without `@` keys loads as before. |
 | `rule_groups` | array | Ordered, the first group has the highest priority: `{"id", "profile", "enabled", "rules": [{"kind", "params"}]}` with the kinds and keys of `api.md`. |
+| `graph_sensors` | array | `{"id", "name", "unit"}` of each Graph sensor. `id` is `graph_<n>`. `unit` is one of `degC`, `rpm`, `%`, `V`, `A`, `W`, `l/h`, `mbar`. At most 64 entries. A state file without this key loads as an empty list. |
+| `graph_sensor_next` | integer | The number `n` of the next Graph sensor id. Default 1. The daemon adds 1 at each create and never lowers it, so it never gives an id twice. A state file without this key loads with 1. |
 | `software_sensors` | object | Map from Leakshield id to a map from slot number ("1" to "12") to the sensor id in that slot. An empty slot has no entry. |
 | `software_sensor_scales` | object | Map from Leakshield id to a map from slot number ("1" to "12") to `{"scale", "offset"}`. A slot with scale 1 and offset 0 has no entry. A state file without this key loads with the default for every slot. |
 | `profiles` | object | `{"default": "profile_default", "active": <profile id>, "cause": "default"|"rule"|"manual", "immediate_switching": false, "rule_delay_s": 30, "dwell_s": 300}`. |
@@ -181,7 +183,24 @@ external_change = true
 dismissed = []                      # ids of hints and dialogs closed with "Do not show this again"
 [sensors]
 hidden = []                         # sensor ids that the Sensors screen hides; the daemon has no hidden flag
+[mqtt]                              # the MQTT broker; MQTT is off while `host` is empty
+host = ""
+port = 8883                         # absent: 1883, or 8883 with `tls = true`
+tls = true
+ca_file = ""                        # path of a CA file; empty: the system certificates
+user = ""
+client_id = ""                      # absent: "nicecooling-<hostname>"
+base_topic = "nicecooling"
+interval_s = 10                     # 1 to 3600
+[smtp]                              # the SMTP account of the e-mail response
+host = ""
+port = 587                          # absent: 587 for "starttls", 465 for "tls", 25 for "none"
+security = "starttls"               # "starttls", "tls" or "none"
+user = ""
+sender = ""                         # the From address
 ```
+
+The tables `[mqtt]` and `[smtp]` hold no password. The passwords are in `secrets.toml`.
 
 Known hint ids: `appindicator` (the tray hint) and `immediate_switching_warning` (the dialog of the Profiles screen).
 
@@ -192,6 +211,102 @@ The package installs the system autostart entry `/etc/xdg/autostart/io.github.ca
 - Off: the app writes the override with `Hidden=true`. It has `[Desktop Entry]`, `Type=Application`, `Name=NiceCooling` and `Hidden=true`. Its name equals the system entry, so the session ignores the system entry.
 - On: the app removes the override file.
 - The app shows "on" when no override with `Hidden=true` exists.
+
+## App Graphs: `$XDG_CONFIG_HOME/nicecooling/` and `$XDG_DATA_HOME/nicecooling/`
+
+The app is the only writer of these files. The daemon never reads them. Each file is written with the atomic write of the common rules, and has no `.lkg` copy.
+
+| Path | Mode | Content |
+|---|---|---|
+| `$XDG_CONFIG_HOME/nicecooling/graphs.json` | default | All Graphs. |
+| `$XDG_CONFIG_HOME/nicecooling/secrets.toml` | 0600 | The MQTT and SMTP passwords. |
+| `$XDG_DATA_HOME/nicecooling/graph-state.json` | default | The stored values and the run state of the Graphs. |
+| `$XDG_DATA_HOME/nicecooling/response-log.json` | default | The newest 500 response runs. |
+
+A file that is not valid JSON or TOML, or that has a higher `schema_version` than the app knows, stays unchanged. The app writes no new content over it and shows an error. A missing file is the empty content.
+
+### `graphs.json`
+
+```json
+{
+  "schema_version": 1,
+  "graphs": [
+    {
+      "id": "graph_1",
+      "name": "Five",
+      "enabled": true,
+      "sensor_id": "graph_1",
+      "nodes": [
+        {"id": 1, "kind": "constant", "label": null, "params": {"value": 5}, "x": 40.0, "y": 80.0},
+        {"id": 2, "kind": "sensor_end", "label": null, "params": {"unit": "degC"}, "x": 240.0, "y": 80.0}
+      ],
+      "connections": [{"from": {"node": 1, "pin": "out"}, "to": {"node": 2, "pin": "a"}}]
+    }
+  ]
+}
+```
+
+- `id` is the id of the Graph. `sensor_id` is the id of its Graph sensor (`graph_<n>`), or `null` while the Graph has none. A Graph with a response end node has `sensor_id` `null`.
+- A node has `id` (an integer, unique in its Graph), `kind` (one of the 51 names of `graphs.md`), `label` (`null` or 1 to 32 characters), `params`, and the canvas position `x` and `y`.
+- A connection joins the output pin `out` of `from.node` to the input pin `to.pin` of `to.node`. The input pin names are in `graphs.md`.
+- The app reads the file one Graph at a time. A Graph that does not parse, has a node of an unknown kind, or breaks a rule of the validator stays in the file with its stored text. The app lists it as "invalid" and does not run it. The other Graphs load.
+
+### `graph-state.json`
+
+```json
+{
+  "schema_version": 1,
+  "values": {"graph_2/4": 7.0},
+  "responses": {"graph_3/5": {"state": "run", "last_run_us": 1766000000000000}},
+  "pause": {"count": 1, "quiet_s": 840, "paused": false}
+}
+```
+
+- `values` holds the value of each persistent storage node. The key is `<graph id>/<node id>`. The app deletes the entry of a node or a Graph that no longer exists.
+- `responses` holds the run state of each response end node, with the same key. `state` is `run` or `not_run`. `last_run_us` is the wall clock time of the last run, or `null`.
+- `pause` holds the Response pause: `count` is the number of poweroff and reboot runs, `quiet_s` is the app run time in seconds since the last of them, and `paused` is true while the Response pause is on.
+- The app writes the file at most every 30 s while a value or a run state changes, at its stop, and before a power call. A change of `quiet_s` alone does not start a write.
+
+### `response-log.json`
+
+```json
+{
+  "schema_version": 1,
+  "rows": [
+    {"time_us": 1766000000000000, "graph_id": "graph_3", "graph_name": "Hot water", "kind": "email", "outcome": "ok"}
+  ]
+}
+```
+
+- `kind` is one of `notification`, `sound`, `command`, `email`, `mqtt`, `poweroff`, `reboot` and `suspend`.
+- `outcome` is one of `ok`, `failed`, `timeout`, `not-configured`, `busy` and `cancelled`.
+- The rows are in the order of their runs. The app keeps the newest 500.
+
+### `secrets.toml`
+
+```toml
+schema_version = 1
+[mqtt]
+password = ""
+[smtp]
+password = ""
+```
+
+The app creates the file with the mode 0600 and keeps this mode at each write. It never shows a stored password, never writes one to a log, and never puts one in an export file.
+
+### Export file
+
+The export of one Graph is one JSON file. It holds no `sensor_id`, no stored value, no run state and no password.
+
+```json
+{
+  "format": "nicecooling-graph",
+  "format_version": 1,
+  "graph": {"name": "Five", "nodes": [], "connections": []}
+}
+```
+
+`nodes` and `connections` have the form of `graphs.json`. The app refuses a file over 1 MiB and a file with a `format_version` above 1. An import gives the Graph and its nodes new ids and adds the Graph disabled, with `sensor_id` `null`.
 
 ## App history: `$XDG_DATA_HOME/nicecooling/history.db`
 

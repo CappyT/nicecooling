@@ -24,3 +24,7 @@ bcdDevice
 
 # The name of a file in the aquasuite package (docs/protocol/leakshield-firmware.md).
 aquasuite_db
+
+# The key `client_id` of the `[mqtt]` table of settings.toml (docs/storage.md). It is the MQTT term
+# for the client identifier.
+client_id
