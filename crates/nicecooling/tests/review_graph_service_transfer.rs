@@ -70,6 +70,22 @@ fn duplicate_node_ids_in_the_file_are_refused() {
     );
 }
 
+/// The export writes over a file that the user chose. A file of the user with the name
+/// `<export>.tmp` next to it must not be deleted.
+#[test]
+fn export_keeps_a_user_file_named_like_the_temporary_file() {
+    let dir = Dir::new("rv-export-tmp");
+    let path = dir.path().join("graph.json");
+    let mine = dir.path().join("graph.json.tmp");
+    std::fs::write(&mine, "my notes").unwrap();
+    export_file(&path, &constant_graph("graph_1", 1.0)).unwrap();
+    assert_eq!(
+        std::fs::read_to_string(&mine).ok().as_deref(),
+        Some("my notes"),
+        "the export deleted a file of the user"
+    );
+}
+
 /// 1 MiB is the limit. One byte more is refused before the parse.
 #[test]
 fn one_byte_over_the_limit_is_refused() {
