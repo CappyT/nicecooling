@@ -28,6 +28,19 @@
       <arg name="sources" type="ao" direction="in"/>
       <arg name="sensor" type="o" direction="out"/>
     </method>
+    <!-- Returns the sensor graph_<n>. The unit is one of degC, rpm, %, V, A, W, l/h and mbar. -->
+    <method name="CreateGraphSensor">
+      <annotation name="io.github.cappyt.NiceCooling1.Authorization" value="write"/>
+      <arg name="name" type="s" direction="in"/>
+      <arg name="unit" type="s" direction="in"/>
+      <arg name="sensor" type="o" direction="out"/>
+    </method>
+    <!-- One entry for each Graph sensor: (id, has a value, value). An entry for another id is
+         skipped. A value that is not finite fails the whole call. -->
+    <method name="SetGraphSensorValues">
+      <annotation name="io.github.cappyt.NiceCooling1.Authorization" value="write"/>
+      <arg name="values" type="a(sbd)" direction="in"/>
+    </method>
     <!-- The new Loop has no links and a Pump floor of 40%, the value of the UI design. -->
     <method name="CreateLoop">
       <annotation name="io.github.cappyt.NiceCooling1.Authorization" value="write"/>
@@ -93,7 +106,7 @@
     <property name="Unit" type="s" access="read">
       <annotation name="org.freedesktop.DBus.Property.EmitsChangedSignal" value="const"/>
     </property>
-    <!-- hwmon | leakshield | derived | calibrated -->
+    <!-- hwmon | leakshield | derived | calibrated | graph -->
     <property name="Origin" type="s" access="read">
       <annotation name="org.freedesktop.DBus.Property.EmitsChangedSignal" value="const"/>
     </property>
@@ -124,6 +137,22 @@
       <arg name="sources" type="ao" direction="in"/>
     </method>
     <!-- Fails with InUse while a Curve, a Loop or a Profile rule reads the sensor. -->
+    <method name="Delete">
+      <annotation name="io.github.cappyt.NiceCooling1.Authorization" value="write"/>
+    </method>
+  </interface>
+
+  <!-- Also on /io/github/cappyt/NiceCooling1/sensor/<sensor id> when Origin is graph. After
+       SetDefinition the daemon removes the object and adds it again. -->
+  <interface name="io.github.cappyt.NiceCooling1.GraphSensor">
+    <!-- Changes the default name and the unit. Fails with InUse when a change of the unit meets a
+         Software sensor slot that holds the sensor. -->
+    <method name="SetDefinition">
+      <annotation name="io.github.cappyt.NiceCooling1.Authorization" value="write"/>
+      <arg name="name" type="s" direction="in"/>
+      <arg name="unit" type="s" direction="in"/>
+    </method>
+    <!-- Fails with InUse while a Curve, a Profile rule or a Software sensor slot reads the sensor. -->
     <method name="Delete">
       <annotation name="io.github.cappyt.NiceCooling1.Authorization" value="write"/>
     </method>

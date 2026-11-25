@@ -15,6 +15,7 @@ pub trait Sensor {
     fn kind(&self) -> zbus::Result<String>;
     #[zbus(property)]
     fn unit(&self) -> zbus::Result<String>;
+    /// `hwmon`, `leakshield`, `derived`, `calibrated` or `graph`.
     #[zbus(property)]
     fn origin(&self) -> zbus::Result<String>;
     #[zbus(property)]

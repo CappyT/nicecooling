@@ -239,6 +239,22 @@ mod tests {
     }
 
     #[test]
+    fn authz_map_covers_the_four_members() {
+        for (interface, method) in [
+            ("Manager", "CreateGraphSensor"),
+            ("Manager", "SetGraphSensorValues"),
+            ("GraphSensor", "SetDefinition"),
+            ("GraphSensor", "Delete"),
+        ] {
+            assert_eq!(
+                asks(interface, method, None),
+                Some(Action::Write),
+                "{interface}.{method}"
+            );
+        }
+    }
+
+    #[test]
     fn set_mode_release_is_critical() {
         assert_eq!(
             asks("Leakshield", "SetMode", Some("release")),

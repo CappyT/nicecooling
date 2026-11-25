@@ -19,6 +19,10 @@ pub trait Manager {
         r#type: &str,
         sources: &[OwnedObjectPath],
     ) -> zbus::Result<OwnedObjectPath>;
+    /// The unit is one of `degC`, `rpm`, `%`, `V`, `A`, `W`, `l/h` and `mbar`.
+    fn create_graph_sensor(&self, name: &str, unit: &str) -> zbus::Result<OwnedObjectPath>;
+    /// One entry for each Graph sensor: (id, has a value, value).
+    fn set_graph_sensor_values(&self, values: &[(String, bool, f64)]) -> zbus::Result<()>;
     fn create_loop(&self, name: &str) -> zbus::Result<OwnedObjectPath>;
     /// (id, name, preset, points as (raw rpm, flow L/h))
     fn get_calibration_tables(&self) -> zbus::Result<Vec<(String, String, bool, Vec<(f64, f64)>)>>;
