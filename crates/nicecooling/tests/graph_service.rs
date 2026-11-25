@@ -3,6 +3,7 @@ mod support;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use nicecooling::graphs::channel::GraphCommand;
 use nicecooling::graphs::service::{Env, GraphService, NoPower, SensorLink};
 use nicecooling::graphs::store::GraphStore;
 use nicecooling::graphs::view::{RowState, SharedView, shared_view};
@@ -409,4 +410,70 @@ fn graph_stays_disabled_after_restart() {
         ]
     );
     assert_eq!(*scan.scans.lock().unwrap(), 0);
+}
+
+/// A memory node that takes 7 while the sensor `ctl` is true, and a process node whose scan can
+/// panic. The end node adds the process node (0 with no process) to the memory.
+fn memory_and_process_graph() -> Graph {
+    let mut graph = Graph::new("graph_1", "Memory");
+    graph.nodes = vec![
+        Node::new(1, Kind::Process).with_param("name", "blender"),
+        Node::new(2, Kind::Constant).with_param("value", 7.0),
+        Node::new(3, Kind::SensorSource).with_param("sensor", "ctl"),
+        Node::new(4, Kind::Memory),
+        Node::new(5, Kind::Add),
+        Node::new(6, Kind::SensorEnd).with_param("unit", "%"),
+    ];
+    graph.connections = vec![
+        Connection::new(3, 4, "s"),
+        Connection::new(2, 4, "a"),
+        Connection::new(4, 5, "a"),
+        Connection::new(1, 5, "b"),
+        Connection::new(5, 6, "a"),
+    ];
+    graph.sensor_id = Some("graph_1".into());
+    graph
+}
+
+#[test]
+fn enable_after_a_panic_starts_with_a_clean_node_state() {
+    let mut rig = rig("clean-state", vec![memory_and_process_graph()]);
+    rig.service.apply_event(&DaemonEvent::Link(Link::Online));
+    rig.service.apply_event(&sample(&[("ctl", 1.0, 0)]));
+    let last = |rig: &Rig| rig.calls.lock().unwrap().last().unwrap().clone();
+    for _ in 0..2 {
+        rig.clock.advance(Duration::from_secs(1));
+        rig.service.poll();
+    }
+    assert_eq!(last(&rig), [("graph_1".to_owned(), Some(7.0))]);
+
+    // The scan panics: the Graph stops. Its store input is false when the user enables it again.
+    rig.service.apply_event(&sample(&[("ctl", 0.0, 0)]));
+    *rig.scan.explode.lock().unwrap() = true;
+    rig.clock.advance(Duration::from_secs(1));
+    rig.service.poll();
+    assert_eq!(last(&rig), [("graph_1".to_owned(), None)]);
+    *rig.scan.explode.lock().unwrap() = false;
+    rig.service.handle(GraphCommand::Enable {
+        graph: "graph_1".into(),
+        enabled: true,
+    });
+    for _ in 0..2 {
+        rig.clock.advance(Duration::from_secs(1));
+        rig.service.poll();
+    }
+    assert_eq!(last(&rig), [("graph_1".to_owned(), Some(0.0))]);
+}
+
+#[test]
+fn service_failure_shows_in_the_view_and_names_the_service() {
+    let mut rig = rig("service-failure", vec![]);
+    rig.service.fail("a test panic");
+    let error = rig.view.lock().unwrap().error.clone().expect("an error");
+    assert!(error.contains("a test panic"), "{error}");
+    let Plan::Show(spec) = rig.notifications.try_recv().expect("a notification") else {
+        panic!("a notification to show");
+    };
+    assert_eq!(spec.title, "Graph service stopped");
+    assert_eq!(spec.key, "graph-service-stopped");
 }

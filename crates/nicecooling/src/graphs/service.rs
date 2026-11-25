@@ -559,6 +559,8 @@ impl GraphService {
             return;
         };
         self.stopped.insert(id.to_owned());
+        // The pass that panicked can leave a node state half done: the next run starts clean.
+        self.evaluator.apply(&graph);
         graph.enabled = false;
         if let Err(error) = self.store.put(graph.clone()) {
             eprintln!("nicecooling: graph {id}: cannot store it as disabled: {error}");

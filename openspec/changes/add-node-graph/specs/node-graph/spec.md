@@ -668,7 +668,7 @@ Delays, windows, generators, counters, hold times and repeat intervals SHALL cou
 - **THEN** the node has given 1 from the 4th step
 
 ### Requirement: Fault isolation
-The app SHALL evaluate each Graph inside a panic boundary. A Graph whose evaluation panics SHALL be disabled and stored as disabled. The app SHALL show a notification that names the Graph. Its Graph sensor SHALL have no value.
+The app SHALL evaluate each Graph inside a panic boundary. A Graph whose evaluation panics SHALL be disabled and stored as disabled. The app SHALL show a notification that names the Graph. Its Graph sensor SHALL have no value. When the user enables the Graph again, its node state SHALL start clean, except the stored values.
 
 #### Scenario: Panic in one Graph
 - **WHEN** Graph B panics in an evaluation and Graph A does not
@@ -677,6 +677,10 @@ The app SHALL evaluate each Graph inside a panic boundary. A Graph whose evaluat
 #### Scenario: Restart after a panic
 - **WHEN** the app restarts after the panic
 - **THEN** Graph B is still disabled
+
+#### Scenario: Enable after a panic
+- **WHEN** a memory node of Graph B held 7 before B panicked, the user enables B again, and the store input of the memory is false
+- **THEN** the memory node gives 0, its start value, and not 7
 
 ### Requirement: Failure of the Graph service
 A panic outside the evaluation of a Graph (the store, the link to the daemon, the channel) SHALL end the Graph service thread. The Graph view SHALL show an error, and the app SHALL show a notification that names the Graph service. A stop of the app after that SHALL report that no state was written.
