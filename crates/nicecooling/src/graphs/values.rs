@@ -222,6 +222,7 @@ impl ValuesCall for DaemonCalls {
 /// The link of the Graph service to the daemon.
 pub struct DaemonLink {
     values: GraphValues,
+    calls: DaemonCalls,
 }
 
 impl DaemonLink {
@@ -232,7 +233,8 @@ impl DaemonLink {
         view: SharedView,
     ) -> Self {
         Self {
-            values: GraphValues::new(Box::new(calls), session, clock, view),
+            values: GraphValues::new(Box::new(calls.clone()), session, clock, view),
+            calls,
         }
     }
 }
@@ -240,6 +242,18 @@ impl DaemonLink {
 impl SensorLink for DaemonLink {
     fn values(&mut self, values: &[(String, Option<f64>)]) {
         self.values.send(values);
+    }
+
+    fn create_sensor(&mut self, name: &str, unit: &str) -> Result<String, SensorError> {
+        self.calls.create(name, unit)
+    }
+
+    fn rename_sensor(&mut self, id: &str, name: &str, unit: &str) -> Result<(), SensorError> {
+        self.calls.rename(id, name, unit)
+    }
+
+    fn delete_sensor(&mut self, id: &str) -> Result<(), SensorError> {
+        self.calls.delete(id)
     }
 }
 

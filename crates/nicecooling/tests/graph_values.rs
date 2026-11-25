@@ -5,18 +5,20 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use nicecooling::daemon_client::DaemonClient;
+use nicecooling::graphs::channel::GraphCommand;
 use nicecooling::graphs::service::{Env, GraphService, NoPower};
 use nicecooling::graphs::store::GraphStore;
 use nicecooling::graphs::values::{
     ActiveSession, DaemonCalls, DaemonLink, GraphValues, LogindSession, SensorError, ValuesCall,
 };
-use nicecooling::graphs::view::{SharedView, ValuesState, shared_view};
+use nicecooling::graphs::view::{ForeignSensor, SharedView, ValuesState, shared_view};
 use nicecooling::i18n::EN;
+use nicecooling::model::DaemonEvent;
 use nicecooling::notify::Plan;
 use nicecooling_core::clock::SimClock;
 use nicecooling_core::rules::proc_scan::ProcessSource;
 use nicecooling_core::rules::process::ProcessList;
-use nicecooling_graph::model::Graph;
+use nicecooling_graph::model::{Connection, Graph, Kind, Node};
 use support::bus::PrivateBus;
 use support::fake_daemon::{FakeDaemon, Options};
 use support::graphs::{Dir, constant_graph};
@@ -118,11 +120,51 @@ impl Rig {
     fn state(&self) -> ValuesState {
         self.view.lock().unwrap().values.clone()
     }
+
+    fn handle(&mut self, command: GraphCommand) {
+        tokio::task::block_in_place(|| self.service.handle(command));
+    }
+
+    fn event(&mut self, event: &DaemonEvent) {
+        tokio::task::block_in_place(|| self.service.apply_event(event));
+    }
+
+    /// The snapshot that the daemon client reads now.
+    async fn read_snapshot(&self) -> DaemonEvent {
+        DaemonEvent::Snapshot(Box::new(self.client.snapshot().await.unwrap()))
+    }
+
+    /// A new snapshot of the daemon reaches the service.
+    async fn snapshot(&mut self) {
+        let event = self.read_snapshot().await;
+        self.event(&event);
+    }
+
+    fn stored(&self, id: &str) -> Option<Graph> {
+        self.service.store().graph(id).cloned()
+    }
+
+    fn refusal(&self) -> Option<String> {
+        self.view.lock().unwrap().refusal.clone()
+    }
 }
 
 fn sensor_graph(id: &str, sensor: &str, value: f64) -> Graph {
     let mut graph = constant_graph(id, value);
     graph.sensor_id = Some(sensor.to_owned());
+    graph
+}
+
+/// A Graph with a response end node: a notification that its constant input starts.
+fn response_graph(id: &str) -> Graph {
+    let mut graph = Graph::new(id, "Five");
+    graph.nodes = vec![
+        Node::new(1, Kind::Constant).with_param("value", 1.0),
+        Node::new(2, Kind::ResponseEnd)
+            .with_param("kind", "notification")
+            .with_param("title", "t"),
+    ];
+    graph.connections = vec![Connection::new(1, 2, "a")];
     graph
 }
 
@@ -360,4 +402,235 @@ async fn wait_for(done: impl Fn() -> bool) {
     tokio::time::timeout(Duration::from_secs(10), wait)
         .await
         .expect("the condition held within 10 s");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn apply_creates_the_sensor_first() {
+    let mut rig = Rig::start("apply-creates", vec![]).await;
+    rig.handle(GraphCommand::Apply(Box::new(constant_graph(
+        "graph_a", 5.0,
+    ))));
+    assert_eq!(
+        rig.fake.calls(),
+        ["CreateGraphSensor(Five,degC) interactive=true"]
+    );
+    let stored = rig.stored("graph_a").expect("the Graph is stored");
+    assert_eq!(stored.sensor_id.as_deref(), Some("graph_1"));
+    assert_eq!(rig.refusal(), None);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn refused_create_stops_apply() {
+    let mut rig = Rig::start("apply-refused", vec![]).await;
+    rig.fake.set_graph_limit(0);
+    rig.handle(GraphCommand::Apply(Box::new(constant_graph(
+        "graph_a", 5.0,
+    ))));
+    assert_eq!(rig.fake.calls_of("CreateGraphSensor").len(), 1);
+    assert!(rig.stored("graph_a").is_none(), "nothing is stored");
+    let reason = rig.refusal().expect("the reason is shown");
+    assert!(reason.contains("limit"), "{reason}");
+    // A denial by polkit stops Apply in the same way.
+    rig.fake.set_graph_limit(64);
+    rig.fake.deny_writes(true);
+    rig.handle(GraphCommand::Apply(Box::new(constant_graph(
+        "graph_a", 5.0,
+    ))));
+    assert!(rig.stored("graph_a").is_none());
+    let reason = rig.refusal().expect("the reason is shown");
+    assert!(reason.contains("does not allow"), "{reason}");
+    assert!(rig.fake.graph_sensor_ids().is_empty());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn apply_renames_the_sensor_through_set_definition() {
+    let mut rig = Rig::start(
+        "apply-rename",
+        vec![sensor_graph("graph_a", "graph_1", 5.0)],
+    )
+    .await;
+    rig.fake.add_graph_sensor("Five", "degC").await;
+    rig.snapshot().await;
+    // Nothing changed: no call.
+    let same = rig.stored("graph_a").unwrap();
+    rig.handle(GraphCommand::Apply(Box::new(same.clone())));
+    assert!(rig.fake.calls().is_empty(), "{:?}", rig.fake.calls());
+    // A new name and a new unit: one call, and the id stays.
+    let mut changed = same;
+    changed.name = "Hot water".into();
+    changed.nodes[1] = Node::new(2, Kind::SensorEnd).with_param("unit", "mbar");
+    rig.handle(GraphCommand::Apply(Box::new(changed)));
+    assert_eq!(
+        rig.fake.calls(),
+        ["SetGraphSensorDefinition(graph_1,Hot water,mbar) interactive=true"]
+    );
+    let stored = rig.stored("graph_a").unwrap();
+    assert_eq!(stored.sensor_id.as_deref(), Some("graph_1"));
+    assert_eq!(stored.name, "Hot water");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn enable_creates_the_missing_sensor() {
+    let mut off = constant_graph("graph_a", 5.0);
+    off.enabled = false;
+    let mut rig = Rig::start("enable-creates", vec![off]).await;
+    // Disable and Apply of a Graph that is off make the sensor only when asked: Disable none.
+    rig.handle(GraphCommand::Enable {
+        graph: "graph_a".into(),
+        enabled: false,
+    });
+    assert!(rig.fake.calls().is_empty());
+    rig.handle(GraphCommand::Enable {
+        graph: "graph_a".into(),
+        enabled: true,
+    });
+    assert_eq!(
+        rig.fake.calls(),
+        ["CreateGraphSensor(Five,degC) interactive=true"]
+    );
+    let stored = rig.stored("graph_a").unwrap();
+    assert!(stored.enabled);
+    assert_eq!(stored.sensor_id.as_deref(), Some("graph_1"));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn refused_enable_keeps_the_graph_disabled() {
+    let mut off = constant_graph("graph_a", 5.0);
+    off.enabled = false;
+    let mut rig = Rig::start("enable-refused", vec![off]).await;
+    rig.fake.set_graph_limit(0);
+    rig.handle(GraphCommand::Enable {
+        graph: "graph_a".into(),
+        enabled: true,
+    });
+    let stored = rig.stored("graph_a").unwrap();
+    assert!(!stored.enabled);
+    assert_eq!(stored.sensor_id, None);
+    assert!(rig.refusal().unwrap().contains("limit"));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn delete_in_use_keeps_the_graph_and_names_the_curve() {
+    let mut rig = Rig::start(
+        "delete-in-use",
+        vec![sensor_graph("graph_a", "graph_1", 5.0)],
+    )
+    .await;
+    rig.fake.add_graph_sensor("Five", "degC").await;
+    rig.fake
+        .set_graph_in_use(Some("graph_1 is read by the Curve of Waterpump"));
+    rig.handle(GraphCommand::Delete {
+        graph: "graph_a".into(),
+    });
+    assert!(rig.stored("graph_a").is_some(), "the Graph stays");
+    assert!(rig.refusal().unwrap().contains("Waterpump"));
+    assert_eq!(rig.fake.graph_sensor_ids(), ["graph_1"]);
+    // When nothing uses the sensor, the sensor goes first and the Graph after it.
+    rig.fake.set_graph_in_use(None);
+    rig.handle(GraphCommand::Delete {
+        graph: "graph_a".into(),
+    });
+    assert!(rig.stored("graph_a").is_none());
+    assert!(rig.fake.graph_sensor_ids().is_empty());
+    assert_eq!(rig.refusal(), None);
+    assert_eq!(
+        rig.fake.calls_of("DeleteGraphSensor"),
+        [
+            "DeleteGraphSensor(graph_1) interactive=true",
+            "DeleteGraphSensor(graph_1) interactive=true",
+        ]
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn end_node_kind_change_of_a_used_sensor_stores_nothing() {
+    let mut rig = Rig::start("kind-change", vec![sensor_graph("graph_a", "graph_1", 5.0)]).await;
+    rig.fake.add_graph_sensor("Five", "degC").await;
+    rig.fake
+        .set_graph_in_use(Some("graph_1 is read by the Curve of Waterpump"));
+    rig.handle(GraphCommand::Apply(Box::new(response_graph("graph_a"))));
+    let stored = rig.stored("graph_a").unwrap();
+    assert!(stored.sensor_end().is_some(), "the Graph is as it was");
+    assert_eq!(stored.sensor_id.as_deref(), Some("graph_1"));
+    assert!(rig.refusal().unwrap().contains("Waterpump"));
+    // Once nothing uses the sensor, the change goes through and the sensor is removed.
+    rig.fake.set_graph_in_use(None);
+    rig.handle(GraphCommand::Apply(Box::new(response_graph("graph_a"))));
+    let stored = rig.stored("graph_a").unwrap();
+    assert!(stored.sensor_end().is_none());
+    assert_eq!(stored.sensor_id, None);
+    assert!(rig.fake.graph_sensor_ids().is_empty());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn missing_sensor_is_created_at_start() {
+    let mut rig = Rig::start(
+        "start-missing",
+        vec![sensor_graph("graph_a", "graph_3", 5.0)],
+    )
+    .await;
+    rig.snapshot().await;
+    assert_eq!(
+        rig.fake.calls(),
+        ["CreateGraphSensor(Five,degC) interactive=true"]
+    );
+    assert_eq!(
+        rig.stored("graph_a").unwrap().sensor_id.as_deref(),
+        Some("graph_1")
+    );
+    assert_eq!(rig.fake.graph_sensor_ids(), ["graph_1"]);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn sensor_of_another_user_is_left_and_listed() {
+    let mut rig = Rig::start(
+        "start-foreign",
+        vec![sensor_graph("graph_a", "graph_1", 5.0)],
+    )
+    .await;
+    rig.fake.add_graph_sensor("Five", "degC").await;
+    rig.fake.add_graph_sensor("Other", "W").await;
+    rig.snapshot().await;
+    assert!(rig.fake.calls().is_empty(), "{:?}", rig.fake.calls());
+    assert_eq!(
+        rig.view.lock().unwrap().foreign_sensors,
+        [ForeignSensor {
+            id: "graph_2".into(),
+            name: "Other".into(),
+            unit: "W".into(),
+        }]
+    );
+    assert_eq!(rig.fake.graph_sensor_ids(), ["graph_1", "graph_2"]);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn new_snapshot_runs_the_comparison_again() {
+    let mut rig = Rig::start("start-again", vec![sensor_graph("graph_a", "graph_3", 5.0)]).await;
+    rig.snapshot().await;
+    assert_eq!(rig.fake.calls_of("CreateGraphSensor").len(), 1);
+    // The snapshot that follows the new sensor lists it: no second call.
+    rig.snapshot().await;
+    assert_eq!(rig.fake.calls_of("CreateGraphSensor").len(), 1);
+    // The daemon loses the sensor, for example after a reset of its state.
+    rig.fake.drop_graph_sensor("graph_1").await;
+    rig.snapshot().await;
+    assert_eq!(rig.fake.calls_of("CreateGraphSensor").len(), 2);
+    assert_eq!(
+        rig.stored("graph_a").unwrap().sensor_id.as_deref(),
+        Some("graph_2")
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn stale_snapshot_does_not_make_a_second_sensor() {
+    let mut rig = Rig::start("start-stale", vec![sensor_graph("graph_a", "graph_3", 5.0)]).await;
+    let before = rig.read_snapshot().await;
+    rig.event(&before);
+    // A snapshot that the client read before the call can arrive after it.
+    rig.event(&before);
+    assert_eq!(rig.fake.calls_of("CreateGraphSensor").len(), 1);
+    // After the grace time the service believes the snapshot again.
+    rig.clock.advance(Duration::from_secs(31));
+    rig.event(&before);
+    assert_eq!(rig.fake.calls_of("CreateGraphSensor").len(), 2);
 }

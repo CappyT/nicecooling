@@ -48,6 +48,15 @@ pub struct TryView {
     pub end: EndValue,
 }
 
+/// A Graph sensor of the daemon that none of the Graphs of this app holds. It can belong to the
+/// app of another user. The Graphs screen lists it with a remove command.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ForeignSensor {
+    pub id: String,
+    pub name: String,
+    pub unit: String,
+}
+
 /// How the call that sends the Graph sensor values goes.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub enum ValuesState {
@@ -74,6 +83,7 @@ pub struct GraphView {
     pub trying: Option<TryView>,
     /// The state of the call that sends the Graph sensor values.
     pub values: ValuesState,
+    pub foreign_sensors: Vec<ForeignSensor>,
 }
 
 impl GraphView {

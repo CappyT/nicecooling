@@ -3,6 +3,7 @@
 
 pub mod channel;
 pub mod secrets;
+pub mod sensors;
 pub mod service;
 pub mod store;
 pub mod transfer;
