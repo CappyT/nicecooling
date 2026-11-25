@@ -54,6 +54,7 @@ At login the app can start before the StatusNotifier host of the desktop. The ap
 - `nicecooling` opens the window.
 - `nicecooling --background` opens no window. The tray icon and the notifications run.
 - The entry "NiceCooling" in the app list runs `nicecooling`.
+- One instance runs for each user session. It holds the name `io.github.cappyt.NiceCooling` on the session bus. A second `nicecooling` shows the window of the first and exits with status 0. A second `nicecooling --background` exits with status 0 and asks nothing. Without a session bus, the app starts as usual.
 - Closing the window does not stop the app. Only "Quit" in the tray menu or in the primary menu stops it.
 
 ## First run
