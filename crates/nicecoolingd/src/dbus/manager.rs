@@ -71,6 +71,18 @@ impl Manager {
         Ok(object(Kind::Sensor, &id))
     }
 
+    async fn set_graph_sensor_values(
+        &self,
+        #[zbus(connection)] connection: &Connection,
+        #[zbus(header)] header: Header<'_>,
+        values: Vec<(String, bool, f64)>,
+    ) -> Result<()> {
+        self.hub
+            .authorize(connection, &header, "Manager", "SetGraphSensorValues", None)
+            .await?;
+        self.hub.set_graph_sensor_values(&values)
+    }
+
     #[zbus(out_args("loop"))]
     async fn create_loop(
         &self,

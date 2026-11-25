@@ -11,6 +11,7 @@ use nicecooling_api::Error;
 use nicecooling_api::errors::Result;
 use nicecooling_api::ids::{self, Kind};
 use nicecooling_core::calibration::{CalibrationTable, Preset};
+use nicecooling_core::clock::Clock;
 use nicecooling_core::curve::{Curve, DEFAULT_SMOOTHING_S, DEFAULT_STEP_LIMIT};
 use nicecooling_core::derived::{DerivedKind, DerivedSensor};
 use nicecooling_core::graph_sensor::{MAX_GRAPH_SENSORS, graph_sensor_kind};
@@ -39,6 +40,7 @@ use crate::state::{
     ProfileChannel, ProfileFile, ProfileSet, STATE_FILE, SlotScale, SlotStore, StateStore,
     profile_file, tick_config,
 };
+use crate::value_table::ValueTable;
 
 /// The default Pump floor of a new Loop, in percent.
 pub const DEFAULT_PUMP_FLOOR: f64 = 40.0;
@@ -120,6 +122,10 @@ pub struct HubInit {
     pub channels: Vec<ChannelMeta>,
     pub leakshields: Vec<LeakshieldInfo>,
     pub state_health: String,
+    /// The table that the tick reads. `SetGraphSensorValues` writes the Graph sensors into it.
+    pub values: ValueTable,
+    /// The clock of the tick: a value is as old as the tick sees it.
+    pub clock: Arc<dyn Clock>,
 }
 
 pub struct SensorView {
@@ -218,6 +224,8 @@ pub struct Hub {
     alarm_effects: mpsc::UnboundedSender<Effect>,
     alarm_rx: Mutex<Option<mpsc::UnboundedReceiver<Effect>>>,
     login1: OnceLock<Arc<dyn Login1>>,
+    values: ValueTable,
+    clock: Arc<dyn Clock>,
     /// zbus runs the handlers on its own runtime: Tokio timers and tasks go through this handle.
     runtime: tokio::runtime::Handle,
 }
@@ -764,6 +772,8 @@ impl Hub {
             alarm_effects,
             alarm_rx: Mutex::new(Some(alarm_rx)),
             login1: OnceLock::new(),
+            values: init.values,
+            clock: init.clock,
             runtime: tokio::runtime::Handle::current(),
         })
     }
@@ -1365,7 +1375,36 @@ impl Hub {
             i.state.graph_sensors.retain(|g| g.id != id);
             i.state.names.remove(id);
             Ok(())
-        })
+        })?;
+        self.values.clear(id);
+        Ok(())
+    }
+
+    /// The values call of the app. An entry with a value puts it in the value table with the time
+    /// of the tick clock. An entry without a value removes the value, so the next tick reads none.
+    /// An entry for an id that is not a Graph sensor is skipped: the app cannot write the value of
+    /// a measured, Derived or calibrated sensor. A number that is not finite fails the whole call
+    /// before it changes anything, also in an entry that is skipped or has no value: a Curve never
+    /// gets a number that no sensor measured.
+    pub fn set_graph_sensor_values(&self, entries: &[(String, bool, f64)]) -> Result<()> {
+        if let Some((id, _, value)) = entries.iter().find(|(_, _, value)| !value.is_finite()) {
+            return Err(Error::invalid(format!(
+                "the value {value} of {id} is not a finite number"
+            )));
+        }
+        let graph_ids: BTreeSet<String> = self.graph_sensor_ids().into_iter().collect();
+        let now = self.clock.now();
+        for (id, has_value, value) in entries {
+            if !graph_ids.contains(id) {
+                continue;
+            }
+            if *has_value {
+                self.values.publish(id, *value, now);
+            } else {
+                self.values.clear(id);
+            }
+        }
+        Ok(())
     }
 
     pub fn set_channel_name(&self, id: &str, name: &str) -> Result<()> {

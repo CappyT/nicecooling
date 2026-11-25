@@ -304,6 +304,8 @@ pub async fn start<N: Notifier + 'static>(
             .collect(),
         leakshields: leakshields.clone(),
         state_health: state_health.to_owned(),
+        values: values.clone(),
+        clock: clock.clone(),
     });
 
     let rescan = Rescan {

@@ -24,6 +24,11 @@ impl ValueTable {
             .insert(sensor.to_owned(), Reading { value, at });
     }
 
+    /// Removes the value of a sensor: the next tick reads no value.
+    pub fn clear(&self, sensor: &str) {
+        self.values.lock().unwrap().remove(sensor);
+    }
+
     /// The result of a scan of the process list.
     pub fn publish_processes(&self, list: ProcessList) {
         *self.processes.lock().unwrap() = list;

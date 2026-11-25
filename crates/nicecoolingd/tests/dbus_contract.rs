@@ -83,13 +83,13 @@ fn canonical(xml: &str) -> BTreeMap<String, BTreeSet<String>> {
 async fn introspection_matches_xml() {
     let mut rig = Rig::start().await;
     rig.tick_in_background();
-    // A Derived sensor adds its interface to a Sensor object.
-    ManagerProxy::new(&rig.client)
-        .await
-        .unwrap()
+    // A Derived sensor and a Graph sensor add their interfaces to a Sensor object.
+    let manager = ManagerProxy::new(&rig.client).await.unwrap();
+    manager
         .create_derived_sensor("Hottest", "maximum", &[path(Kind::Sensor, "k10temp_temp1")])
         .await
         .unwrap();
+    manager.create_graph_sensor("Water", "degC").await.unwrap();
 
     let mut merged: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
     let mut todo = vec![nicecooling_api::ROOT_PATH.to_owned()];
@@ -122,7 +122,7 @@ async fn introspection_matches_xml() {
         }
     }
     let expected = canonical(INTERFACE_XML);
-    assert_eq!(expected.len(), 10, "the contract has 10 interfaces");
+    assert_eq!(expected.len(), 11, "the contract has 11 interfaces");
     for (name, members) in &expected {
         assert!(name.starts_with(INTERFACE_PREFIX));
         let got = merged
