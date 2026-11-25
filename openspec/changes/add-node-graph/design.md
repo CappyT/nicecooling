@@ -271,7 +271,7 @@ The app has service threads for the tray, the notifications and the history. Eac
 | Link | Direction | Form |
 |---|---|---|
 | Sensor values and Alarms | daemon events -> service | the event channel that every service thread reads |
-| Graph commands | window, tray, notification button -> service | new `Command` variants that the app routes to a channel of the service and not to the daemon client: apply, enable, delete, try, run once, cancel the countdown, turn the Graph responses on, settings changed |
+| Graph commands | window, tray, notification button -> service | new `Command` variants that the app routes to a channel of the service (256 commands at most: a full channel refuses the command, and the stop message has a path of its own) and not to the daemon client: apply, enable, delete, try, run once, cancel the countdown, turn the Graph responses on, settings changed |
 | Graph view | service -> window, tray | one shared state behind a mutex, as the notification preferences of the settings: per Graph the live node values and the result, the countdown, the Response pause, the response log |
 | Notifications | service -> notification service | a request on the channel that the notification service reads, so one thread owns the notification server |
 | Graph sensor values and the Graph sensor calls | service -> daemon | the daemon client, with the call path without the interactive flag for the values |

@@ -634,6 +634,17 @@ The app SHALL evaluate every enabled Graph once per second in a service thread o
 - **WHEN** the app does not run
 - **THEN** no Graph is evaluated and the daemon runs its control tick as before
 
+### Requirement: Command channel of the Graph service
+The app SHALL send the commands of the window, the tray and the notifications to the Graph service on a channel that holds 256 commands at most. A command that comes while the channel is full SHALL be refused, and the app SHALL show the refusal. The stop message SHALL always get through.
+
+#### Scenario: Full channel
+- **WHEN** the service is busy with a pass that lasts 5 s and the window sends 300 Try commands in 1 s
+- **THEN** the service takes the first 256 commands, the app refuses the other 44 and shows the refusal
+
+#### Scenario: Quit with a full channel
+- **WHEN** the channel holds 256 commands and the user chooses "Quit"
+- **THEN** the service reads the stop message before the 256 commands
+
 ### Requirement: Disabled Graph
 A disabled Graph SHALL not be evaluated. Its Graph sensor SHALL get the no-value entry and its response SHALL not run. The app SHALL keep its nodes and stored values.
 

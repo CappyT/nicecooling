@@ -16,7 +16,7 @@ use nicecooling_core::rules::proc_scan::ProcFs;
 use crate::app::now_us;
 use crate::command::Command;
 use crate::daemon_client::DaemonClient;
-use crate::graphs::channel::{GraphChannel, Input};
+use crate::graphs::channel::{GraphChannel, Input, Inputs};
 use crate::graphs::service::{Env, GraphService, NoLink, NoPower, SensorLink};
 use crate::graphs::store::{GraphPaths, GraphStore};
 use crate::graphs::values::{DaemonCalls, DaemonLink, LogindSession};
@@ -226,7 +226,7 @@ pub fn spawn_sigterm(
 pub fn spawn_service(
     mut service: GraphService,
     mut events: broadcast::Receiver<DaemonEvent>,
-    mut inputs: UnboundedReceiver<Input>,
+    mut inputs: Inputs,
 ) {
     enum Wake {
         Event(Result<DaemonEvent, RecvError>),
@@ -293,6 +293,7 @@ pub fn spawn_graphs(
     link: Box<dyn SensorLink>,
 ) -> GraphChannel {
     let (channel, inputs) = GraphChannel::new();
+    let channel = channel.with_view(view.clone());
     let service = GraphService::new(
         GraphStore::open(paths),
         Env {

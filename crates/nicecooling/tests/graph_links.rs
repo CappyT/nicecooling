@@ -8,7 +8,9 @@ use gpui::TestAppContext;
 use nicecooling::app::{self, Backend, StartMode};
 use nicecooling::command::Command;
 use nicecooling::daemon_client::DaemonClient;
-use nicecooling::graphs::channel::{GraphChannel, GraphCommand, Input, QUIT_WAIT};
+use nicecooling::graphs::channel::{
+    COMMAND_BOUND, GraphChannel, GraphCommand, Input, QUIT_WAIT, SendError,
+};
 use nicecooling::graphs::service::{Env, GraphService, NoLink, NoPower, PowerCall, SensorLink};
 use nicecooling::graphs::store::GraphStore;
 use nicecooling::graphs::view::{Countdown, SharedView, shared_view};
@@ -449,4 +451,46 @@ async fn sigterm_takes_the_quit_path() {
         .await
         .expect("a command in 10 s");
     assert_eq!(command, Some(Command::Quit));
+}
+
+#[test]
+fn full_channel_refuses_a_command_and_still_takes_the_stop() {
+    let view = nicecooling::graphs::view::shared_view();
+    let (channel, mut inputs) = GraphChannel::new();
+    let channel = channel.with_view(view.clone());
+    for _ in 0..COMMAND_BOUND {
+        assert_eq!(channel.try_send(GraphCommand::ResponsesOn), Ok(()));
+    }
+    assert_eq!(
+        channel.try_send(GraphCommand::ResponsesOn),
+        Err(SendError::Full)
+    );
+    // A Graph command that the app routes into the full channel shows a refusal.
+    assert_eq!(
+        channel.route(Command::Graph(GraphCommand::ResponsesOn)),
+        None
+    );
+    assert!(view.lock().unwrap().refusal.is_some());
+
+    // The stop has a path of its own and comes first.
+    let stopper = {
+        let channel = channel.clone();
+        std::thread::spawn(move || channel.stop(Duration::from_secs(1)))
+    };
+    std::thread::sleep(Duration::from_millis(200));
+    let done = match inputs.try_recv() {
+        Ok(Input::Stop(done)) => done,
+        other => panic!("the first message is {other:?}"),
+    };
+    done.send(()).unwrap();
+    assert!(stopper.join().unwrap());
+
+    // A service that is gone gives no answer to a stop, and takes no command.
+    drop(inputs);
+    assert!(channel.is_closed());
+    assert_eq!(
+        channel.try_send(GraphCommand::ResponsesOn),
+        Err(SendError::Closed)
+    );
+    assert!(!channel.stop(Duration::from_secs(1)));
 }
