@@ -744,6 +744,7 @@ graphs:
     other: "Nicht importiert: %{reason}"
 graph_editor:
   not_applied: "Nicht angewendet"
+  add_node: "Knoten hinzufügen"
   undo: "Rückgängig"
   redo: "Wiederholen"
   try: "Probelauf"
@@ -821,106 +822,198 @@ graph_editor:
   kind:
     sensor_source:
       name: "Sensor"
+      help: "Gibt den Wert eines Sensors."
     alarm_event_source:
       name: "Alarmereignis"
+      help: "Gibt 1, solange diese Warnung oder dieser Alarm aktiv ist, sonst 0."
     constant:
       name: "Konstante"
+      help: "Gibt eine feste Zahl."
     random:
       name: "Zufall"
+      help: "Gibt jede Sekunde eine neue Zahl im Bereich."
     process:
       name: "Prozess"
+      help: "Gibt 1, solange ein Prozess mit diesem Namen läuft, sonst 0."
     add:
       name: "Addieren"
+      help: "A + B"
     subtract:
       name: "Subtrahieren"
+      help: "A - B"
     multiply:
       name: "Multiplizieren"
+      help: "A x B"
     divide:
       name: "Dividieren"
+      help: "A / B. Kein Wert, wenn B 0 ist."
     minimum:
       name: "Minimum"
+      help: "Der kleinere Wert von A und B."
     maximum:
       name: "Maximum"
+      help: "Der größere Wert von A und B."
     average:
       name: "Mittelwert"
+      help: "Der Mittelwert von A und B."
     logarithm:
       name: "Logarithmus"
+      help: "Der Logarithmus von A zur Basis B."
     power:
       name: "Potenz"
+      help: "A hoch B."
     sine:
       name: "Sinus"
+      help: "Der Sinus von A. A ist im Bogenmaß."
     cosine:
       name: "Kosinus"
+      help: "Der Kosinus von A. A ist im Bogenmaß."
     tangent:
       name: "Tangens"
+      help: "Der Tangens von A. A ist im Bogenmaß."
     square_root:
       name: "Quadratwurzel"
+      help: "Die Quadratwurzel von A. Kein Wert, wenn A unter 0 liegt."
     round:
       name: "Runden"
+      help: "Rundet A."
     limiter:
       name: "Begrenzer"
+      help: "Hält A zwischen dem Minimum und dem Maximum."
     table:
       name: "Tabelle"
+      help: "Bildet A über eine Tabelle von Paaren ab."
     less:
       name: "Kleiner"
+      help: "1, wenn A kleiner als B ist, sonst 0."
     less_equal:
       name: "Kleiner oder gleich"
+      help: "1, wenn A kleiner oder gleich B ist, sonst 0."
     equal:
       name: "Gleich"
+      help: "1, wenn A gleich B ist, sonst 0."
     greater_equal:
       name: "Größer oder gleich"
+      help: "1, wenn A größer oder gleich B ist, sonst 0."
     greater:
       name: "Größer"
+      help: "1, wenn A größer als B ist, sonst 0."
     not_equal:
       name: "Ungleich"
+      help: "1, wenn A ungleich B ist, sonst 0."
     and:
       name: "Und"
+      help: "1, wenn A und B wahr sind."
     or:
       name: "Oder"
+      help: "1, wenn A oder B wahr ist."
     not:
       name: "Nicht"
+      help: "1, wenn A falsch ist."
     switch:
       name: "Umschalter"
+      help: "Gibt A, solange S falsch ist, und B, solange S wahr ist."
     has_value:
       name: "Hat einen Wert"
+      help: "1, wenn A einen Wert hat, 0, wenn A keinen hat."
     memory:
       name: "Speicher"
+      help: "Übernimmt A, solange S wahr ist. Hält den letzten Wert, solange S falsch ist. Startet mit der App bei 0."
     persistent_storage:
       name: "Dauerspeicher"
+      help: "Wie Speicher. Behält den Wert über einen Neustart der App."
     trigger:
       name: "Trigger"
+      help: "Gibt 1 für eine Sekunde, wenn A wahr wird."
     on_delay:
       name: "Einschaltverzögerung"
+      help: "Gibt 1, wenn A für die Verzögerung wahr war."
     off_delay:
       name: "Ausschaltverzögerung"
+      help: "Gibt 1, solange A wahr ist, und für die Verzögerung danach."
     counter:
       name: "Zähler"
+      help: "Solange Freigabe wahr ist, wird Zählwert einmal pro Periode addiert. Reset setzt ihn auf 0."
     peak:
       name: "Spitzenwertfilter"
+      help: "Der größte Wert des Zeitfensters."
     window_minimum:
       name: "Minimumfilter"
+      help: "Der kleinste Wert des Zeitfensters."
     window_average:
       name: "Mittelwertfilter"
+      help: "Der Mittelwert des Zeitfensters."
     low_pass:
       name: "Tiefpass"
+      help: "Ein gedämpfter Mittelwert des Zeitfensters, ohne seine Extremwerte."
     trend:
       name: "Trend"
+      help: "Die Steigung der Werte des Zeitfensters."
     generator_linear:
       name: "Lineargenerator"
+      help: "Steigt in einer Periode von 0 auf 1 und bleibt bei 1."
     generator_sawtooth:
       name: "Sägezahngenerator"
+      help: "Ein Signal von 0 bis 1, das sich jede Periode wiederholt."
     generator_triangle:
       name: "Dreieckgenerator"
+      help: "Ein Signal von 0 bis 1, das sich jede Periode wiederholt."
     generator_sine:
       name: "Sinusgenerator"
+      help: "Ein Signal von 0 bis 1, das sich jede Periode wiederholt."
     generator_rectangle:
       name: "Rechteckgenerator"
+      help: "Ein Signal von 0 bis 1, das sich jede Periode wiederholt."
     comment:
       name: "Kommentar"
+      help: "Eine Notiz auf der Arbeitsfläche."
     sensor_end:
       name: "Sensor-Endknoten"
+      help: "Gibt den Wert von A an den Graph-Sensor."
     response_end:
       name: "Reaktions-Endknoten"
+      help: "Führt die Reaktion aus, wenn A wahr wird."
+  family:
+    sources: "Quellen"
+    math: "Mathematik"
+    logic: "Logik"
+    state_and_time: "Zustand und Zeit"
+    filters: "Filter"
+    generators: "Generatoren"
+    other: "Sonstiges"
+  list:
+    search: "Knoten suchen"
+    no_match: "Keine Knotenart hat diesen Namen."
+    end_taken: "Der Graph hat seinen Endknoten."
+    hint_column: "Doppelklicke auf einen Knoten der Liste, um ihn hinzuzufügen."
+    hint_popover: "Drücke Knoten hinzufügen, um einen Knoten hinzuzufügen."
+  canvas:
+    not_connected: "Nicht verbunden: %{reason}"
+    zoom_out: "Verkleinern"
+    zoom_in: "Vergrößern"
+    zoom: "%{percent} %"
+    end_title: "Endknoten"
+    graph_sensor: "Graph-Sensor"
+    logic_true: "wahr"
+    logic_false: "falsch"
+    sensor_not_found: "Sensor nicht gefunden"
+  title:
+    range: "%{min} bis %{max}"
+    seconds: "%{seconds} s"
+    decimals:
+      one: "%{count} Dezimalstelle"
+      other: "%{count} Dezimalstellen"
+    pairs:
+      one: "%{count} Paar"
+      other: "%{count} Paare"
+  pin:
+    a: "A"
+    b: "B"
+    s: "S"
+    count: "Zählwert"
+    enable: "Freigabe"
+    reset: "Reset"
+    period: "Periode"
 alarms:
   active:
     title: Aktiv

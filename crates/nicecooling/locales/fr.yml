@@ -744,6 +744,7 @@ graphs:
     other: "Non importé : %{reason}"
 graph_editor:
   not_applied: "Non appliqué"
+  add_node: "Ajouter un nœud"
   undo: "Annuler"
   redo: "Rétablir"
   try: "Essai"
@@ -821,106 +822,198 @@ graph_editor:
   kind:
     sensor_source:
       name: "Capteur"
+      help: "Donne la valeur d'un capteur."
     alarm_event_source:
       name: "Événement d'alarme"
+      help: "Donne 1 tant que cet Avertissement ou cette Alarme est actif, sinon 0."
     constant:
       name: "Constante"
+      help: "Donne un nombre fixe."
     random:
       name: "Aléatoire"
+      help: "Donne chaque seconde un nouveau nombre dans la plage."
     process:
       name: "Processus"
+      help: "Donne 1 tant qu'un processus de ce nom s'exécute, sinon 0."
     add:
       name: "Addition"
+      help: "A + B"
     subtract:
       name: "Soustraction"
+      help: "A - B"
     multiply:
       name: "Multiplication"
+      help: "A x B"
     divide:
       name: "Division"
+      help: "A / B. Aucune valeur quand B vaut 0."
     minimum:
       name: "Minimum"
+      help: "Le plus petit de A et B."
     maximum:
       name: "Maximum"
+      help: "Le plus grand de A et B."
     average:
       name: "Moyenne"
+      help: "La moyenne de A et B."
     logarithm:
       name: "Logarithme"
+      help: "Le logarithme de A en base B."
     power:
       name: "Puissance"
+      help: "A à la puissance B."
     sine:
       name: "Sinus"
+      help: "Le sinus de A. A est en radians."
     cosine:
       name: "Cosinus"
+      help: "Le cosinus de A. A est en radians."
     tangent:
       name: "Tangente"
+      help: "La tangente de A. A est en radians."
     square_root:
       name: "Racine carrée"
+      help: "La racine carrée de A. Aucune valeur quand A est sous 0."
     round:
       name: "Arrondi"
+      help: "Arrondit A."
     limiter:
       name: "Limiteur"
+      help: "Maintient A entre le minimum et le maximum."
     table:
       name: "Table"
+      help: "Transforme A avec une table de paires."
     less:
       name: "Inférieur"
+      help: "1 quand A est inférieur à B, sinon 0."
     less_equal:
       name: "Inférieur ou égal"
+      help: "1 quand A est inférieur ou égal à B, sinon 0."
     equal:
       name: "Égal"
+      help: "1 quand A est égal à B, sinon 0."
     greater_equal:
       name: "Supérieur ou égal"
+      help: "1 quand A est supérieur ou égal à B, sinon 0."
     greater:
       name: "Supérieur"
+      help: "1 quand A est supérieur à B, sinon 0."
     not_equal:
       name: "Différent"
+      help: "1 quand A est différent de B, sinon 0."
     and:
       name: "Et"
+      help: "1 quand A et B sont vrais."
     or:
       name: "Ou"
+      help: "1 quand A ou B est vrai."
     not:
       name: "Non"
+      help: "1 quand A est faux."
     switch:
       name: "Sélecteur"
+      help: "Donne A tant que S est faux, et B tant que S est vrai."
     has_value:
       name: "A une valeur"
+      help: "1 quand A a une valeur, 0 quand il n'en a pas."
     memory:
       name: "Mémoire"
+      help: "Prend A tant que S est vrai. Garde la dernière valeur tant que S est faux. Démarre à 0 avec l'app."
     persistent_storage:
       name: "Mémoire persistante"
+      help: "Comme Mémoire. Garde sa valeur après un redémarrage de l'app."
     trigger:
       name: "Déclencheur"
+      help: "Donne 1 pendant une seconde quand A devient vrai."
     on_delay:
       name: "Retard à l'activation"
+      help: "Donne 1 quand A est vrai depuis le délai."
     off_delay:
       name: "Retard à la désactivation"
+      help: "Donne 1 tant que A est vrai, et pendant le délai ensuite."
     counter:
       name: "Compteur"
+      help: "Tant que Activer est vrai, ajoute Compte une fois par période. Reset le remet à 0."
     peak:
       name: "Filtre de crête"
+      help: "La plus grande valeur de la fenêtre."
     window_minimum:
       name: "Filtre de minimum"
+      help: "La plus petite valeur de la fenêtre."
     window_average:
       name: "Filtre de moyenne"
+      help: "La moyenne de la fenêtre."
     low_pass:
       name: "Passe-bas"
+      help: "Une moyenne amortie de la fenêtre, sans ses extrêmes."
     trend:
       name: "Tendance"
+      help: "La pente des valeurs de la fenêtre."
     generator_linear:
       name: "Générateur linéaire"
+      help: "Monte de 0 à 1 en une période et reste à 1."
     generator_sawtooth:
       name: "Générateur en dents de scie"
+      help: "Un signal de 0 à 1 qui se répète à chaque période."
     generator_triangle:
       name: "Générateur triangulaire"
+      help: "Un signal de 0 à 1 qui se répète à chaque période."
     generator_sine:
       name: "Générateur sinusoïdal"
+      help: "Un signal de 0 à 1 qui se répète à chaque période."
     generator_rectangle:
       name: "Générateur rectangulaire"
+      help: "Un signal de 0 à 1 qui se répète à chaque période."
     comment:
       name: "Commentaire"
+      help: "Une note sur le canevas."
     sensor_end:
       name: "Nœud final capteur"
+      help: "Donne la valeur de A au capteur Graphe."
     response_end:
       name: "Nœud final réponse"
+      help: "Exécute la réponse quand A devient vrai."
+  family:
+    sources: "Sources"
+    math: "Mathématiques"
+    logic: "Logique"
+    state_and_time: "État et temps"
+    filters: "Filtres"
+    generators: "Générateurs"
+    other: "Autres"
+  list:
+    search: "Rechercher des nœuds"
+    no_match: "Aucun type de nœud n'a ce nom."
+    end_taken: "Le Graphe a son nœud final."
+    hint_column: "Double-cliquez sur un nœud de la liste pour l'ajouter."
+    hint_popover: "Appuyez sur Ajouter un nœud pour ajouter un nœud."
+  canvas:
+    not_connected: "Non connecté : %{reason}"
+    zoom_out: "Zoom arrière"
+    zoom_in: "Zoom avant"
+    zoom: "%{percent} %"
+    end_title: "Nœud final"
+    graph_sensor: "Capteur Graphe"
+    logic_true: "vrai"
+    logic_false: "faux"
+    sensor_not_found: "Capteur introuvable"
+  title:
+    range: "de %{min} à %{max}"
+    seconds: "%{seconds} s"
+    decimals:
+      one: "%{count} décimale"
+      other: "%{count} décimales"
+    pairs:
+      one: "%{count} paire"
+      other: "%{count} paires"
+  pin:
+    a: "A"
+    b: "B"
+    s: "S"
+    count: "Compte"
+    enable: "Activer"
+    reset: "Reset"
+    period: "Période"
 alarms:
   active:
     title: Actives

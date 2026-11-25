@@ -11,6 +11,7 @@ workspace = true
 [dependencies]
 nicecooling-api.workspace = true
 nicecooling-core.workspace = true
+nicecooling-flow.workspace = true
 nicecooling-graph.workspace = true
 gpui-component.workspace = true
 gpui-kit-assets.workspace = true

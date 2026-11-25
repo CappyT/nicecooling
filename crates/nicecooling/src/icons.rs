@@ -1,6 +1,7 @@
 //! The icons of the comps, embedded in the binary, and the asset source of the app.
 //! The files in `assets/nc/` come from the sprite of `docs/ui/comps/nc.js`. The sprite has no
-//! `minus` and no `up`: they are `plus` without its vertical stroke and `down` turned over.
+//! `minus`, no `up` and no `redo`: they are `plus` without its vertical stroke, `down` turned
+//! over and `undo` turned over.
 
 use std::borrow::Cow;
 
@@ -60,6 +61,7 @@ icons! {
     Play => "play",
     Plus => "plus",
     Power => "power",
+    Redo => "redo",
     Right => "right",
     Search => "search",
     Shield => "shield",

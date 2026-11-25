@@ -5,13 +5,18 @@
 //! `EditorUi` is the state that the user changes, and `EditorModel` is what the window shows. The
 //! tests read both.
 
+pub mod canvas;
 pub mod draft;
+pub mod palette;
 pub mod rules;
+pub(crate) mod view;
 
 use nicecooling_graph::model::Graph;
 use nicecooling_graph::validate::validate;
 
+use self::canvas::{EdgeFace, NodeFace, edge_faces, node_faces};
 use self::draft::Draft;
+use self::palette::{ListForm, ListUi, NodeList, node_list};
 use self::rules::first_rule_text;
 use crate::graphs::view::{GraphRow, GraphView};
 use crate::i18n::Locale;
@@ -50,17 +55,25 @@ pub enum Selected {
 pub enum EditorKey {
     Undo,
     Redo,
+    ZoomIn,
+    ZoomOut,
+    /// Put the whole Graph in the view.
+    ShowAll,
 }
 
-/// The meaning of a key press for the editor: Ctrl+Z is undo and Ctrl+Shift+Z is redo. `editing`
-/// is true while a text field has an open edit: the keys then belong to the field.
+/// The meaning of a key press for the editor: Ctrl+Z is undo and Ctrl+Shift+Z is redo. Ctrl with
+/// "+" and Ctrl with "-" zoom, and Ctrl+0 puts the whole Graph in the view. `editing` is true
+/// while a text field has an open edit: the keys then belong to the field.
 pub fn editor_key(key: &str, control: bool, shift: bool, editing: bool) -> Option<EditorKey> {
     if editing || !control {
         return None;
     }
-    match (key.eq_ignore_ascii_case("z"), shift) {
-        (true, false) => Some(EditorKey::Undo),
-        (true, true) => Some(EditorKey::Redo),
+    match key {
+        "z" | "Z" if shift => Some(EditorKey::Redo),
+        "z" | "Z" => Some(EditorKey::Undo),
+        "+" | "=" => Some(EditorKey::ZoomIn),
+        "-" | "_" => Some(EditorKey::ZoomOut),
+        "0" => Some(EditorKey::ShowAll),
         _ => None,
     }
 }
@@ -70,6 +83,16 @@ pub fn editor_key(key: &str, control: bool, shift: bool, editing: bool) -> Optio
 pub struct EditorUi {
     pub draft: Draft,
     pub selected: Option<Selected>,
+    pub list: ListUi,
+    /// The width of the window in px: it chooses the form of the node list.
+    pub width: f32,
+    /// The middle of the view of the canvas, in units of the canvas. A new node goes there.
+    pub view_centre: (f64, f64),
+    /// The zoom of the canvas: 1 is 100%.
+    pub zoom: f32,
+    /// The reason that the canvas gave for the last refused connection, and the time until
+    /// which the status line shows it, in microseconds since the Unix epoch.
+    pub refused: Option<(String, u64)>,
 }
 
 impl EditorUi {
@@ -79,6 +102,11 @@ impl EditorUi {
         Self {
             draft: Draft::new(graph, stored),
             selected: None,
+            list: ListUi::default(),
+            width: palette::COLUMN_MIN_WIDTH,
+            view_centre: (0.0, 0.0),
+            zoom: 1.0,
+            refused: None,
         }
     }
 
@@ -94,11 +122,13 @@ impl EditorUi {
         done
     }
 
-    /// Do what a key asks. Returns whether the draft changed.
+    /// Do what a key asks of the draft. Returns whether the draft changed. The keys of the view
+    /// change nothing here: the canvas takes them.
     pub fn press(&mut self, key: EditorKey) -> bool {
         match key {
             EditorKey::Undo => self.undo(),
             EditorKey::Redo => self.redo(),
+            EditorKey::ZoomIn | EditorKey::ZoomOut | EditorKey::ShowAll => false,
         }
     }
 
@@ -150,6 +180,8 @@ pub struct Toolbar {
     pub name: String,
     /// "Not applied" while the draft differs from the stored Graph.
     pub draft_state: Option<String>,
+    /// The button "Add node", below a window width of 1280 px only.
+    pub add_node: Option<Action>,
     pub undo: Action,
     pub redo: Action,
     /// The first rule of the validator that the draft breaks.
@@ -160,10 +192,27 @@ pub struct Toolbar {
     pub apply: Action,
 }
 
+/// The line under the canvas.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct StatusLine {
+    /// The reason of a refused connection, for 5 s.
+    pub text: Option<String>,
+    pub zoom_out: String,
+    pub zoom_in: String,
+    /// "100 %".
+    pub zoom: String,
+}
+
 /// What the editor shows.
 #[derive(Clone, Debug, PartialEq)]
 pub struct EditorModel {
     pub toolbar: Toolbar,
+    pub list: NodeList,
+    pub nodes: Vec<NodeFace>,
+    pub edges: Vec<EdgeFace>,
+    pub status: StatusLine,
+    /// The text in the middle of the canvas of a Graph that has its end node only.
+    pub hint: Option<String>,
 }
 
 impl EditorModel {
@@ -176,18 +225,39 @@ impl EditorModel {
         let rule = first_rule_text(&refusals, &candidate, &others, locale);
         let valid = rule.is_none();
         let dirty = ui.draft.is_dirty();
+        let rule_node = refusals.first().and_then(|refusal| refusal.node);
+        let list = node_list(ui, locale);
+        let hint = (ui.draft.graph().nodes.len() <= 1).then(|| {
+            locale.tr(match list.form {
+                ListForm::Column => "graph_editor.list.hint_column",
+                ListForm::Popover => "graph_editor.list.hint_popover",
+            })
+        });
+        let percent = (f64::from(ui.zoom) * 100.0).round().to_string();
         Self {
+            nodes: node_faces(input, ui, rule_node),
+            edges: edge_faces(ui),
+            status: StatusLine {
+                text: ui.refusal_reason(input.now_us, locale),
+                zoom_out: locale.tr("graph_editor.canvas.zoom_out"),
+                zoom_in: locale.tr("graph_editor.canvas.zoom_in"),
+                zoom: locale.fmt("graph_editor.canvas.zoom", &[("percent", &percent)]),
+            },
+            hint,
             toolbar: Toolbar {
                 back: locale.tr("nav.graphs"),
                 name: ui.draft.graph().name.clone(),
                 draft_state: dirty.then(|| locale.tr("graph_editor.not_applied")),
+                add_node: (list.form == ListForm::Popover)
+                    .then(|| Action::new(locale.tr("graph_editor.add_node"), true)),
                 undo: Action::new(locale.tr("graph_editor.undo"), ui.draft.can_undo()),
                 redo: Action::new(locale.tr("graph_editor.redo"), ui.draft.can_redo()),
                 rule,
-                rule_node: refusals.first().and_then(|refusal| refusal.node),
+                rule_node,
                 try_run: Action::new(locale.tr("graph_editor.try"), valid),
                 apply: Action::new(locale.tr("graph_editor.apply"), dirty && valid),
             },
+            list,
         }
     }
 }

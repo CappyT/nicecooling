@@ -21,6 +21,7 @@ publish = false
 [workspace.dependencies]
 nicecooling-core = { path = "crates/nicecooling-core" }
 nicecooling-graph = { path = "crates/nicecooling-graph" }
+nicecooling-flow = { path = "crates/nicecooling-flow" }
 nicecooling-protocol = { path = "crates/nicecooling-protocol" }
 nicecooling-hwmon = { path = "crates/nicecooling-hwmon" }
 nicecooling-api = { path = "crates/nicecooling-api" }

@@ -744,6 +744,7 @@ graphs:
     other: "Non importato: %{reason}"
 graph_editor:
   not_applied: "Non applicato"
+  add_node: "Aggiungi nodo"
   undo: "Annulla"
   redo: "Ripeti"
   try: "Prova"
@@ -821,106 +822,198 @@ graph_editor:
   kind:
     sensor_source:
       name: "Sensore"
+      help: "Dà il valore di un sensore."
     alarm_event_source:
       name: "Evento di allarme"
+      help: "Dà 1 mentre questo Avviso o Allarme è attivo, altrimenti 0."
     constant:
       name: "Costante"
+      help: "Dà un numero fisso."
     random:
       name: "Casuale"
+      help: "Dà ogni secondo un nuovo numero nell'intervallo."
     process:
       name: "Processo"
+      help: "Dà 1 mentre un processo con questo nome è in esecuzione, altrimenti 0."
     add:
       name: "Somma"
+      help: "A + B"
     subtract:
       name: "Sottrai"
+      help: "A - B"
     multiply:
       name: "Moltiplica"
+      help: "A x B"
     divide:
       name: "Dividi"
+      help: "A / B. Nessun valore quando B è 0."
     minimum:
       name: "Minimo"
+      help: "Il minore tra A e B."
     maximum:
       name: "Massimo"
+      help: "Il maggiore tra A e B."
     average:
       name: "Media"
+      help: "La media di A e B."
     logarithm:
       name: "Logaritmo"
+      help: "Il logaritmo di A in base B."
     power:
       name: "Potenza"
+      help: "A elevato a B."
     sine:
       name: "Seno"
+      help: "Il seno di A. A è in radianti."
     cosine:
       name: "Coseno"
+      help: "Il coseno di A. A è in radianti."
     tangent:
       name: "Tangente"
+      help: "La tangente di A. A è in radianti."
     square_root:
       name: "Radice quadrata"
+      help: "La radice quadrata di A. Nessun valore quando A è sotto 0."
     round:
       name: "Arrotonda"
+      help: "Arrotonda A."
     limiter:
       name: "Limitatore"
+      help: "Tiene A tra il minimo e il massimo."
     table:
       name: "Tabella"
+      help: "Trasforma A con una tabella di coppie."
     less:
       name: "Minore"
+      help: "1 quando A è minore di B, altrimenti 0."
     less_equal:
       name: "Minore o uguale"
+      help: "1 quando A è minore o uguale a B, altrimenti 0."
     equal:
       name: "Uguale"
+      help: "1 quando A è uguale a B, altrimenti 0."
     greater_equal:
       name: "Maggiore o uguale"
+      help: "1 quando A è maggiore o uguale a B, altrimenti 0."
     greater:
       name: "Maggiore"
+      help: "1 quando A è maggiore di B, altrimenti 0."
     not_equal:
       name: "Diverso"
+      help: "1 quando A è diverso da B, altrimenti 0."
     and:
       name: "E"
+      help: "1 quando A e B sono veri."
     or:
       name: "O"
+      help: "1 quando A o B è vero."
     not:
       name: "Non"
+      help: "1 quando A è falso."
     switch:
       name: "Selettore"
+      help: "Dà A mentre S è falso, e B mentre S è vero."
     has_value:
       name: "Ha un valore"
+      help: "1 quando A ha un valore, 0 quando non ne ha."
     memory:
       name: "Memoria"
+      help: "Prende A mentre S è vero. Tiene l'ultimo valore mentre S è falso. Parte da 0 con l'app."
     persistent_storage:
       name: "Memoria persistente"
+      help: "Come Memoria. Mantiene il valore dopo un riavvio dell'app."
     trigger:
       name: "Trigger"
+      help: "Dà 1 per un secondo quando A diventa vero."
     on_delay:
       name: "Ritardo all'attivazione"
+      help: "Dà 1 quando A è vero da tutto il ritardo."
     off_delay:
       name: "Ritardo alla disattivazione"
+      help: "Dà 1 mentre A è vero, e per il ritardo dopo."
     counter:
       name: "Contatore"
+      help: "Mentre Abilita è vero, aggiunge Conteggio una volta per periodo. Reset lo porta a 0."
     peak:
       name: "Filtro di picco"
+      help: "Il valore più grande della finestra."
     window_minimum:
       name: "Filtro di minimo"
+      help: "Il valore più piccolo della finestra."
     window_average:
       name: "Filtro di media"
+      help: "La media della finestra."
     low_pass:
       name: "Passa basso"
+      help: "Una media smorzata della finestra, senza i suoi estremi."
     trend:
       name: "Tendenza"
+      help: "La pendenza dei valori della finestra."
     generator_linear:
       name: "Generatore lineare"
+      help: "Sale da 0 a 1 in un periodo e resta a 1."
     generator_sawtooth:
       name: "Generatore a dente di sega"
+      help: "Un segnale da 0 a 1 che si ripete a ogni periodo."
     generator_triangle:
       name: "Generatore triangolare"
+      help: "Un segnale da 0 a 1 che si ripete a ogni periodo."
     generator_sine:
       name: "Generatore sinusoidale"
+      help: "Un segnale da 0 a 1 che si ripete a ogni periodo."
     generator_rectangle:
       name: "Generatore rettangolare"
+      help: "Un segnale da 0 a 1 che si ripete a ogni periodo."
     comment:
       name: "Commento"
+      help: "Una nota sull'area di lavoro."
     sensor_end:
       name: "Nodo finale sensore"
+      help: "Dà il valore di A al sensore Grafo."
     response_end:
       name: "Nodo finale risposta"
+      help: "Esegue la risposta quando A diventa vero."
+  family:
+    sources: "Sorgenti"
+    math: "Matematica"
+    logic: "Logica"
+    state_and_time: "Stato e tempo"
+    filters: "Filtri"
+    generators: "Generatori"
+    other: "Altro"
+  list:
+    search: "Cerca nodi"
+    no_match: "Nessun tipo di nodo ha questo nome."
+    end_taken: "Il Grafo ha il suo nodo finale."
+    hint_column: "Fai doppio clic su un nodo dell'elenco per aggiungerlo."
+    hint_popover: "Premi Aggiungi nodo per aggiungere un nodo."
+  canvas:
+    not_connected: "Non collegato: %{reason}"
+    zoom_out: "Riduci"
+    zoom_in: "Ingrandisci"
+    zoom: "%{percent} %"
+    end_title: "Nodo finale"
+    graph_sensor: "Sensore Grafo"
+    logic_true: "vero"
+    logic_false: "falso"
+    sensor_not_found: "Sensore non trovato"
+  title:
+    range: "da %{min} a %{max}"
+    seconds: "%{seconds} s"
+    decimals:
+      one: "%{count} decimale"
+      other: "%{count} decimali"
+    pairs:
+      one: "%{count} coppia"
+      other: "%{count} coppie"
+  pin:
+    a: "A"
+    b: "B"
+    s: "S"
+    count: "Conteggio"
+    enable: "Abilita"
+    reset: "Reset"
+    period: "Periodo"
 alarms:
   active:
     title: Attivi

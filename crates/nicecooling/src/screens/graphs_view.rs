@@ -13,8 +13,7 @@ use crate::icons::{NcIcon, icon, small_icon, text_icon};
 use crate::screen_view::{ScreenView, skeleton};
 use crate::screens::controls::act;
 use crate::screens::graphs::{
-    ConfirmDialog, EditorTarget, GraphLine, GraphsModel, GraphsState, GraphsUi, LineState,
-    OrphanCard, home_dir,
+    ConfirmDialog, GraphLine, GraphsModel, GraphsState, GraphsUi, LineState, OrphanCard, home_dir,
 };
 use crate::screens::ui::Tip as _;
 use crate::screens::ui::{
@@ -34,16 +33,19 @@ impl ScreenView {
     pub(crate) fn render_graphs(
         &mut self,
         p: &Palette,
-        _window: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let shown = self.model.read(cx).graphs();
         let model = self.with_input(cx, |input| {
             GraphsModel::build(input, shown.as_ref(), &self.graphs)
         });
-        if let Some(target) = &model.editor {
-            return self.graph_editor_page(target, p, cx);
+        if model.editor.is_some()
+            && let Some(shown) = &shown
+        {
+            return self.render_graph_editor(shown, p, window, cx);
         }
+        self.close_graph_editor();
         let view = cx.entity();
         let create = model.create_enabled;
 
@@ -433,42 +435,6 @@ impl ScreenView {
             p,
         )
         .into_any_element()
-    }
-
-    /// The page of the Graph editor: the button that goes back to the list, the name of the
-    /// Graph, and the place of the editor.
-    fn graph_editor_page(
-        &self,
-        target: &EditorTarget,
-        p: &Palette,
-        cx: &mut Context<Self>,
-    ) -> AnyElement {
-        let view = cx.entity();
-        page()
-            .child(
-                h_flex()
-                    .w_full()
-                    .gap(px(12.))
-                    .items_center()
-                    .child(
-                        Self::small_button(
-                            "graph-editor-back",
-                            target.back.clone(),
-                            Some(NcIcon::Left),
-                        )
-                        .ghost()
-                        .on_click(act(&view, |this, _, _| {
-                            this.graphs.editor = None;
-                        })),
-                    )
-                    .child(heading(target.name.clone()).truncate()),
-            )
-            .child(
-                card(p)
-                    .h(px(240.))
-                    .debug_selector(|| "graph-editor".to_owned()),
-            )
-            .into_any_element()
     }
 
     /// What the user changed on the Graphs screen: a test opens a dialog or the editor with it.

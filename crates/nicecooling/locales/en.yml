@@ -744,6 +744,7 @@ graphs:
     other: "Not imported: %{reason}"
 graph_editor:
   not_applied: "Not applied"
+  add_node: "Add node"
   undo: "Undo"
   redo: "Redo"
   try: "Try"
@@ -821,106 +822,198 @@ graph_editor:
   kind:
     sensor_source:
       name: "Sensor"
+      help: "Gives the value of a sensor."
     alarm_event_source:
       name: "Alarm event"
+      help: "Gives 1 while this Warning or Alarm is active, else 0."
     constant:
       name: "Constant"
+      help: "Gives a fixed number."
     random:
       name: "Random"
+      help: "Gives a new number in the range each second."
     process:
       name: "Process"
+      help: "Gives 1 while a process with this name runs, else 0."
     add:
       name: "Add"
+      help: "A + B"
     subtract:
       name: "Subtract"
+      help: "A - B"
     multiply:
       name: "Multiply"
+      help: "A x B"
     divide:
       name: "Divide"
+      help: "A / B. No value when B is 0."
     minimum:
       name: "Minimum"
+      help: "The smaller of A and B."
     maximum:
       name: "Maximum"
+      help: "The larger of A and B."
     average:
       name: "Average"
+      help: "The mean of A and B."
     logarithm:
       name: "Logarithm"
+      help: "The logarithm of A to the base B."
     power:
       name: "Power"
+      help: "A to the power B."
     sine:
       name: "Sine"
+      help: "The sine of A. A is in radians."
     cosine:
       name: "Cosine"
+      help: "The cosine of A. A is in radians."
     tangent:
       name: "Tangent"
+      help: "The tangent of A. A is in radians."
     square_root:
       name: "Square root"
+      help: "The square root of A. No value when A is below 0."
     round:
       name: "Round"
+      help: "Rounds A."
     limiter:
       name: "Limiter"
+      help: "Holds A between the minimum and the maximum."
     table:
       name: "Table"
+      help: "Maps A through a table of pairs."
     less:
       name: "Less"
+      help: "1 when A is less than B, else 0."
     less_equal:
       name: "Less or equal"
+      help: "1 when A is less than or equal to B, else 0."
     equal:
       name: "Equal"
+      help: "1 when A is equal to B, else 0."
     greater_equal:
       name: "Greater or equal"
+      help: "1 when A is greater than or equal to B, else 0."
     greater:
       name: "Greater"
+      help: "1 when A is greater than B, else 0."
     not_equal:
       name: "Not equal"
+      help: "1 when A is not equal to B, else 0."
     and:
       name: "And"
+      help: "1 when A and B are true."
     or:
       name: "Or"
+      help: "1 when A or B is true."
     not:
       name: "Not"
+      help: "1 when A is false."
     switch:
       name: "Switch"
+      help: "Gives A while S is false, and B while S is true."
     has_value:
       name: "Has value"
+      help: "1 when A has a value, 0 when it has none."
     memory:
       name: "Memory"
+      help: "Takes A while S is true. Holds the last value while S is false. Starts at 0 with the app."
     persistent_storage:
       name: "Persistent storage"
+      help: "As Memory. Keeps its value over a restart of the app."
     trigger:
       name: "Trigger"
+      help: "Gives 1 for one second when A becomes true."
     on_delay:
       name: "On delay"
+      help: "Gives 1 when A has been true for the delay."
     off_delay:
       name: "Off delay"
+      help: "Gives 1 while A is true, and for the delay after it."
     counter:
       name: "Counter"
+      help: "While Enable is true, adds Count once each period. Reset sets it to 0."
     peak:
       name: "Peak filter"
+      help: "The largest value of the span."
     window_minimum:
       name: "Minimum filter"
+      help: "The smallest value of the span."
     window_average:
       name: "Average filter"
+      help: "The mean of the span."
     low_pass:
       name: "Low pass"
+      help: "A damped mean of the span, without its extremes."
     trend:
       name: "Trend"
+      help: "The slope of the values of the span."
     generator_linear:
       name: "Linear generator"
+      help: "Rises from 0 to 1 in one period and stays at 1."
     generator_sawtooth:
       name: "Sawtooth generator"
+      help: "A signal from 0 to 1 that repeats each period."
     generator_triangle:
       name: "Triangle generator"
+      help: "A signal from 0 to 1 that repeats each period."
     generator_sine:
       name: "Sine generator"
+      help: "A signal from 0 to 1 that repeats each period."
     generator_rectangle:
       name: "Rectangle generator"
+      help: "A signal from 0 to 1 that repeats each period."
     comment:
       name: "Comment"
+      help: "A note on the canvas."
     sensor_end:
       name: "Sensor end node"
+      help: "Gives the value of A to the Graph sensor."
     response_end:
       name: "Response end node"
+      help: "Runs the response when A becomes true."
+  family:
+    sources: "Sources"
+    math: "Math"
+    logic: "Logic"
+    state_and_time: "State and time"
+    filters: "Filters"
+    generators: "Generators"
+    other: "Other"
+  list:
+    search: "Search nodes"
+    no_match: "No node kind has this name."
+    end_taken: "The Graph has its end node."
+    hint_column: "Double-click a node in the list to add it."
+    hint_popover: "Press Add node to add a node."
+  canvas:
+    not_connected: "Not connected: %{reason}"
+    zoom_out: "Zoom out"
+    zoom_in: "Zoom in"
+    zoom: "%{percent} %"
+    end_title: "End node"
+    graph_sensor: "Graph sensor"
+    logic_true: "true"
+    logic_false: "false"
+    sensor_not_found: "Sensor not found"
+  title:
+    range: "%{min} to %{max}"
+    seconds: "%{seconds} s"
+    decimals:
+      one: "%{count} decimal"
+      other: "%{count} decimals"
+    pairs:
+      one: "%{count} pair"
+      other: "%{count} pairs"
+  pin:
+    a: "A"
+    b: "B"
+    s: "S"
+    count: "Count"
+    enable: "Enable"
+    reset: "Reset"
+    period: "Period"
 alarms:
   active:
     title: Active

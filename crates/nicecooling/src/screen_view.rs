@@ -58,6 +58,8 @@ pub enum InputKey {
     Ls(String),
     /// An input of the group "Network" of the Settings screen.
     Network(crate::screens::settings::NetworkField),
+    /// An input of the Graph editor. The first part of the key names the control.
+    Graph(String),
 }
 
 use crate::screens::history::{PROGRESS_DELAY, progress_due};
@@ -96,6 +98,8 @@ pub struct ScreenView {
     pub(crate) history: HistoryUi,
     pub(crate) profiles: ProfilesUi,
     pub(crate) graphs: GraphsUi,
+    /// The Graph editor, while it is open on the Graph of `graphs.editor`.
+    pub(crate) graph_editor: Option<crate::screens::graph_editor::view::EditorHost>,
     pub(crate) alarms: AlarmsUi,
     pub(crate) first_run: FirstRunUi,
     pub(crate) leakshield: LeakshieldUi,
@@ -176,6 +180,7 @@ impl ScreenView {
             history: HistoryUi::default(),
             profiles: ProfilesUi::default(),
             graphs: GraphsUi::default(),
+            graph_editor: None,
             alarms: AlarmsUi::default(),
             first_run: FirstRunUi::default(),
             leakshield: LeakshieldUi::default(),
@@ -529,6 +534,7 @@ impl Render for ScreenView {
             Page::Leakshield(_) => format!("screen-leakshield-{:?}", self.leakshield.tab),
             other => format!("screen-{}", other.title_key()),
         };
+        let on_graphs = page == Page::Graphs;
         let mut strip = None;
         let content: AnyElement = match page {
             Page::Overview => self.render_overview(&p, window, cx),
@@ -553,6 +559,32 @@ impl Render for ScreenView {
         if self.edited.is_some() && !std::mem::take(&mut self.edited_focused) {
             cx.defer_in(window, Self::leave_input);
         }
+        // The Graph editor takes the height of the window: its canvas pans, and the page does
+        // not scroll.
+        let fills = on_graphs && self.graph_editor.is_some();
+        let body = if fills {
+            div()
+                .flex_1()
+                .min_h_0()
+                .w_full()
+                .child(content)
+                .into_any_element()
+        } else {
+            v_flex()
+                .id(SharedString::from(scroll_id))
+                .flex_1()
+                .min_h_0()
+                .overflow_y_scroll()
+                .debug_selector(|| "screen-scroll".to_owned())
+                .child(
+                    div()
+                        .w_full()
+                        .flex_none()
+                        .debug_selector(|| "screen-page".to_owned())
+                        .child(content),
+                )
+                .into_any_element()
+        };
         v_flex()
             .size_full()
             .text_color(cx.theme().foreground)
@@ -566,21 +598,7 @@ impl Render for ScreenView {
                 }
             }))
             .children(strip)
-            .child(
-                v_flex()
-                    .id(SharedString::from(scroll_id))
-                    .flex_1()
-                    .min_h_0()
-                    .overflow_y_scroll()
-                    .debug_selector(|| "screen-scroll".to_owned())
-                    .child(
-                        div()
-                            .w_full()
-                            .flex_none()
-                            .debug_selector(|| "screen-page".to_owned())
-                            .child(content),
-                    ),
-            )
+            .child(body)
     }
 }
 

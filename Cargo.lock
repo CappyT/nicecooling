@@ -4221,6 +4221,7 @@ dependencies = [
  "libc",
  "nicecooling-api",
  "nicecooling-core",
+ "nicecooling-flow",
  "nicecooling-graph",
  "notify-rust",
  "rcgen",
