@@ -7,3 +7,5 @@
 /tools/re/**/obj/
 /tools/re/**/out/
 /tools/spikes/*/target/
+/.impeccable/
+/.serena/
