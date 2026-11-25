@@ -1,0 +1,15 @@
+[package]
+name = "mqtt-queue-spike"
+version = "0.1.0"
+edition = "2024"
+description = "Spike: the MQTT queue rules of the app on top of rumqttc."
+license = "GPL-3.0-or-later"
+publish = false
+
+[workspace]
+
+[dependencies]
+rumqttc = { version = "=0.25.1", default-features = false, features = ["use-rustls-no-provider"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+rustls-native-certs = "0.8"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "time", "io-util", "sync"] }
