@@ -17,6 +17,8 @@ pub struct Received {
     pub actions: Vec<String>,
     /// The `urgency` hint: 0 low, 1 normal, 2 critical.
     pub urgency: Option<u8>,
+    /// The `sound-name` hint, `None` when the notification has none.
+    pub sound_name: Option<String>,
     pub expire_timeout: i32,
 }
 
@@ -61,6 +63,10 @@ impl Server {
             .get("urgency")
             .and_then(|value| value.try_clone().ok())
             .and_then(|value| u8::try_from(value).ok());
+        let sound_name = hints
+            .get("sound-name")
+            .and_then(|value| value.try_clone().ok())
+            .and_then(|value| String::try_from(value).ok());
         log.received.push(Received {
             id,
             replaces_id,
@@ -68,6 +74,7 @@ impl Server {
             body: body.into(),
             actions,
             urgency,
+            sound_name,
             expire_timeout,
         });
         id

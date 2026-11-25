@@ -59,6 +59,8 @@ pub struct NotificationSpec {
     pub body: String,
     pub level: Level,
     pub buttons: Vec<Button>,
+    /// A name of the sound theme of the desktop, sent as the `sound-name` hint.
+    pub sound: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -104,6 +106,7 @@ pub fn plan(
             body: locale.tr("notification.poweroff_cancelled.body"),
             level: Level::Normal,
             buttons: vec![open_button(locale)],
+            sound: None,
         })],
         DaemonEvent::PoweroffFailed { instance, error } => vec![Plan::Show(NotificationSpec {
             key: instance.clone(),
@@ -111,6 +114,7 @@ pub fn plan(
             body: locale.fmt("notification.poweroff_failed.body", &[("error", error)]),
             level: Level::Critical,
             buttons: vec![open_button(locale)],
+            sound: None,
         })],
         DaemonEvent::Link(Link::Down) => vec![Plan::Show(NotificationSpec {
             key: DAEMON_DOWN_KEY.into(),
@@ -118,6 +122,7 @@ pub fn plan(
             body: locale.tr("notification.daemon_down.body"),
             level: Level::Critical,
             buttons: vec![open_button(locale)],
+            sound: None,
         })],
         DaemonEvent::Link(Link::Online) => vec![Plan::Close(DAEMON_DOWN_KEY.into())],
         DaemonEvent::ExternalChange { leakshield, fields } if prefs.external_change => {
@@ -134,6 +139,7 @@ pub fn plan(
                     label: locale.tr("notification.action.open_leakshield"),
                     command: Command::OpenWindow(Some(Page::Leakshield(leakshield.clone()))),
                 }],
+                sound: None,
             })]
         }
         DaemonEvent::ProfileActivated {
@@ -153,6 +159,7 @@ pub fn plan(
                 body: locale.tr("notification.profile_switched.body"),
                 level: Level::Low,
                 buttons: Vec::new(),
+                sound: None,
             })]
         }
         _ => Vec::new(),
@@ -221,6 +228,7 @@ fn alarm_notification(
             Severity::Warning => Level::Normal,
         },
         buttons,
+        sound: None,
     })
 }
 
@@ -299,6 +307,9 @@ impl Notifier {
                 Level::Normal => Urgency::Normal,
                 Level::Critical => Urgency::Critical,
             });
+        if let Some(sound) = &spec.sound {
+            note.sound_name(sound);
+        }
         // A critical notification stays until its Alarm ends.
         note.timeout(if spec.level == Level::Critical {
             Timeout::Never

@@ -572,6 +572,7 @@ impl GraphService {
             body: locale.tr("notification.graph_stopped.body"),
             level: Level::Normal,
             buttons: vec![open_button(locale)],
+            sound: None,
         }));
     }
 
@@ -632,6 +633,7 @@ impl GraphService {
             body: locale.tr("notification.graph_service_stopped.body"),
             level: Level::Normal,
             buttons: vec![open_button(locale)],
+            sound: None,
         }));
     }
 

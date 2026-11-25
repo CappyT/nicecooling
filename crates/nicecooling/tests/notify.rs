@@ -564,3 +564,58 @@ async fn a_snapshot_closes_the_notification_of_an_instance_of_an_earlier_daemon(
     closed.sort_unstable();
     assert_eq!(closed, [shown[0].id, shown[1].id]);
 }
+
+fn sound_spec(key: &str, sound: Option<&str>) -> nicecooling::notify::NotificationSpec {
+    nicecooling::notify::NotificationSpec {
+        key: key.into(),
+        title: "Hot water".into(),
+        body: String::new(),
+        level: Level::Normal,
+        buttons: Vec::new(),
+        sound: sound.map(str::to_owned),
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn spec_with_sound_sends_the_hint() {
+    let _guard = SESSION_LOCK.lock().await;
+    let bus = PrivateBus::start("notify-sound");
+    use_as_session_bus(&bus);
+    let server = FakeNotificationServer::start(bus.connect().await, &["body", "sound"]).await;
+    let (tx, _commands) = unbounded_channel();
+
+    let notifier = show(
+        Notifier::new(tx),
+        sound_spec("graph-sound", Some("dialog-warning")),
+    )
+    .await;
+    drop(notifier);
+
+    // The sound is the `sound-name` hint of a notification that carries the Graph name.
+    let received = server.received();
+    assert_eq!(received.len(), 1);
+    assert_eq!(received[0].summary, "Hot water");
+    assert_eq!(received[0].sound_name.as_deref(), Some("dialog-warning"));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn fake_server_records_the_sound_hint() {
+    let _guard = SESSION_LOCK.lock().await;
+    let bus = PrivateBus::start("notify-sound-record");
+    use_as_session_bus(&bus);
+    let server = FakeNotificationServer::start(bus.connect().await, &["body"]).await;
+    let (tx, _commands) = unbounded_channel();
+
+    let mut notifier = Notifier::new(tx);
+    notifier = show(notifier, sound_spec("plain", None)).await;
+    notifier = show(notifier, sound_spec("loud", Some("alarm-clock-elapsed"))).await;
+    drop(notifier);
+
+    let received = server.received();
+    assert_eq!(received.len(), 2);
+    assert_eq!(received[0].sound_name, None, "no sound, no hint");
+    assert_eq!(
+        received[1].sound_name.as_deref(),
+        Some("alarm-clock-elapsed")
+    );
+}

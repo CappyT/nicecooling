@@ -232,6 +232,7 @@ async fn notification_request_reaches_the_notification_thread() {
             body: "An error stopped the Graph.".into(),
             level: Level::Normal,
             buttons: Vec::new(),
+            sound: None,
         }))
         .unwrap();
     let deadline = Instant::now() + Duration::from_secs(10);
