@@ -16,6 +16,15 @@ use crate::{automatic, slot_file};
 
 const DISPLAY_PAGE_TIME: usize = 63;
 
+/// The newest request writes 1.5 s after the end of the last write, and a loaded test host
+/// stretches both. Waits for the effect, not for a time.
+async fn wait_until(limit: Duration, done: impl Fn() -> bool) {
+    let deadline = tokio::time::Instant::now() + limit;
+    while !done() && tokio::time::Instant::now() < deadline {
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+}
+
 fn feature_writes(rig: &Rig) -> usize {
     rig.sim
         .requests()
@@ -30,18 +39,16 @@ async fn close_activations_leave_the_device_on_the_slot_of_the_active_profile() 
     let hub = rig.daemon.as_ref().unwrap().hub.clone();
     let mut wrong = Vec::new();
     for round in 0..6 {
+        let before = feature_writes(&rig);
         hub.activate_profile("profile_2", Cause::Manual).unwrap();
         hub.activate_profile("profile_3", Cause::Manual).unwrap();
-        // The second write goes out 1.5 s after the first. Wait until no write came for 1.6 s, so
-        // that a loaded test host does not cut the round short.
-        let deadline = tokio::time::Instant::now() + Duration::from_secs(8);
-        loop {
-            let writes = feature_writes(&rig);
-            tokio::time::sleep(Duration::from_millis(1600)).await;
-            if feature_writes(&rig) == writes || tokio::time::Instant::now() >= deadline {
-                break;
-            }
-        }
+        // The write of profile_3 goes out 1.5 s after the end of the write before it. Wait for
+        // it, then give a late write of the older request time to land.
+        wait_until(Duration::from_secs(15), || {
+            feature_writes(&rig) > before && rig.sim.report3()[747] == 3
+        })
+        .await;
+        tokio::time::sleep(Duration::from_millis(1600)).await;
         let device = rig.sim.report3()[747];
         if device != 3 {
             wrong.push((round, device));
@@ -187,12 +194,12 @@ async fn a_profile_with_a_bad_slot_is_not_loaded_and_leaves_the_waiting_write_al
     let hub = rig.daemon.as_ref().unwrap().hub.clone();
 
     hub.activate_profile("profile_2", Cause::Manual).unwrap();
-    tokio::time::sleep(Duration::from_millis(200)).await;
+    wait_until(Duration::from_secs(5), || feature_writes(&rig) == 1).await;
     rig.sim.edit_report1(|r| r.active_profile = 2);
     hub.activate_profile("profile_3", Cause::Manual).unwrap();
     tokio::time::sleep(Duration::from_millis(100)).await;
     assert!(hub.activate_profile("profile_4", Cause::Manual).is_err());
-    tokio::time::sleep(Duration::from_millis(2500)).await;
+    wait_until(Duration::from_secs(15), || feature_writes(&rig) >= 2).await;
 
     assert_eq!(
         (feature_writes(&rig), rig.sim.report3()[747]),
