@@ -7,6 +7,7 @@ A term that Italian keeps in English stays in English in German. A term that Ita
 | English | Italian | German | French |
 |---|---|---|---|
 | Loop | Loop | Loop | Loop |
+| Graph | Graph | Graph | Graph |
 | Feed | Feed | Feed | Feed |
 | Duty | Duty | Duty | Duty |
 | Input | Input | Input | Entrée |

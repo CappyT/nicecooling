@@ -3,10 +3,12 @@ mod support;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use nicecooling::graphs::service::{GraphService, SensorLink};
+use nicecooling::graphs::service::{Env, GraphService, SensorLink};
 use nicecooling::graphs::store::GraphStore;
 use nicecooling::graphs::view::{RowState, SharedView, shared_view};
+use nicecooling::i18n::EN;
 use nicecooling::model::{DaemonEvent, FLAG_NO_VALUE, Link, Response, SensorSample};
+use nicecooling::notify::Plan;
 use nicecooling_core::clock::SimClock;
 use nicecooling_core::rules::proc_scan::ProcessSource;
 use nicecooling_core::rules::process::{ProcessEntry, ProcessList};
@@ -14,6 +16,7 @@ use nicecooling_graph::eval::EndValue;
 use nicecooling_graph::model::{Connection, Graph, Kind, Node};
 use support::fixtures::alarm;
 use support::graphs::{Dir, constant_graph, source_graph};
+use tokio::sync::mpsc::{UnboundedReceiver, unbounded_channel};
 
 type Calls = Arc<Mutex<Vec<Vec<(String, Option<f64>)>>>>;
 
@@ -29,11 +32,14 @@ impl SensorLink for Recorder {
 struct FakeScan {
     list: Arc<Mutex<ProcessList>>,
     scans: Arc<Mutex<u32>>,
+    /// A scan that panics: the Graph with a process node then panics.
+    explode: Arc<Mutex<bool>>,
 }
 
 impl ProcessSource for FakeScan {
     fn scan(&self) -> ProcessList {
         *self.scans.lock().unwrap() += 1;
+        assert!(!*self.explode.lock().unwrap(), "the scan failed");
         self.list.lock().unwrap().clone()
     }
 }
@@ -44,7 +50,8 @@ struct Rig {
     calls: Calls,
     view: SharedView,
     scan: FakeScan,
-    _dir: Dir,
+    notifications: UnboundedReceiver<Plan>,
+    dir: Dir,
 }
 
 fn rig(name: &str, graphs: Vec<Graph>) -> Rig {
@@ -57,12 +64,17 @@ fn rig(name: &str, graphs: Vec<Graph>) -> Rig {
     let calls = Calls::default();
     let view = shared_view();
     let scan = FakeScan::default();
+    let (notify, notifications) = unbounded_channel();
     let service = GraphService::new(
         store,
-        Box::new(clock.clone()),
-        Box::new(Recorder(calls.clone())),
-        Box::new(scan.clone()),
-        view.clone(),
+        Env {
+            clock: Box::new(clock.clone()),
+            link: Box::new(Recorder(calls.clone())),
+            scan: Box::new(scan.clone()),
+            notify,
+            locale: EN,
+            view: view.clone(),
+        },
     );
     Rig {
         service,
@@ -70,7 +82,8 @@ fn rig(name: &str, graphs: Vec<Graph>) -> Rig {
         calls,
         view,
         scan,
-        _dir: dir,
+        notifications,
+        dir,
     }
 }
 
@@ -301,4 +314,97 @@ fn view_holds_the_node_values() {
     assert_eq!(row.values[&2], Some(5.0));
     assert_eq!(row.end, EndValue::Sensor(Some(5.0)));
     assert_eq!(view.error, None);
+}
+
+/// Graph A runs on a constant, graph B has a process node, and the scan of B panics.
+fn panic_rig(name: &str) -> Rig {
+    let mut a = constant_graph("graph_1", 5.0);
+    a.sensor_id = Some("graph_1".into());
+    let mut b = process_graph("graph_2", "blender");
+    b.name = "Hot water".into();
+    let rig = rig(name, vec![a, b]);
+    *rig.scan.explode.lock().unwrap() = true;
+    rig
+}
+
+#[test]
+fn panic_disables_one_graph_and_others_run() {
+    let mut rig = panic_rig("panic");
+    rig.service.poll();
+    let last = |rig: &Rig| rig.calls.lock().unwrap().last().unwrap().clone();
+    assert_eq!(
+        last(&rig),
+        [
+            ("graph_1".to_owned(), Some(5.0)),
+            ("graph_2".to_owned(), None)
+        ]
+    );
+    {
+        let view = rig.view.lock().unwrap();
+        assert_eq!(view.row("graph_1").unwrap().state, RowState::Running);
+        let b = view.row("graph_2").unwrap();
+        assert_eq!(b.state, RowState::Disabled);
+        assert!(!b.enabled);
+    }
+
+    // The next pass skips B: its process node does not scan again.
+    rig.clock.advance(Duration::from_secs(1));
+    rig.service.poll();
+    assert_eq!(*rig.scan.scans.lock().unwrap(), 1);
+    assert_eq!(last(&rig)[0], ("graph_1".to_owned(), Some(5.0)));
+}
+
+#[test]
+fn disabled_is_stored_after_panic() {
+    let mut rig = panic_rig("stored");
+    rig.service.poll();
+    let store = GraphStore::open(rig.dir.graph_paths());
+    assert!(store.graph("graph_1").unwrap().enabled);
+    assert!(!store.graph("graph_2").unwrap().enabled);
+}
+
+#[test]
+fn panic_notification_names_the_graph() {
+    let mut rig = panic_rig("notice");
+    rig.service.poll();
+    let Plan::Show(spec) = rig.notifications.try_recv().expect("a notification") else {
+        panic!("a notification to show");
+    };
+    assert_eq!(spec.title, "Graph Hot water stopped");
+    assert_eq!(spec.key, "graph-stopped-graph_2");
+    // One panic, one notification.
+    rig.clock.advance(Duration::from_secs(1));
+    rig.service.poll();
+    assert!(rig.notifications.try_recv().is_err());
+}
+
+#[test]
+fn graph_stays_disabled_after_restart() {
+    let mut rig = panic_rig("restart");
+    rig.service.poll();
+    // The app starts again on the same files, with a scan that works.
+    let store = GraphStore::open(rig.dir.graph_paths());
+    let (notify, _notifications) = unbounded_channel();
+    let scan = FakeScan::default();
+    let calls = Calls::default();
+    let mut again = GraphService::new(
+        store,
+        Env {
+            clock: Box::new(SimClock::default()),
+            link: Box::new(Recorder(calls.clone())),
+            scan: Box::new(scan.clone()),
+            notify,
+            locale: EN,
+            view: shared_view(),
+        },
+    );
+    again.poll();
+    assert_eq!(
+        calls.lock().unwrap().last().unwrap(),
+        &[
+            ("graph_1".to_owned(), Some(5.0)),
+            ("graph_2".to_owned(), None)
+        ]
+    );
+    assert_eq!(*scan.scans.lock().unwrap(), 0);
 }

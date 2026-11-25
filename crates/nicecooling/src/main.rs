@@ -46,9 +46,13 @@ fn main() {
         settings.notify_prefs.clone(),
     );
     services::spawn_history(events_tx.subscribe(), services::history_path());
+    // The notification thread reads the receiver from task 3.6 on.
+    let (notify_tx, _notify_rx) = mpsc::unbounded_channel();
     services::spawn_graphs(
         events_tx.subscribe(),
         GraphPaths::user(),
+        notify_tx,
+        locale,
         nicecooling::graphs::view::shared_view(),
     );
 

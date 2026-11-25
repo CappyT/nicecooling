@@ -59,6 +59,9 @@ pub struct GraphPass {
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Pass {
     pub graphs: Vec<GraphPass>,
+    /// The ids of the Graphs whose evaluation panicked in this pass. Such a Graph has no values
+    /// and no result, and the rest of the pass went on without it. The caller disables it.
+    pub panicked: Vec<String>,
 }
 
 impl Pass {
@@ -206,21 +209,33 @@ impl Evaluator {
             .map(|id| (id, None))
             .collect();
         let mut results: Vec<Option<GraphPass>> = vec![None; graphs.len()];
+        let mut panicked = Vec::new();
         for index in graph_order(graphs) {
             let graph = &graphs[index];
             // The validator refuses two Graphs with one id. If the set has them anyway, the
             // later one gets a state of its own and does not write into the state of the first.
             let earlier = graphs[..index].iter().filter(|g| g.id == graph.id).count();
-            let pass = if earlier == 0 {
-                self.evaluate_graph(graph, sources, &sensors, now)
-            } else {
-                let renamed = Graph {
-                    id: format!("{}#{earlier}", graph.id),
-                    ..graph.clone()
-                };
-                GraphPass {
+            let renamed = (earlier > 0).then(|| Graph {
+                id: format!("{}#{earlier}", graph.id),
+                ..graph.clone()
+            });
+            let target = renamed.as_ref().unwrap_or(graph);
+            // One Graph that panics must not stop the others: the panic ends only its own
+            // evaluation.
+            let run = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                self.evaluate_graph(target, sources, &sensors, now)
+            }));
+            let pass = match run {
+                Ok(pass) => GraphPass {
                     graph_id: graph.id.clone(),
-                    ..self.evaluate_graph(&renamed, sources, &sensors, now)
+                    ..pass
+                },
+                Err(_) => {
+                    panicked.push(graph.id.clone());
+                    GraphPass {
+                        evaluated: true,
+                        ..skipped(graph)
+                    }
                 }
             };
             if let (Some(id), EndValue::Sensor(value)) = (&graph.sensor_id, &pass.end) {
@@ -234,6 +249,7 @@ impl Evaluator {
                 .zip(results)
                 .map(|(graph, result)| result.unwrap_or_else(|| skipped(graph)))
                 .collect(),
+            panicked,
         }
     }
 
@@ -655,6 +671,45 @@ mod tests {
         let pass = pass_one(&g, &Fake::default().with("dead", 7.0));
         assert_eq!(pass.values[&3], Some(12.0));
         assert_eq!(pass.end, EndValue::Sensor(Some(60.0)));
+    }
+
+    struct Boom;
+
+    impl Sources for Boom {
+        fn sensor(&self, id: &str) -> Option<f64> {
+            assert_ne!(id, "boom", "a source that panics");
+            Some(1.0)
+        }
+
+        fn alarm_active(&self, _event: &str, _source: &str) -> Option<bool> {
+            None
+        }
+
+        fn processes(&self) -> &ProcessList {
+            unreachable!("no process node in this test")
+        }
+    }
+
+    #[test]
+    fn a_panic_ends_only_its_own_graph() {
+        let end = |id: &str, sensor: &str| {
+            graph(
+                id,
+                vec![source(1, sensor), node(2, Kind::SensorEnd)],
+                vec![Connection::new(1, 2, "a")],
+            )
+        };
+        let mut a = end("a", "fine");
+        a.sensor_id = Some("a".into());
+        let mut b = end("b", "boom");
+        b.sensor_id = Some("b".into());
+        let mut evaluator = Evaluator::with_seed(1);
+        let pass = evaluator.evaluate(&[b, a], &Boom, Duration::ZERO);
+        assert_eq!(pass.panicked, ["b"]);
+        assert_eq!(
+            pass.sensor_values(),
+            [("b".to_owned(), None), ("a".to_owned(), Some(1.0))]
+        );
     }
 
     #[test]

@@ -71,7 +71,7 @@ pub enum Plan {
     },
 }
 
-fn open_button(locale: Locale) -> Button {
+pub(crate) fn open_button(locale: Locale) -> Button {
     Button {
         id: "open",
         label: locale.tr("notification.action.open"),

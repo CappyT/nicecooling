@@ -156,6 +156,9 @@ notification:
   poweroff_failed:
     title: Herunterfahren fehlgeschlagen
     body: "Der Daemon konnte den PC nicht herunterfahren: %{error}"
+  graph_stopped:
+    title: "Graph %{name} angehalten"
+    body: "Ein Fehler hat den Graph angehalten. Er ist ausgeschaltet."
 feedback:
   pending: Schreiben
   applied: "Angewendet %{time}"

@@ -5,6 +5,7 @@
 //! replaces the clock, the `/proc` scan and the link to the daemon.
 
 use std::cell::OnceCell;
+use std::collections::BTreeSet;
 use std::time::Duration;
 
 use nicecooling_core::clock::Clock;
@@ -12,10 +13,13 @@ use nicecooling_core::rules::proc_scan::ProcessSource;
 use nicecooling_core::rules::process::ProcessList;
 use nicecooling_graph::eval::{Evaluator, Pass, Sources};
 use nicecooling_graph::model::{Graph, StoredGraph};
+use tokio::sync::mpsc::UnboundedSender;
 
 use super::store::{GraphStore, describe_invalid};
 use super::view::{GraphRow, RowState, SharedView};
+use crate::i18n::Locale;
 use crate::model::{AppState, DaemonEvent};
+use crate::notify::{Level, NotificationSpec, Plan, open_button};
 
 /// The time between two passes.
 pub const PASS_INTERVAL: Duration = Duration::from_secs(1);
@@ -67,27 +71,44 @@ impl Sources for LiveSources<'_> {
     }
 }
 
+/// What the service needs from the rest of the app. A test replaces each part.
+pub struct Env {
+    pub clock: Box<dyn Clock>,
+    pub link: Box<dyn SensorLink>,
+    pub scan: Box<dyn ProcessSource>,
+    /// The channel that the notification thread reads.
+    pub notify: UnboundedSender<Plan>,
+    pub locale: Locale,
+    pub view: SharedView,
+}
+
 pub struct GraphService {
     store: GraphStore,
     evaluator: Evaluator,
     clock: Box<dyn Clock>,
     link: Box<dyn SensorLink>,
     scan: Box<dyn ProcessSource>,
+    notify: UnboundedSender<Plan>,
+    locale: Locale,
     state: AppState,
     view: SharedView,
     next_pass: Duration,
+    /// The Graphs that a panic stopped. They stay off even when the file cannot be written.
+    stopped: BTreeSet<String>,
     /// The last write error of the state file, so one failure logs one line.
     state_error: Option<String>,
 }
 
 impl GraphService {
-    pub fn new(
-        store: GraphStore,
-        clock: Box<dyn Clock>,
-        link: Box<dyn SensorLink>,
-        scan: Box<dyn ProcessSource>,
-        view: SharedView,
-    ) -> Self {
+    pub fn new(store: GraphStore, env: Env) -> Self {
+        let Env {
+            clock,
+            link,
+            scan,
+            notify,
+            locale,
+            view,
+        } = env;
         let mut evaluator = Evaluator::new();
         for (key, value) in &store.state().values {
             if let Some((graph, node)) = key.rsplit_once('/')
@@ -102,9 +123,12 @@ impl GraphService {
             clock,
             link,
             scan,
+            notify,
+            locale,
             state: AppState::default(),
             view,
             next_pass: Duration::ZERO,
+            stopped: BTreeSet::new(),
             state_error: None,
         };
         service.publish(None);
@@ -138,13 +162,39 @@ impl GraphService {
     }
 
     fn pass(&mut self, now: Duration) {
-        let graphs = self.store.graphs();
+        let mut graphs = self.store.graphs();
+        for graph in &mut graphs {
+            graph.enabled &= !self.stopped.contains(&graph.id);
+        }
         let sources = LiveSources::new(&self.state, self.scan.as_ref());
-        let pass = self.evaluator.evaluate(&graphs, &sources, now);
+        let mut pass = self.evaluator.evaluate(&graphs, &sources, now);
+        for id in std::mem::take(&mut pass.panicked) {
+            self.stop_graph(&id);
+        }
         self.link.values(&pass.sensor_values());
         self.store.state_mut().values = self.evaluator.stored_values();
         self.write_state(now, false);
         self.publish(Some(&pass));
+    }
+
+    /// A Graph panicked: store it as disabled, and say so.
+    fn stop_graph(&mut self, id: &str) {
+        let Some(mut graph) = self.store.graph(id).cloned() else {
+            return;
+        };
+        self.stopped.insert(id.to_owned());
+        graph.enabled = false;
+        if let Err(error) = self.store.put(graph.clone()) {
+            eprintln!("nicecooling: graph {id}: cannot store it as disabled: {error}");
+        }
+        let locale = self.locale;
+        let _ = self.notify.send(Plan::Show(NotificationSpec {
+            key: format!("graph-stopped-{id}"),
+            title: locale.fmt("notification.graph_stopped.title", &[("name", &graph.name)]),
+            body: locale.tr("notification.graph_stopped.body"),
+            level: Level::Normal,
+            buttons: vec![open_button(locale)],
+        }));
     }
 
     fn write_state(&mut self, now: Duration, force: bool) {

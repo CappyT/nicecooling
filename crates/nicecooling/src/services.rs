@@ -15,13 +15,13 @@ use nicecooling_core::rules::proc_scan::ProcFs;
 
 use crate::app::now_us;
 use crate::command::Command;
-use crate::graphs::service::{GraphService, NoLink};
+use crate::graphs::service::{Env, GraphService, NoLink};
 use crate::graphs::store::{GraphPaths, GraphStore};
 use crate::graphs::view::SharedView;
 use crate::history::{HistoryDb, HistoryWriter};
 use crate::i18n::Locale;
 use crate::model::{AppState, DaemonEvent, FLAG_NO_VALUE};
-use crate::notify::{Notifier, NotifyPrefs, plan};
+use crate::notify::{Notifier, NotifyPrefs, Plan, plan};
 use crate::tray::{Tray, TrayView};
 
 /// Wait for the next event. `None` after one second without an event. The thread then
@@ -173,16 +173,22 @@ pub fn spawn_history(mut events: broadcast::Receiver<DaemonEvent>, path: PathBuf
 pub fn spawn_graphs(
     mut events: broadcast::Receiver<DaemonEvent>,
     paths: GraphPaths,
+    notify: UnboundedSender<Plan>,
+    locale: Locale,
     view: SharedView,
 ) {
     thread::spawn(move || {
         let runtime = small_runtime();
         let mut service = GraphService::new(
             GraphStore::open(paths),
-            Box::new(SystemClock::new()),
-            Box::new(NoLink),
-            Box::new(ProcFs::new("/proc")),
-            view,
+            Env {
+                clock: Box::new(SystemClock::new()),
+                link: Box::new(NoLink),
+                scan: Box::new(ProcFs::new("/proc")),
+                notify,
+                locale,
+                view,
+            },
         );
         loop {
             let wait = service.until_next_pass();

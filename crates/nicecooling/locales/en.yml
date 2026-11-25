@@ -156,6 +156,9 @@ notification:
   poweroff_failed:
     title: Poweroff failed
     body: "The daemon could not power off the PC: %{error}"
+  graph_stopped:
+    title: "Graph %{name} stopped"
+    body: "An error stopped the Graph, and it is disabled."
 feedback:
   pending: Writing
   applied: "Applied %{time}"

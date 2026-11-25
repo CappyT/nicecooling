@@ -156,6 +156,9 @@ notification:
   poweroff_failed:
     title: Spegnimento non riuscito
     body: "Il demone non ha potuto spegnere il PC: %{error}"
+  graph_stopped:
+    title: "Graph %{name} fermato"
+    body: "Un errore ha fermato il Graph, che ora è disattivato."
 feedback:
   pending: Scrittura in corso
   applied: "Applicato alle %{time}"

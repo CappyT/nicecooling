@@ -156,6 +156,9 @@ notification:
   poweroff_failed:
     title: Échec de l'extinction
     body: "Le démon n'a pas pu éteindre le PC : %{error}"
+  graph_stopped:
+    title: "Graph %{name} arrêté"
+    body: "Une erreur a arrêté le Graph. Il est désactivé."
 feedback:
   pending: Écriture
   applied: "Appliqué à %{time}"
