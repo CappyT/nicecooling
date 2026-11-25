@@ -1,0 +1,18 @@
+# Image that builds the DEB. `packaging/container/build-deb.sh` builds it from the repository root.
+# Ubuntu 24.04 has an old rustc, so rustup installs the stable toolchain. The libraries below are the
+# build dependencies of the workspace.
+ARG UBUNTU_VERSION=24.04
+FROM docker.io/library/ubuntu:${UBUNTU_VERSION}
+
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      build-essential ca-certificates clang cmake curl pkg-config zstd \
+      libasound2-dev libegl-dev libfontconfig-dev libfreetype-dev libvulkan-dev libwayland-dev \
+      libx11-dev libx11-xcb-dev libxcb1-dev libxkbcommon-dev libxkbcommon-x11-dev libzstd-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+ENV RUSTUP_HOME=/opt/rustup CARGO_HOME=/opt/cargo PATH=/opt/cargo/bin:$PATH
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+    | sh -s -- -y --profile minimal --default-toolchain stable
+
+WORKDIR /work

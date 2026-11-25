@@ -1,0 +1,25 @@
+#!/bin/sh
+# Same work as the RPM %post scriptlet: enable the unit, do not start it. The user starts it after the
+# Leakshield firmware check (README, section "Install"). An upgrade restarts a running daemon.
+set -e
+
+if [ "$1" = configure ]; then
+    # The daemon state directory: root only. Data in it survives the removal of the package.
+    install -d -m 0700 -o root -g root /var/lib/nicecooling
+
+    deb-systemd-helper unmask nicecoolingd.service >/dev/null || true
+    # was-enabled is true on a first install, so the first install enables the unit.
+    if deb-systemd-helper --quiet was-enabled nicecoolingd.service; then
+        deb-systemd-helper enable nicecoolingd.service >/dev/null || true
+    else
+        deb-systemd-helper update-state nicecoolingd.service >/dev/null || true
+    fi
+    if [ -d /run/systemd/system ]; then
+        systemctl --system daemon-reload >/dev/null || true
+        if [ -n "$2" ]; then
+            deb-systemd-invoke try-restart nicecoolingd.service >/dev/null || true
+        fi
+    fi
+fi
+
+exit 0

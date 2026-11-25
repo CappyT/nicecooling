@@ -1,0 +1,19 @@
+#!/bin/sh
+# Same work as the RPM %postun scriptlet: disable the unit at removal. `mask` removes the symlinks of the
+# enabled unit. `purge` deletes the state of the helper. /var/lib/nicecooling stays, as in the RPM.
+set -e
+
+if [ -d /run/systemd/system ]; then
+    systemctl --system daemon-reload >/dev/null || true
+fi
+
+if [ "$1" = remove ]; then
+    deb-systemd-helper mask nicecoolingd.service >/dev/null || true
+fi
+
+if [ "$1" = purge ]; then
+    deb-systemd-helper purge nicecoolingd.service >/dev/null || true
+    deb-systemd-helper unmask nicecoolingd.service >/dev/null || true
+fi
+
+exit 0

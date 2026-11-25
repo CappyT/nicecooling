@@ -1,0 +1,9 @@
+#!/bin/sh
+# Same work as the RPM %preun scriptlet: stop the unit at removal. The unit stop restores the BIOS snapshot.
+set -e
+
+if [ "$1" = remove ] && [ -d /run/systemd/system ]; then
+    deb-systemd-invoke stop nicecoolingd.service >/dev/null || true
+fi
+
+exit 0
