@@ -29,7 +29,7 @@ fn blocks(markdown: &str) -> Vec<String> {
 async fn every_busctl_block_exits_0() {
     let docs = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../docs/api.md");
     let blocks = blocks(&std::fs::read_to_string(docs).unwrap());
-    assert!(blocks.len() >= 8, "{} busctl blocks", blocks.len());
+    assert!(blocks.len() >= 13, "{} busctl blocks", blocks.len());
 
     let mut rig = Rig::start().await;
     rig.ticks(2).await;

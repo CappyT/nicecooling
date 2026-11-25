@@ -20,6 +20,7 @@ Identifiers contain only `[a-z0-9_]`, so the object path element is the identifi
 | Leakshield | `leakshield_<serial with - replaced by _>` | `leakshield_20417_31072` |
 | Leakshield sensor | `<leakshield id>_<field id>` | `leakshield_20417_31072_pressure` |
 | Derived sensor | `derived_<n>` | `derived_1` |
+| Graph sensor | `graph_<n>`, no leading zero | `graph_1` |
 | Calibrated flow | `<loop id>_flow` | `loop_1_flow` |
 | Loop | `loop_<n>` | `loop_1` |
 | Profile | `profile_<n>`; the Default Profile is `profile_default` | `profile_2` |
@@ -280,6 +281,56 @@ A Rule group has an identifier, a target Profile, an `enabled` flag and an order
 - The interval rule holds from `delay_s` to `delay_s + duration_s` after the start of each period of `interval_s`. A window that ends after the period is cut at the period end. The first period starts when the daemon starts or when `SetRuleGroups` saves a new or changed rule.
 - A window that is shorter than the Rule delay never activates its Profile, unless Immediate switching is on.
 
+## Graph sensors
+
+A Graph sensor is a sensor whose value the app computes from a Graph (`graphs.md`) and sends to the daemon. The daemon runs no Graph. It keeps the definition of the sensor and holds its value like the value of a measured sensor. A Curve, a Profile rule and a Software sensor slot read a Graph sensor as they read any other sensor.
+
+The sensor has the object path `/io/github/cappyt/NiceCooling1/sensor/graph_<n>`, the interface `Sensor` with `Origin` `graph`, and the interface `GraphSensor`. The daemon stores the definition in `state.json` (`storage.md`, `graph_sensors` and `graph_sensor_next`). That file also gives the rules at load.
+
+### Members
+
+| Member | Class | Meaning |
+|---|---|---|
+| `Manager.CreateGraphSensor(name s, unit s) -> sensor o` | `write` | Creates the sensor `graph_<n>` and returns its object. An empty name gives the id as the default name. |
+| `Manager.SetGraphSensorValues(values a(sbd))` | `write`, never interactive | Sets the values. An entry is (id, has value, value). |
+| `GraphSensor.SetDefinition(name s, unit s)` | `write` | Changes the default name and the unit. |
+| `GraphSensor.Delete()` | `write` | Deletes the sensor. |
+
+### Units, kinds and ids
+
+- The unit is one of `degC`, `rpm`, `%`, `V`, `A`, `W`, `l/h` and `mbar`. The unit gives the `Kind`:
+
+  | Unit | Kind |
+  |---|---|
+  | `degC` | `temperature` |
+  | `rpm` | `fan` |
+  | `l/h` | `flow` |
+  | `V` | `voltage` |
+  | `mbar` | `pressure` |
+  | `%`, `A`, `W` | `other` |
+
+- The id is `graph_<n>`. The counter `graph_sensor_next` starts at 1 and the daemon adds 1 at each create. A deleted id never returns.
+- A new id is larger than every Graph id that the state still names: a Graph sensor, a Curve Input of a Profile, the sensor of a rule, a Software sensor slot and a user name. A downgrade drops the Graph sensors and the counter but keeps these names, so an old id must not come back for a new sensor.
+- The counter never wraps. At 4294967295 the daemon gives that id once, and the next create fails with `InvalidArgument`.
+- The `Sensor` properties are const. After `SetDefinition` the daemon removes the object and adds it again, with `InterfacesRemoved` and `InterfacesAdded`. The call returns before the change. A client reads the new name, unit and `Kind` from the new object.
+- A name that the user set with `SetName` stays after `SetDefinition`. `SetDefinition` with an empty name sets the default name to the id.
+
+### Values
+
+- `SetGraphSensorValues` fails with `InvalidArgument`, and changes nothing, when any number in `values` is not finite. The check covers an entry that the daemon skips and an entry without a value.
+- The daemon skips an entry for an unknown id and an entry for a sensor that is not a Graph sensor: a measured sensor, a Leakshield sensor, a Derived sensor or a calibrated flow. The app cannot write the value of these.
+- When an id appears more than once, the last entry wins.
+- An entry with `has value` false removes the value. The next tick reads no value, and the sensor shows flag bit 0 of `SensorsUpdated`.
+- The daemon stamps a value with the time of the call. A value older than 3 s is no value, as for a measured sensor, so the app sends its values again before the 3 s end. A Curve that reads a Graph sensor with no value goes to Lost Input.
+- A new unit through `SetDefinition` clears the value. The value was in the old unit.
+- The daemon asks polkit without the interactive flag for `SetGraphSensorValues`, whatever flag the message has. The call never opens a polkit dialog, so a caller that polkit does not allow gets `AccessDenied` at once.
+
+### Refusals
+
+- `CreateGraphSensor` fails with `InvalidArgument` for a unit that is not in the table, a name above 64 characters, a 65th sensor and a counter with no id left.
+- A Derived sensor cannot read a Graph sensor (`CreateDerivedSensor`, `DerivedSensor.SetDefinition`), and a Loop cannot take a Graph sensor as its flow sensor or its water temperature (`Loop.SetFlowSensor`, `Loop.SetWaterTemperature`). Both fail with `InvalidArgument`. The Feed message and the Derived sensor stay on measured values.
+- `Delete` fails with `InUse` while a Curve, a Profile rule or a Software sensor slot reads the sensor. `SetDefinition` fails with `InUse` when the unit changes and a Software sensor slot holds the sensor: the slot holds the unit code of the device. A Software sensor slot also blocks the delete of a Derived sensor and of a Loop with a calibrated flow that the slot holds.
+
 ## Limits
 
 A write above a limit fails with `InvalidArgument`. Every limit is checked in the daemon.
@@ -288,8 +339,9 @@ A write above a limit fails with `InvalidArgument`. Every limit is checked in th
 |---|---|
 | Points of a Curve | 2 to 8 (the limit of the Curve editor, `docs/ui/widgets.md`) |
 | Points of a Calibration table | 2 to 64 |
-| Name of a sensor, Channel, Loop, Derived sensor or Calibration table | up to 64 characters |
+| Name of a sensor, Channel, Loop, Derived sensor, Graph sensor or Calibration table | up to 64 characters |
 | Derived sensors | up to 64 |
+| Graph sensors | up to 64 |
 | Loops | up to 16 |
 | Calibration tables of the user | up to 32 (presets do not count) |
 | Rule groups | up to 32 |
@@ -305,9 +357,9 @@ Error names have the prefix `io.github.cappyt.NiceCooling1.Error.`, except two s
 
 | Error | When |
 |---|---|
-| `InvalidArgument` | A value out of range or above a limit, a slot outside 1 to 4, `SetStoredFields` for the active slot or for the field `device_profile`, `SetResponse` with a source for an event that is not `leakshield.*`, an unknown identifier type, a Curve with fewer than 2 points, points not sorted by Input, or a number that is not finite. |
+| `InvalidArgument` | A value out of range or above a limit, a unit that a Graph sensor does not take, a Derived sensor or a Loop that reads a Graph sensor, a value in `SetGraphSensorValues` that is not finite, a slot outside 1 to 4, `SetStoredFields` for the active slot or for the field `device_profile`, `SetResponse` with a source for an event that is not `leakshield.*`, an unknown identifier type, a Curve with fewer than 2 points, points not sorted by Input, or a number that is not finite. |
 | `NotFound` | An object or an identifier does not exist, a slot with no stored report 3, or a source of `SetResponse` that is not a known Leakshield. |
-| `InUse` | A delete of a sensor, Calibration table or Profile that something else uses. A Rule group that targets a Profile uses it. |
+| `InUse` | A delete of a sensor, Calibration table or Profile that something else uses. A Rule group that targets a Profile uses it. A Software sensor slot uses its sensor, also a Derived sensor, a calibrated flow and a Graph sensor, and a change of the unit of that Graph sensor fails too. |
 | `DefaultProfile` | A delete of the Default Profile. |
 | `ReadOnly` | A write to a preset, to a Leakshield that is read-only (`ResetAlarms` included), or a `SetCurve` or `SetFixedDuty` on a Channel without a BIOS snapshot entry (`no-bios-snapshot`). The message holds the reason identifier. |
 | `NotVerified` | A Leakshield field that is not Verified for this firmware. The message holds the field id. |
@@ -332,6 +384,7 @@ Error names have the prefix `io.github.cappyt.NiceCooling1.Error.`, except two s
 - `write-or-critical` (`SetMode`): `critical` for `release`, `write` for the other Modes. The Mode arguments are lowercase: `shield`, `monitor`, `release`. The check asks `critical` for `release` in any case and with surrounding whitespace.
 - A caller with uid 0 needs no polkit check.
 - The daemon passes `AllowUserInteraction` to polkit only when the method call carries the D-Bus flag `ALLOW_INTERACTIVE_AUTHORIZATION`. The app sets this flag, so polkit can show its prompt.
+- `Manager.SetGraphSensorValues` is class `write`, but the daemon never passes `AllowUserInteraction` for it. The app calls it every second, and a dialog each second is not usable. The rule of `write` decides: a `wheel` member on a local active session gets YES, and any other caller gets `AccessDenied` with no prompt.
 - Files: policy `/usr/share/polkit-1/actions/io.github.cappyt.NiceCooling1.policy`, rule `/usr/share/polkit-1/rules.d/50-nicecooling.rules`, bus policy `/usr/share/dbus-1/system.d/io.github.cappyt.NiceCooling1.conf`. The bus policy lets root own the name and lets every user call every method; polkit decides.
 
 ## Daemon state seen from the app
@@ -396,6 +449,33 @@ Give a Channel back to its Hardware curve. The daemon restores the BIOS snapshot
 
 ```busctl
 busctl --allow-interactive-authorization=true call io.github.cappyt.NiceCooling1 /io/github/cappyt/NiceCooling1/channel/nct6798_pwm1 io.github.cappyt.NiceCooling1.Channel ReleaseToHardware
+```
+
+Create a Graph sensor. The reply holds its object path, and `Origin` is `graph`:
+
+```busctl
+busctl call io.github.cappyt.NiceCooling1 /io/github/cappyt/NiceCooling1 io.github.cappyt.NiceCooling1.Manager CreateGraphSensor 'ss' "Hot water" degC
+busctl get-property io.github.cappyt.NiceCooling1 /io/github/cappyt/NiceCooling1/sensor/graph_1 io.github.cappyt.NiceCooling1.Sensor Origin
+```
+
+Send the value of the Graph sensor. The signature `a(sbd)` holds the number of entries, then (id, has value, value) for each. Repeat the call within 3 s, or the value is lost. An entry with `false` removes the value:
+
+```busctl
+busctl call io.github.cappyt.NiceCooling1 /io/github/cappyt/NiceCooling1 io.github.cappyt.NiceCooling1.Manager SetGraphSensorValues 'a(sbd)' 1 graph_1 true 54.5
+busctl call io.github.cappyt.NiceCooling1 /io/github/cappyt/NiceCooling1 io.github.cappyt.NiceCooling1.Manager SetGraphSensorValues 'a(sbd)' 1 graph_1 false 0
+```
+
+Change the name and the unit of the Graph sensor. The daemon removes the object and adds it again:
+
+```busctl
+busctl call io.github.cappyt.NiceCooling1 /io/github/cappyt/NiceCooling1/sensor/graph_1 io.github.cappyt.NiceCooling1.GraphSensor SetDefinition 'ss' "Loop water" degC
+```
+
+Create a second Graph sensor and delete it. A sensor that a Curve, a Profile rule or a Software sensor slot reads fails with `InUse`:
+
+```busctl
+busctl call io.github.cappyt.NiceCooling1 /io/github/cappyt/NiceCooling1 io.github.cappyt.NiceCooling1.Manager CreateGraphSensor 'ss' "Spare" '%'
+busctl call io.github.cappyt.NiceCooling1 /io/github/cappyt/NiceCooling1/sensor/graph_2 io.github.cappyt.NiceCooling1.GraphSensor Delete
 ```
 
 Watch the `SensorsUpdated` signal. This command runs until you stop it, so the test does not run it:
