@@ -4218,6 +4218,7 @@ dependencies = [
  "image",
  "ksni",
  "lettre",
+ "libc",
  "nicecooling-api",
  "nicecooling-core",
  "nicecooling-graph",

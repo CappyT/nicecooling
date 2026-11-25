@@ -18,6 +18,7 @@ use crate::app::now_us;
 use crate::command::Command;
 use crate::daemon_client::DaemonClient;
 use crate::graphs::channel::{GraphChannel, Input, Inputs};
+use crate::graphs::kinds::KindRunner;
 use crate::graphs::service::{Env, GraphService, NoLink, NoPower, SensorLink};
 use crate::graphs::session::AlwaysActive;
 use crate::graphs::store::{GraphPaths, GraphStore};
@@ -339,12 +340,13 @@ pub fn spawn_graphs(
             link: system.link,
             scan: Box::new(ProcFs::new("/proc")),
             power: Box::new(NoPower),
-            notify,
+            notify: notify.clone(),
             locale,
             view,
         },
     )
-    .with_session(system.session);
+    .with_session(system.session)
+    .with_runner(Box::new(KindRunner::new(notify)));
     spawn_service(service, events, inputs);
     channel
 }
