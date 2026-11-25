@@ -11,6 +11,7 @@ workspace = true
 [dependencies]
 nicecooling-api.workspace = true
 nicecooling-core.workspace = true
+nicecooling-graph.workspace = true
 gpui-component.workspace = true
 gpui-kit-assets.workspace = true
 gpui-pre.workspace = true
@@ -20,6 +21,7 @@ notify-rust.workspace = true
 rusqlite.workspace = true
 rust-i18n.workspace = true
 serde.workspace = true
+serde_json.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "sync", "time", "macros"] }
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 futures-util = { version = "0.3", default-features = false, features = ["std"] }
@@ -31,4 +33,3 @@ toml.workspace = true
 [dev-dependencies]
 gpui-pre = { workspace = true, features = ["test-support"] }
 serde-saphyr = "1.2"
-serde_json.workspace = true

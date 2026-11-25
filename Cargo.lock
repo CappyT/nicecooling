@@ -4091,6 +4091,7 @@ dependencies = [
  "ksni",
  "nicecooling-api",
  "nicecooling-core",
+ "nicecooling-graph",
  "notify-rust",
  "rusqlite",
  "rust-i18n",
