@@ -896,6 +896,17 @@ The unit of a Graph sensor SHALL be one of `degC`, `rpm`, `%`, `V`, `A`, `W`, `l
 - **WHEN** no slot holds `graph_2` and the app changes its unit from `degC` to `l/h`
 - **THEN** the `Kind` becomes `flow`
 
+### Requirement: Graph sensor value at a unit change
+A `SetDefinition` that changes the unit SHALL clear the stored value of the sensor at once: it has no value until the app sends the next one. It SHALL stay allowed while a Curve or a rule uses the sensor. It SHALL stay refused with `InUse` while a Software sensor slot uses the sensor.
+
+#### Scenario: Unit change under a Curve
+- **WHEN** a Curve has `graph_1` as Input, the last value is 60.0 and the app changes its unit from `degC` to `%`
+- **THEN** the call succeeds, `graph_1` has no value in the next tick and the Curve keeps its Input
+
+#### Scenario: Value after the change
+- **WHEN** the app sends 45.0 for `graph_1` after the change
+- **THEN** the next tick holds 45.0 for `graph_1`
+
 ### Requirement: Graph sensor in use
 The delete of a Graph sensor that a Curve, a sensor Profile rule or a Software sensor slot uses SHALL fail with `InUse` and the name of the user. The delete of any sensor that a Software sensor slot uses SHALL fail with `InUse`: a Graph sensor, a Derived sensor and a calibrated flow.
 

@@ -147,7 +147,7 @@
        SetDefinition the daemon removes the object and adds it again. -->
   <interface name="io.github.cappyt.NiceCooling1.GraphSensor">
     <!-- Changes the default name and the unit. Fails with InUse when a change of the unit meets a
-         Software sensor slot that holds the sensor. -->
+         Software sensor slot that holds the sensor. A new unit clears the value of the sensor. -->
     <method name="SetDefinition">
       <annotation name="io.github.cappyt.NiceCooling1.Authorization" value="write"/>
       <arg name="name" type="s" direction="in"/>

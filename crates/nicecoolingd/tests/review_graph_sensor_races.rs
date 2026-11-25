@@ -238,11 +238,11 @@ async fn reading_two_senders_last_call_wins() {
 }
 
 /// `SetDefinition` with a new unit between two values calls, while a Curve reads the sensor.
-/// Pins the current result, which the spec does not state (it refuses a unit change only for a
-/// Software sensor slot): the Curve keeps its Input, and the value sent for the old unit stays
-/// in the table until the next call or for 3 s.
+/// Spec: a unit change clears the value at once and stays allowed while a Curve uses the sensor
+/// (it is refused only for a Software sensor slot). The Curve keeps its Input, and the sensor has
+/// no value until the next call.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn reading_unit_change_keeps_the_curve_and_the_last_value() {
+async fn unit_change_clears_the_value_and_keeps_the_curve() {
     let mut rig = Rig::start_with_clock().await;
     manager_on(&rig.client)
         .await
@@ -280,8 +280,16 @@ async fn reading_unit_change_keeps_the_curve_and_the_last_value() {
     rig.step(1).await;
     let hub = rig.daemon.as_ref().unwrap().hub.clone();
     assert_eq!(hub.sensor("graph_1").unwrap().unit, "%");
-    assert_eq!(tick_value(&mut rig, "graph_1"), Some(60.0));
-    assert_eq!(pwm1_raw(&rig), percent_to_raw(60.0).to_string());
+    assert_eq!(tick_value(&mut rig, "graph_1"), None);
+    assert_eq!(hub.channel("nct6798_pwm1").unwrap().curve_input, "graph_1");
+
+    manager_on(&rig.client)
+        .await
+        .set_graph_sensor_values(&[("graph_1".to_owned(), true, 45.0)])
+        .await
+        .unwrap();
+    rig.step(1).await;
+    assert_eq!(tick_value(&mut rig, "graph_1"), Some(45.0));
 }
 
 /// A values call and a `Delete` of one of its ids at the same time. The call checks the ids

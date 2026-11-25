@@ -1374,17 +1374,17 @@ impl Hub {
         })
     }
 
-    /// Changes the default name and the unit. A name that the user set stays in `names`.
+    /// Changes the default name and the unit. A name that the user set stays in `names`. A new unit
+    /// clears the value: the app measured it in the old unit.
     pub fn set_graph_definition(&self, id: &str, name: &str, unit: &str) -> Result<()> {
         check_name(name)?;
         check_graph_unit(unit)?;
-        self.edit(|i| {
+        let unit_changed = self.edit(|i| {
             let Some(current) = i.state.graph_sensors.iter().find(|g| g.id == id) else {
                 return Err(Error::not_found(format!("no Graph sensor {id}")));
             };
-            if current.unit != unit
-                && let Some(user) = i.slot_user(id)
-            {
+            let unit_changed = current.unit != unit;
+            if unit_changed && let Some(user) = i.slot_user(id) {
                 // The slot holds the unit code of the device.
                 return Err(Error::in_use(format!("{id} is held by {user}")));
             }
@@ -1396,8 +1396,12 @@ impl Hub {
                 };
                 graph.unit = unit.to_owned();
             }
-            Ok(())
-        })
+            Ok(unit_changed)
+        })?;
+        if unit_changed {
+            self.values.clear(id);
+        }
+        Ok(())
     }
 
     pub fn delete_graph_sensor(&self, id: &str) -> Result<()> {
