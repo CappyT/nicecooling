@@ -102,6 +102,11 @@ pub fn describe(refusals: &[Refusal]) -> String {
         .join(", ")
 }
 
+/// Why an invalid Graph does not run.
+pub fn describe_invalid(invalid: &InvalidGraph) -> String {
+    invalid.problem.to_string()
+}
+
 fn io_error(text: impl Into<String>) -> std::io::Error {
     std::io::Error::other(text.into())
 }

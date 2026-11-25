@@ -961,6 +961,24 @@ impl AppState {
         self.link == Link::Online
     }
 
+    /// The value of a sensor in the newest sample. `None` while the daemon is not online, and for
+    /// a sensor with no value.
+    pub fn sensor_value(&self, id: &str) -> Option<f64> {
+        self.is_online().then_some(())?;
+        self.sensors.as_ref()?.sensor_value(id)
+    }
+
+    /// Whether an Alarm or Warning instance of `event` is active for `source`. `None` while the
+    /// daemon is not online.
+    pub fn alarm_active(&self, event: &str, source: &str) -> Option<bool> {
+        self.is_online().then(|| {
+            self.snapshot
+                .alarms
+                .iter()
+                .any(|alarm| alarm.event == event && alarm.source == source)
+        })
+    }
+
     /// The target, minimum and maximum pressure of a Leakshield, from its three limit sensors.
     pub fn leakshield_pressure_limits(&self, leakshield: &str) -> Option<PressureLimits> {
         let sample = self.sensors.as_ref().or(self.last_sensors.as_ref())?;

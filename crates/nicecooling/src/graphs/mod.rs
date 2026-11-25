@@ -2,4 +2,6 @@
 //! app. The engine is in `nicecooling-graph`.
 
 pub mod secrets;
+pub mod service;
 pub mod store;
+pub mod view;

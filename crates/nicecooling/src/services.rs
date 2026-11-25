@@ -10,8 +10,14 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tokio::sync::broadcast::{self, error::RecvError};
 use tokio::sync::mpsc::UnboundedSender;
 
+use nicecooling_core::clock::SystemClock;
+use nicecooling_core::rules::proc_scan::ProcFs;
+
 use crate::app::now_us;
 use crate::command::Command;
+use crate::graphs::service::{GraphService, NoLink};
+use crate::graphs::store::{GraphPaths, GraphStore};
+use crate::graphs::view::SharedView;
 use crate::history::{HistoryDb, HistoryWriter};
 use crate::i18n::Locale;
 use crate::model::{AppState, DaemonEvent, FLAG_NO_VALUE};
@@ -160,6 +166,35 @@ pub fn spawn_history(mut events: broadcast::Receiver<DaemonEvent>, path: PathBuf
                 eprintln!("nicecooling: history write: {error}");
             }
         }
+    });
+}
+
+/// The Graph service: one evaluation of every enabled Graph per second.
+pub fn spawn_graphs(
+    mut events: broadcast::Receiver<DaemonEvent>,
+    paths: GraphPaths,
+    view: SharedView,
+) {
+    thread::spawn(move || {
+        let runtime = small_runtime();
+        let mut service = GraphService::new(
+            GraphStore::open(paths),
+            Box::new(SystemClock::new()),
+            Box::new(NoLink),
+            Box::new(ProcFs::new("/proc")),
+            view,
+        );
+        loop {
+            let wait = service.until_next_pass();
+            let got = runtime.block_on(async { tokio::time::timeout(wait, events.recv()).await });
+            match got {
+                Ok(Ok(event)) => service.apply_event(&event),
+                Ok(Err(RecvError::Closed)) => break,
+                Ok(Err(RecvError::Lagged(_))) | Err(_) => {}
+            }
+            service.poll();
+        }
+        service.stop();
     });
 }
 

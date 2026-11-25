@@ -1,6 +1,7 @@
 use nicecooling::app::{self, Backend, StartMode};
 use nicecooling::app_settings::SettingsStore;
 use nicecooling::daemon_client::DaemonClient;
+use nicecooling::graphs::store::GraphPaths;
 use nicecooling::services;
 use tokio::sync::{broadcast, mpsc};
 
@@ -45,6 +46,11 @@ fn main() {
         settings.notify_prefs.clone(),
     );
     services::spawn_history(events_tx.subscribe(), services::history_path());
+    services::spawn_graphs(
+        events_tx.subscribe(),
+        GraphPaths::user(),
+        nicecooling::graphs::view::shared_view(),
+    );
 
     let backend = Backend {
         events: events_rx,
