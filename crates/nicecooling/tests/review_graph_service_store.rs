@@ -46,6 +46,16 @@ fn state_survives(graphs_text: &str, name: &str) {
     );
 }
 
+#[test]
+fn higher_schema_graph_file_keeps_the_state_file() {
+    state_survives(r#"{"schema_version":2,"graphs":[]}"#, "rv-state-higher");
+}
+
+#[test]
+fn unparsable_graph_file_keeps_the_state_file() {
+    state_survives("{ not json", "rv-state-unparsable");
+}
+
 /// A write into a read-only directory fails, and the Graphs in memory stay as in the file.
 #[test]
 fn read_only_directory_keeps_memory_and_file() {
