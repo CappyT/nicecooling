@@ -718,3 +718,52 @@ async fn fan_sensor_from_property() {
     let pump = rows.iter().find(|row| row.id == "nct6798_pwm6").unwrap();
     assert_eq!(pump.no_signal.as_deref(), Some("no speed signal"));
 }
+
+/// The Curve of the Waterpump with the sensor `origin` as its Input.
+fn pump_with_input_of(origin: &str) -> ChannelsModel {
+    let mut state = full();
+    state.snapshot.sensors.insert(
+        "picked".into(),
+        support::fixtures::sensor("picked", "Hot water", "temperature", "degC", origin, ""),
+    );
+    state
+        .snapshot
+        .channels
+        .get_mut("nct6798_pwm6")
+        .unwrap()
+        .curve
+        .input = Some("picked".into());
+    let mut ui = ChannelsUi::default();
+    ui.select("nct6798_pwm6");
+    model(&state, &ui)
+}
+
+#[test]
+fn graph_sensor_input_shows_the_text() {
+    let built = pump_with_input_of("graph");
+    let curve = built.detail.as_ref().unwrap().curve.as_ref().unwrap();
+    assert_eq!(curve.input.name, "Hot water");
+    assert_eq!(
+        curve.input_note.as_deref(),
+        Some(
+            "A Graph sensor has no value while the app does not run. The Channel then runs at 100%."
+        )
+    );
+}
+
+#[test]
+fn measured_sensor_input_shows_no_text() {
+    for origin in ["hwmon", "derived"] {
+        let built = pump_with_input_of(origin);
+        let curve = built.detail.as_ref().unwrap().curve.as_ref().unwrap();
+        assert_eq!(curve.input_note, None, "origin {origin}");
+    }
+    // The Input of the fixture is a measured sensor.
+    let state = full();
+    let mut ui = ChannelsUi::default();
+    ui.select("nct6798_pwm6");
+    let built = model(&state, &ui);
+    let curve = built.detail.as_ref().unwrap().curve.as_ref().unwrap();
+    assert_eq!(curve.input.name, "Water temperature");
+    assert_eq!(curve.input_note, None);
+}

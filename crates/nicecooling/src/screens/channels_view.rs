@@ -678,9 +678,22 @@ impl ScreenView {
             ));
 
         let readout = &curve.readout;
+        let note = curve.input_note.as_ref().map(|text| {
+            card_row(p)
+                .bg(p.accent_tint)
+                .child(div().flex_none().child(icon(NcIcon::Info, p.accent)))
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .text_color(p.fg)
+                        .child(text.clone()),
+                )
+        });
         let mut section = v_flex()
             .w_full()
             .child(fields)
+            .children(note)
             .child(
                 div()
                     .px(px(18.))

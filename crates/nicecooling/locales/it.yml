@@ -335,6 +335,7 @@ channels:
   pump_stop: Pompa ferma. Ogni Canale è al 100 % finché la pompa non gira per 10 s.
   pump_stop_readonly: La pompa è ferma. L'editor è in sola lettura.
   lost_input_strip: "Input perso: il Canale resta al 100 % finché %{input} non torna."
+  graph_input_note: "Un sensore Graph non ha valore mentre l'app non è in esecuzione. Il Canale resta allora al 100 %."
   rename: Rinomina
   control:
     label: Controllo

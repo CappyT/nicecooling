@@ -402,6 +402,9 @@ pub struct CurveDetail {
     pub input: InputField,
     /// "°C": the unit of the Input, for the point inputs.
     pub input_unit: String,
+    /// The text under the fields while the Input is a Graph sensor. A Graph sensor has no value
+    /// while the app does not run.
+    pub input_note: Option<String>,
     pub smoothing_label: String,
     pub smoothing_unit: String,
     pub smoothing_s: f64,
@@ -809,6 +812,9 @@ fn curve_detail(
             &[("value", &number(locale, step, "%"))],
         ),
         input_unit: unit_label.to_owned(),
+        input_note: sensor
+            .filter(|s| s.origin == "graph")
+            .map(|_| locale.tr("channels.graph_input_note")),
         readout: Readout {
             values: readout_values.clone(),
             input: locale.fmt("channels.readout.input", &[("value", &readout_values[0])]),

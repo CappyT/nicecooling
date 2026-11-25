@@ -335,6 +335,7 @@ channels:
   pump_stop: Pump stopped. Every Channel is at 100 % until the pump runs for 10 s.
   pump_stop_readonly: The pump is stopped. The editor is read-only.
   lost_input_strip: "Input lost: the Channel runs at 100 % until %{input} returns."
+  graph_input_note: A Graph sensor has no value while the app does not run. The Channel then runs at 100%.
   rename: Rename
   control:
     label: Control

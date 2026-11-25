@@ -25,6 +25,7 @@ A term that Italian keeps in English stays in English in German. A term that Ita
 | daemon | demone | Daemon | démon |
 | sensor | sensore | Sensor | capteur |
 | Derived sensor | sensore derivato | Abgeleiteter Sensor | capteur dérivé |
+| Graph sensor | sensore Graph | Graph-Sensor | capteur Graph |
 | Software sensor | sensore software | Software-Sensor | capteur logiciel |
 | Flow sensor | sensore di portata | Durchflusssensor | capteur de débit |
 | Water temperature | Temperatura acqua | Wassertemperatur | Température de l'eau |

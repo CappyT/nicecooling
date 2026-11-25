@@ -335,6 +335,7 @@ channels:
   pump_stop: Pumpe gestoppt. Jeder Kanal läuft mit 100 %, bis die Pumpe 10 s lang läuft.
   pump_stop_readonly: Die Pumpe ist gestoppt. Der Editor ist schreibgeschützt.
   lost_input_strip: "Input verloren: Der Kanal läuft mit 100 %, bis %{input} zurückkehrt."
+  graph_input_note: "Ein Graph-Sensor hat keinen Wert, solange die App nicht läuft. Der Kanal läuft dann mit 100 %."
   rename: Umbenennen
   control:
     label: Steuerung
