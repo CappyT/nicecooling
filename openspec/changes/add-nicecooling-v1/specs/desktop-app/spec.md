@@ -29,7 +29,7 @@ When the app cannot reach the daemon, it SHALL show that state in the window and
 
 #### Scenario: Daemon stopped
 - **WHEN** the daemon stops while the app runs
-- **THEN** the tray icon shows the offline state, the window shows a banner and every write control is disabled
+- **THEN** the tray icon shows the offline state, the window shows a banner and every control that writes to the daemon is disabled
 
 #### Scenario: Restart limit reached
 - **WHEN** systemd reaches the restart limit of the daemon

@@ -53,7 +53,7 @@ The Response pause banner shows on every screen from the third poweroff or reboo
 | State | Behavior |
 |---|---|
 | Loading | At start the content shows "Connecting to the daemon" with a spinner for at most 2 s. Then the offline state applies |
-| Daemon offline | Banner 2. Live values show in `fg-dim` with their age. Every control that writes is disabled, and its tooltip says "The daemon is offline." |
+| Daemon offline | Banner 2. Live values show in `fg-dim` with their age. Every control that writes to the daemon is disabled, and its tooltip says "The daemon is offline." The settings that the app holds (Language, notifications, Network) still work. |
 | Daemon down | The service is in the failed state: systemd gave up its restarts. Banner 2 in its "Daemon down" form replaces the offline form: it has the solid Alarm field, because the state is as serious as an Alarm. "Active Alarms" lists "Daemon down", and the window opens by itself. "Show how to start it" opens a dialog with `systemctl status nicecoolingd` and `systemctl restart nicecoolingd`. A Leakshield still protects the Loop by itself |
 | Not authorized | A write that polkit refuses shows "Not authorized. Nothing changed." next to the control |
 | Alarm | Banner 1, the Alarm count in the status bar and in the sidebar, the icon on the device entry. The window opens by itself and shows the Overview |
