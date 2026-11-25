@@ -34,6 +34,21 @@
 //!
 //! A drag on the empty canvas pans. The wheel pans, and the wheel with Ctrl zooms. The zoom stays
 //! between [`MIN_ZOOM`] (25%) and [`MAX_ZOOM`] (400%).
+//!
+//! # Keyboard
+//!
+//! A press on the canvas gives it the focus ([`FlowGraph::focus_handle`]). The canvas is in the
+//! Tab order. With the focus:
+//!
+//! | Key | Action |
+//! |---|---|
+//! | Tab, Shift+Tab | Select the next or the previous node, in the order of `FlowState::nodes` |
+//! | Arrow keys | Move the selected node by one grid step (`FlowState::snap_grid`) |
+//! | Delete, Backspace | Remove the selection, if [`FlowState::with_delete_guard`] agrees |
+//! | `+`, `-`, `0` | Zoom in, zoom out, zoom to 100%, around the center of the canvas |
+//! | Escape | Cancel the drag in progress |
+//!
+//! A connection by keyboard is not in the canvas: the app offers its own control for it.
 
 // The copy breaks these lints of the workspace. Each lint is fixed or kept with its reason in a
 // later commit. Source: `gpui-flow` at commit `cfa5787`.
@@ -58,5 +73,7 @@ pub mod types;
 pub use controls::Controls;
 pub use graph::FlowGraph;
 pub use minimap::Minimap;
-pub use store::{ALREADY_CONNECTED, ConnectOutcome, FlowState, MAX_ZOOM, MIN_ZOOM, SAME_NODE};
+pub use store::{
+    ALREADY_CONNECTED, ConnectOutcome, DeleteGuard, FlowState, MAX_ZOOM, MIN_ZOOM, SAME_NODE,
+};
 pub use types::*;

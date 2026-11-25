@@ -61,6 +61,9 @@ pub const SAME_NODE: &str = "same node";
 /// The reason of a refusal by the default rules: the two pins have a connection already.
 pub const ALREADY_CONNECTED: &str = "already connected";
 
+/// The app decides whether the canvas may remove the selection.
+pub type DeleteGuard = Rc<dyn Fn(&Selection, &FlowState) -> bool>;
+
 /// What the end of a connection drag did.
 #[derive(Debug, Clone, PartialEq)]
 pub enum ConnectOutcome {
@@ -95,11 +98,14 @@ pub struct FlowState {
     /// The wheel zooms without a modifier key. Default: false, the wheel pans.
     pub zoom_on_scroll: bool,
     rule: Option<ConnectRule>,
+    delete_guard: Option<DeleteGuard>,
     next_edge: u64,
     events: Vec<FlowEvent>,
     /// Window coordinates of the canvas origin, set at each paint. The mouse events have
     /// window coordinates, and the nodes and edges have coordinates relative to the canvas.
     pub origin: (f32, f32),
+    /// Size of the canvas in pixels, set at each paint. The zoom keys center on it.
+    pub size: (f32, f32),
 }
 
 impl EventEmitter<FlowEvent> for FlowState {}
@@ -127,9 +133,11 @@ impl FlowState {
             connection_radius: 20.0,
             zoom_on_scroll: false,
             rule: None,
+            delete_guard: None,
             next_edge: 0,
             events: Vec::new(),
             origin: (0.0, 0.0),
+            size: (0.0, 0.0),
         }
     }
 
@@ -140,6 +148,17 @@ impl FlowState {
         rule: impl Fn(&Connection, &FlowState) -> Result<(), SharedString> + 'static,
     ) -> Self {
         self.rule = Some(Rc::new(rule));
+        self
+    }
+
+    /// Ask the app before the canvas removes the selection with the Delete key. The guard
+    /// returns false to keep it, for example for the end node of a graph. A node with `deletable`
+    /// off stays in any case.
+    pub fn with_delete_guard(
+        mut self,
+        guard: impl Fn(&Selection, &FlowState) -> bool + 'static,
+    ) -> Self {
+        self.delete_guard = Some(Rc::new(guard));
         self
     }
 
@@ -391,6 +410,58 @@ impl FlowState {
             })
     }
 
+    /// Select the next node, in the order of `nodes`, after the selected one: the first node when
+    /// none is selected. `backwards` goes the other way. At the end of the list it goes on at the
+    /// other end. A hidden node and a node that is not selectable do not count. Returns false when
+    /// there is no such node.
+    pub fn select_next(&mut self, backwards: bool) -> bool {
+        let ids: Vec<FlowNodeId> = self
+            .nodes
+            .iter()
+            .filter(|node| !node.hidden && node.selectable)
+            .map(|node| node.id.clone())
+            .collect();
+        if ids.is_empty() {
+            return false;
+        }
+        let current = match self.selection() {
+            Some(Selection::Node(id)) => ids.iter().position(|other| *other == id),
+            _ => None,
+        };
+        let last = ids.len() - 1;
+        let next = match (current, backwards) {
+            (None, false) => 0,
+            (None, true) => last,
+            (Some(at), false) => (at + 1) % ids.len(),
+            (Some(at), true) => at.checked_sub(1).unwrap_or(last),
+        };
+        self.select(Some(Selection::Node(ids[next].clone())));
+        true
+    }
+
+    /// Move the selected node by `steps` grid steps (`snap_grid`), for example `(1, 0)` for one
+    /// step to the right. A move sends `NodeMoved`. Returns false when no node moved.
+    pub fn nudge_selection(&mut self, steps: (i32, i32)) -> bool {
+        let Some(Selection::Node(id)) = self.selection() else {
+            return false;
+        };
+        let (gx, gy) = self.snap_grid;
+        let Some(node) = self.get_node_mut(&id).filter(|node| node.draggable) else {
+            return false;
+        };
+        let from = node.position;
+        let to = FlowPoint::new(from.x + steps.0 as f32 * gx, from.y + steps.1 as f32 * gy);
+        node.position = to;
+        self.events.push(FlowEvent::NodeMoved { id, from, to });
+        true
+    }
+
+    /// Set the zoom to 100%, around the center of the canvas.
+    pub fn reset_zoom(&mut self) {
+        let center = (self.size.0 / 2.0, self.size.1 / 2.0);
+        self.zoom_at(center, 1.0);
+    }
+
     /// Set the selection, as the app wants it. This sends no event.
     pub fn set_selection(&mut self, selection: Option<Selection>) {
         for node in &mut self.nodes {
@@ -482,11 +553,20 @@ impl FlowState {
         self.start_pan(mouse);
     }
 
-    /// Remove the selected node with its connections, or the selected connection. A node or a
-    /// connection with `deletable` off stays. Each removal sends an event. Returns true when
-    /// something went.
+    /// Remove the selected node with its connections, or the selected connection, when the delete
+    /// guard of the app agrees. A node or a connection with `deletable` off stays. Each removal
+    /// sends an event. Returns true when something went.
     pub fn delete_selection(&mut self) -> bool {
-        let removed = match self.selection() {
+        let selection = self.selection();
+        let allowed = selection.as_ref().is_some_and(|selection| {
+            self.delete_guard
+                .as_ref()
+                .is_none_or(|guard| guard(selection, self))
+        });
+        if !allowed {
+            return false;
+        }
+        let removed = match selection {
             Some(Selection::Node(id)) if self.get_node(&id).is_some_and(|node| node.deletable) => {
                 let (gone, kept): (Vec<_>, Vec<_>) = std::mem::take(&mut self.edges)
                     .into_iter()

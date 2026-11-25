@@ -373,3 +373,96 @@ fn set_graph_sends_no_event_and_keeps_the_measured_sizes() {
     state.set_selection(None);
     assert!(state.take_events().is_empty());
 }
+
+#[test]
+fn tab_selects_the_nodes_in_a_stable_order() {
+    let mut state = pins();
+    let order = |state: &mut FlowState, backwards| {
+        assert!(state.select_next(backwards));
+        state.selection()
+    };
+    assert_eq!(order(&mut state, false), Some(node("src")));
+    assert_eq!(order(&mut state, false), Some(node("src2")));
+    assert_eq!(order(&mut state, false), Some(node("dst")));
+    // The list goes on at its start.
+    assert_eq!(order(&mut state, false), Some(node("src")));
+    // Shift+Tab goes the other way, also over the start.
+    assert_eq!(order(&mut state, true), Some(node("dst")));
+    assert_eq!(order(&mut state, true), Some(node("src2")));
+    // The same selection from the same state gives the same node.
+    state.set_selection(None);
+    assert_eq!(order(&mut state, true), Some(node("dst")));
+    assert_eq!(state.nodes.iter().filter(|node| node.selected).count(), 1);
+}
+
+#[test]
+fn tab_skips_a_hidden_node_and_a_node_that_is_not_selectable() {
+    let mut state = pins();
+    state.nodes[1].hidden = true;
+    state.nodes[2].selectable = false;
+    assert!(state.select_next(false));
+    assert_eq!(state.selection(), Some(node("src")));
+    assert!(state.select_next(false));
+    assert_eq!(state.selection(), Some(node("src")));
+    let mut none = FlowState::new(Vec::new(), Vec::new());
+    assert!(!none.select_next(false));
+}
+
+#[test]
+fn an_arrow_key_moves_the_selected_node_by_one_grid_step() {
+    let mut state = pins();
+    assert!(!state.nudge_selection((1, 0)), "nothing is selected");
+    state.select(Some(node("dst")));
+    state.take_events();
+    state.snap_grid = (24.0, 24.0);
+    assert!(state.nudge_selection((1, 0)));
+    assert!(state.nudge_selection((0, -1)));
+    assert_eq!(
+        state.get_node(&"dst".into()).unwrap().position,
+        FlowPoint::new(324.0, -24.0)
+    );
+    assert_eq!(
+        state.take_events(),
+        vec![
+            FlowEvent::NodeMoved {
+                id: "dst".into(),
+                from: FlowPoint::new(300.0, 0.0),
+                to: FlowPoint::new(324.0, 0.0),
+            },
+            FlowEvent::NodeMoved {
+                id: "dst".into(),
+                from: FlowPoint::new(324.0, 0.0),
+                to: FlowPoint::new(324.0, -24.0),
+            },
+        ]
+    );
+}
+
+#[test]
+fn the_delete_guard_can_refuse() {
+    let mut state = pins().with_delete_guard(|selection, _| *selection != node("dst"));
+    state.select(Some(node("dst")));
+    state.take_events();
+    assert!(!state.delete_selection());
+    assert_eq!(state.nodes.len(), 3);
+    assert!(state.take_events().is_empty());
+    assert_eq!(state.selection(), Some(node("dst")));
+    state.select(Some(node("src")));
+    state.take_events();
+    assert!(state.delete_selection());
+    assert_eq!(state.nodes.len(), 2);
+}
+
+#[test]
+fn the_zero_key_goes_back_to_100_percent_around_the_center() {
+    let mut state = pins();
+    state.size = (600.0, 400.0);
+    let center = state.viewport.screen_to_flow(300.0, 200.0);
+    state.zoom_in(600.0, 400.0);
+    state.zoom_in(600.0, 400.0);
+    assert!(state.viewport.zoom > 1.4);
+    state.reset_zoom();
+    assert_eq!(state.viewport.zoom, 1.0);
+    let after = state.viewport.screen_to_flow(300.0, 200.0);
+    assert!((center.x - after.x).abs() < 1e-3 && (center.y - after.y).abs() < 1e-3);
+}

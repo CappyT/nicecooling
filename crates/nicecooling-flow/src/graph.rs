@@ -45,7 +45,7 @@ impl FlowGraph {
         cx.observe(&state, |_, _, cx| cx.notify()).detach();
         Self {
             state,
-            focus_handle: cx.focus_handle(),
+            focus_handle: cx.focus_handle().tab_stop(true),
             node_renderers: HashMap::new(),
             default_renderer: None,
             show_node_chrome: true,
@@ -59,6 +59,11 @@ impl FlowGraph {
             edge_color: 0xb1b1b7,
             measured: false,
         }
+    }
+
+    /// The focus handle of the canvas. The keys of the canvas work while it has the focus.
+    pub fn focus_handle(&self) -> &FocusHandle {
+        &self.focus_handle
     }
 
     /// Register a renderer for a specific node type.
@@ -389,12 +394,13 @@ impl FlowGraph {
     fn paint_grid(
         bounds: &Bounds<Pixels>,
         viewport: &Viewport,
+        step: f32,
         grid_color: u32,
         pattern: BackgroundPattern,
         window: &mut Window,
     ) {
         let color = gpui::rgb(grid_color);
-        let spacing = 20.0 * viewport.zoom;
+        let spacing = step * viewport.zoom;
 
         if spacing < 5.0 {
             return;
@@ -532,6 +538,7 @@ impl Render for FlowGraph {
         // Read state, extract what we need, then release the borrow
         let (
             viewport,
+            grid_step,
             is_panning,
             is_connecting,
             snap,
@@ -541,6 +548,7 @@ impl Render for FlowGraph {
         ) = {
             let state = self.state.read(cx);
             let viewport = state.viewport;
+            let grid_step = state.snap_grid.0;
             let is_panning = state.pan_drag.is_some();
             let is_connecting = state.connecting.is_some();
             let snap: Option<(HandleKey, bool)> = state
@@ -607,6 +615,7 @@ impl Render for FlowGraph {
 
             (
                 viewport,
+                grid_step,
                 is_panning,
                 is_connecting,
                 snap,
@@ -629,6 +638,7 @@ impl Render for FlowGraph {
             ));
         }
 
+        let focus_ring = self.focus_handle.is_focused(window) && window.last_input_was_keyboard();
         let state_for_canvas = self.state.clone();
         let viewport_for_canvas = viewport;
         let bg_color = self.bg_color;
@@ -664,12 +674,17 @@ impl Render for FlowGraph {
                         Self::paint_grid(
                             &bounds,
                             &viewport_for_canvas,
+                            grid_step,
                             grid_color,
                             bg_pattern,
                             window,
                         );
                         let origin = (bounds.origin.x.as_f32(), bounds.origin.y.as_f32());
-                        state_for_canvas.update(cx, |state, _| state.origin = origin);
+                        let size = (bounds.size.width.as_f32(), bounds.size.height.as_f32());
+                        state_for_canvas.update(cx, |state, _| {
+                            state.origin = origin;
+                            state.size = size;
+                        });
                         // Window listeners: a drag goes on and ends where the pointer is, also
                         // outside the canvas and after a key press, when the canvas is not hovered.
                         window.on_mouse_event({
@@ -715,6 +730,16 @@ impl Render for FlowGraph {
             .children(node_elements)
             // Edge labels
             .children(edge_label_elements)
+            // Focus ring: only when the focus came from the keyboard
+            .when(focus_ring, |el| {
+                el.child(
+                    div()
+                        .absolute()
+                        .size_full()
+                        .border_2()
+                        .border_color(gpui::rgb(accent_color)),
+                )
+            })
             // A press on the empty canvas selects a connection, or clears the selection and pans.
             .on_mouse_down(MouseButton::Left, {
                 let focus = self.focus_handle.clone();
@@ -736,10 +761,38 @@ impl Render for FlowGraph {
                     // focus, not when an element inside a node has it.
                     let graph_focused = focus.is_focused(window);
 
+                    let modifiers = event.keystroke.modifiers;
+                    let plain = !modifiers.control && !modifiers.platform && !modifiers.alt;
                     if key == "escape" {
                         update_state(&state_for_key, cx, |state| state.cancel_drag());
-                    } else if (key == "backspace" || key == "delete") && graph_focused {
-                        update_state(&state_for_key, cx, |state| state.delete_selection());
+                    } else if graph_focused && plain {
+                        let handled = update_state(&state_for_key, cx, |state| match key {
+                            "tab" => state.select_next(modifiers.shift),
+                            "left" => state.nudge_selection((-1, 0)),
+                            "right" => state.nudge_selection((1, 0)),
+                            "up" => state.nudge_selection((0, -1)),
+                            "down" => state.nudge_selection((0, 1)),
+                            "delete" | "backspace" => state.delete_selection(),
+                            "=" | "+" => {
+                                let (w, h) = state.size;
+                                state.zoom_in(w, h);
+                                true
+                            }
+                            "-" | "_" => {
+                                let (w, h) = state.size;
+                                state.zoom_out(w, h);
+                                true
+                            }
+                            "0" => {
+                                state.reset_zoom();
+                                true
+                            }
+                            _ => false,
+                        });
+                        // The canvas owns Tab, also at the ends of the list.
+                        if handled || key == "tab" {
+                            cx.stop_propagation();
+                        }
                     }
                 }
             })
@@ -771,12 +824,13 @@ impl Render for FlowGraph {
 }
 
 /// Change the state, then give the events that the change made to the subscribers. `change`
-/// returns true when the state changed: the canvas then draws again.
+/// returns true when the state changed: the canvas then draws again. The function gives that
+/// value back.
 fn update_state(
     state: &Entity<FlowState>,
     cx: &mut App,
     change: impl FnOnce(&mut FlowState) -> bool,
-) {
+) -> bool {
     state.update(cx, |state, cx| {
         let changed = change(state);
         let events = state.take_events();
@@ -786,6 +840,7 @@ fn update_state(
         for event in events {
             cx.emit(event);
         }
+        changed
     })
 }
 

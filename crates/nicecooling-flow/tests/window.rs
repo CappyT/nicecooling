@@ -68,13 +68,22 @@ fn occupied(connection: &Connection, state: &FlowState) -> Result<(), SharedStri
 }
 
 fn rig(cx: &mut TestAppContext) -> (Entity<FlowState>, &mut VisualTestContext) {
-    let state = cx.new(|_| FlowState::new(nodes(), edges()).with_rule(occupied));
+    let (state, _graph, cx) = rig_with(cx, FlowState::new(nodes(), edges()).with_rule(occupied));
+    (state, cx)
+}
+
+fn rig_with(
+    cx: &mut TestAppContext,
+    state: FlowState,
+) -> (Entity<FlowState>, Entity<FlowGraph>, &mut VisualTestContext) {
+    let state = cx.new(|_| state);
     let graph_state = state.clone();
-    let (_host, cx) = cx.add_window_view(|_, cx| Host {
+    let (host, cx) = cx.add_window_view(|_, cx| Host {
         graph: cx.new(|cx| FlowGraph::new(graph_state, cx)),
     });
+    let graph = host.read_with(cx, |host, _| host.graph.clone());
     draw(cx);
-    (state, cx)
+    (state, graph, cx)
 }
 
 fn draw(cx: &mut VisualTestContext) {
@@ -255,4 +264,99 @@ fn events_reach_a_subscriber_in_the_order_of_the_inputs(cx: &mut TestAppContext)
     assert_eq!(*from, FlowPoint::new(100.0, 100.0));
     assert_eq!(*to, FlowPoint::new(200.0, 150.0));
     assert_eq!(id, "a");
+}
+
+/// A click on the empty canvas: the canvas takes the focus and the selection is empty.
+fn click_empty_canvas(cx: &mut VisualTestContext) {
+    cx.simulate_click(at(500.0, 350.0), Modifiers::none());
+}
+
+fn selection(state: &Entity<FlowState>, cx: &VisualTestContext) -> Option<String> {
+    cx.read(|cx| match state.read(cx).selection() {
+        Some(nicecooling_flow::Selection::Node(id)) => Some(id.to_string()),
+        _ => None,
+    })
+}
+
+#[gpui::test]
+fn a_press_gives_the_canvas_the_focus_and_it_is_in_the_tab_order(cx: &mut TestAppContext) {
+    let (_state, graph, cx) = rig_with(cx, FlowState::new(nodes(), edges()));
+    let focused = |cx: &mut VisualTestContext| {
+        cx.update(|window, cx| graph.read(cx).focus_handle().is_focused(window))
+    };
+    assert!(!focused(cx));
+    cx.update(|window, cx| window.focus_next(cx));
+    assert!(focused(cx), "the canvas is a tab stop");
+    cx.update(|window, cx| window.blur(cx));
+    assert!(!focused(cx));
+    click_empty_canvas(cx);
+    assert!(focused(cx), "a press focuses the canvas");
+}
+
+#[gpui::test]
+fn the_keys_do_nothing_without_the_focus(cx: &mut TestAppContext) {
+    let (state, cx) = rig(cx);
+    cx.simulate_keystrokes("tab");
+    assert_eq!(selection(&state, cx), None);
+    click_empty_canvas(cx);
+    cx.simulate_keystrokes("tab");
+    assert_eq!(selection(&state, cx), Some("a".into()));
+}
+
+#[gpui::test]
+fn tab_and_shift_tab_move_the_selection(cx: &mut TestAppContext) {
+    let (state, cx) = rig(cx);
+    click_empty_canvas(cx);
+    cx.simulate_keystrokes("tab");
+    assert_eq!(selection(&state, cx), Some("a".into()));
+    cx.simulate_keystrokes("tab");
+    assert_eq!(selection(&state, cx), Some("b".into()));
+    cx.simulate_keystrokes("shift-tab");
+    assert_eq!(selection(&state, cx), Some("a".into()));
+    cx.simulate_keystrokes("shift-tab");
+    assert_eq!(selection(&state, cx), Some("c".into()));
+}
+
+#[gpui::test]
+fn the_arrow_keys_move_the_selected_node_by_one_grid_step(cx: &mut TestAppContext) {
+    let (state, cx) = rig(cx);
+    click_empty_canvas(cx);
+    cx.simulate_keystrokes("tab right right down");
+    assert_eq!(node_position(&state, cx, "a"), FlowPoint::new(140.0, 120.0));
+    cx.simulate_keystrokes("left up");
+    assert_eq!(node_position(&state, cx, "a"), FlowPoint::new(120.0, 100.0));
+}
+
+#[gpui::test]
+fn delete_asks_its_user_and_the_user_can_refuse(cx: &mut TestAppContext) {
+    let state = FlowState::new(nodes(), edges()).with_delete_guard(|selection, _| {
+        *selection != nicecooling_flow::Selection::Node("b".into())
+    });
+    let (state, _graph, cx) = rig_with(cx, state);
+    click_empty_canvas(cx);
+    cx.simulate_keystrokes("tab tab delete");
+    assert_eq!(selection(&state, cx), Some("b".into()));
+    assert_eq!(cx.read(|cx| state.read(cx).nodes.len()), 3);
+    cx.simulate_keystrokes("shift-tab delete");
+    assert_eq!(cx.read(|cx| state.read(cx).nodes.len()), 2);
+    assert_eq!(selection(&state, cx), None);
+}
+
+#[gpui::test]
+fn plus_minus_and_zero_change_the_zoom(cx: &mut TestAppContext) {
+    let (state, cx) = rig(cx);
+    let zoom = |cx: &VisualTestContext| cx.read(|cx| state.read(cx).viewport.zoom);
+    click_empty_canvas(cx);
+    cx.simulate_keystrokes("=");
+    assert!((zoom(cx) - 1.2).abs() < 1e-4);
+    cx.simulate_keystrokes("= =");
+    assert!((zoom(cx) - 1.728).abs() < 1e-3);
+    cx.simulate_keystrokes("-");
+    assert!((zoom(cx) - 1.44).abs() < 1e-3);
+    cx.simulate_keystrokes("0");
+    assert_eq!(zoom(cx), 1.0);
+    for _ in 0..30 {
+        cx.simulate_keystrokes("-");
+    }
+    assert_eq!(zoom(cx), 0.25);
 }
