@@ -3,5 +3,6 @@
 
 pub mod funcs;
 pub mod model;
+pub mod state;
 pub mod table;
 pub mod validate;
