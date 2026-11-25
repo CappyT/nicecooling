@@ -1,5 +1,5 @@
 //! The time window of the filter nodes: peak, minimum, average, low pass and trend. A window
-//! gets one sample per second while its input has a value, and it drops every sample that is older
+//! gets one sample per whole second while its input has a value, and it drops every sample that is older
 //! than its span at each evaluation.
 
 use std::collections::VecDeque;
@@ -47,9 +47,14 @@ impl Window {
         }
     }
 
-    /// Adds a sample. A second sample at the same time replaces the first.
+    /// Adds a sample. A second sample in the same whole second replaces the first, so the window
+    /// holds at most its span in seconds plus 1 samples at any call rate.
     pub fn push(&mut self, now: Duration, value: f64) {
-        if self.samples.back().is_some_and(|(at, _)| *at == now) {
+        if self
+            .samples
+            .back()
+            .is_some_and(|(at, _)| at.as_secs() == now.as_secs())
+        {
             self.samples.pop_back();
         }
         self.samples.push_back((now, value));
@@ -218,6 +223,17 @@ mod tests {
         window.age(Duration::from_secs(3), Duration::from_secs(1000));
         assert!(window.is_empty());
         assert_eq!(window.mean(), None);
+    }
+
+    #[test]
+    fn one_sample_per_whole_second_and_the_last_one_stays() {
+        let mut window = Window::default();
+        window.push(Duration::from_millis(1_100), 1.0);
+        window.push(Duration::from_millis(1_900), 2.0);
+        assert_eq!(window.len(), 1);
+        assert_eq!(window.peak(), Some(2.0));
+        window.push(Duration::from_millis(2_000), 3.0);
+        assert_eq!(window.len(), 2);
     }
 
     #[test]

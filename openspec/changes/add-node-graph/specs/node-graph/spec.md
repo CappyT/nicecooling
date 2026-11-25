@@ -98,7 +98,7 @@ Every time parameter SHALL be a whole number of seconds, except the period of a 
 - **THEN** the validator refuses it with the code `bad-parameter` for `args`
 
 ### Requirement: Window sample limit
-The Graphs together SHALL hold at most 200 000 window samples. A window node holds at most its span in seconds plus 1 samples, because it gets one sample per second. The validator SHALL add this number for each window node of every Graph, and SHALL refuse a total above the limit. A sample takes at most 24 bytes, so the limit bounds the memory to 4.8 MB.
+The Graphs together SHALL hold at most 200 000 window samples. A window node SHALL hold one sample per whole second of the monotonic clock: a second sample in the same second replaces the first. So it holds at most its span in seconds plus 1 samples. The validator SHALL add this number for each window node of every Graph, and SHALL refuse a total above the limit. A sample takes at most 24 bytes, so the limit bounds the memory to 4.8 MB.
 
 #### Scenario: 111 nodes of 1800 s
 - **WHEN** the Graphs hold 111 window nodes with the span 1800 s
@@ -107,6 +107,10 @@ The Graphs together SHALL hold at most 200 000 window samples. A window node hol
 #### Scenario: 112 nodes of 1800 s
 - **WHEN** the Graphs hold 112 window nodes with the span 1800 s
 - **THEN** the total is 201 712 samples and the validator refuses the Graph that adds the 112th with the code `limit-samples`
+
+#### Scenario: Two evaluations in one second
+- **WHEN** a window node with the span 3 s is evaluated twice in each second for 20 s
+- **THEN** it holds at most 4 samples
 
 #### Scenario: Default spans
 - **WHEN** a Graph holds 100 window nodes with the span 10 s
