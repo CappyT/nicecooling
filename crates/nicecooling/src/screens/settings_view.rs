@@ -27,11 +27,7 @@ impl ScreenView {
         let view = cx.entity();
 
         let pick: Pick = std::rc::Rc::new(|this, id, _, cx| {
-            let language = match id.as_str() {
-                "en" => Language::English,
-                "it" => Language::Italian,
-                _ => Language::System,
-            };
+            let language = Language::from_setting(id.as_str());
             this.change_setting(Change::Language(language), cx);
         });
         let language_select = self.select_field(
@@ -47,6 +43,8 @@ impl ScreenView {
                             Language::System => "system",
                             Language::English => "en",
                             Language::Italian => "it",
+                            Language::German => "de",
+                            Language::French => "fr",
                         }
                         .to_owned(),
                         text.clone(),

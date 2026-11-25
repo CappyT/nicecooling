@@ -2006,11 +2006,13 @@ mod layout {
         visual.debug_bounds(Box::leak(name.into_boxed_str()))
     }
 
-    const CASES: [(Language, (f32, f32)); 4] = [
+    const CASES: [(Language, (f32, f32)); 6] = [
         (Language::English, (1100., 700.)),
         (Language::English, (1280., 800.)),
         (Language::Italian, (1100., 700.)),
         (Language::Italian, (1280., 800.)),
+        (Language::German, (1100., 700.)),
+        (Language::German, (1280., 800.)),
     ];
 
     /// Every template: the tiles, the preview and the last control of each row end inside the

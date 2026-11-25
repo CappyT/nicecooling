@@ -7,7 +7,7 @@ use nicecooling::app_settings::{
     AppSettings, HINT_APPINDICATOR, HINT_IMMEDIATE_SWITCHING, SettingsStore,
 };
 use nicecooling::autostart;
-use nicecooling::i18n::{EN, IT, Language};
+use nicecooling::i18n::{DE, EN, IT, Language};
 use nicecooling::model::{AppState, BoardInfo, Link};
 use nicecooling::screens::settings::{
     APP_VERSION, Change, ConnectionKind, STATE_DIRECTORY, SettingsModel, SwitchKey, apply,
@@ -79,7 +79,7 @@ fn settings_states() {
             .iter()
             .map(|(_, text)| text.as_str())
             .collect::<Vec<_>>(),
-        ["System", "English", "Italiano"]
+        ["System", "English", "Italiano", "Deutsch", "Français"]
     );
     assert_eq!(model.daemon.connection.kind, ConnectionKind::Connected);
     assert_eq!(model.daemon.connection.value, "Connected");
@@ -142,7 +142,7 @@ fn settings_states() {
         model.daemon.connection.try_again.as_deref(),
         Some("Try again")
     );
-    assert!(model.language.options.len() == 3 && model.notifications.len() == 3);
+    assert!(model.language.options.len() == 5 && model.notifications.len() == 3);
 
     // Down: the text and the two commands.
     let mut down = with_board();
@@ -296,8 +296,15 @@ fn missing_settings_file_uses_defaults() {
 
     // A store without a path keeps the values in memory and writes no file.
     let mut store = SettingsStore::default();
-    apply(&mut store, Change::Language(Language::Italian));
-    assert_eq!(store.values.language(), Language::Italian);
+    for (language, stored) in [
+        (Language::Italian, "it"),
+        (Language::German, "de"),
+        (Language::French, "fr"),
+    ] {
+        apply(&mut store, Change::Language(language));
+        assert_eq!(store.values.language, stored);
+        assert_eq!(store.values.language(), language);
+    }
     assert!(store.error.is_none());
 }
 
@@ -508,4 +515,17 @@ fn settings_labels() {
     );
     assert_eq!(italian.language.label, "Lingua");
     assert_eq!(italian.daemon.connection.value, "Connesso");
+    let german = SettingsModel::build(
+        &ScreenInput {
+            state: &state,
+            now_us: NOW_US,
+            locale: DE,
+            down_since_us: None,
+            feedback: &feedback,
+        },
+        &SettingsStore::default(),
+    );
+    assert_eq!(german.language.label, "Sprache");
+    assert_eq!(german.daemon.connection.value, "Verbunden");
+    assert_eq!(german.start.label, "Beim Anmelden starten");
 }

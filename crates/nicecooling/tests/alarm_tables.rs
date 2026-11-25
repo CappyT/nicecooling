@@ -1,4 +1,4 @@
-//! Review: at 1100x700, in English and in Italian, every row of the alarm tables ends in its
+//! Review: at 1100x700, in English, Italian and German, every row of the alarm tables ends in its
 //! card (inside the 18 px row padding), with and without a pending poweroff.
 
 mod support;
@@ -136,4 +136,12 @@ fn review_alarm_rows_fit_it(cx: &mut TestAppContext) {
 #[gpui::test]
 fn review_alarm_rows_fit_it_poweroff(cx: &mut TestAppContext) {
     check(cx, Language::Italian, true);
+}
+#[gpui::test]
+fn review_alarm_rows_fit_de(cx: &mut TestAppContext) {
+    check(cx, Language::German, false);
+}
+#[gpui::test]
+fn review_alarm_rows_fit_de_poweroff(cx: &mut TestAppContext) {
+    check(cx, Language::German, true);
 }

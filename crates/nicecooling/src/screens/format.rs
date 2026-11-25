@@ -10,7 +10,7 @@ pub const GROUP: char = '\u{a0}';
 
 impl Locale {
     /// A decimal number with `digits` decimals, for a text: a space groups the thousands.
-    /// Italian uses a comma for the decimals.
+    /// Italian, German and French use a comma for the decimals.
     pub fn decimal(self, value: f64, digits: usize) -> String {
         let text = self.fixed(value, digits);
         let sign = usize::from(text.starts_with('-'));
@@ -32,7 +32,7 @@ impl Locale {
     /// A decimal number with `digits` decimals and no grouping, as the user types it.
     fn fixed(self, value: f64, digits: usize) -> String {
         let text = format!("{value:.digits$}");
-        if self.code() == "it" {
+        if matches!(self.code(), "it" | "de" | "fr") {
             text.replace('.', ",")
         } else {
             text
@@ -123,7 +123,7 @@ pub fn date_time_seconds(us: u64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::i18n::{EN, IT};
+    use crate::i18n::{DE, EN, FR, IT};
 
     #[test]
     fn a_space_groups_the_thousands_of_a_text_in_both_languages() {
@@ -139,6 +139,21 @@ mod tests {
         assert_eq!(value_text(IT, 1031.4, "degC"), "1\u{a0}031,4 °C");
         assert_eq!(compact(EN, 4800.0), "4\u{a0}800");
         assert_eq!(compact(IT, 4800.5), "4\u{a0}800,5");
+    }
+
+    #[test]
+    fn german_and_french_use_a_decimal_comma_and_a_no_break_space() {
+        for locale in [DE, FR] {
+            assert_eq!(locale.decimal(2840.0, 0), "2\u{a0}840");
+            assert_eq!(locale.decimal(1_234_567.25, 1), "1\u{a0}234\u{a0}567,2");
+            assert_eq!(locale.decimal(-1200.5, 1), "-1\u{a0}200,5");
+            assert_eq!(locale.decimal(999.0, 0), "999");
+            assert_eq!(value_text(locale, 31.4, "degC"), "31,4 °C");
+            assert_eq!(value_text(locale, 2840.0, "rpm"), "2\u{a0}840 rpm");
+            assert_eq!(compact(locale, 4800.5), "4\u{a0}800,5");
+            assert_eq!(plain(locale, 4800.5), "4800,5");
+            assert_eq!(plain(locale, 62.0), "62");
+        }
     }
 
     #[test]

@@ -1604,6 +1604,18 @@ mod layout {
         check(cx, Language::Italian, 1280., untouched);
         check(cx, Language::Italian, 1280., edited);
     }
+
+    #[gpui::test]
+    fn the_wizard_steps_fit_at_1100_in_german(cx: &mut TestAppContext) {
+        check(cx, Language::German, 1100., untouched);
+        check(cx, Language::German, 1100., edited);
+    }
+
+    #[gpui::test]
+    fn the_wizard_steps_fit_at_1280_in_german(cx: &mut TestAppContext) {
+        check(cx, Language::German, 1280., untouched);
+        check(cx, Language::German, 1280., edited);
+    }
 }
 
 // aquasuite sets the maximum speed first, and its setter of the start speed cuts the start

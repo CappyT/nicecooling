@@ -1,6 +1,6 @@
 //! The Loop diagram at its two widths: on the Loops screen at 1100x700 it is 528 px wide and
 //! has two rows, and on the Overview it has one row. No text reaches a bubble or leaves the
-//! diagram, in English and in Italian, with the long captions of an Alarm and of a flag.
+//! diagram, in English, Italian and German, with the long captions of an Alarm and of a flag.
 
 mod support;
 
@@ -153,6 +153,16 @@ fn narrow_diagram_keeps_long_captions_apart_en(cx: &mut TestAppContext) {
 #[gpui::test]
 fn narrow_diagram_keeps_long_captions_apart_it(cx: &mut TestAppContext) {
     check_narrow(cx, Language::Italian, &long_captions());
+}
+
+#[gpui::test]
+fn narrow_diagram_keeps_its_texts_apart_de(cx: &mut TestAppContext) {
+    check_narrow(cx, Language::German, &full());
+}
+
+#[gpui::test]
+fn narrow_diagram_keeps_long_captions_apart_de(cx: &mut TestAppContext) {
+    check_narrow(cx, Language::German, &long_captions());
 }
 
 #[gpui::test]

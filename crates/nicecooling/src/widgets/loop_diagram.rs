@@ -628,6 +628,10 @@ enum Symbol {
     Water,
 }
 
+/// The widest caption of a bubble, icon included. A longer caption truncates: the tooltip of the
+/// bubble has the full text.
+const CAPTION_MAX: f32 = 140.0;
+
 /// A slice of the diagram. The slices are a flex row: each one starts at the fraction of the
 /// width that `widgets.md` gives its part. A slice never gets narrower than its text, so in a
 /// narrow diagram the parts move to the right and no text reaches the next bubble.
@@ -917,10 +921,11 @@ fn layout(
                     .flex()
                     .items_center()
                     .gap(px(4.))
+                    .max_w(px(CAPTION_MAX))
                     .text_color(caption_color)
                     .debug_selector(move || format!("loop-caption-{name}"))
                     .children(marker.map(|(name, color): (NcIcon, Hsla)| small_icon(name, color)))
-                    .child(bubble.caption.clone()),
+                    .child(div().min_w_0().truncate().child(bubble.caption.clone())),
             )
     };
     // The circle of a bubble takes the click and shows the tooltip. `x`, `y` is its center.

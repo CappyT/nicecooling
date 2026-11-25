@@ -32,6 +32,8 @@ pub fn apply(store: &mut SettingsStore, change: Change) {
                 Language::System => "system",
                 Language::English => "en",
                 Language::Italian => "it",
+                Language::German => "de",
+                Language::French => "fr",
             }
             .to_owned();
         }),
@@ -167,6 +169,8 @@ impl SettingsModel {
             Language::System => locale.tr("settings.language.system"),
             Language::English => locale.tr("settings.language.en"),
             Language::Italian => locale.tr("settings.language.it"),
+            Language::German => locale.tr("settings.language.de"),
+            Language::French => locale.tr("settings.language.fr"),
         };
         let switch = |switch: SwitchKey, key: &str, on: bool, text: Option<&str>| SwitchRow {
             key: switch,
@@ -180,10 +184,16 @@ impl SettingsModel {
                 label: locale.tr("settings.language.label"),
                 value: language,
                 shown: language_name(language),
-                options: [Language::System, Language::English, Language::Italian]
-                    .into_iter()
-                    .map(|l| (l, language_name(l)))
-                    .collect(),
+                options: [
+                    Language::System,
+                    Language::English,
+                    Language::Italian,
+                    Language::German,
+                    Language::French,
+                ]
+                .into_iter()
+                .map(|l| (l, language_name(l)))
+                .collect(),
             },
             start_title: locale.tr("settings.start.title"),
             start: switch(

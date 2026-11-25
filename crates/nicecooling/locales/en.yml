@@ -711,6 +711,8 @@ settings:
     system: System
     en: English
     it: Italiano
+    de: Deutsch
+    fr: Français
   start:
     title: Start and tray
     login: Start at login

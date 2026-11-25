@@ -711,6 +711,8 @@ settings:
     system: Sistema
     en: English
     it: Italiano
+    de: Deutsch
+    fr: Français
   start:
     title: Avvio e area di notifica
     login: Avvia all'accesso

@@ -1,14 +1,16 @@
-//! English and Italian text. The daemon sends identifiers, and the app owns every string.
+//! English, Italian, German and French text. The daemon sends identifiers, and the app owns every string.
 
 use std::borrow::Cow;
 
-/// The language choice of `settings.toml`: `system`, `en` or `it`.
+/// The language choice of `settings.toml`: `system`, `en`, `it`, `de` or `fr`.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Language {
     #[default]
     System,
     English,
     Italian,
+    German,
+    French,
 }
 
 /// A resolved locale. Every function that makes text takes one, so tests do not share a global.
@@ -17,12 +19,19 @@ pub struct Locale(&'static str);
 
 pub const EN: Locale = Locale("en");
 pub const IT: Locale = Locale("it");
+pub const DE: Locale = Locale("de");
+pub const FR: Locale = Locale("fr");
+
+/// The codes of the languages that have a file in `locales/`.
+pub const CODES: [&str; 4] = ["en", "it", "de", "fr"];
 
 impl Language {
     pub fn from_setting(value: &str) -> Self {
         match value {
             "en" => Self::English,
             "it" => Self::Italian,
+            "de" => Self::German,
+            "fr" => Self::French,
             _ => Self::System,
         }
     }
@@ -35,11 +44,18 @@ impl Language {
         match self {
             Self::English => EN,
             Self::Italian => IT,
+            Self::German => DE,
+            Self::French => FR,
             Self::System => ["LC_ALL", "LC_MESSAGES", "LANG"]
                 .into_iter()
                 .filter_map(env)
                 .find(|value| !value.is_empty())
-                .map_or(EN, |value| if value.starts_with("it") { IT } else { EN }),
+                .map_or(EN, |value| {
+                    [(IT, "it"), (DE, "de"), (FR, "fr")]
+                        .into_iter()
+                        .find(|(_, prefix)| value.starts_with(prefix))
+                        .map_or(EN, |(locale, _)| locale)
+                }),
         }
     }
 }
@@ -106,6 +122,51 @@ mod tests {
     }
 
     #[test]
+    fn system_language_picks_german_and_french() {
+        let lang =
+            |value: &'static str| move |name: &str| (name == "LANG").then(|| value.to_owned());
+        assert_eq!(Language::System.resolve_with(lang("de_DE.UTF-8")), DE);
+        assert_eq!(Language::System.resolve_with(lang("de_CH")), DE);
+        assert_eq!(Language::System.resolve_with(lang("fr_FR.UTF-8")), FR);
+        assert_eq!(Language::System.resolve_with(lang("fr_CA.UTF-8")), FR);
+        assert_eq!(Language::System.resolve_with(lang("es_ES.UTF-8")), EN);
+        // LC_ALL wins over LANG, and an empty value is skipped.
+        let both = |name: &str| match name {
+            "LC_ALL" => Some("de_DE.UTF-8".to_owned()),
+            "LANG" => Some("fr_FR.UTF-8".to_owned()),
+            _ => None,
+        };
+        assert_eq!(Language::System.resolve_with(both), DE);
+        let empty_first = |name: &str| match name {
+            "LC_ALL" => Some(String::new()),
+            "LANG" => Some("fr_FR.UTF-8".to_owned()),
+            _ => None,
+        };
+        assert_eq!(Language::System.resolve_with(empty_first), FR);
+        assert_eq!(Language::German.resolve_with(lang("fr_FR")), DE);
+        assert_eq!(Language::French.resolve_with(lang("de_DE")), FR);
+    }
+
+    #[test]
+    fn the_setting_names_each_language() {
+        for (value, language) in [
+            ("en", Language::English),
+            ("it", Language::Italian),
+            ("de", Language::German),
+            ("fr", Language::French),
+            ("system", Language::System),
+            ("xx", Language::System),
+        ] {
+            assert_eq!(Language::from_setting(value), language, "{value}");
+        }
+        assert_eq!(
+            [EN, IT, DE, FR].map(Locale::code),
+            CODES,
+            "the codes of the locales"
+        );
+    }
+
+    #[test]
     fn plural_and_event_text() {
         assert_eq!(EN.plural("status.alarms", 1), "1 Alarm");
         assert_eq!(IT.plural("status.warnings", 2), "2 Avvisi");
@@ -113,9 +174,10 @@ mod tests {
         assert_eq!(EN.event_title("leakshield.leak-alarm"), "Large leak Alarm");
         assert_eq!(EN.event_title("mystery"), "Event mystery");
         for id in ["leakshield-unknown-firmware", "no-bios-snapshot"] {
-            for locale in [EN, IT] {
-                assert!(!locale.event_title(id).starts_with("Event "), "{id}");
-                assert!(!locale.event_title(id).starts_with("Evento "), "{id}");
+            for locale in [EN, IT, DE] {
+                for start in ["Event ", "Evento ", "Ereignis "] {
+                    assert!(!locale.event_title(id).starts_with(start), "{id}");
+                }
             }
         }
     }
