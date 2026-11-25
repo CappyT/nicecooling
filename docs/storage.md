@@ -51,6 +51,8 @@ The daemon creates the files of the four slots of a Leakshield when it first rea
 | `software_sensor_scales` | object | Map from Leakshield id to a map from slot number ("1" to "12") to `{"scale", "offset"}`. A slot with scale 1 and offset 0 has no entry. A state file without this key loads with the default for every slot. |
 | `profiles` | object | `{"default": "profile_default", "active": <profile id>, "cause": "default"|"rule"|"manual", "immediate_switching": false, "rule_delay_s": 30, "dwell_s": 300}`. |
 
+At load, the daemon drops an entry of `derived_sensors`, `loops` or `graph_sensors` whose `id` is not `[a-z0-9_]`, and writes one journal line that names it. It ignores a key of `identities` whose id prefix is not `[a-z0-9_]`: discovery gives that chip a new prefix. The ids are object path elements, so a bad id would stop the start.
+
 ### `profiles/<id>/profile.json`
 
 The first start creates the Default Profile `profile_default` with slot 1 and three more Profiles with the slots 2, 3 and 4.

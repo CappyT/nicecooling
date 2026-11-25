@@ -212,17 +212,35 @@ fn is_graph_sensor_id(id: &str) -> bool {
         .is_some_and(|n| graph_sensor_id(n) == id)
 }
 
-/// Keeps the first 64 Graph sensors with a valid and unique id. A file that was edited by hand
-/// must not give more objects than the limit of the API.
+/// `true` for an id that is a D-Bus path element. Another id goes, with one journal line.
+fn keep_entry(what: &str, id: &str) -> bool {
+    let keep = is_identifier(id);
+    if !keep {
+        eprintln!(
+            "nicecoolingd: state.json: dropped the {what} {id:?}, its id is not an identifier"
+        );
+    }
+    keep
+}
+
+/// Drops the entries that the daemon cannot serve as objects, so a file that was edited by hand
+/// never stops the start. An entry with an id that is not a path element goes. Of the Graph
+/// sensors, the first 64 with a valid and unique id stay.
 fn drop_unservable(state: &mut DaemonState) {
+    state
+        .derived_sensors
+        .retain(|d| keep_entry("Derived sensor", &d.id));
+    state.loops.retain(|l| keep_entry("Loop", &l.id));
     let mut seen = BTreeSet::new();
     let mut kept = Vec::new();
     let mut dropped = 0;
     for graph in std::mem::take(&mut state.graph_sensors) {
-        if is_graph_sensor_id(&graph.id)
-            && kept.len() < MAX_GRAPH_SENSORS
-            && seen.insert(graph.id.clone())
-        {
+        if !is_graph_sensor_id(&graph.id) {
+            eprintln!(
+                "nicecoolingd: state.json: dropped the Graph sensor {:?}, its id is not graph_<n>",
+                graph.id
+            );
+        } else if kept.len() < MAX_GRAPH_SENSORS && seen.insert(graph.id.clone()) {
             kept.push(graph);
         } else {
             dropped += 1;
@@ -230,7 +248,7 @@ fn drop_unservable(state: &mut DaemonState) {
     }
     if dropped > 0 {
         eprintln!(
-            "nicecoolingd: state.json: dropped {dropped} Graph sensors: an id that is not graph_<n>, a repeated id or more than {MAX_GRAPH_SENSORS}"
+            "nicecoolingd: state.json: dropped {dropped} Graph sensors: a repeated id or more than {MAX_GRAPH_SENSORS}"
         );
     }
     state.graph_sensors = kept;
@@ -309,7 +327,9 @@ pub fn load_state(store: &StateStore) -> LoadedState {
 pub fn known_prefixes(identities: &BTreeMap<String, Identity>) -> BTreeMap<DeviceIdentity, String> {
     let mut known = BTreeMap::new();
     for (id, identity) in identities {
-        if let Some(prefix) = id.strip_suffix(&format!("_{}", identity.attribute)) {
+        if let Some(prefix) = id.strip_suffix(&format!("_{}", identity.attribute))
+            && is_identifier(prefix)
+        {
             known
                 .entry(DeviceIdentity {
                     hwmon_name: identity.hwmon_name.clone(),
@@ -513,6 +533,47 @@ mod tests {
         let ids: Vec<&str> = state.graph_sensors.iter().map(|g| g.id.as_str()).collect();
         let expected: Vec<String> = (1..=64).map(|n| format!("graph_{n}")).collect();
         assert_eq!(ids, expected);
+    }
+
+    #[test]
+    fn load_drops_derived_sensors_and_loops_with_a_bad_id() {
+        let derived = |id: &str| DerivedSensor {
+            id: id.into(),
+            name: id.into(),
+            kind: nicecooling_core::derived::DerivedKind::Maximum,
+            sources: Vec::new(),
+        };
+        let looped = |id: &str| Loop {
+            id: id.into(),
+            name: id.into(),
+            pump_channels: Vec::new(),
+            flow_sensor: None,
+            calibration_table: None,
+            water_temperature: None,
+            leakshield: None,
+            pump_floor: 40.0,
+        };
+        let mut state = DaemonState {
+            derived_sensors: vec![derived("derived-1"), derived("derived_2")],
+            loops: vec![looped("Loop 1"), looped("loop_2")],
+            ..DaemonState::default()
+        };
+        drop_unservable(&mut state);
+        assert_eq!(state.derived_sensors, [derived("derived_2")]);
+        assert_eq!(state.loops, [looped("loop_2")]);
+    }
+
+    #[test]
+    fn known_prefix_that_is_not_an_identifier_is_ignored() {
+        let identity = |attribute: &str| Identity {
+            hwmon_name: "nct6798".into(),
+            device_path: "devices/platform/nct6775.656".into(),
+            attribute: attribute.into(),
+        };
+        let identities = BTreeMap::from([("Bad-Chip_temp1".to_owned(), identity("temp1"))]);
+        assert!(known_prefixes(&identities).is_empty());
+        let identities = BTreeMap::from([("nct6798_temp1".to_owned(), identity("temp1"))]);
+        assert_eq!(known_prefixes(&identities).len(), 1);
     }
 
     #[test]

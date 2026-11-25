@@ -840,7 +840,7 @@ A new Graph sensor SHALL get an id above the counter, above every Graph sensor a
 - **THEN** the Curve has no value and the Channel follows the Lost Input rule
 
 ### Requirement: Graph sensor entries at load
-At load, the daemon SHALL keep the first 64 Graph sensors of `state.json` that have a unique id `graph_<n>`, drop the others and write one journal line with the count dropped. A Curve on a dropped sensor has no value.
+At load, the daemon SHALL drop each Graph sensor, Derived sensor and Loop whose id is not a path element (a Graph sensor id is `graph_<n>`), with one journal line that names the id, and SHALL start. It SHALL keep the first 64 other Graph sensors with a unique id, drop the rest and write one journal line with the count dropped. A Curve on a dropped sensor has no value.
 
 #### Scenario: 70 stored sensors
 - **WHEN** `state.json` holds `graph_1` to `graph_70`
@@ -849,6 +849,14 @@ At load, the daemon SHALL keep the first 64 Graph sensors of `state.json` that h
 #### Scenario: Repeated id
 - **WHEN** `state.json` holds `graph_3` twice
 - **THEN** the daemon keeps the first entry and drops the second
+
+#### Scenario: Bad Graph sensor id
+- **WHEN** `state.json` holds `graph-1` and `graph_2`
+- **THEN** the daemon starts, drops `graph-1` with a journal line that names it and keeps `graph_2`
+
+#### Scenario: Bad Derived sensor id
+- **WHEN** `state.json` holds a Derived sensor `derived-1`
+- **THEN** the daemon starts and drops it with a journal line that names `derived-1`
 
 ### Requirement: Graph sensor units
 The unit of a Graph sensor SHALL be one of `degC`, `rpm`, `%`, `V`, `A`, `W`, `l/h` and `mbar`. The `Kind` of the sensor SHALL come from the unit: `temperature` for `degC`, `fan` for `rpm`, `voltage` for `V`, `flow` for `l/h`, `pressure` for `mbar`, and `other` for `%`, `A` and `W`.
