@@ -5,10 +5,11 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
-use nicecooling_api::ids::DEFAULT_PROFILE;
+use nicecooling_api::ids::{DEFAULT_PROFILE, graph_sensor_id};
 use nicecooling_core::calibration::{CalibrationTable, Preset};
 use nicecooling_core::curve::Curve;
 use nicecooling_core::derived::DerivedSensor;
+use nicecooling_core::graph_sensor::MAX_GRAPH_SENSORS;
 use nicecooling_core::loops::Loop;
 use nicecooling_core::profile::Slot;
 use nicecooling_core::rules::group::RuleGroupDef;
@@ -204,6 +205,37 @@ fn is_identifier(id: &str) -> bool {
             .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_')
 }
 
+/// `graph_<n>` with no leading zero: the one form that the daemon gives.
+fn is_graph_sensor_id(id: &str) -> bool {
+    id.strip_prefix("graph_")
+        .and_then(|n| n.parse::<u32>().ok())
+        .is_some_and(|n| graph_sensor_id(n) == id)
+}
+
+/// Keeps the first 64 Graph sensors with a valid and unique id. A file that was edited by hand
+/// must not give more objects than the limit of the API.
+fn drop_unservable(state: &mut DaemonState) {
+    let mut seen = BTreeSet::new();
+    let mut kept = Vec::new();
+    let mut dropped = 0;
+    for graph in std::mem::take(&mut state.graph_sensors) {
+        if is_graph_sensor_id(&graph.id)
+            && kept.len() < MAX_GRAPH_SENSORS
+            && seen.insert(graph.id.clone())
+        {
+            kept.push(graph);
+        } else {
+            dropped += 1;
+        }
+    }
+    if dropped > 0 {
+        eprintln!(
+            "nicecoolingd: state.json: dropped {dropped} Graph sensors: an id that is not graph_<n>, a repeated id or more than {MAX_GRAPH_SENSORS}"
+        );
+    }
+    state.graph_sensors = kept;
+}
+
 /// The relative path of the file of a Profile.
 pub fn profile_file(id: &str) -> String {
     format!("profiles/{id}/profile.json")
@@ -218,6 +250,7 @@ pub fn load_state(store: &StateStore) -> LoadedState {
     let mut fallback = loaded.fallback;
     let first_start = loaded.source == Source::Defaults && !loaded.fallback;
     let mut state = loaded.value;
+    drop_unservable(&mut state);
     let mut map = BTreeMap::new();
     if !(loaded.source == Source::Defaults && loaded.fallback) {
         let names = std::fs::read_dir(store.path("profiles"))
@@ -456,6 +489,30 @@ mod tests {
             .names
             .insert("nct6798_pwm6".into(), "Loop pump".into());
         state
+    }
+
+    fn graph(id: &str) -> GraphSensorDef {
+        GraphSensorDef {
+            id: id.into(),
+            name: id.into(),
+            unit: "degC".into(),
+        }
+    }
+
+    #[test]
+    fn load_keeps_the_first_64_valid_unique_graph_sensors() {
+        let mut graph_sensors = vec![graph("graph-1"), graph("graph_01")];
+        graph_sensors.extend((1..=70).map(|n| graph(&format!("graph_{n}"))));
+        // A second entry for graph_1.
+        graph_sensors.insert(3, graph("graph_1"));
+        let mut state = DaemonState {
+            graph_sensors,
+            ..DaemonState::default()
+        };
+        drop_unservable(&mut state);
+        let ids: Vec<&str> = state.graph_sensors.iter().map(|g| g.id.as_str()).collect();
+        let expected: Vec<String> = (1..=64).map(|n| format!("graph_{n}")).collect();
+        assert_eq!(ids, expected);
     }
 
     #[test]
