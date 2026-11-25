@@ -403,6 +403,110 @@ impl FlowState {
         self.pan_drag = None;
     }
 
+    /// A pointer move at the canvas point `mouse`. It moves the active drag: the selection box,
+    /// the connection draft, the dragged nodes or the view. Returns true when the state changed.
+    pub fn pointer_moved(&mut self, mouse: (f32, f32)) -> bool {
+        if self.selection_box.is_some() {
+            self.drag_selection_box(mouse);
+            true
+        } else if self.drag_connection(mouse) {
+            true
+        } else if self.drag_state.is_some() {
+            self.drag_nodes(mouse);
+            true
+        } else {
+            self.drag_pan(mouse)
+        }
+    }
+
+    /// A release of the main button, anywhere. It ends every drag. Returns true when a drag was
+    /// active.
+    pub fn pointer_released(&mut self) -> bool {
+        let mut changed = self.selection_box.take().is_some();
+        if self.connecting.is_some() {
+            self.end_connection();
+            changed = true;
+        }
+        if self.drag_state.take().is_some() {
+            for node in &mut self.nodes {
+                node.dragging = false;
+            }
+            changed = true;
+        }
+        if self.pan_drag.is_some() {
+            self.end_pan();
+            changed = true;
+        }
+        changed
+    }
+
+    /// Cancel the active drag. A dragged node goes back to where it was, and the view goes back
+    /// to where it was before a pan. Returns true when a drag was active.
+    pub fn cancel_drag(&mut self) -> bool {
+        let mut changed = self.selection_box.take().is_some();
+        changed |= self.connecting.take().is_some();
+        if let Some(drag) = self.drag_state.take() {
+            for (id, origin) in drag.node_origins {
+                if let Some(node) = self.get_node_mut(&id) {
+                    node.position = origin;
+                }
+            }
+            for node in &mut self.nodes {
+                node.dragging = false;
+            }
+            changed = true;
+        }
+        if let Some(pan) = self.pan_drag.take() {
+            self.viewport.x = pan.start_viewport.0;
+            self.viewport.y = pan.start_viewport.1;
+            changed = true;
+        }
+        changed
+    }
+
+    fn drag_nodes(&mut self, mouse: (f32, f32)) {
+        let Some(drag) = &self.drag_state else {
+            return;
+        };
+        let dx = (mouse.0 - drag.origin_mouse.0) / self.viewport.zoom;
+        let dy = (mouse.1 - drag.origin_mouse.1) / self.viewport.zoom;
+        let origins = drag.node_origins.clone();
+        let (gx, gy) = self.snap_grid;
+        for (id, origin) in &origins {
+            let mut x = origin.x + dx;
+            let mut y = origin.y + dy;
+            if self.snap_to_grid {
+                x = (x / gx).round() * gx;
+                y = (y / gy).round() * gy;
+            }
+            if let Some(node) = self.get_node_mut(id) {
+                node.position = FlowPoint::new(x, y);
+            }
+        }
+    }
+
+    fn drag_selection_box(&mut self, mouse: (f32, f32)) {
+        let Some(selection) = &mut self.selection_box else {
+            return;
+        };
+        selection.current = mouse;
+        let (sx, sy) = (
+            selection.start.0.min(mouse.0),
+            selection.start.1.min(mouse.1),
+        );
+        let (ex, ey) = (
+            selection.start.0.max(mouse.0),
+            selection.start.1.max(mouse.1),
+        );
+        let viewport = self.viewport;
+        for node in self.nodes.iter_mut().filter(|node| !node.hidden) {
+            let (nx, ny) = viewport.flow_to_screen(node.position);
+            let nw = node.measured_width.map_or(150.0, |p| p.as_f32()) * viewport.zoom;
+            let nh = node.measured_height.map_or(40.0, |p| p.as_f32()) * viewport.zoom;
+            node.selected = nx < ex && nx + nw > sx && ny < ey && ny + nh > sy;
+        }
+    }
+
     /// Start a connection drag on a pin.
     pub fn begin_connection(
         &mut self,

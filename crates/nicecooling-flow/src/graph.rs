@@ -730,8 +730,6 @@ impl Render for FlowGraph {
         let edge_color = self.edge_color;
         let state_for_scroll = self.state.clone();
         let state_for_mouse_down = self.state.clone();
-        let state_for_mouse_move = self.state.clone();
-        let state_for_mouse_up = self.state.clone();
         let state_for_key = self.state.clone();
         let state_for_pinch = self.state.clone();
 
@@ -763,6 +761,34 @@ impl Render for FlowGraph {
                         );
                         let origin = (bounds.origin.x.as_f32(), bounds.origin.y.as_f32());
                         state_for_canvas.update(cx, |state, _| state.origin = origin);
+                        // Window listeners: a drag goes on and ends where the pointer is, also
+                        // outside the canvas and after a key press, when the canvas is not hovered.
+                        window.on_mouse_event({
+                            let state = state_for_canvas.clone();
+                            move |event: &MouseMoveEvent, phase, _, cx| {
+                                if phase == DispatchPhase::Bubble {
+                                    let moved = state.update(cx, |state, _| {
+                                        let mouse = state.to_canvas(event.position);
+                                        state.pointer_moved(mouse)
+                                    });
+                                    if moved {
+                                        cx.notify(entity_id);
+                                    }
+                                }
+                            }
+                        });
+                        window.on_mouse_event({
+                            let state = state_for_canvas.clone();
+                            move |event: &MouseUpEvent, phase, _, cx| {
+                                if phase == DispatchPhase::Bubble
+                                    && event.button == MouseButton::Left
+                                {
+                                    if state.update(cx, |state, _| state.pointer_released()) {
+                                        cx.notify(entity_id);
+                                    }
+                                }
+                            }
+                        });
                         let state = state_for_canvas.read(cx);
                         edges::paint_edges(state, edge_color, accent_color, window);
 
@@ -787,7 +813,10 @@ impl Render for FlowGraph {
             // Mouse down on empty space → start panning, deselect, or edge selection
             .on_mouse_down(MouseButton::Left, {
                 let entity_id = entity_id;
-                move |event, _window, cx| {
+                let focus = self.focus_handle.clone();
+                move |event, window, cx| {
+                    // The keys of the canvas, Escape among them, work only with the focus.
+                    window.focus(&focus, cx);
                     let mouse_pos = event.position;
                     state_for_mouse_down.update(cx, |state, _| {
                         // If a node drag or connection was already started, skip
@@ -848,114 +877,6 @@ impl Render for FlowGraph {
                     cx.notify(entity_id);
                 }
             })
-            // Global mouse move → handle dragging, panning, or connecting
-            .on_mouse_move({
-                let entity_id = entity_id;
-                move |event, _window, cx| {
-                    let mouse_pos = event.position;
-
-                    let mut changed = false;
-
-                    state_for_mouse_move.update(cx, |state, _| {
-                        let (mx, my) = state.to_canvas(mouse_pos);
-                        // Box selection
-                        if let Some(ref mut sel) = state.selection_box {
-                            sel.current = (mx, my);
-                            // Select nodes whose screen bounds intersect the box
-                            let (sx, sy, ex, ey) = (
-                                sel.start.0.min(sel.current.0),
-                                sel.start.1.min(sel.current.1),
-                                sel.start.0.max(sel.current.0),
-                                sel.start.1.max(sel.current.1),
-                            );
-                            let viewport = state.viewport;
-                            for node in &mut state.nodes {
-                                if node.hidden {
-                                    continue;
-                                }
-                                let (nx, ny) = viewport.flow_to_screen(node.position);
-                                let nw = node.measured_width.map(|p| p.as_f32()).unwrap_or(150.0)
-                                    * viewport.zoom;
-                                let nh = node.measured_height.map(|p| p.as_f32()).unwrap_or(40.0)
-                                    * viewport.zoom;
-                                // AABB intersection
-                                let intersects = nx < ex && nx + nw > sx && ny < ey && ny + nh > sy;
-                                node.selected = intersects;
-                            }
-                            changed = true;
-                        }
-                        // Connection dragging with snap-to-handle
-                        else if state.drag_connection((mx, my)) {
-                            changed = true;
-                        }
-                        // Node dragging
-                        else if let Some(ref drag) = state.drag_state {
-                            let dx = (mx - drag.origin_mouse.0) / state.viewport.zoom;
-                            let dy = (my - drag.origin_mouse.1) / state.viewport.zoom;
-
-                            let origins = drag.node_origins.clone();
-                            let snap = state.snap_to_grid;
-                            let snap_grid = state.snap_grid;
-                            for (node_id, origin) in &origins {
-                                let mut new_x = origin.x + dx;
-                                let mut new_y = origin.y + dy;
-
-                                if snap {
-                                    let (gx, gy) = snap_grid;
-                                    new_x = (new_x / gx).round() * gx;
-                                    new_y = (new_y / gy).round() * gy;
-                                }
-
-                                if let Some(node) = state.get_node_mut(node_id) {
-                                    node.position = FlowPoint::new(new_x, new_y);
-                                }
-                            }
-                            changed = true;
-                        }
-                        // Canvas panning
-                        else if state.drag_pan((mx, my)) {
-                            changed = true;
-                        }
-                    });
-
-                    if changed {
-                        cx.notify(entity_id);
-                    }
-                }
-            })
-            // Global mouse up → end dragging, panning, or cancel connection
-            .on_mouse_up(MouseButton::Left, {
-                let entity_id = entity_id;
-                move |_event, _window, cx| {
-                    let mut changed = false;
-
-                    state_for_mouse_up.update(cx, |state, _| {
-                        if state.selection_box.is_some() {
-                            state.selection_box = None;
-                            changed = true;
-                        }
-                        if state.connecting.is_some() {
-                            state.end_connection();
-                            changed = true;
-                        }
-                        if state.drag_state.is_some() {
-                            state.drag_state = None;
-                            for n in &mut state.nodes {
-                                n.dragging = false;
-                            }
-                            changed = true;
-                        }
-                        if state.pan_drag.is_some() {
-                            state.end_pan();
-                            changed = true;
-                        }
-                    });
-
-                    if changed {
-                        cx.notify(entity_id);
-                    }
-                }
-            })
             // Keyboard shortcuts (delete, undo/redo)
             .on_key_down({
                 let entity_id = entity_id;
@@ -970,8 +891,7 @@ impl Render for FlowGraph {
 
                     // Escape cancels a connection drag.
                     if key == "escape" {
-                        let cancelled =
-                            state_for_key.update(cx, |state, _| state.connecting.take().is_some());
+                        let cancelled = state_for_key.update(cx, |state, _| state.cancel_drag());
                         if cancelled {
                             cx.notify(entity_id);
                         }
