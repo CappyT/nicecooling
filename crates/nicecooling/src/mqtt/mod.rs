@@ -3,5 +3,6 @@
 
 pub mod backoff;
 pub mod client;
+pub mod publish;
 pub mod queue;
 pub mod settings;

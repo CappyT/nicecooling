@@ -1,8 +1,11 @@
 use nicecooling::app::{self, Backend, StartMode};
 use nicecooling::app_settings::SettingsStore;
 use nicecooling::daemon_client::DaemonClient;
+use nicecooling::graphs::secrets::Secrets;
 use nicecooling::graphs::store::GraphPaths;
 use nicecooling::instance::{self, Claim};
+use nicecooling::mqtt::client::MqttConfig;
+use nicecooling::mqtt::settings::hostname;
 use nicecooling::services;
 use tokio::sync::{broadcast, mpsc};
 
@@ -79,6 +82,14 @@ fn main() {
         locale,
         graph_view,
         graph_link,
+    );
+    // MQTT stays off while the host is empty. The service lives until the end of `main`.
+    let broker_password = Secrets::open(&GraphPaths::user().secrets).mqtt;
+    let _mqtt = services::spawn_mqtt(
+        runtime.handle(),
+        events_tx.subscribe(),
+        MqttConfig::new(&settings.values.mqtt, &broker_password, &hostname()),
+        settings.hidden_sensors.clone(),
     );
     // The end of the session takes the path of "Quit".
     if let Err(error) = services::spawn_sigterm(runtime.handle(), commands_tx.clone()) {

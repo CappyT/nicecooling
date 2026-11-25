@@ -1,6 +1,7 @@
 //! The threads that follow the daemon events outside the window: the tray icon, the desktop
 //! notifications and the history writer. Each one owns a copy of the app state.
 
+use std::collections::BTreeSet;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -10,7 +11,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tokio::sync::broadcast::{self, error::RecvError};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
-use nicecooling_core::clock::SystemClock;
+use nicecooling_core::clock::{SystemClock, SystemWallClock};
 use nicecooling_core::rules::proc_scan::ProcFs;
 
 use crate::app::now_us;
@@ -25,6 +26,7 @@ use crate::history::{HistoryDb, HistoryWriter};
 use crate::i18n::Locale;
 use crate::model::{AppState, DaemonEvent, FLAG_NO_VALUE};
 use crate::mqtt::client::{MqttConfig, MqttHandle, ResponseEnd};
+use crate::mqtt::publish::{Publisher, ResponseDone, ResponseSender};
 use crate::notify::{Notifier, NotifyPrefs, Plan, plan};
 use crate::tray::{Tray, TrayView};
 
@@ -341,6 +343,34 @@ pub fn spawn_mqtt_client(
     let (client, ends) = MqttHandle::spawn(runtime);
     client.configure(config);
     (client, ends)
+}
+
+/// The MQTT client and the publisher of the sensor values, the Alarm events and the MQTT message
+/// response. The Graph service takes `responses` and `done` for its MQTT message response.
+pub struct MqttService {
+    pub client: MqttHandle,
+    /// Send a `ResponseRequest` here.
+    pub responses: ResponseSender,
+    /// The outcome of each `ResponseRequest`.
+    pub done: UnboundedReceiver<ResponseDone>,
+}
+
+/// Start the MQTT client and the publisher on `runtime`. `hidden` holds the sensors that the
+/// user hid on the Sensors screen: the publisher sends none of them.
+pub fn spawn_mqtt(
+    runtime: &tokio::runtime::Handle,
+    events: broadcast::Receiver<DaemonEvent>,
+    config: Option<MqttConfig>,
+    hidden: Arc<Mutex<BTreeSet<String>>>,
+) -> MqttService {
+    let (client, ends) = spawn_mqtt_client(runtime, config);
+    let publisher = Publisher::new(client.clone(), hidden, Arc::new(SystemWallClock));
+    let (responses, done) = publisher.spawn(runtime, ends, events);
+    MqttService {
+        client,
+        responses,
+        done,
+    }
 }
 
 /// `$XDG_DATA_HOME/nicecooling/history.db`.

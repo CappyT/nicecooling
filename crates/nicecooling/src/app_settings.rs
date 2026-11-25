@@ -237,6 +237,8 @@ pub struct SettingsStore {
     pub autostart_dir: Option<PathBuf>,
     /// The notification thread reads these at each event.
     pub notify_prefs: std::sync::Arc<std::sync::Mutex<NotifyPrefs>>,
+    /// The MQTT publisher reads these at each interval.
+    pub hidden_sensors: std::sync::Arc<std::sync::Mutex<std::collections::BTreeSet<String>>>,
     /// False when no StatusNotifier host takes the tray icon.
     pub tray_visible: std::sync::Arc<std::sync::atomic::AtomicBool>,
     /// The last write that failed.
@@ -252,11 +254,13 @@ impl Default for SettingsStore {
 impl SettingsStore {
     pub fn new(values: AppSettings, path: Option<PathBuf>, autostart_dir: Option<PathBuf>) -> Self {
         let prefs = values.notify_prefs();
+        let hidden = values.hidden_sensors();
         Self {
             values,
             path,
             autostart_dir,
             notify_prefs: std::sync::Arc::new(std::sync::Mutex::new(prefs)),
+            hidden_sensors: std::sync::Arc::new(std::sync::Mutex::new(hidden)),
             tray_visible: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true)),
             error: None,
         }
@@ -273,6 +277,9 @@ impl SettingsStore {
         change(&mut self.values);
         if let Ok(mut prefs) = self.notify_prefs.lock() {
             *prefs = self.values.notify_prefs();
+        }
+        if let Ok(mut hidden) = self.hidden_sensors.lock() {
+            *hidden = self.values.hidden_sensors();
         }
         self.error = self
             .path
