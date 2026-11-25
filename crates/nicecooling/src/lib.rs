@@ -10,6 +10,7 @@ pub mod graphs;
 pub mod history;
 pub mod i18n;
 pub mod icons;
+pub mod instance;
 pub mod model;
 pub mod mqtt;
 pub mod notify;

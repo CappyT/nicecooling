@@ -2,6 +2,7 @@ use nicecooling::app::{self, Backend, StartMode};
 use nicecooling::app_settings::SettingsStore;
 use nicecooling::daemon_client::DaemonClient;
 use nicecooling::graphs::store::GraphPaths;
+use nicecooling::instance::{self, Claim};
 use nicecooling::services;
 use tokio::sync::{broadcast, mpsc};
 
@@ -15,6 +16,25 @@ fn main() {
         .expect("the Tokio runtime");
     let (events_tx, events_rx) = broadcast::channel(1024);
     let (commands_tx, inbox) = mpsc::unbounded_channel();
+    // One instance for each user session: a second start shows the window of the first and ends.
+    // The connection stays open until the end of `main`: it holds the name.
+    let _instance = match runtime.block_on(instance::claim(None, commands_tx.clone())) {
+        Claim::First(connection) => Some(connection),
+        Claim::Taken => {
+            if mode == StartMode::Normal
+                && let Err(error) = runtime.block_on(instance::show_first(None))
+            {
+                eprintln!(
+                    "nicecooling: cannot ask the running instance to show its window: {error}"
+                );
+            }
+            return;
+        }
+        Claim::NoBus(error) => {
+            eprintln!("nicecooling: no session bus, so no single-instance guard: {error}");
+            None
+        }
+    };
     let settings = SettingsStore::open();
     let language = settings.values.language();
     let locale = language.resolve();

@@ -753,6 +753,14 @@ The app SHALL store all Graphs in `graphs.json` in `$XDG_CONFIG_HOME/nicecooling
 - **WHEN** one of 3 stored Graphs has a node of the kind `quantum`
 - **THEN** the app evaluates 2 Graphs, lists the third as "invalid" and keeps its text when it writes the file
 
+#### Scenario: File changed while the app runs
+- **WHEN** another writer adds `graph_2` to `graphs.json` after the app read it, and the user applies `graph_1`
+- **THEN** the file holds `graph_1` and `graph_2`
+
+#### Scenario: File broke while the app runs
+- **WHEN** `graphs.json` stops parsing while the app runs and the user applies a Graph
+- **THEN** the app refuses the Apply, shows the error and leaves the file as it is
+
 #### Scenario: Validator refusal keeps the text
 - **WHEN** one of 3 stored Graphs has two end nodes and a field `note` that the app does not know, and the user applies another Graph
 - **THEN** the file holds the text of the third Graph as it was, with `note`
@@ -786,6 +794,25 @@ The app SHALL write each file that it owns (`graphs.json`, `graph-state.json`, `
 #### Scenario: Symbolic link
 - **WHEN** `graphs.json` is a link to `dotfiles/graphs.json` and the user applies a Graph
 - **THEN** `dotfiles/graphs.json` holds the Graph and `graphs.json` is still a link
+
+### Requirement: One app instance for each session
+The app SHALL take the name `io.github.cappyt.NiceCooling` on the session bus when it starts. When another instance holds the name, the app SHALL ask that instance to show its window and SHALL exit with status 0. A start with `--background` SHALL ask nothing. Without a session bus the app SHALL start as before.
+
+#### Scenario: Second start from the menu
+- **WHEN** the app runs with its window hidden and the user starts it from the application menu
+- **THEN** the window of the running app shows and the new process exits with status 0
+
+#### Scenario: Second start at login
+- **WHEN** the app runs and a second process starts with `--background`
+- **THEN** the second process exits with status 0 and the window of the running app does not change
+
+#### Scenario: Two applies
+- **WHEN** the first instance applies `graph_1` and a second start follows
+- **THEN** the second process writes no file, and `graphs.json` holds `graph_1`
+
+#### Scenario: No session bus
+- **WHEN** no session bus runs and the app starts
+- **THEN** the app starts as before
 
 ### Requirement: Graph state storage
 `graph-state.json` in `$XDG_DATA_HOME/nicecooling/` SHALL hold `schema_version` (1), `values` (the persistent storage nodes, keyed `<graph id>/<node id>`), `responses` (the same key, with `state` as `run` or `not_run` and `last_run_us`) and `pause` (`count`, `quiet_s`, `paused`). The app SHALL write it at most every 30 s when a value changed, at its stop and before a power call.

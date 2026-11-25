@@ -330,3 +330,38 @@ fn invalid_graph_counts_for_the_limit_of_64_graphs() {
     // A Graph that is stored already is not a new one.
     assert!(store.validate(&constant_graph("graph_5", 1.0)).is_empty());
 }
+
+#[test]
+fn a_file_that_broke_after_the_open_is_not_overwritten() {
+    let dir = Dir::new("broke-later");
+    let paths = dir.graph_paths();
+    let mut store = GraphStore::open(paths.clone());
+    store.put(constant_graph("graph_1", 1.0)).unwrap();
+    std::fs::write(&paths.graphs, "{ not json").unwrap();
+
+    assert!(store.put(constant_graph("graph_2", 2.0)).is_err());
+    assert_eq!(
+        std::fs::read_to_string(&paths.graphs).unwrap(),
+        "{ not json"
+    );
+    assert!(store.file_error().is_some());
+}
+
+#[test]
+fn a_remove_edits_the_file_that_another_writer_changed() {
+    let dir = Dir::new("other-writer");
+    let paths = dir.graph_paths();
+    let mut first = GraphStore::open(paths.clone());
+    let mut second = GraphStore::open(paths.clone());
+    first.put(constant_graph("graph_1", 1.0)).unwrap();
+    second.put(constant_graph("graph_2", 2.0)).unwrap();
+    // `first` has not read `graph_2`. Its remove of `graph_1` must not bring `graph_1` or lose
+    // `graph_2`.
+    first.remove("graph_1").unwrap();
+    let ids: Vec<String> = GraphStore::open(paths)
+        .graphs()
+        .into_iter()
+        .map(|g| g.id)
+        .collect();
+    assert_eq!(ids, ["graph_2"]);
+}

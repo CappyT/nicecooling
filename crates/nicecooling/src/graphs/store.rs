@@ -257,6 +257,15 @@ impl GraphStore {
         if let Some(error) = &self.file_error {
             return Err(io_error(error.clone()));
         }
+        // Another writer can have changed the file since the last read (a second instance of the
+        // app, a hand edit): edit what the file holds now, so no change of it is lost. A file
+        // that no longer loads stays as it is.
+        let (entries, error) = load_graphs(&self.paths.graphs);
+        self.entries = entries;
+        if let Some(error) = error {
+            self.file_error = Some(error.clone());
+            return Err(io_error(error));
+        }
         let before = self.entries.clone();
         if let Err(error) = edit(&mut self.entries) {
             self.entries = before;
