@@ -2,3 +2,4 @@
 //! no I/O and no clock of its own. The app gives it the sensor values and the time.
 
 pub mod model;
+pub mod validate;
