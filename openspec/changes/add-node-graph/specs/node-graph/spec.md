@@ -960,6 +960,21 @@ The daemon SHALL accept a Graph sensor as the Input of a Curve, as the source of
 - **WHEN** an entry names `nct6798_temp1`
 - **THEN** the daemon skips it and the sensor keeps its measured value
 
+### Requirement: Graph sensor values from many entries and senders
+In one values call, the last entry for an id SHALL win. The daemon SHALL tie no Graph sensor to a sender: the newest call for an id wins, whichever sender sends it.
+
+#### Scenario: Repeated id in one call
+- **WHEN** one call holds (`graph_1`, true, 55.0) and then (`graph_1`, false, 0.0)
+- **THEN** `graph_1` has no value in the next tick
+
+#### Scenario: Value after a no-value entry
+- **WHEN** one call holds (`graph_1`, false, 0.0) and then (`graph_1`, true, 55.0)
+- **THEN** the value table holds 55.0 for `graph_1` in the next tick
+
+#### Scenario: Two senders
+- **WHEN** one app sends (`graph_1`, true, 40.0) and then a second app sends (`graph_1`, true, 90.0)
+- **THEN** the next tick holds 90.0 for `graph_1`
+
 ### Requirement: Graph sensors at start
 At its start and at each new snapshot of the daemon, the app SHALL compare the Graphs with a sensor end node with the Graph sensors of the daemon. It SHALL create a missing one and store the new id in the Graph. It SHALL leave a Graph sensor that none of its Graphs holds. The Graphs screen SHALL list such a sensor with a remove command. An app in a session that is not active SHALL send no Graph sensor values.
 
