@@ -1030,6 +1030,49 @@ impl DaemonClient {
             .await
     }
 
+    /// Creates a Graph sensor and returns its id (`graph_<n>`). `unit` is one of the eight units
+    /// of the contract.
+    pub async fn create_graph_sensor(&self, name: &str, unit: &str) -> zbus::Result<String> {
+        let path: OwnedObjectPath = self
+            .write_returning(ROOT, "Manager", "CreateGraphSensor", &(name, unit))
+            .await?;
+        Ok(last_element(path.as_str()))
+    }
+
+    /// The daemon removes the object and adds it again: the id stays.
+    pub async fn set_graph_sensor_definition(
+        &self,
+        sensor: &str,
+        name: &str,
+        unit: &str,
+    ) -> zbus::Result<()> {
+        self.write(
+            &object("sensor", sensor),
+            "GraphSensor",
+            "SetDefinition",
+            &(name, unit),
+        )
+        .await
+    }
+
+    pub async fn delete_graph_sensor(&self, sensor: &str) -> zbus::Result<()> {
+        self.write(&object("sensor", sensor), "GraphSensor", "Delete", &())
+            .await
+    }
+
+    /// One entry per Graph sensor: the id, whether it has a value, and the value. The call has no
+    /// interactive flag, so a user who polkit does not allow gets `AccessDenied` and no password
+    /// dialog once per second.
+    pub async fn set_graph_sensor_values(
+        &self,
+        values: &[(String, bool, f64)],
+    ) -> zbus::Result<()> {
+        self.proxy(ROOT, "Manager")
+            .await?
+            .call::<_, _, ()>("SetGraphSensorValues", &(values,))
+            .await
+    }
+
     pub async fn set_channel_name(&self, channel: &str, name: &str) -> zbus::Result<()> {
         self.write(&object("channel", channel), "Channel", "SetName", &(name,))
             .await

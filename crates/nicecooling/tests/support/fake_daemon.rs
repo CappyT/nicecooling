@@ -9,6 +9,8 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 
 use nicecooling::daemon_client::{BUS_NAME, ROOT};
+use nicecooling_api::errors::Error as ApiError;
+use nicecooling_core::graph_sensor::graph_sensor_kind;
 use zbus::OwnedObjectPath;
 use zbus::message::Flags;
 use zbus::object_server::{ObjectServer, SignalEmitter};
@@ -91,6 +93,20 @@ pub struct Shared {
     overrides: Mutex<Vec<(String, String, String, u32)>>,
     /// The rows of `GetHistory`, newest raise first.
     pub history: Mutex<Vec<nicecooling_api::alarms::HistoryRow>>,
+    /// The ids of the Graph sensors that exist now.
+    pub graph_ids: Mutex<Vec<String>>,
+    graph_next: AtomicU32,
+    /// Each `SetGraphSensorValues` call that the fake accepted: the id, whether it has a value and
+    /// the value.
+    pub graph_calls: Mutex<Vec<Vec<(String, bool, f64)>>>,
+    /// The value of each Graph sensor after the newest call, `None` for no value.
+    pub graph_values: Mutex<HashMap<String, Option<f64>>>,
+    /// While set, `GraphSensor.Delete` answers `InUse` with this text.
+    pub graph_in_use: Mutex<Option<String>>,
+    /// `CreateGraphSensor` answers `InvalidArgument` when this many sensors exist.
+    pub graph_limit: Mutex<usize>,
+    /// The runtime of the test. The handlers of zbus run on its own executor, which has no reactor.
+    runtime: Mutex<Option<tokio::runtime::Handle>>,
 }
 
 impl Default for Shared {
@@ -98,6 +114,13 @@ impl Default for Shared {
         Self {
             calls: Mutex::default(),
             deny_writes: Mutex::default(),
+            graph_ids: Mutex::default(),
+            graph_next: AtomicU32::new(1),
+            graph_calls: Mutex::default(),
+            graph_values: Mutex::default(),
+            graph_in_use: Mutex::default(),
+            graph_limit: Mutex::new(64),
+            runtime: Mutex::default(),
             next_id: AtomicU32::new(1),
             next_profile: AtomicU32::new(3),
             next_group: AtomicU32::new(1),
@@ -133,6 +156,13 @@ impl Default for Shared {
 }
 
 impl Shared {
+    fn spawn(&self, future: impl std::future::Future<Output = ()> + Send + 'static) {
+        let runtime = self.runtime.lock().expect("runtime").clone();
+        runtime
+            .expect("the fake runs inside a runtime")
+            .spawn(future);
+    }
+
     pub fn record(&self, call: &str, header: &zbus::message::Header<'_>) -> fdo::Result<()> {
         let interactive = header
             .primary()
@@ -197,8 +227,8 @@ impl Manager {
                     id: id.clone(),
                     name: name.into(),
                     default_name: name.into(),
-                    kind: "temperature",
-                    unit: "degC",
+                    kind: "temperature".into(),
+                    unit: "degC".into(),
                     origin: "derived",
                     driver: String::new(),
                     shared: self.shared.clone(),
@@ -217,6 +247,70 @@ impl Manager {
             )
             .await?;
         Ok(object)
+    }
+
+    async fn create_graph_sensor(
+        &self,
+        #[zbus(header)] header: zbus::message::Header<'_>,
+        #[zbus(object_server)] server: &ObjectServer,
+        name: &str,
+        unit: &str,
+    ) -> nicecooling_api::errors::Result<OwnedObjectPath> {
+        self.shared
+            .record(&format!("CreateGraphSensor({name},{unit})"), &header)
+            .map_err(denied)?;
+        if graph_sensor_kind(unit).is_none() {
+            return Err(ApiError::invalid(format!("the unit {unit} is not allowed")));
+        }
+        let limit = *self.shared.graph_limit.lock().expect("limit");
+        if self.shared.graph_ids.lock().expect("ids").len() >= limit {
+            return Err(ApiError::invalid("the limit of Graph sensors is reached"));
+        }
+        let id = format!(
+            "graph_{}",
+            self.shared.graph_next.fetch_add(1, Ordering::Relaxed)
+        );
+        self.shared.graph_ids.lock().expect("ids").push(id.clone());
+        register_graph_sensor(server, &self.shared, &id, name, unit).await?;
+        Ok(path(&format!("sensor/{id}")))
+    }
+
+    async fn set_graph_sensor_values(
+        &self,
+        #[zbus(header)] header: zbus::message::Header<'_>,
+        values: Vec<(String, bool, f64)>,
+    ) -> nicecooling_api::errors::Result<()> {
+        let shown: Vec<String> = values
+            .iter()
+            .map(|(id, has, value)| {
+                if *has {
+                    format!("{id}={value}")
+                } else {
+                    format!("{id}=none")
+                }
+            })
+            .collect();
+        self.shared
+            .record(
+                &format!("SetGraphSensorValues({})", shown.join(",")),
+                &header,
+            )
+            .map_err(denied)?;
+        if values
+            .iter()
+            .any(|(_, has, value)| *has && !value.is_finite())
+        {
+            return Err(ApiError::invalid("a value is not finite"));
+        }
+        let known = self.shared.graph_ids.lock().expect("ids").clone();
+        let mut table = self.shared.graph_values.lock().expect("values");
+        for (id, has, value) in &values {
+            if known.contains(id) {
+                table.insert(id.clone(), has.then_some(*value));
+            }
+        }
+        self.shared.graph_calls.lock().expect("calls").push(values);
+        Ok(())
     }
 
     async fn create_loop(
@@ -1114,8 +1208,8 @@ struct Sensor {
     id: String,
     name: String,
     default_name: String,
-    kind: &'static str,
-    unit: &'static str,
+    kind: String,
+    unit: String,
     origin: &'static str,
     driver: String,
     shared: Arc<Shared>,
@@ -1140,12 +1234,12 @@ impl Sensor {
 
     #[zbus(property)]
     fn kind(&self) -> String {
-        self.kind.into()
+        self.kind.clone()
     }
 
     #[zbus(property)]
     fn unit(&self) -> String {
-        self.unit.into()
+        self.unit.clone()
     }
 
     #[zbus(property)]
@@ -1232,6 +1326,114 @@ impl DerivedSensor {
         let object = path(&format!("sensor/{}", self.id));
         server.remove::<DerivedSensor, _>(object.clone()).await?;
         server.remove::<Sensor, _>(object).await?;
+        Ok(())
+    }
+}
+
+fn denied(error: fdo::Error) -> ApiError {
+    ApiError::ZBus(error.into())
+}
+
+async fn register_graph_sensor(
+    server: &ObjectServer,
+    shared: &Arc<Shared>,
+    id: &str,
+    name: &str,
+    unit: &str,
+) -> zbus::Result<()> {
+    let object = path(&format!("sensor/{id}"));
+    server
+        .at(
+            object.clone(),
+            Sensor {
+                id: id.into(),
+                name: name.into(),
+                default_name: name.into(),
+                kind: graph_sensor_kind(unit).unwrap_or("other").into(),
+                unit: unit.into(),
+                origin: "graph",
+                driver: String::new(),
+                shared: shared.clone(),
+            },
+        )
+        .await?;
+    server
+        .at(
+            object,
+            GraphSensor {
+                id: id.into(),
+                shared: shared.clone(),
+            },
+        )
+        .await?;
+    Ok(())
+}
+
+async fn unregister_graph_sensor(server: &ObjectServer, id: &str) -> zbus::Result<()> {
+    let object = path(&format!("sensor/{id}"));
+    server.remove::<GraphSensor, _>(object.clone()).await?;
+    server.remove::<Sensor, _>(object).await?;
+    Ok(())
+}
+
+struct GraphSensor {
+    id: String,
+    shared: Arc<Shared>,
+}
+
+#[interface(name = "io.github.cappyt.NiceCooling1.GraphSensor")]
+impl GraphSensor {
+    async fn set_definition(
+        &self,
+        #[zbus(header)] header: zbus::message::Header<'_>,
+        #[zbus(object_server)] server: &ObjectServer,
+        name: &str,
+        unit: &str,
+    ) -> nicecooling_api::errors::Result<()> {
+        self.shared
+            .record(
+                &format!("SetGraphSensorDefinition({},{name},{unit})", self.id),
+                &header,
+            )
+            .map_err(denied)?;
+        if graph_sensor_kind(unit).is_none() {
+            return Err(ApiError::invalid(format!("the unit {unit} is not allowed")));
+        }
+        // As the daemon does: the object goes and comes back after the reply.
+        let (server, shared, id) = (server.clone(), self.shared.clone(), self.id.clone());
+        let (name, unit) = (name.to_owned(), unit.to_owned());
+        self.shared.spawn(async move {
+            let _ = unregister_graph_sensor(&server, &id).await;
+            let _ = register_graph_sensor(&server, &shared, &id, &name, &unit).await;
+        });
+        Ok(())
+    }
+
+    async fn delete(
+        &self,
+        #[zbus(header)] header: zbus::message::Header<'_>,
+        #[zbus(object_server)] server: &ObjectServer,
+    ) -> nicecooling_api::errors::Result<()> {
+        self.shared
+            .record(&format!("DeleteGraphSensor({})", self.id), &header)
+            .map_err(denied)?;
+        if let Some(reason) = self.shared.graph_in_use.lock().expect("in use").clone() {
+            return Err(ApiError::in_use(reason));
+        }
+        self.shared
+            .graph_ids
+            .lock()
+            .expect("ids")
+            .retain(|id| id != &self.id);
+        self.shared
+            .graph_values
+            .lock()
+            .expect("values")
+            .remove(&self.id);
+        let (server, id) = (server.clone(), self.id.clone());
+        self.shared.spawn(async move {
+            let _ = unregister_graph_sensor(&server, &id).await;
+        });
         Ok(())
     }
 }
@@ -1448,6 +1650,7 @@ pub struct FakeDaemon {
 impl FakeDaemon {
     pub async fn start(conn: Connection, options: Options) -> Self {
         let shared = Arc::new(Shared::default());
+        *shared.runtime.lock().expect("runtime") = Some(tokio::runtime::Handle::current());
         let server = conn.object_server();
         server
             .at(ROOT, fdo::ObjectManager)
@@ -1610,8 +1813,8 @@ impl FakeDaemon {
                         id: id.into(),
                         name: name.into(),
                         default_name: name.into(),
-                        kind,
-                        unit,
+                        kind: kind.into(),
+                        unit: unit.into(),
                         origin,
                         driver: driver.into(),
                         shared: shared.clone(),
@@ -1676,6 +1879,53 @@ impl FakeDaemon {
             .await
             .expect("leakshield");
         iface.get().await.stored(id)
+    }
+
+    /// The ids of the Graph sensors, in the order of their creation.
+    pub fn graph_sensor_ids(&self) -> Vec<String> {
+        self.shared.graph_ids.lock().expect("ids").clone()
+    }
+
+    /// Make `GraphSensor.Delete` answer `InUse` with `reason`, or stop doing so.
+    pub fn set_graph_in_use(&self, reason: Option<&str>) {
+        *self.shared.graph_in_use.lock().expect("in use") = reason.map(str::to_owned);
+    }
+
+    pub fn set_graph_limit(&self, limit: usize) {
+        *self.shared.graph_limit.lock().expect("limit") = limit;
+    }
+
+    /// The calls whose text starts with `prefix`.
+    pub fn calls_of(&self, prefix: &str) -> Vec<String> {
+        self.calls()
+            .into_iter()
+            .filter(|call| call.starts_with(prefix))
+            .collect()
+    }
+
+    /// Add a Graph sensor that no Graph of the app holds, as another user's app makes it.
+    pub async fn add_graph_sensor(&self, name: &str, unit: &str) -> String {
+        let id = format!(
+            "graph_{}",
+            self.shared.graph_next.fetch_add(1, Ordering::Relaxed)
+        );
+        self.shared.graph_ids.lock().expect("ids").push(id.clone());
+        register_graph_sensor(self.conn.object_server(), &self.shared, &id, name, unit)
+            .await
+            .expect("graph sensor");
+        id
+    }
+
+    /// Remove a Graph sensor from the daemon without a call, as a reset of its state does.
+    pub async fn drop_graph_sensor(&self, id: &str) {
+        self.shared
+            .graph_ids
+            .lock()
+            .expect("ids")
+            .retain(|other| other != id);
+        unregister_graph_sensor(self.conn.object_server(), id)
+            .await
+            .expect("remove");
     }
 
     pub fn deny_writes(&self, deny: bool) {

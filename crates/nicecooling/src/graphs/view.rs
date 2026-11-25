@@ -48,6 +48,20 @@ pub struct TryView {
     pub end: EndValue,
 }
 
+/// How the call that sends the Graph sensor values goes.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub enum ValuesState {
+    /// Nothing was sent yet, or the last call worked.
+    #[default]
+    Ok,
+    /// polkit refused the call. The app sends nothing for 60 s.
+    NoAccess,
+    /// The session of the app is not the active one: the app sends nothing.
+    InactiveSession,
+    /// The call failed for another reason, for example because the daemon is away.
+    Failed(String),
+}
+
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct GraphView {
     pub rows: Vec<GraphRow>,
@@ -58,6 +72,8 @@ pub struct GraphView {
     pub countdown: Option<Countdown>,
     /// The try that runs now.
     pub trying: Option<TryView>,
+    /// The state of the call that sends the Graph sensor values.
+    pub values: ValuesState,
 }
 
 impl GraphView {

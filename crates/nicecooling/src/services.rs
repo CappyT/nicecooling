@@ -15,9 +15,11 @@ use nicecooling_core::rules::proc_scan::ProcFs;
 
 use crate::app::now_us;
 use crate::command::Command;
+use crate::daemon_client::DaemonClient;
 use crate::graphs::channel::{GraphChannel, Input};
-use crate::graphs::service::{Env, GraphService, NoLink, NoPower};
+use crate::graphs::service::{Env, GraphService, NoLink, NoPower, SensorLink};
 use crate::graphs::store::{GraphPaths, GraphStore};
+use crate::graphs::values::{DaemonCalls, DaemonLink, LogindSession};
 use crate::graphs::view::SharedView;
 use crate::history::{HistoryDb, HistoryWriter};
 use crate::i18n::Locale;
@@ -262,6 +264,24 @@ pub fn spawn_service(
     });
 }
 
+/// The link of the Graph service to the daemon, on the system bus. Without a system bus the link
+/// sends nothing.
+pub fn graph_link(
+    system: Option<(DaemonClient, zbus::Connection)>,
+    runtime: &tokio::runtime::Handle,
+    view: SharedView,
+) -> Box<dyn SensorLink> {
+    let Some((client, conn)) = system else {
+        return Box::new(NoLink);
+    };
+    Box::new(DaemonLink::new(
+        DaemonCalls::new(client, runtime.clone()),
+        Box::new(LogindSession::spawn(conn, runtime)),
+        Box::new(SystemClock::new()),
+        view,
+    ))
+}
+
 /// The Graph service with the real clock and the real `/proc`. It returns the channel of its
 /// commands.
 pub fn spawn_graphs(
@@ -270,13 +290,14 @@ pub fn spawn_graphs(
     notify: UnboundedSender<Plan>,
     locale: Locale,
     view: SharedView,
+    link: Box<dyn SensorLink>,
 ) -> GraphChannel {
     let (channel, inputs) = GraphChannel::new();
     let service = GraphService::new(
         GraphStore::open(paths),
         Env {
             clock: Box::new(SystemClock::new()),
-            link: Box::new(NoLink),
+            link,
             scan: Box::new(ProcFs::new("/proc")),
             power: Box::new(NoPower),
             notify,

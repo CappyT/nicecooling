@@ -539,7 +539,7 @@ pub struct SensorInfo {
     pub default_name: String,
     pub kind: String,
     pub unit: String,
-    /// `hwmon`, `leakshield`, `derived` or `calibrated`.
+    /// `hwmon`, `leakshield`, `derived`, `calibrated` or `graph`.
     pub origin: String,
     /// The hwmon `name` attribute; empty when the origin is not hwmon.
     pub driver: String,

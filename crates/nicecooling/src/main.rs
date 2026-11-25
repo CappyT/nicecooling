@@ -19,17 +19,18 @@ fn main() {
     let language = settings.values.language();
     let locale = language.resolve();
 
-    let client = match runtime.block_on(zbus::Connection::system()) {
+    let system = match runtime.block_on(zbus::Connection::system()) {
         Ok(conn) => {
-            let client = DaemonClient::new(conn);
+            let client = DaemonClient::new(conn.clone());
             runtime.spawn(client.clone().run(events_tx.clone()));
-            Some(client)
+            Some((client, conn))
         }
         Err(error) => {
             eprintln!("nicecooling: no system bus: {error}");
             None
         }
     };
+    let client = system.as_ref().map(|(client, _)| client.clone());
 
     let graph_view = nicecooling::graphs::view::shared_view();
     if settings.values.tray {
@@ -50,12 +51,14 @@ fn main() {
         settings.notify_prefs.clone(),
     );
     services::spawn_history(events_tx.subscribe(), services::history_path());
+    let graph_link = services::graph_link(system, runtime.handle(), graph_view.clone());
     let graphs = services::spawn_graphs(
         events_tx.subscribe(),
         GraphPaths::user(),
         notify_tx,
         locale,
         graph_view,
+        graph_link,
     );
     // The end of the session takes the path of "Quit".
     if let Err(error) = services::spawn_sigterm(runtime.handle(), commands_tx.clone()) {
