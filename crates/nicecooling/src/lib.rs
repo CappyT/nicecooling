@@ -6,6 +6,7 @@ pub mod autostart;
 pub mod bitmap;
 pub mod command;
 pub mod daemon_client;
+pub mod graphs;
 pub mod history;
 pub mod i18n;
 pub mod icons;

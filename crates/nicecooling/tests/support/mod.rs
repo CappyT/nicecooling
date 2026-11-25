@@ -7,6 +7,7 @@ pub mod fake_notification_server;
 pub mod fake_systemd;
 pub mod fake_tray_host;
 pub mod fixtures;
+pub mod graphs;
 pub mod harness;
 pub mod labels;
 

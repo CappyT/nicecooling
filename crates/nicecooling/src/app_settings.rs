@@ -2,6 +2,7 @@
 //! The app is the only writer. A missing or unreadable file gives the defaults.
 
 use std::io::Write as _;
+use std::os::unix::fs::OpenOptionsExt as _;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
@@ -81,17 +82,10 @@ impl AppSettings {
             .unwrap_or_default()
     }
 
-    /// Write the file atomically: temporary file, `fsync`, rename, `fsync` of the directory.
+    /// Write the file atomically (`write_atomic`).
     pub fn save(&self, path: &Path) -> std::io::Result<()> {
         let text = toml::to_string(self).map_err(std::io::Error::other)?;
-        let dir = path.parent().unwrap_or_else(|| Path::new("."));
-        std::fs::create_dir_all(dir)?;
-        let temporary = path.with_extension("toml.tmp");
-        let mut file = std::fs::File::create(&temporary)?;
-        file.write_all(text.as_bytes())?;
-        file.sync_all()?;
-        std::fs::rename(&temporary, path)?;
-        std::fs::File::open(dir)?.sync_all()
+        write_atomic(path, text.as_bytes(), 0o666)
     }
 
     pub fn language(&self) -> Language {
@@ -125,11 +119,41 @@ impl AppSettings {
     }
 }
 
-fn config_home() -> PathBuf {
+/// Write a file atomically: temporary file `<name>.tmp`, `fsync`, rename, `fsync` of the
+/// directory. The temporary file is new, so `mode` (before the umask) holds at no moment
+/// wider. A settings file passes 0o666 and a file with a secret passes 0o600.
+pub fn write_atomic(path: &Path, bytes: &[u8], mode: u32) -> std::io::Result<()> {
+    let dir = path.parent().unwrap_or_else(|| Path::new("."));
+    std::fs::create_dir_all(dir)?;
+    let mut name = path.file_name().unwrap_or_default().to_os_string();
+    name.push(".tmp");
+    let temporary = path.with_file_name(name);
+    // A temporary file that an earlier crash left keeps its old mode, so it goes first.
+    let _ = std::fs::remove_file(&temporary);
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(mode)
+        .open(&temporary)?;
+    file.write_all(bytes)?;
+    file.sync_all()?;
+    std::fs::rename(&temporary, path)?;
+    std::fs::File::open(dir)?.sync_all()
+}
+
+pub fn config_home() -> PathBuf {
     std::env::var_os("XDG_CONFIG_HOME")
         .map(PathBuf::from)
         .filter(|path| path.is_absolute())
         .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".config")))
+        .unwrap_or_else(std::env::temp_dir)
+}
+
+pub fn data_home() -> PathBuf {
+    std::env::var_os("XDG_DATA_HOME")
+        .map(PathBuf::from)
+        .filter(|path| path.is_absolute())
+        .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".local/share")))
         .unwrap_or_else(std::env::temp_dir)
 }
 
