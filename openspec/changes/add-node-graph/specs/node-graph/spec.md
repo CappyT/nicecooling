@@ -1237,7 +1237,7 @@ The editor SHALL show the value of each node of the applied Graph on the node, w
 - **THEN** the node shows "--" until Apply
 
 ### Requirement: Editor Try
-The editor SHALL offer "Try" for a draft. A sensor source node SHALL offer a test value and a test time of 1 to 600 s, default 60 s. A source with no test value SHALL read its live value. Try SHALL evaluate the draft in the app, show the node values and the banner "Try running, nothing is published", and stop at the end of the time or on "Stop". A try SHALL send no Graph sensor value and SHALL run no response.
+The editor SHALL offer "Try" for a draft. A sensor source node SHALL offer a test value and a test time of 1 to 600 s, default 60 s. A source with no test value SHALL read its live value. A test value that is not finite SHALL give its source no value. Try SHALL evaluate the draft in the app, show the node values and the banner "Try running, nothing is published", and stop at the end of the time or on "Stop". A try SHALL send no Graph sensor value and SHALL run no response.
 
 #### Scenario: Run a try
 - **WHEN** the user gives the source 80 for 30 s and presses "Try"
@@ -1246,6 +1246,10 @@ The editor SHALL offer "Try" for a draft. A sensor source node SHALL offer a tes
 #### Scenario: Source with no test value
 - **WHEN** a draft has two sources, one with the test value 80 and one with none, and the second sensor reads 20
 - **THEN** the second source gives 20
+
+#### Scenario: Test value that is not a number
+- **WHEN** a draft has a source with the test value NaN and the sensor of the source reads 20
+- **THEN** the source gives no value and the nodes that read it give no value
 
 #### Scenario: Nothing published
 - **WHEN** a try runs on a Graph with a sensor end node whose Graph sensor a Curve uses

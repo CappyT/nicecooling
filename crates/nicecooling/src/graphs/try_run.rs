@@ -1,8 +1,9 @@
 //! "Try": the evaluation of a draft with test values, for 1 to 600 s.
 //!
 //! The draft has its own evaluator and its own node state. A sensor source node with a test value
-//! gives that value. A source with no test value reads its live value. A try gives no Graph sensor
-//! value to the daemon and runs no response: the service only shows the node values.
+//! gives that value. A source with no test value reads its live value. A test value that is not
+//! finite gives the source no value. A try gives no Graph sensor value to the daemon and runs no
+//! response: the service only shows the node values.
 
 use std::fmt;
 use std::time::Duration;
@@ -62,20 +63,28 @@ impl TryRun {
         // A source with a test value becomes a constant with that value. It keeps its id and its
         // label, so the node values of the draft read as they do in the editor.
         for (id, value) in &request.tests {
-            if let Some(node) = draft
+            let Some(node) = draft
                 .nodes
                 .iter_mut()
                 .find(|n| n.id == *id && n.kind == Kind::SensorSource)
-            {
-                let constant =
-                    Node::new(node.id, Kind::Constant).with_param("value", source_value(*value));
-                *node = Node {
-                    label: node.label.take(),
-                    x: node.x,
-                    y: node.y,
-                    ..constant
-                };
+            else {
+                continue;
+            };
+            if !value.is_finite() {
+                // A test value that is not a number leaves the source on no sensor: it gives no
+                // value, and not a live reading that the user did not ask for.
+                node.params
+                    .insert("sensor".to_owned(), String::new().into());
+                continue;
             }
+            let constant =
+                Node::new(node.id, Kind::Constant).with_param("value", source_value(*value));
+            *node = Node {
+                label: node.label.take(),
+                x: node.x,
+                y: node.y,
+                ..constant
+            };
         }
         Ok(Self {
             draft,

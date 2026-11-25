@@ -295,3 +295,15 @@ fn try_with_a_fake_clock_in_10_steps() {
         "{given:?}"
     );
 }
+
+#[test]
+fn try_value_that_is_not_finite_gives_the_source_no_value() {
+    for value in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+        let mut rig = rig("try-not-finite", vec![]);
+        live(&mut rig, &[("nct6798_temp1", 20.0)]);
+        rig.service.handle(request(add_five(), &[(1, value)], 30));
+        let shown = values(&rig);
+        assert_eq!(shown.get(&1).copied().flatten(), None, "{value}");
+        assert_eq!(shown.get(&3).copied().flatten(), None, "{value}");
+    }
+}
