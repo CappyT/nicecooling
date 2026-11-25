@@ -20,6 +20,35 @@ fn refused_with(result: Result<nicecooling_graph::model::Graph, ImportError>, co
     }
 }
 
+/// `graphs.json` holds a Graph with a node kind of a newer version (`graph_2`), and a valid
+/// Graph `graph_1`. An import must not take the id of the Graph that this version cannot read:
+/// the store would then replace its text, and the Graph of the newer version would be lost.
+#[test]
+fn import_id_does_not_collide_with_an_invalid_graph() {
+    let dir = Dir::new("rv-import-collision");
+    let paths = dir.graph_paths();
+    std::fs::create_dir_all(paths.graphs.parent().unwrap()).unwrap();
+    let odd = r#"{"id":"graph_2","name":"Odd","enabled":true,"sensor_id":null,"nodes":[{"id":1,"kind":"quantum","label":null,"params":{},"x":0.0,"y":0.0}],"connections":[]}"#;
+    let valid = serde_json::to_string(&constant_graph("graph_1", 1.0)).unwrap();
+    std::fs::write(
+        &paths.graphs,
+        format!(r#"{{"schema_version":1,"graphs":[{valid},{odd}]}}"#),
+    )
+    .unwrap();
+
+    let mut store = GraphStore::open(paths.clone());
+    let imported = import_text(&export_text(&constant_graph("x", 3.0)), &store.graphs()).unwrap();
+    // The window applies the imported Graph as it applies any Graph.
+    store.put(imported.clone()).unwrap();
+    let text = std::fs::read_to_string(&paths.graphs).unwrap();
+    assert!(
+        text.contains(odd),
+        "the Graph of the newer version is gone after the import of {}:\n{text}",
+        imported.id
+    );
+    assert_eq!(store.entries().len(), 3);
+}
+
 /// 1 MiB is the limit. One byte more is refused before the parse.
 #[test]
 fn one_byte_over_the_limit_is_refused() {
