@@ -89,4 +89,12 @@ The app adds to this pattern: the backoff of task 6.5 in place of the wait of 50
 
 ## Other crates
 
-Empty. Task 7.1 adds `lettre` (the version and the features of the SMTP client) here.
+| Item | Value |
+|---|---|
+| `lettre` | `=0.11.24`, the newest release on crates.io on 2026-11-25 (`cargo info lettre`). License MIT |
+| Features | `default-features = false`, `features = ["builder", "smtp-transport", "tokio1", "tokio1-rustls", "ring", "rustls-native-certs"]` |
+
+- `builder` gives `Message`. `smtp-transport` gives `AsyncSmtpTransport`. `tokio1` and `tokio1-rustls` give the `Tokio1Executor` and the TLS on `tokio-rustls`. `ring` is `rustls?/ring`: `lettre` builds its `ClientConfig` with the `ring` provider unless the app installed another provider. `rustls-native-certs` loads the system certificates for `CertificateStore::Default`.
+- The feature `rustls-tls` is not used: it adds `webpki-roots`, a fixed copy of the Mozilla roots, and the spec asks for the system certificates. The default features are off, so `native-tls`, `pool` and `hostname` are off too. The EHLO name is the default of `lettre`.
+- `lettre` depends on `rustls` `0.23.27` with `default-features = false`, and on `tokio-rustls` `0.26` with `default-features = false`. The lock file keeps one `rustls` (0.23.46) and one `tokio-rustls` (0.26.6), shared with `rumqttc`. `cargo tree -p nicecooling -i rustls` shows one `rustls` version, and `cargo tree -p nicecooling | grep -c aws-lc` prints 0.
+- The new packages in the lock file are `lettre`, `email-encoding`, `email_address`, `httpdate` and `quoted_printable`. `cargo tree -p nicecoolingd` lists no `lettre` and no `rumqttc`.
