@@ -1323,7 +1323,8 @@ impl Hub {
                 "graph_",
                 &mut i.state.graph_sensor_next,
                 i.state.graph_sensors.iter().map(|g| g.id.as_str()),
-            );
+            )
+            .ok_or_else(|| Error::invalid("no Graph sensor id is left"))?;
             let id = ids::graph_sensor_id(number);
             i.state.graph_sensors.push(GraphSensorDef {
                 id: id.clone(),

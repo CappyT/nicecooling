@@ -28,7 +28,8 @@
       <arg name="sources" type="ao" direction="in"/>
       <arg name="sensor" type="o" direction="out"/>
     </method>
-    <!-- Returns the sensor graph_<n>. The unit is one of degC, rpm, %, V, A, W, l/h and mbar. -->
+    <!-- Returns the sensor graph_<n>. The unit is one of degC, rpm, %, V, A, W, l/h and mbar. Fails
+         with InvalidArgument at 64 Graph sensors and when the counter has no id left. -->
     <method name="CreateGraphSensor">
       <annotation name="io.github.cappyt.NiceCooling1.Authorization" value="write"/>
       <arg name="name" type="s" direction="in"/>
