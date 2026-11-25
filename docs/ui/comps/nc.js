@@ -1,4 +1,4 @@
-// nicecooling comps: theme switch (?theme=dark|light), icon sprite, app shell and Loop diagram.
+// nicecooling comps: theme switch (?theme=dark|light), icon sprite, app shell, Loop diagram and Graph canvas.
 // It only keeps the comps short. It is not part of the product.
 (function () {
   var q = new URLSearchParams(location.search).get('theme');
@@ -34,7 +34,8 @@
     sliders: '<path d="M2.5 5h5.5M11 5h2.5M2.5 11H5M8 11h5.5"/><circle cx="9.5" cy="5" r="1.5"/><circle cx="6.5" cy="11" r="1.5"/>',
     grip: '<path d="M6 4v.1M10 4v.1M6 8v.1M10 8v.1M6 12v.1M10 12v.1" stroke-width="2"/>',
     menu: '<path d="M3 4.5h10M3 8h10M3 11.5h10"/>',
-    undo: '<path d="M5 3L2.5 5.5 5 8M2.5 5.5h7a3.5 3.5 0 0 1 0 7H6"/>'
+    undo: '<path d="M5 3L2.5 5.5 5 8M2.5 5.5h7a3.5 3.5 0 0 1 0 7H6"/>',
+    graph: '<circle cx="3.5" cy="8" r="1.8"/><circle cx="12.5" cy="4" r="1.8"/><circle cx="12.5" cy="12" r="1.8"/><path d="M5.3 8C8 8 8 4 10.7 4M5.3 8C8 8 8 12 10.7 12"/>'
   };
   var F = { // filled icons
     alarm: '<path fill-rule="evenodd" d="M5 1h6l4 4v6l-4 4H5l-4-4V5zM7 4v5h2V4zM7 10.5v2h2v-2z"/>',
@@ -57,7 +58,7 @@
     var side = '<nav class="sidebar"><div class="app">nicecooling</div>' +
       nav('overview', 'Overview', 'home') + nav('loops', 'Loops', 'loop') + nav('channels', 'Channels', 'fan') + nav('sensors', 'Sensors', 'gauge') +
       '<h6>Devices</h6>' + nav('leakshield', 'Leakshield', 'shield', lsEnd) +
-            '<h6>Control</h6>' + nav('profiles', 'Profiles', 'layers') + nav('alarms', 'Alarms', 'bell', al + wn ? '<b>' + (al + wn) + '</b>' : '') + nav('history', 'History', 'chart') +
+            '<h6>Control</h6>' + nav('profiles', 'Profiles', 'layers') + nav('graphs', 'Graphs', 'graph') + nav('alarms', 'Alarms', 'bell', al + wn ? '<b>' + (al + wn) + '</b>' : '') + nav('history', 'History', 'chart') +
       '<div class="grow"></div>' + nav('settings', 'Settings', 'sliders') + '</nav>';
     var sbAl = al ? '<span class="t-alarm"><b>' + icon('alarm') + ' ' + (d.alarmtext || al + ' Alarm') + '</b></span>' : wn ? '<span class="t-warn"><b>' + icon('warn') + ' ' + wn + ' Warning</b></span>' : '<span>No active Alarms</span>';
     var sb = '<footer class="sb">' + (d.daemon === 'down' ? '<span class="t-alarm"><b>' + icon('alarm') + ' Daemon down</b></span>' : d.daemon === 'off' ? '<span class="t-off">' + icon('off') + ' Daemon offline</span>' : '<span><i class="dot"></i>Daemon connected</span>') +
@@ -103,6 +104,44 @@
     svg.innerHTML = s;
   }
 
+  // Graph canvas. data-flow: {nodes:[{id, x, y, k, par, s, mono, lb, v, u, pins, out, sel, draft, test, warn, st, band}], edges:[[from, to, pin]]}
+  // k kind, par main parameter, s subject, lb label, v value, u unit, st state caption, band [scale low, scale high, minimum, maximum, value].
+  // The canvas opens with the whole Graph in the view, at 100% at most: the zoom goes to every [data-zoom] element.
+  function flow(view) {
+    var G = JSON.parse(view.dataset.flow), h = '';
+    function pc(a, b, x) { return Math.round((x - a) / (b - a) * 1000) / 10; }
+    G.nodes.forEach(function (n) {
+      var on = G.edges.some(function (e) { return e[0] === n.id; }), b = n.band;
+      h += '<div class="node' + (n.sel ? ' sel' : '') + (n.draft ? ' draft' : '') + '" data-id="' + n.id + '" style="left:' + n.x + 'px;top:' + n.y + 'px">' +
+        '<div class="t">' + (n.warn ? icon('warn', 't-warn') : '') + '<b>' + n.k + '</b>' + (n.par ? '<span>' + n.par + '</span>' : '') + (n.test ? '<em class="tag accent">Test</em>' : '') + '</div>' +
+        (n.s ? '<div class="s' + (n.mono ? ' mono' : '') + '">' + n.s + '</div>' : '') + (n.warn ? '<div class="s t-warn">' + n.warn + '</div>' : '') +
+        '<div class="v">' + (n.lb ? '<span class="lb mono">' + n.lb + '</span>' : '') + '<b>' + n.v + '</b>' + (n.u ? '<span class="u">' + n.u + '</span>' : '') +
+        (n.out === false ? '' : '<i class="pin out' + (on ? ' on' : '') + '"></i>') + '</div>' +
+        (b ? '<div class="g"><i class="tr"></i><i class="bd" style="left:' + pc(b[0], b[1], b[2]) + '%;right:' + (100 - pc(b[0], b[1], b[3])) + '%"></i>' + (b[4] == null ? '' : '<i class="mk" style="left:' + pc(b[0], b[1], b[4]) + '%"></i>') + '</div>' : '') +
+        (n.st ? '<div class="s dim">' + n.st + '</div>' : '') +
+        (n.pins || []).map(function (p, i) {
+          var c = G.edges.some(function (e) { return e[1] === n.id && e[2] === i; });
+          return '<div class="p"><i class="pin' + (c ? ' on' : '') + '" data-pin="' + i + '"></i>' + p + '</div>';
+        }).join('') + '</div>';
+    });
+    view.innerHTML = '<svg class="dots"><defs><pattern id="dots" patternUnits="userSpaceOnUse"><circle r="1.2"/></pattern></defs><rect width="100%" height="100%" fill="url(#dots)"/></svg><div class="flow"><svg class="edges"></svg>' + h + '</div>' + view.innerHTML;
+    var f = view.querySelector('.flow'), o = f.getBoundingClientRect(), W = 0, H = 0, s = '';
+    function at(el) { var r = el.getBoundingClientRect(); return [r.left + r.width / 2 - o.left, r.top + r.height / 2 - o.top]; }
+    f.querySelectorAll('.node').forEach(function (n) { W = Math.max(W, n.offsetLeft + n.offsetWidth); H = Math.max(H, n.offsetTop + n.offsetHeight); });
+    G.edges.forEach(function (e) {
+      var a = at(f.querySelector('[data-id="' + e[0] + '"] .pin.out')), b = at(f.querySelector('[data-id="' + e[1] + '"] [data-pin="' + e[2] + '"]')), d = Math.max(16, (b[0] - a[0]) / 2);
+      s += '<path' + (e[3] ? ' class="sel"' : '') + ' d="M' + a[0] + ' ' + a[1] + 'C' + (a[0] + d) + ' ' + a[1] + ' ' + (b[0] - d) + ' ' + b[1] + ' ' + (b[0] - 11) + ' ' + b[1] + '"/><path class="ar' + (e[3] ? ' sel' : '') + '" d="M' + (b[0] - 5) + ' ' + b[1] + 'l-7-4v8z"/>';
+    });
+    f.querySelector('.edges').innerHTML = s;
+    W += 12; H += 12;
+    var z = Math.floor(Math.min(1, view.clientWidth / W, view.clientHeight / H) * 100) / 100;
+    var dx = Math.round((view.clientWidth - W * z) / 2), dy = Math.round((view.clientHeight - H * z) / 2), pt = view.querySelector('pattern');
+    f.style.transform = 'translate(' + dx + 'px,' + dy + 'px) scale(' + z + ')';
+    pt.setAttribute('width', 24 * z); pt.setAttribute('height', 24 * z); pt.setAttribute('x', dx); pt.setAttribute('y', dy);
+    pt.firstChild.setAttribute('cx', 12 * z); pt.firstChild.setAttribute('cy', 12 * z);
+    document.querySelectorAll('[data-zoom]').forEach(function (e) { e.textContent = Math.round(z * 100) + ' %'; });
+  }
+
   // Layout check with longer strings: ?lang=it swaps each text node that has an entry in window.NC_IT (it.js).
   function translate() {
     var T = window.NC_IT;
@@ -115,6 +154,7 @@
     document.body.insertAdjacentHTML('afterbegin', sprite);
     shell();
     document.querySelectorAll('svg.pid[data-loop]').forEach(loop);
+    document.querySelectorAll('.gview[data-flow]').forEach(flow);
     translate();
     document.querySelectorAll('.tabs').forEach(function (t) { // tabs that do not fit go into a "More" menu
       var more = null;

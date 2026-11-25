@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Graphs: the list</title>
+<meta name="viewport" content="width=1280"><link rel="stylesheet" href="nc.css"><script src="it.js"></script><script src="nc.js"></script>
+<style>
+.tools{display:flex;gap:6px;align-items:center}.tools .grow{flex:1}
+td{height:48px}td small{display:block;font-size:12px;line-height:16px;color:var(--fg-dim);overflow:hidden;text-overflow:ellipsis}
+.list th:first-child{width:100%}.list td:first-child{max-width:0;overflow:hidden;text-overflow:ellipsis}.list b{font-weight:700}
+.act span{display:flex;gap:3px;align-items:center;justify-content:flex-end}.act .switch{margin-right:6px}.act .btn.flat{padding:0 6px}
+.switch.dis{opacity:.5}.inv{display:flex;gap:6px;align-items:center;font-weight:600}
+.note{padding:0 18px 9px}.orph>div{min-height:48px}
+</style></head>
+<!-- Graphs, 1280x800. Five Graphs: a running Graph with a sensor end node, a fired response, a response that waits, a disabled Graph and an invalid Graph.
+     The second card has a Graph sensor that no Graph of this user holds. Values are synthetic. -->
+<body data-page="graphs" data-title="Graphs">
+<main class="page">
+  <div class="tools"><button class="btn"><i data-i="plus"></i>New sensor</button><button class="btn"><i data-i="plus"></i>New response</button><span class="grow"></span><button class="btn">Import</button></div>
+
+  <section class="card"><header>Graphs</header>
+    <table class="list"><tr><th>Graph</th><th>End node</th><th>State</th><th>Result</th><th></th></tr>
+      <tr><td><b>Render temperature</b><small>6 nodes</small></td><td>Sensor<small class="mono">graph_3</small></td><td>Running</td><td><b>46.2</b> <span class="dim">&deg;C</span></td>
+        <td class="act"><span><i class="switch on"></i><button class="btn sm">Edit</button><button class="btn sm flat">Export</button><button class="btn sm flat">Delete</button></span></td></tr>
+      <tr><td><b>Water too warm</b><small>5 nodes</small></td><td>Response<small>Notification</small></td><td>Running</td><td><span class="tag accent">Fired</span><small>Last run 14:05:09</small></td>
+        <td class="act"><span><i class="switch on"></i><button class="btn sm">Edit</button><button class="btn sm flat">Export</button><button class="btn sm flat">Delete</button></span></td></tr>
+      <tr><td><b>Overheat</b><small>8 nodes</small></td><td>Response<small>Poweroff</small></td><td>Running</td><td>Not fired<small>Last run 2026-11-24 21:40</small></td>
+        <td class="act"><span><i class="switch on"></i><button class="btn sm">Edit</button><button class="btn sm flat">Export</button><button class="btn sm flat">Delete</button></span></td></tr>
+      <tr><td><b>Pump speed report</b><small>4 nodes</small></td><td>Response<small>E-mail</small></td><td class="dim">Disabled</td><td class="dim">Not fired</td>
+        <td class="act"><span><i class="switch"></i><button class="btn sm">Edit</button><button class="btn sm flat">Export</button><button class="btn sm flat">Delete</button></span></td></tr>
+      <tr><td><b>Radiator delta T</b><small class="t-warn">Unknown node kind: quantum</small></td><td>Sensor<small class="mono">graph_2</small></td><td><span class="inv t-warn"><i data-i="warn"></i>Invalid</span></td><td class="dim">--</td>
+        <td class="act"><span><i class="switch dis"></i><button class="btn sm" disabled>Edit</button><button class="btn sm flat" disabled>Export</button><button class="btn sm flat">Delete</button></span></td></tr>
+    </table></section>
+
+  <section class="card"><header>Graph sensors without a Graph</header>
+    <div class="note cap">No Graph of this user holds these Graph sensors. A Graph sensor can belong to another user.</div>
+    <div class="rows orph"><div><div class="grow"><b>Case air delta</b><div class="cap mono">graph_7</div></div><span class="dim">--</span><button class="btn sm flat">Remove</button></div></div></section>
+</main>
+</body></html>

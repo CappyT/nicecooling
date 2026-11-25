@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Settings: the group Network, and the Response pause banner</title>
+<meta name="viewport" content="width=1280"><link rel="stylesheet" href="nc.css"><script src="it.js"></script><script src="nc.js"></script>
+<style>
+.nw>div{min-height:36px}.nw .input,.nw .select{width:200px;height:28px;border-radius:7px;flex:none}.nw .input.short{width:126px}
+.nw .st{display:flex;align-items:center;gap:6px;font-weight:600}.nw .hd{min-height:34px}
+.warnrow{background:var(--warning-tint);align-items:flex-start!important}.warnrow svg.i{margin-top:2px}
+.note{padding:9px 18px;border-top:1px solid var(--border)}
+</style></head>
+<!-- Settings, 1280x800. The page is scrolled to the card "Network". The broker has no TLS and a password, and the SMTP account has no security and a user name:
+     both warnings show. The shell shows the Response pause banner. Values are synthetic. -->
+<body data-page="settings" data-title="Settings">
+<div class="banner warn"><i data-i="warn" class="t-warn"></i>
+  <div class="grow"><b>Response pause: 3 power responses in a row</b><div>No Graph response runs by itself. The Graph sensors still work.</div></div>
+  <button class="btn sm">Turn the Graph responses on</button></div>
+<main class="page">
+  <section class="card"><header>Network</header>
+    <div class="cols c2" style="gap:0">
+      <div class="rows tight nw" style="border-right:1px solid var(--border)">
+        <div class="hd"><b>MQTT broker</b></div>
+        <div><span class="grow">Connection</span><span class="st"><i class="dot"></i>Connected</span></div>
+        <div><span class="grow">Host</span><span class="input">broker.lan</span></div>
+        <div><span class="grow">Port</span><span class="input short dim">1883</span></div>
+        <div><span class="grow">TLS</span><i class="switch"></i></div>
+        <div><span class="grow">CA file</span><span class="dim">None</span><button class="btn sm">Choose</button></div>
+        <div><span class="grow">User name</span><span class="input">nicecooling</span></div>
+        <div><span class="grow">Password</span><span class="input">&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;</span></div>
+        <div><span class="grow">Client id</span><span class="input dim">nicecooling-desk</span></div>
+        <div><span class="grow">Base topic</span><span class="input dim">nicecooling</span></div>
+        <div><span class="grow">Value interval</span><span class="input short">10<span class="u">s</span></span></div>
+        <div class="warnrow"><i data-i="warn" class="t-warn"></i><span class="grow">The password goes over the network in clear text</span></div>
+      </div>
+      <div class="rows tight nw">
+        <div class="hd"><b>SMTP account</b></div>
+        <div><span class="grow">Host</span><span class="input">mail.lan</span></div>
+        <div><span class="grow">Security</span><span class="select"><span class="nm">None</span><i data-i="down"></i></span></div>
+        <div><span class="grow">Port</span><span class="input short dim">25</span></div>
+        <div><span class="grow">User name</span><span class="input">alerts</span></div>
+        <div><span class="grow">Password</span><span class="input">&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;</span></div>
+        <div><span class="grow">Sender</span><span class="input">nicecooling@desk.lan</span></div>
+        <div class="warnrow"><i data-i="warn" class="t-warn"></i><span class="grow">The login is not encrypted. The user name and the password go over the network in clear text.</span></div>
+      </div>
+    </div>
+    <div class="note cap">The app publishes the sensor values and the Alarm events while it runs. It reads nothing from the broker.</div>
+  </section>
+</main>
+</body></html>
