@@ -3,6 +3,7 @@
 pub mod bus;
 pub mod fake_daemon;
 pub mod fake_leakshield;
+pub mod fake_logind;
 pub mod fake_notification_server;
 pub mod fake_systemd;
 pub mod fake_tray_host;
