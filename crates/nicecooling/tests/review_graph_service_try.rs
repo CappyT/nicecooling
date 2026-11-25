@@ -47,6 +47,35 @@ fn draft() -> Graph {
     graph
 }
 
+/// A test value that is not a number (NaN) is no value: a source never gives a number that no
+/// sensor measured and that the user did not type.
+#[test]
+fn nan_test_value_gives_no_value() {
+    let dir = Dir::new("rv-try-nan");
+    let view = shared_view();
+    let (notify, _notifications) = mpsc::unbounded_channel();
+    let mut service = GraphService::new(
+        GraphStore::open(dir.graph_paths()),
+        Env {
+            clock: Box::new(SimClock::default()),
+            link: Box::new(Sent::default()),
+            scan: Box::new(NoScan),
+            power: Box::new(NoPower),
+            notify,
+            locale: EN,
+            view: view.clone(),
+        },
+    );
+    service.handle(GraphCommand::Try(Box::new(TryRequest {
+        graph: draft(),
+        tests: vec![(1, f64::NAN)],
+        seconds: 60,
+    })));
+    if let Some(run) = view.lock().unwrap().trying.clone() {
+        assert_eq!(run.values.get(&1).copied().flatten(), None, "{run:?}");
+    }
+}
+
 /// "Quit" during a try: the service stops within the limit, the applied Graph gets its state
 /// written, and the try sent no value in any pass.
 #[test]
