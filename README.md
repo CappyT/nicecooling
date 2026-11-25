@@ -28,7 +28,10 @@ nicecooling is not a product of Aqua Computer and has no connection with that co
 </p>
 
 <p align="center">
-  <img src="docs/images/overview.png" alt="The Overview screen with the Loop diagram" width="880">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/overview-dark.png">
+    <img src="docs/images/overview.png" alt="The Overview screen with the Loop diagram" width="880">
+  </picture>
 </p>
 
 ## What it does today
@@ -59,7 +62,7 @@ The images show the app with test data.
 
 | Leakshield | Curve of a Channel | Pressure step of the settings wizard |
 |---|---|---|
-| [<img src="docs/images/leakshield.png" alt="The Leakshield screen: pressure, status, Mode and Actions" width="280">](docs/images/leakshield.png) | [<img src="docs/images/curve-editor.png" alt="The Curve editor of the pump Channel" width="280">](docs/images/curve-editor.png) | [<img src="docs/images/pressure-settings.png" alt="The pressure values of the Leakshield in the settings wizard" width="280">](docs/images/pressure-settings.png) |
+| <a href="docs/images/leakshield.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/leakshield-dark.png"><img src="docs/images/leakshield.png" alt="The Leakshield screen: pressure, status, Mode and Actions" width="280"></picture></a> | <a href="docs/images/curve-editor.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/curve-editor-dark.png"><img src="docs/images/curve-editor.png" alt="The Curve editor of the pump Channel" width="280"></picture></a> | <a href="docs/images/pressure-settings.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/pressure-settings-dark.png"><img src="docs/images/pressure-settings.png" alt="The pressure values of the Leakshield in the settings wizard" width="280"></picture></a> |
 
 ## Supported hardware
 
