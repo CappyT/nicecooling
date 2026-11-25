@@ -224,3 +224,32 @@ fn symlinked_graph_file_is_not_corrupted() {
     let target_text = std::fs::read_to_string(&target).unwrap();
     assert!(serde_json::from_str::<serde_json::Value>(&target_text).is_ok());
 }
+
+/// The app stores at most 64 Graphs. A Graph that this version cannot read (an invalid Graph)
+/// is still a Graph of the file, so 63 valid Graphs, one invalid Graph and a new Graph are 65.
+#[test]
+fn invalid_graph_counts_for_the_limit_of_64() {
+    let dir = Dir::new("rv-limit-64");
+    let paths = dir.graph_paths();
+    let odd = r#"{"id":"graph_100","name":"Odd","enabled":true,"sensor_id":null,"nodes":[{"id":1,"kind":"quantum","label":null,"params":{},"x":0.0,"y":0.0}],"connections":[]}"#;
+    let valid: Vec<String> = (1..=63)
+        .map(|n| serde_json::to_string(&constant_graph(&format!("graph_{n}"), 1.0)).unwrap())
+        .collect();
+    write(
+        &paths.graphs,
+        &format!(
+            r#"{{"schema_version":1,"graphs":[{},{odd}]}}"#,
+            valid.join(",")
+        ),
+    );
+    let store = GraphStore::open(paths);
+    assert_eq!(store.entries().len(), 64);
+    let refusals =
+        nicecooling_graph::validate::validate(&constant_graph("graph_64", 1.0), &store.graphs());
+    assert!(
+        refusals
+            .iter()
+            .any(|r| r.code == nicecooling_graph::validate::RefusalCode::LimitGraphs),
+        "the 65th Graph of the file passes: {refusals:?}"
+    );
+}
