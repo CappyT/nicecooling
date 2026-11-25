@@ -201,4 +201,10 @@ tr.sel td small,.rows .sel .cap,.tile.on .cap{color:var(--fg)}
 .bandg .mk{position:absolute;top:16px;width:6px;height:22px;margin-left:-3px;border-radius:2px;background:var(--fg)}
 .bandg span{position:absolute;font-size:12px;line-height:16px;white-space:nowrap}.bandg .lo,.bandg .hi{top:38px;color:var(--fg-dim)}.bandg .now{top:0;transform:translateX(-50%);font-weight:700}
 .gbar .input{height:28px;border-radius:7px}svg.i.flip{transform:scaleX(-1)}.gpal h6 svg.i{width:12px;height:12px}
+.gbar .addn{display:none}.gbar .addn.on{background:var(--selected)}
+@media (max-width:1279px){
+  .ged{grid-template-columns:minmax(0,1fr) 272px}.gbar .addn{display:inline-flex}
+  .gpal{display:none;position:fixed;z-index:5;width:240px;max-height:480px;border:0;border-radius:12px;background:var(--card);box-shadow:var(--shadow-pop)}
+  .gpal.open{display:block}
+}
 .gpan .ph{padding-bottom:0}.gpan .foot{border-top:1px solid var(--border);margin-top:4px;padding-top:5px;min-height:38px}.bandg i{display:block}

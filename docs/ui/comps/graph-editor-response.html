@@ -3,10 +3,10 @@
 <meta name="viewport" content="width=1280"><link rel="stylesheet" href="nc.css"><script src="it.js"></script><script src="nc.js"></script></head>
 <!-- Graph editor, 1280x800. A Graph with a response end node: poweroff when the water is above 45 degrees or the flow is below 30 L/h.
      A try runs with the test value 80 on the water temperature: the nodes show the values of the try, and no response runs.
-     The end node is selected, so the panel is the response panel. The node list shows a search. Values are synthetic. -->
+     The end node is selected, so the panel is the response panel. The node list shows a search. Below 1280 px the node list is the popover of "Add node". Values are synthetic. -->
 <body data-page="graphs" data-title="Graphs">
 <div class="gbar"><button class="btn sm flat"><i data-i="left"></i>Graphs</button>
-  <span class="input">Overheat</span><span class="grow"></span>
+  <span class="input">Overheat</span><button class="btn sm flat addn"><i data-i="plus"></i>Add node</button><span class="grow"></span>
   <button class="btn sm flat icon" aria-label="Undo" disabled><i data-i="undo"></i></button><button class="btn sm flat icon" aria-label="Redo" disabled><i data-i="undo" class="flip"></i></button>
   <button class="btn sm" disabled>Try</button><button class="btn sm suggested" disabled>Apply</button></div>
 <div class="banner"><i data-i="play" class="t-accent"></i><div class="grow"><b>Try running, nothing is published</b></div><span>24 s left</span><button class="btn sm">Stop</button></div>

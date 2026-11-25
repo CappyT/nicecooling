@@ -1,11 +1,11 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><title>Graph editor: a Graph with a sensor end node</title>
 <meta name="viewport" content="width=1280"><link rel="stylesheet" href="nc.css"><script src="it.js"></script><script src="nc.js"></script></head>
-<!-- Graph editor, 1280x800. A Graph with a sensor end node: the GPU temperature while a render program runs, else the CPU temperature, held between 20 and 60.
+<!-- Graph editor, 1280x800 with the node list as a column. Below 1280 px the node list is the popover of "Add node": ?pop=add opens it. A Graph with a sensor end node: the GPU temperature while a render program runs, else the CPU temperature, held between 20 and 60.
      The Limiter is selected. The Average filter exists only in the draft: dashed outline, no value. Its connection to the Limiter was refused. Values are synthetic. -->
 <body data-page="graphs" data-title="Graphs">
 <div class="gbar"><button class="btn sm flat"><i data-i="left"></i>Graphs</button>
-  <span class="input">Render temperature</span><span class="cap">Not applied</span><span class="grow"></span>
+  <span class="input">Render temperature</span><span class="cap">Not applied</span><button class="btn sm flat addn"><i data-i="plus"></i>Add node</button><span class="grow"></span>
   <button class="btn sm flat icon" aria-label="Undo"><i data-i="undo"></i></button><button class="btn sm flat icon" aria-label="Redo" disabled><i data-i="undo" class="flip"></i></button>
   <button class="btn sm">Try</button><button class="btn sm suggested">Apply</button></div>
 <div class="ged">

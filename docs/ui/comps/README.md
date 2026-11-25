@@ -14,7 +14,7 @@ Static HTML references for the GPUI build. They show layout, tokens and states. 
 | `leakshield-wizard.html` | Leakshield, Settings wizard, step 4 Pressure, with one read-only field |
 | `profiles.html` | Profiles with the rule editor open and the Default Profile in the list |
 | `graphs.html` | Graphs: a running Graph with a sensor end node, a fired response, a disabled Graph, an invalid Graph and a Graph sensor without a Graph |
-| `graph-editor.html` | Graph editor on a Graph with a sensor end node: node list, canvas with live values, one draft-only node, parameter panel of a Limiter with its band guide |
+| `graph-editor.html` | Graph editor on a Graph with a sensor end node: node list, canvas with live values, one draft-only node, parameter panel of a Limiter with its band guide. Below 1280 px the node list is the popover of "Add node" |
 | `graph-editor-response.html` | Graph editor on a Graph with a response end node: response panel with the poweroff warning and the last runs, and a try with its banner |
 | `settings-network.html` | Settings, card "Network" with both warnings, and the Response pause banner of the shell |
 
@@ -27,13 +27,14 @@ Add a query to the file URL:
 | Query | Effect |
 |---|---|
 | `?theme=dark` or `?theme=light` | Forces the theme. Without it the comp follows the system |
+| `&pop=add` | Opens the node list popover of the Graph editor comps. It has an effect below 1280 px only |
 | `&lang=it` | Italian strings (`channels.html`, `profiles.html`, `leakshield-overview.html`, `graphs.html`, `graph-editor.html`, `graph-editor-response.html`, `settings-network.html`) |
 
-Open a comp at 1280x800, or at 1100x700 for the minimum window. The layout is the same at both sizes.
+Open a comp at 1280x800, or at 1100x700 for the minimum window. The layout is the same at both sizes, except in the Graph editor comps: below 1280 px the node list is a popover.
 
 ## Renders
 
-`shots/` has a PNG of each comp in light and dark. Suffixes: `-min` is 1100x700, `-it` has Italian strings.
+`shots/` has a PNG of each comp in light and dark. Suffixes: `-min` is 1100x700, `-it` has Italian strings, `-add-node` has the node list popover open.
 
 A render is a capture of the local file by a headless Chromium, with no server and no display. For `channels-min-it-dark.png`:
 

@@ -228,7 +228,7 @@ One family: Adwaita Sans, the GNOME interface font. Use tabular figures everywhe
 - Page: padding 12 px top, 24 px sides. Gap between cards 12 px. A page scrolls vertically. It never scrolls or crops horizontally.
 - Card: header 40 px with 18 px side padding, rows 40 px (30 px in a tight list), body padding 18 px.
 - Control height 34 px (28 px for a small button or an inline input). Table row 36 px, or 48 px with a caption line.
-- **One layout.** The layout is the same at every window size from 1100x700 up. In a list and detail screen the list column has a fixed width (360 px in Channels, 292 px in Loops and Profiles) and the detail column takes the rest. A secondary card is under its main card, not beside it. A card header has one text button at most; other commands are in a menu button.
+- **One layout.** The layout is the same at every window size from 1100x700 up. The Graph editor is the one exception: below 1280 px its node list is a popover, not a column (`screens/graph-editor.md`). In a list and detail screen the list column has a fixed width (360 px in Channels, 292 px in Loops and Profiles) and the detail column takes the rest. A secondary card is under its main card, not beside it. A card header has one text button at most; other commands are in a menu button.
 - **Tab overflow.** A tab strip that does not fit puts its last tabs in a "More" menu.
 
 ## Elevation & Depth

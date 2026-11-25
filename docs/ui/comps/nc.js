@@ -164,5 +164,11 @@
       }
     });
     document.querySelectorAll('i[data-i]').forEach(function (e) { e.outerHTML = icon(e.dataset.i, e.className); });
+    // ?pop=add opens the node list popover of the Graph editor under its button. The popover exists below 1280 px only.
+    var add = document.querySelector('.gbar .addn'), pal = document.querySelector('.gpal');
+    if (add && add.offsetWidth && new URLSearchParams(location.search).get('pop') === 'add') {
+      var r = add.getBoundingClientRect();
+      add.classList.add('on'); pal.classList.add('open'); pal.style.left = r.left + 'px'; pal.style.top = r.bottom + 4 + 'px';
+    }
   });
 })();

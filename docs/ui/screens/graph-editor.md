@@ -1,6 +1,6 @@
 # Graph editor
 
-Comps: `../comps/graph-editor.html` (a Graph with a sensor end node, one node selected) and `../comps/graph-editor-response.html` (a Graph with a response end node, the response panel and a try). Both are 1280x800, and also 1100x700 in `../comps/shots/`.
+Comps: `../comps/graph-editor.html` (a Graph with a sensor end node, one node selected) and `../comps/graph-editor-response.html` (a Graph with a response end node, the response panel and a try). Both are 1280x800, and also 1100x700 in `../comps/shots/`. The 1100x700 renders have the node list as a popover: closed in the `-min` renders, open in `graph-editor-min-add-node-light.png` and `-dark.png`.
 
 The editor builds one Graph: nodes on a canvas, connections between their pins, and one end node. It works on a draft. The app stores the Graph at "Apply". The editor opens from the Graphs screen (`graphs.md`) and from a Graph sensor of the Sensors screen. The sidebar keeps "Graphs" selected.
 
@@ -10,13 +10,20 @@ The canvas is the copy of `gpui-flow` (`docs/spikes/gpui-flow.md`). The section 
 
 | Area | Size | Content |
 |---|---|---|
-| Toolbar | 46 px high | Back button, name, draft state, undo, redo, the first broken rule, "Try", "Apply" |
+| Toolbar | 46 px high | Back button, name, draft state, "Add node" below 1280 px, undo, redo, the first broken rule, "Try", "Apply" |
 | Try banner | 46 px high | Only while a try runs: "Try running, nothing is published", the time left, "Stop" |
-| Node list | 168 px wide | Search field and the node kinds by family |
+| Node list | 168 px wide | Search field and the node kinds by family. A column at a window width of 1280 px or more, a popover below it |
 | Canvas | the rest | Nodes, pins, connections. A status line of 28 px under it |
 | Parameter panel | 272 px wide | The parameters of the selected node. For a response end node it is the response panel |
 
-The three columns have the same widths at every window size. At 1100x700 the canvas is 440 px wide: a Graph of four columns of nodes shows at 58%.
+The layout has two forms. The width of the window chooses the form.
+
+| Window width | Columns | Node list |
+|---|---|---|
+| 1280 px or more | Three: node list, canvas, parameter panel | The left column |
+| Below 1280 px | Two: canvas, parameter panel | A popover that the button "Add node" of the toolbar opens |
+
+The parameter panel has the same width in both forms. At 1280x800 the canvas is 620 px wide, and at 1100x700 it is 608 px wide: a Graph of four columns of nodes shows at 82% and at 80%.
 
 ### Toolbar
 
@@ -25,7 +32,8 @@ From the left:
 1. The flat button "Graphs" with the left chevron. It goes back to the Graphs screen.
 2. The name of the Graph: an input, 240 px wide, 64 characters at most. A Graph with a sensor end node gives this name to its Graph sensor.
 3. The draft state as a caption: "Not applied" while the draft differs from the stored Graph, "Applied 21:44:02" after an Apply, or nothing.
-4. At the right: the icon buttons "Undo" and "Redo", then the first broken rule with the Warning icon, then "Try" and "Apply". "Apply" is the suggested button.
+4. Below 1280 px only: the button "Add node" with the plus icon. It opens and closes the node list popover.
+5. At the right: the icon buttons "Undo" and "Redo", then the first broken rule with the Warning icon, then "Try" and "Apply". "Apply" is the suggested button.
 
 "Apply" is off when nothing changed and when the draft breaks a rule of the validator. "Try" is off when the draft breaks a rule and while a try runs.
 
@@ -35,8 +43,11 @@ From the left:
 - Seven family rows: "Sources", "Math", "Logic", "State and time", "Filters", "Generators", "Other". A family row has a chevron, its name and its count. A click folds or unfolds it. All families are open at first. With a text in the search field, the list shows the families that have a match, open.
 - One row per kind, 28 px high, with the name of the kind. The list holds 51 kinds: see "Node kinds".
 - "Sensor end node" and "Response end node" are disabled, with the tooltip "The Graph has its end node."
-- A double click on a row adds a node of that kind at the centre of the view. A drag of a row onto the canvas adds it where the pointer lets it go.
+- A double click on a row adds a node of that kind at the centre of the view.
 - A long name truncates with an ellipsis. The tooltip has the full name and the help text of the kind.
+- Column form, at 1280 px or more: the list is the left column of the editor. A drag of a row onto the canvas adds the node where the pointer lets it go.
+- Popover form, below 1280 px: the list is a `popover` under the button "Add node", 240 px wide and 480 px high at most. It has the same search field and the same families, and its rows scroll. When it opens, the search field has the focus. A double click or Enter adds the node at the centre of the view, and the popover stays open. Escape and a press outside the popover close it. A drag of a row adds no node.
+- A change of the window width to 1280 px or more closes the popover.
 
 ### Canvas
 
@@ -74,7 +85,7 @@ What the design needs from the copied canvas, with the state that `docs/spikes/g
 | Delete, not for the end node | `deletable` exists |
 | Undo and redo of the draft with Ctrl+Z | The copy has its own history on the Super key. The draft owns the history |
 | A release outside the canvas or after a key press ends the drag | Two open defects of the copy |
-| Add a node by a drag from the node list | The copy has no drop target. The app adds one on the canvas area |
+| Add a node by a drag from the node list, in the column form only | The copy has no drop target. The app adds one on the canvas area |
 | Focus ring and keys on the canvas | Missing in the copy |
 | Dashed outline, dashed draft line | Check against the pinned `gpui` version |
 | Line width and arrow size follow the zoom | Open defect of the copy |
@@ -89,7 +100,11 @@ The panel shows the selected node. With no selection it shows the end node. From
 2. "Label": an input in mono text, 1 to 32 characters of letters, digits and "_". Caption: "A label names the node in a message: {value:water}."
 3. The parameters of the kind: one row per parameter, the name at the left and the control at the right. See "Node kinds".
 4. A guide, for a kind that has one: the band guide of a Limiter, the plot of a Table.
-5. "Inputs": one row per input pin with a select. The select lists the nodes that can connect to the pin, and "Not connected". A pin without a connection shows its default: "Not connected, 0". This is the keyboard path for a connection.
+5. "Inputs": one row per input pin of the selected node, with the name of the pin and a select. This is the keyboard path for a connection.
+   - The select lists "None" and each other node that has an output pin. An entry has the title of the node, and its label when it has one: "Switch", "On delay 10 s", "Sensor cpu".
+   - A choice connects the output of that node to the pin. It replaces the connection that the pin has. One choice is one undo step.
+   - A choice that closes a loop does not connect. The select keeps its earlier entry, and the status line shows the reason for 5 s: "Not connected: the connection closes a loop".
+   - "None" removes the connection. A pin without a connection shows "None" and its default: "None, 0". The pin of an end node has no default and shows "None".
 6. "Try", only on a Sensor node: "Test value" and "For" (seconds).
 7. "Delete node": a flat button.
 
@@ -198,7 +213,9 @@ The node list has 51 kinds. "Title" is what the node shows after the name of its
 
 | State | What the user sees |
 |---|---|
-| New Graph | The canvas has the end node only, at the right of the view. Text in the middle of the canvas, in `fg-dim`: "Double-click a node in the list to add it." |
+| New Graph | The canvas has the end node only, at the right of the view. Text in the middle of the canvas, in `fg-dim`: "Double-click a node in the list to add it." Below 1280 px the text is: "Press Add node to add a node." |
+| Window below 1280 px | The editor has no node list column. The toolbar has the button "Add node" |
+| Node list popover open | The popover shows under "Add node", above the canvas, and the button has the `selected` fill. The canvas and the panel do not change. Escape, a press outside or a width of 1280 px or more closes it |
 | Loading | The canvas shows the nodes with "--" until the first values arrive, 2 s at most |
 | Live values | Each node of the applied Graph shows its value, read once per second. A node whose parameters differ in the draft still shows the value of the applied Graph |
 | No value | "--" in the place of the value. The nodes after it show "--" too |
@@ -235,6 +252,7 @@ Keyboard:
 
 - Tab order: the toolbar, the search field, the node list, the canvas, the parameter panel, the zoom buttons.
 - Node list: Up and Down move. Enter adds the kind at the centre of the view. Left and Right fold and unfold a family.
+- Below 1280 px the toolbar has "Add node" in the place of the two list stops. Enter or Space on it opens the popover with the focus in the search field. Tab and the keys of the node list work inside the popover. Escape closes it and gives the focus back to "Add node".
 - The canvas is one focus stop with the focus ring. The arrow keys select the nearest node in that direction, and the view follows it. Alt with an arrow key moves the selected node by 12 units. Enter moves the focus to the parameter panel. Escape clears the selection.
 - Delete removes the selected node with its connections, or the selected connection. It does not remove the end node.
 - Ctrl+Z is undo and Ctrl+Shift+Z is redo, 100 steps. They work in every part of the editor except inside a text field with an open edit.
@@ -251,10 +269,11 @@ Leaving:
 
 | Place | Text |
 |---|---|
-| Toolbar | "Graphs", "Undo", "Redo", "Try", "Apply", "Not applied", "Applied 21:44:02" |
+| Toolbar | "Graphs", "Add node", "Undo", "Redo", "Try", "Apply", "Not applied", "Applied 21:44:02" |
 | Try banner | "Try running, nothing is published", "24 s left", "Stop" |
 | Node list | "Search nodes", "Sources", "Math", "Logic", "State and time", "Filters", "Generators", "Other", "No node kind has this name." |
-| Panel | "Label", "Inputs", "Not connected", "Test value", "For", "Delete node", "End node", "Sensor", "Response", "Unit", "Graph sensor", "Used by", "Not used", "Created at Apply" |
+| New Graph | "Double-click a node in the list to add it.", "Press Add node to add a node." |
+| Panel | "Label", "Inputs", "None", "Test value", "For", "Delete node", "End node", "Sensor", "Response", "Unit", "Graph sensor", "Used by", "Not used", "Created at Apply" |
 | Response panel | "Kind", "Hold time", "Repeat every", "Minimum interval", "Countdown", "Run once", "Last runs", "No run yet." |
 | Status line | "Zoom out", "Zoom in", "The node values are not available.", "Retry" |
 | Unbound source | "Sensor not found" |

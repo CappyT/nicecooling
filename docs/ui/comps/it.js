@@ -34,7 +34,7 @@ window.NC_IT = {
   'Security': 'Sicurezza', 'Sender': 'Mittente', 'The password goes over the network in clear text': 'La password passa sulla rete in chiaro',
   'The login is not encrypted. The user name and the password go over the network in clear text.': 'L\'accesso non e cifrato. Il nome utente e la password passano sulla rete in chiaro.',
   'The app publishes the sensor values and the Alarm events while it runs. It reads nothing from the broker.': 'L\'app pubblica i valori dei sensori e gli eventi di Allarme mentre e in esecuzione. Non legge nulla dal broker.',
-  'Not applied': 'Non applicato', 'Try': 'Prova', 'Apply': 'Applica', 'Stop': 'Ferma', 'Try running, nothing is published': 'Prova in corso, non viene pubblicato nulla', '24 s left': 'ancora 24 s',
+  'Not applied': 'Non applicato', 'Add node': 'Aggiungi nodo', 'Try': 'Prova', 'Apply': 'Applica', 'Stop': 'Ferma', 'Try running, nothing is published': 'Prova in corso, non viene pubblicato nulla', '24 s left': 'ancora 24 s',
   'Search nodes': 'Cerca nodi', 'Sources': 'Sorgenti', 'Math': 'Matematica', 'Logic': 'Logica', 'State and time': 'Stato e tempo', 'Filters': 'Filtri', 'Generators': 'Generatori', 'Other': 'Altro',
   'Alarm event': 'Evento di Allarme', 'Constant': 'Costante', 'Random': 'Casuale', 'Peak filter': 'Filtro di picco', 'Minimum filter': 'Filtro di minimo', 'Average filter': 'Filtro di media', 'Low pass': 'Passa basso', 'Trend': 'Tendenza',
   'Comment': 'Commento', 'Sensor end node': 'Nodo finale sensore', 'Response end node': 'Nodo finale risposta', 'On delay': 'Ritardo di inserzione', 'Off delay': 'Ritardo di disinserzione',
