@@ -26,6 +26,14 @@ case "$(basename "$rpm_file")" in
   *) echo "unexpected rpm file name: $rpm_file" >&2; exit 1 ;;
 esac
 
+# A pre-release 0.2.0-beta.1 of Cargo.toml is the RPM version 0.2.0~beta.1, which sorts before 0.2.0.
+cargo_version=$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -n 1)
+rpm_version=$(podman run --rm -v "$PWD/$rpmdir":/rpm:ro,Z "$build_image" \
+  rpm -qp --qf '%{VERSION}' "/rpm/RPMS/$(basename "$(dirname "$rpm_file")")/$(basename "$rpm_file")")
+[ "$rpm_version" = "${cargo_version//-/\~}" ] \
+  || { echo "rpm version '$rpm_version' does not match Cargo.toml version '$cargo_version'" >&2; exit 1; }
+echo "rpm version: $rpm_version (Cargo.toml: $cargo_version)"
+
 mode=$(podman run --rm -v "$PWD/$rpmdir":/rpm:ro,Z "$build_image" \
   sh -c "rpm -qp --dump /rpm/RPMS/$(basename "$(dirname "$rpm_file")")/$(basename "$rpm_file")" \
   | awk '$1 == "/var/lib/nicecooling" { print $5 }')

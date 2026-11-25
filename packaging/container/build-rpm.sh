@@ -10,6 +10,8 @@ cd "$(dirname "$0")/../.."
 out=${1:-target/rpm}
 jobs=${JOBS:-8}
 version=$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -n 1)
+# The spec writes a pre-release as 0.2.0~beta.1, and it names the sources with that version.
+rpm_version=${version//-/\~}
 image=localhost/nicecooling-rpm-build
 
 mkdir -p "$out/SOURCES"
@@ -21,16 +23,16 @@ podman build -f packaging/container/Containerfile.build -t "$image" .
 # Source0: the tracked files and the new files that git does not ignore, as they are on disk.
 git ls-files -z --cached --others --exclude-standard \
   | while IFS= read -r -d '' f; do [ -e "$f" ] && printf '%s\0' "$f"; done \
-  | tar --null -T - --transform "s,^,nicecooling-$version/," --sort=name --mtime=@0 \
+  | tar --null -T - --transform "s,^,nicecooling-$rpm_version/," --sort=name --mtime=@0 \
         --owner=0 --group=0 --numeric-owner -cf - \
-  | zstd -q -T4 -19 -o "$out/SOURCES/nicecooling-$version.tar.zst" -f
+  | zstd -q -T4 -19 -o "$out/SOURCES/nicecooling-$rpm_version.tar.zst" -f
 
 # Source1: the vendored crates, made from the Source0 tree. This step needs network.
 podman run --rm -v "$out":/rpm:Z "$image" sh -c "
   set -e
   rm -rf /tmp/tree && mkdir /tmp/tree
-  tar -C /tmp/tree -xf /rpm/SOURCES/nicecooling-$version.tar.zst
-  /tmp/tree/nicecooling-$version/packaging/vendor.sh /rpm/SOURCES"
+  tar -C /tmp/tree -xf /rpm/SOURCES/nicecooling-$rpm_version.tar.zst
+  /tmp/tree/nicecooling-$rpm_version/packaging/vendor.sh /rpm/SOURCES"
 
 mkdir -p "$out/SPECS"
 cp packaging/nicecooling.spec "$out/SPECS/"
