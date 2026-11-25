@@ -1024,7 +1024,7 @@ The editor SHALL show the nodes, the pins and the connections on a canvas. The u
 - **THEN** the zoom stays at 25%
 
 ### Requirement: Editor node list
-The editor SHALL show a node list grouped by family: sources, math, logic, state and time, filters, generators and other. It SHALL have a search field. A new node SHALL appear at the centre of the view by double click or by drag onto the canvas. The list SHALL disable the kind of the end nodes because the Graph has its end node.
+The editor SHALL show a node list grouped by family: sources, math, logic, state and time, filters, generators and other. It SHALL have a search field. A double click or Enter on a kind SHALL add a node at the centre of the view. The list SHALL disable the kind of the end nodes because the Graph has its end node.
 
 #### Scenario: Search
 - **WHEN** the user types "delay"
@@ -1037,6 +1037,72 @@ The editor SHALL show a node list grouped by family: sources, math, logic, state
 #### Scenario: Kind count
 - **WHEN** the user opens the list
 - **THEN** it holds 51 kinds in total, 2 of them end nodes
+
+### Requirement: Editor node list forms
+At a window width of 1280 px or more the node list SHALL be a column of the editor, and a drag of a kind onto the canvas SHALL add the node at the pointer. Below 1280 px the editor SHALL have no node list column: a button "Add node" in the editor bar SHALL open the node list as a popover with the same search field and families. The popover SHALL close on Escape and on a press outside it. A drag from the popover SHALL add no node.
+
+#### Scenario: Column at 1280 px
+- **WHEN** the window is 1280 px wide
+- **THEN** the editor shows the node list as a column and has no button "Add node"
+
+#### Scenario: Add by drag from the column
+- **WHEN** the window is 1280 px wide and the user drags "Constant" from the column and releases it on the canvas
+- **THEN** the canvas gets a constant node at the pointer
+
+#### Scenario: Popover at 1279 px
+- **WHEN** the window is 1279 px wide and the user presses "Add node"
+- **THEN** the editor has no node list column, and the popover opens with the search field and the 7 families
+
+#### Scenario: Add by Enter in the popover
+- **WHEN** the window is 1100 px wide, the popover is open and the user presses Enter on "Constant"
+- **THEN** the canvas gets a constant node at the centre of the view and the popover stays open
+
+#### Scenario: Add by double click in the popover
+- **WHEN** the window is 1100 px wide, the popover is open and the user double-clicks "Constant"
+- **THEN** the canvas gets a constant node at the centre of the view
+
+#### Scenario: Escape
+- **WHEN** the popover is open and the user presses Escape
+- **THEN** the popover closes and the draft does not change
+
+#### Scenario: Press outside
+- **WHEN** the popover is open and the user presses on the canvas
+- **THEN** the popover closes and the draft does not change
+
+#### Scenario: No drag from the popover
+- **WHEN** the window is 1100 px wide and the user drags "Constant" from the popover to the canvas
+- **THEN** the draft gets no node
+
+### Requirement: Editor inputs section
+The parameter panel SHALL have a section "Inputs" with one select per input pin of the selected node, the pin of an end node included. A select SHALL list "None" and each other node that has an output pin. The choice of a node SHALL connect its output to the pin, in the place of the earlier connection, as one undo step. A choice that closes a loop SHALL be refused with the reason. "None" SHALL remove the connection. Every select SHALL work with the keyboard.
+
+#### Scenario: Entries of a select
+- **WHEN** a Graph has a sensor source node, a switch node, a limiter node, a comment node and an end node, and the limiter is selected
+- **THEN** the section has 1 select for the pin A, and it lists "None", the sensor source node and the switch node
+
+#### Scenario: Choice makes the connection
+- **WHEN** the pin A of the limiter has no connection and the user chooses the switch node in its select
+- **THEN** the draft has the connection from the switch to the pin A of the limiter, and one Ctrl+Z removes it
+
+#### Scenario: Choice replaces the connection
+- **WHEN** the pin A of the limiter has the connection from the switch and the user chooses the sensor source node
+- **THEN** the pin A has only the connection from the sensor source node, and one Ctrl+Z gives back the connection from the switch
+
+#### Scenario: Choice that closes a loop
+- **WHEN** the limiter takes its input from the switch, and the user chooses the limiter in the select of the pin A of the switch
+- **THEN** the draft does not change and the editor shows the reason "the connection closes a loop"
+
+#### Scenario: None
+- **WHEN** the pin A of the limiter has the connection from the switch and the user chooses "None"
+- **THEN** the draft has no connection to the pin A, and the limiter takes the default 0 on it
+
+#### Scenario: Pin of an end node
+- **WHEN** the end node is selected and the user chooses the limiter in the select of its pin A
+- **THEN** the draft has the connection from the limiter to the end node, and one Ctrl+Z removes it
+
+#### Scenario: Keyboard only
+- **WHEN** the select of the pin A has the focus and the user opens it, moves to the switch node with the Down key and presses Enter
+- **THEN** the draft has the connection from the switch to the pin A
 
 ### Requirement: Editor live values
 The editor SHALL show the value of each node of the applied Graph on the node, with `--` for no value. It SHALL read the values from the evaluator of the app once per second while it is open. A node that exists only in the draft SHALL show no value until Apply.

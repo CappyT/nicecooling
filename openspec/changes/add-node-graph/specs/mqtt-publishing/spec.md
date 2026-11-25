@@ -192,7 +192,7 @@ The settings SHALL show a warning when TLS is off and a password is set. The war
 - **THEN** no warning shows
 
 ### Requirement: Broker settings screen
-The app SHALL show the broker settings on the Settings screen, in a group "Network". It SHALL show the connection state: off, connecting, connected or failed with the last error text.
+The app SHALL show the broker settings on the Settings screen, in a group "Network". It SHALL show the connection state: off, connecting, connected or failed with the last error text. The broker fields SHALL work while the daemon is offline, because the app holds these settings and the daemon has no part in them.
 
 #### Scenario: Connected
 - **WHEN** the client is connected
@@ -201,4 +201,8 @@ The app SHALL show the broker settings on the Settings screen, in a group "Netwo
 #### Scenario: Failed
 - **WHEN** the broker refuses the login
 - **THEN** the screen shows "Failed" and the error text
+
+#### Scenario: Daemon offline
+- **WHEN** the daemon is offline and the user sets the host `broker.lan`
+- **THEN** the app stores the host and opens a connection to `broker.lan` on the port 1883
 

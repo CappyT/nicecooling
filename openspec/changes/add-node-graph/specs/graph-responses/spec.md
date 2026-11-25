@@ -467,9 +467,13 @@ The app SHALL show the banner of the response pause on every screen until the us
 - **THEN** the banner is visible with the button "Turn the Graph responses on"
 
 ### Requirement: SMTP settings screen
-The app SHALL show the SMTP settings on the Settings screen, in the group "Network".
+The app SHALL show the SMTP settings on the Settings screen, in the group "Network". The SMTP fields SHALL work while the daemon is offline, because the app holds these settings and the daemon has no part in them.
 
 #### Scenario: Settings card
 - **WHEN** the user opens the Settings screen
 - **THEN** the group "Network" shows the SMTP fields and the unencrypted-login warning when it applies
+
+#### Scenario: Daemon offline
+- **WHEN** the daemon is offline and the user sets the host `mail.lan` and the security `tls`
+- **THEN** the app stores both in `settings.toml`, and the port is 465
 
