@@ -46,12 +46,17 @@ pub struct Pause {
     /// The seconds of app run time since the last counted run.
     pub quiet_s: u64,
     pub paused: bool,
+    /// The count and the quiet time from before the last counted run started. Not stored: after
+    /// a restart a cancel only gives the count back.
+    #[serde(skip)]
+    before_run: Option<(u32, u64)>,
 }
 
 impl Pause {
     /// A counted run starts, "Run once" included. It returns true while the Response pause is on.
     pub fn start_run(&mut self, kind: PowerKind) -> bool {
         if kind.counts() {
+            self.before_run = Some((self.count, self.quiet_s));
             self.count = self.count.saturating_add(1);
             self.quiet_s = 0;
             if self.count >= PAUSE_AT {
@@ -62,11 +67,17 @@ impl Pause {
     }
 
     /// A run that was counted when it started does not happen: the user cancelled it, or the app
-    /// stopped before the power call. The count goes back, and so does a pause that this run
-    /// started.
+    /// stopped before the power call. The count and the quiet time go back to their values from
+    /// before the run, and so does a pause that this run started.
     pub fn cancel_run(&mut self, kind: PowerKind) {
         if kind.counts() {
-            self.count = self.count.saturating_sub(1);
+            match self.before_run.take() {
+                Some((count, quiet_s)) => {
+                    self.count = count;
+                    self.quiet_s = quiet_s;
+                }
+                None => self.count = self.count.saturating_sub(1),
+            }
             self.paused = self.paused && self.count >= PAUSE_AT;
         }
     }
@@ -157,6 +168,7 @@ mod tests {
             count: 3,
             quiet_s: 0,
             paused: true,
+            ..Pause::default()
         };
         paused.start_run(PowerKind::Reboot);
         paused.cancel_run(PowerKind::Reboot);
@@ -174,6 +186,30 @@ mod tests {
         let mut empty = Pause::default();
         empty.cancel_run(PowerKind::Poweroff);
         assert_eq!(empty.count, 0);
+    }
+
+    #[test]
+    fn cancelled_run_restores_count_and_quiet_time() {
+        let mut pause = Pause::default();
+        pause.start_run(PowerKind::Poweroff);
+        pause.advance(50 * 60);
+        pause.start_run(PowerKind::Reboot);
+        pause.cancel_run(PowerKind::Reboot);
+        assert_eq!((pause.count, pause.quiet_s), (1, 50 * 60));
+        // The cancel of a run that started the pause gives back the quiet time as well.
+        let mut third = Pause {
+            count: 2,
+            quiet_s: 600,
+            ..Pause::default()
+        };
+        assert!(third.start_run(PowerKind::Poweroff));
+        third.cancel_run(PowerKind::Poweroff);
+        assert_eq!((third.count, third.quiet_s, third.paused), (2, 600, false));
+        // After a restart the snapshot is gone: the cancel gives back the count only.
+        let mut restarted: Pause =
+            serde_json::from_str(r#"{"count":2,"quiet_s":0,"paused":false}"#).unwrap();
+        restarted.cancel_run(PowerKind::Poweroff);
+        assert_eq!(restarted.count, 1);
     }
 
     #[test]
@@ -201,6 +237,7 @@ mod tests {
             count: 2,
             quiet_s: 100,
             paused: false,
+            ..Pause::default()
         };
         assert!(pause.start_run(PowerKind::Reboot));
         assert_eq!(pause.count, 3);
@@ -217,6 +254,7 @@ mod tests {
             count: 3,
             quiet_s: 120,
             paused: true,
+            ..Pause::default()
         };
         let text = serde_json::to_string(&pause).unwrap();
         assert_eq!(text, r#"{"count":3,"quiet_s":120,"paused":true}"#);

@@ -344,11 +344,18 @@ The app SHALL count the poweroff and reboot runs that it starts, "Run once" incl
 
 #### Scenario: Cancelled run
 - **WHEN** the user cancels a poweroff countdown
-- **THEN** the count does not change
+- **THEN** the count and the quiet time are the values from before that run started
 
 #### Scenario: Suspend
 - **WHEN** a suspend response runs
 - **THEN** the count does not change
+
+### Requirement: Cancelled power run
+A poweroff or reboot run that the user cancels, or that stops with the app before the power call, SHALL give back the count and the quiet time that its start changed. A pause that this run started SHALL end.
+
+#### Scenario: Cancelled run and the 60 minutes
+- **WHEN** one poweroff ran, a second poweroff starts 50 minutes later, the user cancels it, and 10 minutes pass
+- **THEN** the count is 0
 
 ### Requirement: Message placeholders
 The text of a notification, the subject and text of an e-mail and the payload template of an MQTT message SHALL expand `{graph}`, `{time}`, `{value:<label>}` and `{unit:<label>}`, where the label names a node of the Graph. `{time}` SHALL be the local date and time as `YYYY-MM-DD HH:MM:SS`. `{{` SHALL give `{` and `}}` SHALL give `}`.
