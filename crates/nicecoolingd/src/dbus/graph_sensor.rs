@@ -42,6 +42,11 @@ impl GraphSensor {
             if let Err(e) = super::register_sensor(&server, &hub, &id).await {
                 eprintln!("nicecoolingd: cannot register the sensor {id} again: {e}");
             }
+            // A Delete between the two steps removed the objects before the add above: remove them
+            // again. A Delete after this check removes them itself.
+            if !hub.is_graph_sensor(&id) {
+                let _ = super::unregister_sensor(&server, &id).await;
+            }
         });
         Ok(())
     }

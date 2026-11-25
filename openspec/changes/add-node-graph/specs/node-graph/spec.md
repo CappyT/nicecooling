@@ -874,11 +874,15 @@ The unit of a Graph sensor SHALL be one of `degC`, `rpm`, `%`, `V`, `A`, `W`, `l
 - **THEN** the `Kind` becomes `flow` and the id stays `graph_2`
 
 ### Requirement: Graph sensor definition
-`GraphSensor.SetDefinition(name, unit)` SHALL change the default name and the unit and keep the id. A name that the user set with `Sensor.SetName` SHALL still show. After it the daemon SHALL remove the object and add it again. A change of the unit SHALL fail with `InUse` while a Software sensor slot uses the sensor. `GraphSensor.Delete()` SHALL remove the sensor.
+`GraphSensor.SetDefinition(name, unit)` SHALL change the default name and the unit and keep the id. A name that the user set with `Sensor.SetName` SHALL still show. After it the daemon SHALL remove the object and add it again, and a `Delete` in between SHALL leave no object. A change of the unit SHALL fail with `InUse` while a Software sensor slot uses the sensor. `GraphSensor.Delete()` SHALL remove the sensor.
 
 #### Scenario: Rename
 - **WHEN** the app calls `SetDefinition("Hot water", "degC")` on `graph_2`
 - **THEN** the id stays `graph_2`, the daemon emits `InterfacesRemoved` and `InterfacesAdded`, and every user keeps working
+
+#### Scenario: Delete during the swap
+- **WHEN** the app calls `SetDefinition` on `graph_2` and a client calls `Delete` on it before the object is added again
+- **THEN** no object exists at `/io/github/cappyt/NiceCooling1/sensor/graph_2`
 
 #### Scenario: User name wins
 - **WHEN** the user named `graph_2` "Mine" with `Sensor.SetName` and the app calls `SetDefinition("Hot water", "degC")`
