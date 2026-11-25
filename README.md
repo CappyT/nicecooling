@@ -1,10 +1,35 @@
-# nicecooling
+<h1 align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/logo-dark.svg">
+    <img src="docs/images/logo-light.svg" alt="nicecooling" width="408">
+  </picture>
+</h1>
+
+<p align="center">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-GPL--3.0--or--later-1c71d8" alt="License: GPL-3.0-or-later"></a>
+  <img src="https://img.shields.io/badge/platform-Linux-5e5e66" alt="Platform: Linux">
+  <img src="https://img.shields.io/badge/language-Rust-5e5e66" alt="Language: Rust">
+</p>
 
 nicecooling is an open-source replacement for aquasuite on Linux. It controls the water loop of a desktop PC and it configures and monitors the Aqua Computer LEAKSHIELD.
 
 The system service `nicecoolingd` does the control. The app `nicecooling` shows a window, a tray icon and desktop notifications.
 
 nicecooling is not a product of Aqua Computer and has no connection with that company. aquasuite and LEAKSHIELD are names of Aqua Computer.
+
+<p align="center">
+  <a href="#what-it-does-today">What it does today</a> |
+  <a href="#screenshots">Screenshots</a> |
+  <a href="#supported-hardware">Supported hardware</a> |
+  <a href="#install">Install</a> |
+  <a href="#rollback">Rollback</a> |
+  <a href="#documentation">Documentation</a> |
+  <a href="#license">License</a>
+</p>
+
+<p align="center">
+  <img src="docs/images/overview.png" alt="The Overview screen with the Loop diagram" width="880">
+</p>
 
 ## What it does today
 
@@ -27,6 +52,14 @@ Leakshield:
 - A backup before each write, a restore, and the four profile slots of the device.
 
 Planned: sensors and responses built from a graph of nodes, MQTT, the firmware update of the Leakshield, more devices.
+
+## Screenshots
+
+The images show the app with test data.
+
+| Leakshield | Curve of a Channel | Pressure step of the settings wizard |
+|---|---|---|
+| [<img src="docs/images/leakshield.png" alt="The Leakshield screen: pressure, status, Mode and Actions" width="280">](docs/images/leakshield.png) | [<img src="docs/images/curve-editor.png" alt="The Curve editor of the pump Channel" width="280">](docs/images/curve-editor.png) | [<img src="docs/images/pressure-settings.png" alt="The pressure values of the Leakshield in the settings wizard" width="280">](docs/images/pressure-settings.png) |
 
 ## Supported hardware
 
