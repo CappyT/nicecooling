@@ -5,8 +5,8 @@ use super::{Control, Stage, TickContext, finite_or_full};
 
 /// Stage 5: compute each Curve from its smoothed Input.
 /// A fixed Duty is its own target. A Channel on its Hardware curve has none.
-/// A Curve also reports the mean of its window as `input`. Lost Input and a new Input sensor clear
-/// the window, so a mean never holds stale samples or samples of two sensors.
+/// A Curve also reports the mean of its window as `input`. Lost Input, a pause of the tick and a new
+/// Input sensor clear the window, so a mean never holds stale samples or samples of two sensors.
 #[derive(Default)]
 pub struct CurveStage {
     windows: BTreeMap<String, Window>,
@@ -26,6 +26,9 @@ impl Stage for CurveStage {
 
     fn run(&mut self, ctx: &mut TickContext) {
         let now = ctx.now;
+        if ctx.after_pause {
+            self.windows.clear();
+        }
         for setup in &ctx.config.channels {
             let tick = ctx.channels.entry(setup.id.clone()).or_default();
             match &setup.control {

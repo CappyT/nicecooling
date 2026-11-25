@@ -1399,7 +1399,7 @@ impl Hub {
                 continue;
             }
             if *has_value {
-                self.values.publish(id, *value, now);
+                self.values.publish_from_app(id, *value, now);
             } else {
                 self.values.clear(id);
             }

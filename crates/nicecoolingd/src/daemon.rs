@@ -334,7 +334,8 @@ pub async fn start<N: Notifier + 'static>(
     pipeline.push(Box::new(feed_stage.with_linked(fleet.linked_sink())));
     pipeline.push(Box::new(ApiStage::new(hub.clone())));
     pipeline.push(Box::new(WatchdogStage::new(notifier)));
-    let mut runner = TickRunner::new(pipeline, config, clock.clone(), options.tick_period);
+    let mut runner = TickRunner::new(pipeline, config, clock.clone(), options.tick_period)
+        .with_values(values.clone());
     for (event, source) in warnings {
         runner.context().warnings.raise(&event, &source);
     }

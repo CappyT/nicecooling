@@ -13,6 +13,10 @@ use tokio::time::{Instant, MissedTickBehavior};
 
 use crate::lease::Lease;
 use crate::snapshot::{BiosSnapshot, restore_channel};
+use crate::value_table::ValueTable;
+
+/// The time that the first tick after a pause gives the sources to read again.
+pub const REREAD_LIMIT: Duration = Duration::from_secs(2);
 
 /// The clock of the tick: time since the start, on the Tokio clock.
 pub struct TokioClock {
@@ -147,6 +151,7 @@ pub struct TickRunner {
     clock: Arc<dyn Clock>,
     period: Duration,
     reported: BTreeSet<(String, String)>,
+    values: Option<ValueTable>,
 }
 
 impl TickRunner {
@@ -162,7 +167,29 @@ impl TickRunner {
             clock,
             period,
             reported: BTreeSet::new(),
+            values: None,
         }
+    }
+
+    /// The value table that the sources fill. After a pause of the tick, `run` waits for the
+    /// sources to read again before it ticks.
+    pub fn with_values(mut self, values: ValueTable) -> Self {
+        self.values = Some(values);
+        self
+    }
+
+    /// After a pause of the tick (suspend, a stopped process) the values in the table are from
+    /// before it. Waits until each sensor that was live in the last tick has a new read, or for
+    /// `REREAD_LIMIT`. A sensor that does not read is lost in this tick, as it is after 3 s.
+    async fn reread_after_pause(&mut self) {
+        let now = self.clock.now();
+        let Some(values) = self.values.as_ref().filter(|_| self.ctx.is_pause(now)) else {
+            return;
+        };
+        self.ctx.resumed_from = Some(now);
+        values
+            .wait_for_reads(self.ctx.values.keys(), now, REREAD_LIMIT)
+            .await;
     }
 
     pub fn context(&mut self) -> &mut TickContext {
@@ -193,6 +220,7 @@ impl TickRunner {
         let mut count = 0;
         while limit.is_none_or(|l| count < l) {
             interval.tick().await;
+            self.reread_after_pause().await;
             self.tick();
             count += 1;
         }

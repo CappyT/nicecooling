@@ -39,6 +39,12 @@ pub(crate) fn finite_or_full(duty: f64) -> f64 {
 /// A value older than this counts as no value.
 pub const STALE_AFTER: Duration = Duration::from_secs(3);
 
+/// A gap between two ticks that is longer than this is a pause of the tick: the PC was suspended
+/// or the process was stopped. A value that was fresh before the pause can be older than
+/// `STALE_AFTER` after it, so the first tick after a pause takes only values from after the pause.
+/// With a source period of 1 s, a gap up to this length cannot make a fresh value stale.
+pub const PAUSE_AFTER: Duration = Duration::from_secs(2);
+
 /// A value of the value table with the time its source published it.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Reading {
@@ -124,6 +130,15 @@ pub struct TickContext {
     pub processes: ProcessList,
     /// Device errors of this tick, as text.
     pub errors: Vec<String>,
+    /// The time of the previous tick.
+    previous: Option<Duration>,
+    /// This tick is the first one after a pause of the tick (`PAUSE_AFTER`). Stage 1 takes only
+    /// values from after the pause, and the stages that smooth over time start again.
+    pub after_pause: bool,
+    /// The time when the runner saw the end of a pause and let the sources read again. A value
+    /// counts after the pause when it is stamped at or after this time. Without it, the time
+    /// of the tick is the end of the pause. The runner clears it at the end of the tick.
+    pub resumed_from: Option<Duration>,
 }
 
 impl TickContext {
@@ -134,7 +149,15 @@ impl TickContext {
         }
     }
 
+    /// The tick at `now` comes after a pause of the tick.
+    pub fn is_pause(&self, now: Duration) -> bool {
+        self.previous
+            .is_some_and(|previous| now.saturating_sub(previous) > PAUSE_AFTER)
+    }
+
     fn begin(&mut self, now: Duration) {
+        self.after_pause = self.is_pause(now);
+        self.previous = Some(now);
         self.now = now;
         self.values.clear();
         self.out_of_range.clear();
@@ -149,6 +172,7 @@ impl TickContext {
     }
 
     fn finish(&mut self) {
+        self.resumed_from = None;
         for tick in self.channels.values_mut() {
             tick.last_duty = tick.duty;
         }
