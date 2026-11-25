@@ -170,6 +170,7 @@ impl FlowGraph {
         let node_id = node.id.clone();
         let state = self.state.clone();
         let selected = node.selected;
+        let dashed = node.dashed;
         let dragging = node.dragging;
         let show_chrome = self.show_node_chrome;
         let node_bg = self.node_bg_color;
@@ -241,6 +242,7 @@ impl FlowGraph {
             } else {
                 CursorStyle::OpenHand
             })
+            .when(dashed, |el: Stateful<Div>| el.border_dashed())
             .when(selected, |el: Stateful<Div>| {
                 el.border_2().border_color(gpui::rgb(accent))
             })
@@ -500,7 +502,7 @@ impl FlowGraph {
         let (sx, sy) = (draft.from_point.0 + origin.0, draft.from_point.1 + origin.1);
         let (tx, ty) = (draft.to_point.0 + origin.0, draft.to_point.1 + origin.1);
 
-        let mut builder = PathBuilder::stroke(px(2.0));
+        let mut builder = PathBuilder::stroke(px(1.5)).dash_array(&[px(6.0), px(4.0)]);
         builder.move_to(Point::new(px(sx), px(sy)));
 
         // Simple bezier toward cursor

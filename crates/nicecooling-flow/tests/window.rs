@@ -360,3 +360,59 @@ fn plus_minus_and_zero_change_the_zoom(cx: &mut TestAppContext) {
     }
     assert_eq!(zoom(cx), 0.25);
 }
+
+#[gpui::test]
+fn a_node_with_the_dashed_flag_has_a_dashed_outline(cx: &mut TestAppContext) {
+    let nodes = vec![
+        FlowNode::new("plain", 100.0, 100.0)
+            .label("P")
+            .size(100.0, 40.0),
+        FlowNode::new("draft", 300.0, 100.0)
+            .label("D")
+            .size(100.0, 40.0)
+            .dashed(true),
+    ];
+    let (state, _graph, cx) = rig_with(cx, FlowState::new(nodes, Vec::new()));
+    // The scene lists the same node more than once. Count the places, not the quads.
+    let dashed = |cx: &mut VisualTestContext| {
+        cx.update(|window, _| {
+            window
+                .painted_quads()
+                .iter()
+                .filter(|quad| quad.border_style == gpui::BorderStyle::Dashed)
+                .map(|quad| format!("{:?}", quad.bounds.origin))
+                .collect::<std::collections::BTreeSet<_>>()
+                .len()
+        })
+    };
+    assert_eq!(dashed(cx), 1);
+    // The flag follows the state that the app sets.
+    cx.update(|_, cx| {
+        state.update(cx, |state, cx| {
+            let mut nodes = state.nodes.clone();
+            nodes[1].dashed = false;
+            state.set_graph(nodes, Vec::new());
+            cx.notify();
+        })
+    });
+    draw(cx);
+    assert_eq!(dashed(cx), 0);
+}
+
+#[gpui::test]
+fn the_draft_line_draws_while_a_connection_drag_is_over_a_free_and_a_refused_pin(
+    cx: &mut TestAppContext,
+) {
+    // The test window has no accessor for the paths of a frame: this checks that the dashed
+    // draft line draws without a panic in both looks.
+    let (state, cx) = rig(cx);
+    let out = pin_point(&state, cx, "a", "out", HandlePosition::Right);
+    cx.simulate_mouse_down(out, MouseButton::Left, Modifiers::none());
+    cx.simulate_mouse_move(at(250.0, 300.0), MouseButton::Left, Modifiers::none());
+    draw(cx);
+    let input = pin_point(&state, cx, "b", "in", HandlePosition::Left);
+    cx.simulate_mouse_move(input, MouseButton::Left, Modifiers::none());
+    draw(cx);
+    assert!(cx.read(|cx| state.read(cx).connecting.is_some()));
+    cx.simulate_mouse_up(input, MouseButton::Left, Modifiers::none());
+}

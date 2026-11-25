@@ -123,6 +123,10 @@ Not checked: a Graph of 256 nodes, the pinch zoom, a touchpad scroll, the box se
 | Tests without a display (task 8.1) | The connect, zoom and pan logic is in closures of `FlowGraph::render`. The four tests of task 8.1 need this logic as functions of `FlowState` |
 | Lints of the workspace (task 8.1) | `cargo clippy` with its default lints gives 29 warnings on the copy. The copy is not formatted with `rustfmt`. **Fixed in `crates/nicecooling-flow`:** the crate is formatted and passes `cargo clippy -- -D warnings` with no crate-level `allow`. One function keeps `allow(clippy::too_many_arguments)` with its reason |
 
+## Dashed outline
+
+`FlowNode::dashed` draws the outline of a node dashed with `border_dashed` of the pinned `gpui-pre`. The test is `a_node_with_the_dashed_flag_has_a_dashed_outline`: it reads the quads of the frame in the test window. How the dashes look on screen is not checked. The draft line of a connection drag is 1.5 px and dashed (`PathBuilder::dash_array`, 6 px and 4 px). The test window has no accessor for the paths of a frame, so a test only draws the line without a panic: the dash pattern on screen is not checked.
+
 ## Build notes
 
 - `cargo check` of the copy takes 31 s and the release build 68 s on the machine of the check, with every dependency already downloaded.

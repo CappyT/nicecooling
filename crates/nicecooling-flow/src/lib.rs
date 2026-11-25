@@ -35,6 +35,9 @@
 //! A drag on the empty canvas pans. The wheel pans, and the wheel with Ctrl zooms. The zoom stays
 //! between [`MIN_ZOOM`] (25%) and [`MAX_ZOOM`] (400%).
 //!
+//! A node with [`FlowNode::dashed`] set has a dashed outline. The draft line of a connection drag
+//! is dashed.
+//!
 //! # Keyboard
 //!
 //! A press on the canvas gives it the focus ([`FlowGraph::focus_handle`]). The canvas is in the

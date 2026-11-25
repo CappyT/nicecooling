@@ -123,6 +123,8 @@ pub struct FlowNode {
     pub connectable: bool,
     pub deletable: bool,
     pub hidden: bool,
+    /// Draw the outline of the node dashed, for example for a node that the app has not stored.
+    pub dashed: bool,
     pub z_index: i32,
     pub measured_width: Option<Pixels>,
     pub measured_height: Option<Pixels>,
@@ -143,6 +145,7 @@ impl FlowNode {
             connectable: true,
             deletable: true,
             hidden: false,
+            dashed: false,
             z_index: 0,
             measured_width: None,
             measured_height: None,
@@ -169,6 +172,12 @@ impl FlowNode {
     pub fn size(mut self, width: f32, height: f32) -> Self {
         self.measured_width = Some(gpui::px(width));
         self.measured_height = Some(gpui::px(height));
+        self
+    }
+
+    /// Draw the outline of the node dashed.
+    pub fn dashed(mut self, dashed: bool) -> Self {
+        self.dashed = dashed;
         self
     }
 
