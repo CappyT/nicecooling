@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::rc::Rc;
 
-use gpui::{Bounds, Pixels, SharedString};
+use gpui::{Bounds, EventEmitter, Pixels, SharedString};
 
 use crate::types::*;
 
@@ -52,8 +52,14 @@ pub const MAX_ZOOM: f32 = 4.0;
 /// One zoom step of the buttons and the wheel.
 const ZOOM_STEP: f32 = 1.2;
 
-/// A rule of the app for a connection. It runs after the default rules.
-pub type ConnectRule = Rc<dyn Fn(&Connection, &FlowState) -> bool>;
+/// A rule of the app for a connection. It runs after the default rules. `Err` holds the reason
+/// of the refusal: the app chooses its text or its code.
+pub type ConnectRule = Rc<dyn Fn(&Connection, &FlowState) -> Result<(), SharedString>>;
+
+/// The reason of a refusal by the default rules: a connection from a node to itself.
+pub const SAME_NODE: &str = "same node";
+/// The reason of a refusal by the default rules: the two pins have a connection already.
+pub const ALREADY_CONNECTED: &str = "already connected";
 
 /// What the end of a connection drag did.
 #[derive(Debug, Clone, PartialEq)]
@@ -61,7 +67,10 @@ pub enum ConnectOutcome {
     /// The canvas added the connection.
     Added(Connection),
     /// A rule refused the connection. The canvas added nothing.
-    Refused(Connection),
+    Refused {
+        connection: Connection,
+        reason: SharedString,
+    },
     /// The drag ended away from a pin, or there was no drag.
     Dropped,
 }
@@ -98,10 +107,13 @@ pub struct FlowState {
     pub zoom_on_scroll: bool,
     rule: Option<ConnectRule>,
     next_edge: u64,
+    events: Vec<FlowEvent>,
     /// Window coordinates of the canvas origin, set at each paint. The mouse events have
     /// window coordinates, and the nodes and edges have coordinates relative to the canvas.
     pub origin: (f32, f32),
 }
+
+impl EventEmitter<FlowEvent> for FlowState {}
 
 impl FlowState {
     pub fn new(nodes: Vec<FlowNode>, edges: Vec<FlowEdge>) -> Self {
@@ -130,13 +142,17 @@ impl FlowState {
             zoom_on_scroll: false,
             rule: None,
             next_edge: 0,
+            events: Vec::new(),
             origin: (0.0, 0.0),
         }
     }
 
     /// Set the rule of the app for a connection. The canvas asks it during a connection drag
     /// and at the release.
-    pub fn with_rule(mut self, rule: impl Fn(&Connection, &FlowState) -> bool + 'static) -> Self {
+    pub fn with_rule(
+        mut self,
+        rule: impl Fn(&Connection, &FlowState) -> Result<(), SharedString> + 'static,
+    ) -> Self {
         self.rule = Some(Rc::new(rule));
         self
     }
@@ -550,26 +566,16 @@ impl FlowState {
         let Some(draft) = self.connecting.take() else {
             return ConnectOutcome::Dropped;
         };
-        let Some(snap) = draft.snap_target else {
+        let Some(snap) = draft.snap_target.clone() else {
             return ConnectOutcome::Dropped;
         };
-        let connection = if draft.from_type == HandleType::Source {
-            Connection {
-                source: draft.from_node,
-                target: snap.node_id,
-                source_handle: draft.from_handle,
-                target_handle: snap.handle_id,
-            }
-        } else {
-            Connection {
-                source: snap.node_id,
-                target: draft.from_node,
-                source_handle: snap.handle_id,
-                target_handle: draft.from_handle,
-            }
-        };
-        if !self.accepts(&connection) {
-            return ConnectOutcome::Refused(connection);
+        let connection = draft.connection_to(&snap.node_id, &snap.handle_id);
+        if let Err(reason) = self.check(&connection) {
+            self.events.push(FlowEvent::ConnectionRefused {
+                connection: connection.clone(),
+                reason: reason.clone(),
+            });
+            return ConnectOutcome::Refused { connection, reason };
         }
         self.push_undo();
         let edge_id = self.new_edge_id();
@@ -577,10 +583,18 @@ impl FlowState {
         ConnectOutcome::Added(connection)
     }
 
-    /// The default rules and the rule of the app, for one connection.
-    pub fn accepts(&self, connection: &Connection) -> bool {
-        self.is_valid_connection(connection)
-            && self.rule.as_ref().is_none_or(|rule| rule(connection, self))
+    /// The default rules and the rule of the app, for one connection. `Err` is the reason.
+    pub fn check(&self, connection: &Connection) -> Result<(), SharedString> {
+        self.default_rules(connection)?;
+        self.rule
+            .as_ref()
+            .map_or(Ok(()), |rule| rule(connection, self))
+    }
+
+    /// The events that the canvas has not given to its user yet. The canvas does this after each
+    /// input, and the events leave the state.
+    pub fn take_events(&mut self) -> Vec<FlowEvent> {
+        std::mem::take(&mut self.events)
     }
 
     fn new_edge_id(&mut self) -> SharedString {
@@ -691,6 +705,9 @@ impl FlowState {
                                     handle_type: handle.handle_type,
                                     position: handle.position,
                                     point: (hx, hy),
+                                    refusal: self
+                                        .check(&draft.connection_to(&node.id, &handle.id))
+                                        .err(),
                                 },
                             ));
                         }
@@ -702,14 +719,10 @@ impl FlowState {
         best.map(|(_, target)| target)
     }
 
-    /// Check if a connection is valid (default rules).
-    pub fn is_valid_connection(&self, connection: &Connection) -> bool {
-        // No self-connections
+    fn default_rules(&self, connection: &Connection) -> Result<(), SharedString> {
         if connection.source == connection.target {
-            return false;
+            return Err(SAME_NODE.into());
         }
-
-        // No duplicate edges
         let duplicate = self.edges.iter().any(|e| {
             e.source == connection.source
                 && e.target == connection.target
@@ -717,10 +730,9 @@ impl FlowState {
                 && e.target_handle == connection.target_handle
         });
         if duplicate {
-            return false;
+            return Err(ALREADY_CONNECTED.into());
         }
-
-        true
+        Ok(())
     }
 
     /// Add an edge from a completed connection.

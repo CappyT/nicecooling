@@ -1,10 +1,16 @@
 //! Tests of the canvas in a window on the GPUI test platform. They need no display.
 
+use std::cell::RefCell;
+use std::rc::Rc;
+
 use gpui::{
-    Context, Entity, IntoElement, Modifiers, MouseButton, Render, TestAppContext,
+    Context, Entity, IntoElement, Modifiers, MouseButton, Render, SharedString, TestAppContext,
     VisualTestContext, Window, div, point, prelude::*, px,
 };
-use nicecooling_flow::{FlowGraph, FlowNode, FlowPoint, FlowState, HandleDef, HandlePosition};
+use nicecooling_flow::{
+    Connection, FlowEdge, FlowEvent, FlowGraph, FlowNode, FlowPoint, FlowState, HandleDef,
+    HandlePosition,
+};
 
 /// A header above the canvas, as in the editor: the canvas does not start at the window origin.
 const HEADER: f32 = 46.0;
@@ -32,11 +38,37 @@ fn nodes() -> Vec<FlowNode> {
             .label("B")
             .size(100.0, 40.0)
             .handles(vec![HandleDef::target(HandlePosition::Left).id("in")]),
+        FlowNode::new("c", 100.0, 250.0)
+            .label("C")
+            .size(100.0, 40.0)
+            .handles(vec![HandleDef::source(HandlePosition::Right).id("out")]),
     ]
 }
 
+/// The pin `in` of `b` has the connection from `c`.
+fn edges() -> Vec<FlowEdge> {
+    vec![
+        FlowEdge::new("e0", "c", "b")
+            .source_handle("out")
+            .target_handle("in"),
+    ]
+}
+
+const INPUT_OCCUPIED: &str = "input already connected";
+
+fn occupied(connection: &Connection, state: &FlowState) -> Result<(), SharedString> {
+    let used = state.edges.iter().any(|edge| {
+        edge.target == connection.target && edge.target_handle == connection.target_handle
+    });
+    if used {
+        Err(INPUT_OCCUPIED.into())
+    } else {
+        Ok(())
+    }
+}
+
 fn rig(cx: &mut TestAppContext) -> (Entity<FlowState>, &mut VisualTestContext) {
-    let state = cx.new(|_| FlowState::new(nodes(), Vec::new()));
+    let state = cx.new(|_| FlowState::new(nodes(), edges()).with_rule(occupied));
     let graph_state = state.clone();
     let (_host, cx) = cx.add_window_view(|_, cx| Host {
         graph: cx.new(|cx| FlowGraph::new(graph_state, cx)),
@@ -124,4 +156,62 @@ fn escape_cancels_a_node_drag_and_puts_the_node_back(cx: &mut TestAppContext) {
     // The release that follows changes nothing.
     cx.simulate_mouse_up(at(220.0, 160.0), MouseButton::Left, Modifiers::none());
     assert_eq!(node_position(&state, cx, "a"), FlowPoint::new(100.0, 100.0));
+}
+
+/// The center of a pin in window coordinates.
+fn pin_point(
+    state: &Entity<FlowState>,
+    cx: &VisualTestContext,
+    node: &str,
+    handle: &str,
+    side: HandlePosition,
+) -> gpui::Point<gpui::Pixels> {
+    let (x, y) = cx.read(|cx| {
+        state
+            .read(cx)
+            .find_handle_center(
+                &node.to_string().into(),
+                &Some(handle.to_string().into()),
+                side,
+            )
+            .unwrap()
+    });
+    at(x, y)
+}
+
+#[gpui::test]
+fn a_drop_on_an_occupied_pin_sends_the_reason_to_a_subscriber(cx: &mut TestAppContext) {
+    let (state, cx) = rig(cx);
+    let events: Rc<RefCell<Vec<FlowEvent>>> = Rc::default();
+    let log = events.clone();
+    let _subscription = cx.update(|_, cx| {
+        cx.subscribe(&state, move |_, event: &FlowEvent, _| {
+            log.borrow_mut().push(event.clone())
+        })
+    });
+    let out = pin_point(&state, cx, "a", "out", HandlePosition::Right);
+    let input = pin_point(&state, cx, "b", "in", HandlePosition::Left);
+    cx.simulate_mouse_down(out, MouseButton::Left, Modifiers::none());
+    cx.simulate_mouse_move(input, MouseButton::Left, Modifiers::none());
+    // The draft shows the refusal before the release.
+    let refusal = cx.read(|cx| {
+        let draft = state.read(cx).connecting.clone().unwrap();
+        draft.snap_target.unwrap().refusal
+    });
+    assert_eq!(refusal, Some(INPUT_OCCUPIED.into()));
+    assert!(events.borrow().is_empty());
+    cx.simulate_mouse_up(input, MouseButton::Left, Modifiers::none());
+    assert_eq!(
+        *events.borrow(),
+        vec![FlowEvent::ConnectionRefused {
+            connection: Connection {
+                source: "a".into(),
+                target: "b".into(),
+                source_handle: Some("out".into()),
+                target_handle: Some("in".into()),
+            },
+            reason: INPUT_OCCUPIED.into(),
+        }]
+    );
+    assert_eq!(cx.read(|cx| state.read(cx).edges.len()), 1);
 }

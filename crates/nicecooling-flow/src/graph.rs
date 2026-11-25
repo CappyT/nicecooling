@@ -31,6 +31,8 @@ pub struct FlowGraph {
     node_border_color: u32,
     /// Color of a selection, a snap target and the connection draft (default: 0x3b82f6).
     accent_color: u32,
+    /// Color of a pin that refuses the connection of the drag (default: 0xdc2626).
+    danger_color: u32,
     /// Color of an edge without a color of its own (default: 0xb1b1b7).
     edge_color: u32,
     /// Whether we've done the initial measurement pass.
@@ -51,6 +53,7 @@ impl FlowGraph {
             node_bg_color: 0xffffff,
             node_border_color: 0xe2e2e2,
             accent_color: 0x3b82f6,
+            danger_color: 0xdc2626,
             edge_color: 0xb1b1b7,
             measured: false,
         }
@@ -112,6 +115,12 @@ impl FlowGraph {
         self
     }
 
+    /// Set the color of a pin that refuses the connection of the drag.
+    pub fn danger_color(mut self, color: u32) -> Self {
+        self.danger_color = color;
+        self
+    }
+
     /// Set the color of an edge without a color of its own.
     pub fn edge_color(mut self, color: u32) -> Self {
         self.edge_color = color;
@@ -130,7 +139,7 @@ impl FlowGraph {
         node: &FlowNode,
         viewport: &Viewport,
         is_connecting: bool,
-        snap: Option<&HandleKey>,
+        snap: Option<&(HandleKey, bool)>,
         _entity_id: EntityId,
         window: &mut Window,
         cx: &mut App,
@@ -174,6 +183,7 @@ impl FlowGraph {
                 node_bg,
                 node_border,
                 self.accent_color,
+                self.danger_color,
                 viewport.zoom,
             )
         } else {
@@ -302,10 +312,11 @@ impl FlowGraph {
         node_id: &FlowNodeId,
         state: &Entity<FlowState>,
         is_connecting: bool,
-        snap: Option<&HandleKey>,
+        snap: Option<&(HandleKey, bool)>,
         default_bg: u32,
         default_border: u32,
         accent: u32,
+        danger: u32,
         zoom: f32,
     ) -> Vec<AnyElement> {
         let handle_size = 10.0 * zoom;
@@ -321,20 +332,15 @@ impl FlowGraph {
                 let handle_position = handle.position;
                 let state = state.clone();
 
-                // Highlight: strongly if this is the snapped target, mildly if potential target
-                let is_snap_target = snap.is_some_and(|(snap_node, snap_handle)| {
-                    *snap_node == node_id && *snap_handle == handle_id
-                });
-                let is_potential_target = is_connecting && handle_type == HandleType::Target;
-
-                let (bg_color, border_color, size_mult) = if is_snap_target {
-                    // Actively snapped — large accent dot
-                    (gpui::rgb(accent), gpui::rgb(accent), 1.4)
-                } else if is_potential_target {
-                    // Potential target — accent outline
-                    (gpui::rgb(default_bg), gpui::rgb(accent), 1.0)
-                } else {
-                    (gpui::rgb(default_bg), gpui::rgb(default_border), 1.0)
+                let look = pin_look(is_connecting, &node_id, &handle_id, handle_type, snap);
+                let (bg_color, border_color, size_mult) = match look {
+                    // Actively snapped: large accent dot
+                    PinLook::Snapped => (gpui::rgb(accent), gpui::rgb(accent), 1.4),
+                    // Snapped, and a rule refuses the connection: large danger dot
+                    PinLook::Refused => (gpui::rgb(danger), gpui::rgb(danger), 1.4),
+                    // Potential target: accent outline
+                    PinLook::Candidate => (gpui::rgb(default_bg), gpui::rgb(accent), 1.0),
+                    PinLook::Plain => (gpui::rgb(default_bg), gpui::rgb(default_border), 1.0),
                 };
                 let dot_size = handle_size * size_mult;
 
@@ -577,9 +583,15 @@ impl FlowGraph {
         draft: &ConnectionDraft,
         origin: (f32, f32),
         accent: u32,
+        danger: u32,
         window: &mut Window,
     ) {
-        let color: Background = gpui::rgba((accent << 8) | 0x80).into();
+        let refused = draft
+            .snap_target
+            .as_ref()
+            .is_some_and(|t| t.refusal.is_some());
+        let color: Background =
+            gpui::rgba((if refused { danger } else { accent } << 8) | 0x80).into();
         let (sx, sy) = (draft.from_point.0 + origin.0, draft.from_point.1 + origin.1);
         let (tx, ty) = (draft.to_point.0 + origin.0, draft.to_point.1 + origin.1);
 
@@ -637,11 +649,16 @@ impl Render for FlowGraph {
             let viewport = state.viewport;
             let is_panning = state.pan_drag.is_some();
             let is_connecting = state.connecting.is_some();
-            let snap: Option<HandleKey> = state
+            let snap: Option<(HandleKey, bool)> = state
                 .connecting
                 .as_ref()
                 .and_then(|d| d.snap_target.as_ref())
-                .map(|t| (t.node_id.clone(), t.handle_id.clone()));
+                .map(|t| {
+                    (
+                        (t.node_id.clone(), t.handle_id.clone()),
+                        t.refusal.is_some(),
+                    )
+                });
             let connecting_draft = state.connecting.clone();
             let selection_box = state.selection_box;
 
@@ -727,6 +744,7 @@ impl Render for FlowGraph {
         let grid_color = self.grid_color;
         let bg_pattern = self.bg_pattern;
         let accent_color = self.accent_color;
+        let danger_color = self.danger_color;
         let edge_color = self.edge_color;
         let state_for_scroll = self.state.clone();
         let state_for_mouse_down = self.state.clone();
@@ -783,7 +801,7 @@ impl Render for FlowGraph {
                                 if phase == DispatchPhase::Bubble
                                     && event.button == MouseButton::Left
                                 {
-                                    if state.update(cx, |state, _| state.pointer_released()) {
+                                    if update_state(&state, cx, |state| state.pointer_released()) {
                                         cx.notify(entity_id);
                                     }
                                 }
@@ -794,7 +812,13 @@ impl Render for FlowGraph {
 
                         // Paint draft connection line
                         if let Some(ref draft) = connecting_draft {
-                            Self::paint_connection_draft(draft, origin, accent_color, window);
+                            Self::paint_connection_draft(
+                                draft,
+                                origin,
+                                accent_color,
+                                danger_color,
+                                window,
+                            );
                         }
 
                         // Paint selection box
@@ -999,6 +1023,55 @@ impl Render for FlowGraph {
     }
 }
 
+/// Change the state, then give the events that the change made to the subscribers.
+fn update_state<R>(
+    state: &Entity<FlowState>,
+    cx: &mut App,
+    change: impl FnOnce(&mut FlowState) -> R,
+) -> R {
+    state.update(cx, |state, cx| {
+        let result = change(state);
+        for event in state.take_events() {
+            cx.emit(event);
+        }
+        result
+    })
+}
+
+/// How a pin shows during a connection drag.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum PinLook {
+    Plain,
+    /// An input pin: the drag can end here.
+    Candidate,
+    /// The draft is on this pin, and the connection is allowed.
+    Snapped,
+    /// The draft is on this pin, and a rule refuses the connection.
+    Refused,
+}
+
+pub(crate) fn pin_look(
+    is_connecting: bool,
+    node_id: &FlowNodeId,
+    handle_id: &Option<SharedString>,
+    handle_type: HandleType,
+    snap: Option<&(HandleKey, bool)>,
+) -> PinLook {
+    match snap {
+        Some(((snap_node, snap_handle), refused))
+            if snap_node == node_id && snap_handle == handle_id =>
+        {
+            if *refused {
+                PinLook::Refused
+            } else {
+                PinLook::Snapped
+            }
+        }
+        _ if is_connecting && handle_type == HandleType::Target => PinLook::Candidate,
+        _ => PinLook::Plain,
+    }
+}
+
 /// Lays out and paints a node with a rem size that follows the zoom.
 struct Zoomed {
     child: AnyElement,
@@ -1065,5 +1138,39 @@ impl Element for Zoomed {
         window.with_rem_size(Some(self.rem_size), |window| {
             self.child.paint(window, cx);
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    // Not `super::*`: it brings the `test` macro of GPUI, which hides `#[test]`.
+    use super::{PinLook, pin_look};
+    use crate::{FlowNodeId, HandleType};
+    use gpui::SharedString;
+
+    fn pin(node: &str, handle: &str) -> (FlowNodeId, Option<SharedString>) {
+        (node.to_string().into(), Some(handle.to_string().into()))
+    }
+
+    #[test]
+    fn a_refused_snap_target_shows_the_refused_look() {
+        let (node, handle) = pin("b", "in");
+        let look = |is_connecting, snap: Option<((FlowNodeId, Option<SharedString>), bool)>| {
+            pin_look(
+                is_connecting,
+                &node,
+                &handle,
+                HandleType::Target,
+                snap.as_ref(),
+            )
+        };
+        assert_eq!(look(true, Some((pin("b", "in"), true))), PinLook::Refused);
+        assert_eq!(look(true, Some((pin("b", "in"), false))), PinLook::Snapped);
+        // A snap on another pin leaves this input pin a candidate.
+        assert_eq!(
+            look(true, Some((pin("b", "other"), true))),
+            PinLook::Candidate
+        );
+        assert_eq!(look(false, None), PinLook::Plain);
     }
 }

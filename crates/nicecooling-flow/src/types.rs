@@ -344,6 +344,45 @@ pub struct SnapTarget {
     pub position: HandlePosition,
     /// Screen coordinates of the snapped handle center.
     pub point: (f32, f32),
+    /// The reason why a connection to this pin is refused. A release here adds nothing.
+    pub refusal: Option<SharedString>,
+}
+
+impl ConnectionDraft {
+    /// The connection between the origin of the draft and a pin: from the output pin to the
+    /// input pin, whichever end the drag started on.
+    pub fn connection_to(
+        &self,
+        node_id: &FlowNodeId,
+        handle_id: &Option<SharedString>,
+    ) -> Connection {
+        if self.from_type == HandleType::Source {
+            Connection {
+                source: self.from_node.clone(),
+                target: node_id.clone(),
+                source_handle: self.from_handle.clone(),
+                target_handle: handle_id.clone(),
+            }
+        } else {
+            Connection {
+                source: node_id.clone(),
+                target: self.from_node.clone(),
+                source_handle: handle_id.clone(),
+                target_handle: self.from_handle.clone(),
+            }
+        }
+    }
+}
+
+/// What the canvas tells its user. The canvas never changes the state of the app on its own.
+/// It reports an input, and the app decides.
+#[derive(Debug, Clone, PartialEq)]
+pub enum FlowEvent {
+    /// A drop on a pin that a rule refuses. The canvas added nothing.
+    ConnectionRefused {
+        connection: Connection,
+        reason: SharedString,
+    },
 }
 
 /// A completed connection between two handles.

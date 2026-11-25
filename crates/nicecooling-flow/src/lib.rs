@@ -27,5 +27,5 @@ pub mod types;
 pub use controls::Controls;
 pub use graph::FlowGraph;
 pub use minimap::Minimap;
-pub use store::{ConnectOutcome, FlowState, MAX_ZOOM, MIN_ZOOM};
+pub use store::{ALREADY_CONNECTED, ConnectOutcome, FlowState, MAX_ZOOM, MIN_ZOOM, SAME_NODE};
 pub use types::*;

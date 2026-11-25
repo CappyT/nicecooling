@@ -1,8 +1,9 @@
 //! Tests of the canvas logic. They need no window.
 
+use gpui::SharedString;
 use nicecooling_flow::{
-    ConnectOutcome, Connection, FlowEdge, FlowNode, FlowState, HandleDef, HandlePosition,
-    HandleType, MAX_ZOOM, MIN_ZOOM,
+    ALREADY_CONNECTED, ConnectOutcome, Connection, FlowEdge, FlowEvent, FlowNode, FlowState,
+    HandleDef, HandlePosition, HandleType, MAX_ZOOM, MIN_ZOOM, SAME_NODE,
 };
 
 /// `src` has the output pin `out`. `dst` has the input pins `a` and `b`.
@@ -62,10 +63,17 @@ fn connect_to_a_free_pin() {
     assert!(state.connecting.is_none());
 }
 
-fn occupied(connection: &Connection, state: &FlowState) -> bool {
-    !state.edges.iter().any(|edge: &FlowEdge| {
+pub const INPUT_OCCUPIED: &str = "input already connected";
+
+fn occupied(connection: &Connection, state: &FlowState) -> Result<(), SharedString> {
+    let used = state.edges.iter().any(|edge: &FlowEdge| {
         edge.target == connection.target && edge.target_handle == connection.target_handle
-    })
+    });
+    if used {
+        Err(INPUT_OCCUPIED.into())
+    } else {
+        Ok(())
+    }
 }
 
 #[test]
@@ -77,7 +85,7 @@ fn refuse_an_occupied_pin() {
     ));
     assert!(matches!(
         connect(&mut state, "src2", "a"),
-        ConnectOutcome::Refused(_)
+        ConnectOutcome::Refused { .. }
     ));
     assert_eq!(state.edges.len(), 1);
     // The pin b is still free.
@@ -125,4 +133,73 @@ fn pan_moves_the_view() {
     state.end_pan();
     assert!(!state.drag_pan((0.0, 0.0)));
     assert_eq!((state.viewport.x, state.viewport.y), (-60.0, 50.0));
+}
+
+#[test]
+fn a_release_on_an_occupied_pin_gives_the_reason() {
+    let mut state = pins().with_rule(occupied);
+    connect(&mut state, "src", "a");
+    let outcome = connect(&mut state, "src2", "a");
+    let ConnectOutcome::Refused { connection, reason } = outcome else {
+        panic!("expected a refusal, got {outcome:?}");
+    };
+    assert_eq!(reason, INPUT_OCCUPIED);
+    assert_eq!(connection.source, "src2");
+    assert_eq!(
+        state.take_events(),
+        vec![FlowEvent::ConnectionRefused { connection, reason }]
+    );
+    assert!(state.take_events().is_empty());
+}
+
+#[test]
+fn the_draft_over_an_occupied_pin_has_the_reason_before_the_release() {
+    let mut state = pins().with_rule(occupied);
+    connect(&mut state, "src", "a");
+    state.begin_connection(
+        &"src2".into(),
+        &Some("out".into()),
+        HandleType::Source,
+        HandlePosition::Right,
+        (100.0, 230.0),
+    );
+    state.drag_connection((300.0, 20.0));
+    let snap = state
+        .connecting
+        .as_ref()
+        .unwrap()
+        .snap_target
+        .clone()
+        .unwrap();
+    assert_eq!(snap.handle_id, Some("a".into()));
+    assert_eq!(snap.refusal, Some(INPUT_OCCUPIED.into()));
+    // The free pin b has no refusal.
+    state.drag_connection((300.0, 40.0));
+    let snap = state
+        .connecting
+        .as_ref()
+        .unwrap()
+        .snap_target
+        .clone()
+        .unwrap();
+    assert_eq!(snap.handle_id, Some("b".into()));
+    assert_eq!(snap.refusal, None);
+}
+
+#[test]
+fn the_default_rules_give_a_reason() {
+    let mut state = pins();
+    connect(&mut state, "src", "a");
+    let again = Connection {
+        source: "src".into(),
+        target: "dst".into(),
+        source_handle: Some("out".into()),
+        target_handle: Some("a".into()),
+    };
+    assert_eq!(state.check(&again), Err(ALREADY_CONNECTED.into()));
+    let to_self = Connection {
+        target: "src".into(),
+        ..again
+    };
+    assert_eq!(state.check(&to_self), Err(SAME_NODE.into()));
 }
