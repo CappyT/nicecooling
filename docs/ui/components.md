@@ -12,7 +12,7 @@ This inventory lists every screen, state and widget that the nicecooling desktop
 
 ## App shell
 
-- Sidebar navigation: Overview, Loops, Channels, Sensors, one entry per Leakshield, Profiles, Alarms, History, Settings.
+- Sidebar navigation: Overview, Loops, Channels, Sensors, one entry per Leakshield, Profiles, Graphs, Alarms, History, Settings.
 - Status bar: daemon connection, active Profile (manual, by rule or the Default Profile), count of active Alarms.
 - Global banners, one style per severity: daemon offline; "daemon down, Board on BIOS curves" when the restart limit is reached; Leakshield unreachable; Leakshield with unknown firmware (read-only); Immediate switching on; poweroff countdown running.
 - Write feedback for every device write: pending, backup saved, written, read-back verified, or failed with an offer to restore the backup.

@@ -125,7 +125,7 @@ Used by the Pressure step of the Leakshield wizard. It is true to scale: one lin
 ## Sensor picker
 
 - A `popover` 360 px wide and up to 420 px high, with a search field at the top.
-- Rows are grouped by device: Board chips, Leakshield, GPU, NVMe, Derived sensors. Each row has the sensor name, the device caption, and the live value at the right.
+- Rows are grouped by device: Board chips, Leakshield, GPU, NVMe, Derived sensors, Graph sensors. Each row has the sensor name, the device caption, and the live value at the right.
 - Typing filters by name and by device. Up and Down move. Enter selects. Escape closes.
 - The closed control is a `select` that shows the name and the live value. A long name truncates and the value keeps its width.
 - A sensor without a value is listed with "--" and an offline icon. The user can select it.

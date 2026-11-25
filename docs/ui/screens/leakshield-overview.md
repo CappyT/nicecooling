@@ -35,7 +35,7 @@ While an Action runs, the Action view replaces item 3, and the Action bar shows 
 | Empty | No value yet after connect: "Reading the Leakshield" with a spinner |
 | Loading | The same |
 | Leakshield unreachable | Offline banner "The Leakshield does not answer. Check its USB cable." The gauge has no marker. Mode and Actions are disabled. After 10 s without data nicecooling raises the Alarm "Leakshield unreachable" |
-| Unknown firmware | Banner 3 of the shell. Mode and Actions are disabled, tooltip: "Read-only: unknown firmware." |
+| Unknown firmware | Banner 4 of the shell. Mode and Actions are disabled, tooltip: "Read-only: unknown firmware." |
 | Mode not verified | The Mode selector shows the Mode and is disabled. Caption: "Read-only: Mode is not a Verified field yet." with "Open Fields" |
 | Not authorized | A user outside `wheel` gets the polkit dialog on RELEASE. After a denial: "Not authorized. The Mode did not change." |
 | Warning | The status tag is a warning tag ("Leak Warning"). The row that caused it has the triangle |

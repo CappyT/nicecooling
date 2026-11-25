@@ -269,7 +269,7 @@ Each state has four signals: icon shape, color, text label, and a place in the s
 
 Rules:
 
-- **Order.** When several banners apply, the order from the top is: poweroff countdown, daemon down or offline, unknown firmware, Immediate switching on. A screen shows at most three banners. Others collapse into "2 more notices" on the last one.
+- **Order.** When several banners apply, the order from the top is: poweroff countdown, daemon down or offline, Response pause, unknown firmware, Immediate switching on. A screen shows at most three banners. Others collapse into "2 more notices" on the last one.
 - **Verification state** of a Leakshield field is a badge, not a severity: see `widgets.md`, "Verification state badge".
 - **Write feedback** uses the same icons: check (`success`) for "Verified", octagon (`alarm`) for "Failed".
 
@@ -401,12 +401,16 @@ Four SVG files on a 16 px grid, one color (`#2E3436`). The desktop recolors a sy
 | Profiles: rule list | Sortable list rows with a drag handle |
 | Profiles: rule editor | `select`, number `input`, time `input`, `SensorPicker` (custom), `ProcessPicker` (custom) |
 | Profiles: options | Number `input`, `switch`, warning `dialog` with a checkbox |
+| Graphs: list | `table` with `switch` and `button` cells, `dialog` for delete and remove, file dialog of the system for export and import |
+| Graph editor: canvas | `FlowGraph` (custom): the copy of `gpui-flow` in `crates/nicecooling-flow`. Its spec is in `screens/graph-editor.md` |
+| Graph editor: node list | `input` and list rows with group rows |
+| Graph editor: parameter panel and response panel | Settings form rows: `input`, number `input`, `select`, `switch`, `SensorPicker` (custom), `ProcessPicker` (custom), `BandGuide` (composite, the look of `PressureGauge`), `Banner` rows for warnings |
 | Alarms: active and history | `table` |
 | Alarms: alarm response table | `table` with `select` and number `input` cells |
 | Alarms: poweroff countdown | `CountdownDialog` (custom), on `dialog` |
 | History: chart | `HistoryChart` (custom), on `plot`: pan, zoom, gaps |
 | History: sensor multi-select, range | `SensorPicker` (custom) with check marks, button group |
-| Settings | Settings form |
+| Settings | Settings form. The card "Network" has two halves of form rows |
 | First run | `stepper`, composite cards, `LoopDiagram` (custom) as preview |
 
 ## Do's and Don'ts

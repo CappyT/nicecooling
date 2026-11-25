@@ -22,7 +22,7 @@ The tab shows what the Leakshield does now: its operating data, its internal par
 | Action runs | Status: "Test", "Measuring the fill level", "Deaerating", "Refill" |
 | Warning | The value that caused it has the triangle in its tile. The event list has a row with the triangle |
 | Alarm | The PT bubble is red. The event row has the octagon. The poweroff banner shows when the alarm response is poweroff |
-| Unknown firmware | The values that nicecooling can still decode show. The others show "--". Banner 3. "Reset" is disabled, with the reason in a row of the card and as its tooltip |
+| Unknown firmware | The values that nicecooling can still decode show. The others show "--". Banner 4. "Reset" is disabled, with the reason in a row of the card and as its tooltip |
 | Reset not possible | "Reset" is disabled while the daemon or the Leakshield does not answer, with the reason in a row of the card |
 | Reset not supported | The daemon replies `NotSupported`. The write status of the card says: "This firmware has no such command." |
 

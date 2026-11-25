@@ -12,7 +12,7 @@ Detail column, one card, from the top:
 
 1. Header: Channel name, rename button, "Pump channel" tag.
 2. "Control": a button group with "Curve", "Fixed Duty" and "Hardware curve".
-3. With "Curve": three fields in a row: "Input" (sensor picker with the live value), "Input smoothing" (seconds of average, default 5), "Duty step limit" (percent per second, default 5).
+3. With "Curve": three fields in a row: "Input" (sensor picker with the live value), "Input smoothing" (seconds of average, default 5), "Duty step limit" (percent per second, default 5). The picker lists the Graph sensors in a group "Graph sensors". When the Input is a Graph sensor, an information row under the fields has the text for a Graph sensor Input: see "Copy".
 4. The Curve editor, 292 px high (see `../widgets.md`).
 5. Readout row: smoothed Input, Curve output, Duty, and the write feedback at the right.
 6. The points as number inputs, then "Add point" and "Remove point" on their own row.
@@ -30,6 +30,8 @@ With "Fixed Duty", items 3 to 6 are one slider with a number input. With "Hardwa
 | Hardware curve | List: "Hardware curve, not controlled". Detail: "nicecooling does not control this Channel. The Board runs its Hardware curve." |
 | No speed signal | List: dashed-circle icon and "no speed signal". The rpm value is dim |
 | Lost Input | List: triangle and "Curve, Input lost: GPU temperature", Duty 100 %. Detail: a Warning strip above the plot |
+| Graph sensor Input | The information row under the fields, with the information icon on `accent-tint`. It shows while the Input is a Graph sensor, also while the sensor has a value. A measured sensor and a Derived sensor show no such row |
+| Graph sensor Input without value | The Lost Input state. The app does not run, the Graph is disabled or a source of the Graph has no value |
 | Pump channel | The hatched Pump floor zone in the plot. A fixed Duty below the floor is refused: "The Pump floor is 40 %." |
 | Pump-stop Alarm | Every row shows 100 %. A red row at the top: "Pump stopped. Every Channel is at 100 % until the pump runs for 10 s." The editor is read-only |
 | Write failed | Readout row: octagon and "Not applied: the daemon refused the Curve." with "Try again" |
@@ -49,5 +51,6 @@ With "Fixed Duty", items 3 to 6 are one slider with a number input. With "Hardwa
 | Plot | "Duty, %", "Input, °C", "Now 31.4 °C, 62 %", "Pump floor 40 %: no Curve goes below it" |
 | Readout | "Input 31.4 °C", "5 s average", "Curve 62 %", "Duty 62 %", "Applied 21:44:02" |
 | Lost Input strip | "Input lost: the Channel runs at 100 % until GPU temperature returns." |
+| Graph sensor Input | "A Graph sensor has no value while the app does not run. The Channel then runs at 100%." |
 | BIOS snapshot | "When the daemon stops, the Board runs its Hardware curve for this Channel." and "Saved 2026-11-20 08:14" |
 | Field help | "Input smoothing: the Curve reads the average of the last 5 s, so a short spike does not move the fan." / "Duty step limit: the Duty changes by 5 % per second at most." |

@@ -1,6 +1,6 @@
 # App shell
 
-Comps: every file in `../comps/` shows the shell. `../comps/overview.html` shows the poweroff banner.
+Comps: every file in `../comps/` shows the shell. `../comps/overview.html` shows the poweroff banner. `../comps/settings-network.html` shows the Response pause banner.
 
 The shell is the frame of every screen: sidebar, header bar, global banners, content and status bar.
 
@@ -18,7 +18,7 @@ The shell is the frame of every screen: sidebar, header bar, global banners, con
 
 1. Overview, Loops, Channels, Sensors.
 2. Group "Devices": one entry per Leakshield. The label is the device description, or "Leakshield". Two devices with the same label also show the last 5 digits of the serial. A device with an active Alarm, a Warning or no connection has the severity icon at the end of its row.
-3. Group "Control": Profiles, Alarms, History. Alarms shows the count of active Alarms and Warnings. "Daemon down" counts as one.
+3. Group "Control": Profiles, Graphs, Alarms, History. Graphs has the icon `graph` of the sprite: three nodes and two connections. Alarms shows the count of active Alarms and Warnings. "Daemon down" counts as one.
 4. Settings, at the bottom.
 
 A long label truncates with an ellipsis. Icons and counts keep their width.
@@ -33,17 +33,20 @@ A long label truncates with an ellipsis. Icons and counts keep their width.
 
 ## Global banners
 
-A banner spans the content width. The order from the top is fixed. A screen shows three banners at most; the last one then says "2 more notices" and opens a list.
+A banner spans the content width. The order from the top is fixed. A screen shows three banners at most; the last one then says "2 more notices" and opens a list. The Response pause banner is one of the first three, so no other banner hides it.
 
 | Order | Banner | Style | Text | Button |
 |---|---|---|---|---|
 | 1 | Poweroff countdown | Alarm, solid | "Large leak Alarm on Leakshield" and "Main loop. The PC powers off when the countdown ends." Countdown "0:21" at the right | "Cancel poweroff" |
 | 2 | Daemon offline | Offline tint | "The daemon is offline. The values are not live, and you cannot change settings." | "Try again" |
 | 2 | Daemon down | Alarm, solid | "The daemon is down. nicecooling protection is off." and "No Curve, no Feed, no alarm response. The Board runs its Hardware curves from the BIOS snapshot." | "Show how to start it" |
-| 3 | Unknown firmware | Warning tint | "Leakshield firmware 1042 is unknown. Every field is read-only." | "Open Fields" |
-| 4 | Immediate switching | Warning tint | "Immediate switching is on. Rule groups change the Profile without delay." | "Open Profiles" |
+| 3 | Response pause | Warning tint | "Response pause: 3 power responses in a row" and "No Graph response runs by itself. The Graph sensors still work." | "Turn the Graph responses on" |
+| 4 | Unknown firmware | Warning tint | "Leakshield firmware 1042 is unknown. Every field is read-only." | "Open Fields" |
+| 5 | Immediate switching | Warning tint | "Immediate switching is on. Rule groups change the Profile without delay." | "Open Profiles" |
 
 The poweroff banner shows on every screen while a countdown runs. No screen can hide it.
+
+The Response pause banner shows on every screen from the third poweroff or reboot response in a row until the user selects "Turn the Graph responses on". It stays over a restart of the app. The button ends the pause at once and asks no password. The banner has the Warning icon and two lines of text.
 
 ## States
 
@@ -54,6 +57,7 @@ The poweroff banner shows on every screen while a countdown runs. No screen can 
 | Daemon down | The service is in the failed state: systemd gave up its restarts. Banner 2 in its "Daemon down" form replaces the offline form: it has the solid Alarm field, because the state is as serious as an Alarm. "Active Alarms" lists "Daemon down", and the window opens by itself. "Show how to start it" opens a dialog with `systemctl status nicecoolingd` and `systemctl restart nicecoolingd`. A Leakshield still protects the Loop by itself |
 | Not authorized | A write that polkit refuses shows "Not authorized. Nothing changed." next to the control |
 | Alarm | Banner 1, the Alarm count in the status bar and in the sidebar, the icon on the device entry. The window opens by itself and shows the Overview |
+| Response pause | Banner 3. No Graph response runs by itself. "Run once" in the Graph editor still works. The Graph sensors, the Curves and the alarm responses of the daemon work as before |
 | Window closed | The close button hides the window. The app stays in the tray |
 
 ## Write feedback
@@ -78,9 +82,11 @@ Every write shows its steps next to the control that started it: see "Write stat
 | Sensors | Sensori |
 | Devices | Dispositivi |
 | Profiles | Profili |
+| Graphs | Grafi |
 | Alarms | Allarmi |
 | History | Cronologia |
 | Settings | Impostazioni |
 | Daemon connected | Demone connesso |
 | No active Alarms | Nessun Allarme attivo |
 | Cancel poweroff | Annulla lo spegnimento |
+| Turn the Graph responses on | Riattiva le risposte dei Grafi |

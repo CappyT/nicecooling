@@ -46,7 +46,7 @@ The editor has no hotkey condition. Wayland has no standard global shortcut.
 | Manual activation | Tag "Active manually". Information row in the groups card: "Rule groups wait until you revoke the manual activation." Button "Revoke" |
 | Rule delay runs | The group tag says "Holds, activates in 18 s" |
 | Profile dwell runs | The active Profile caption says "Stays for 3 min more (Profile dwell)" |
-| Immediate switching on | Banner 4 of the shell. "Rule delay" and "Profile dwell" are disabled, caption "Not used with Immediate switching" |
+| Immediate switching on | Banner 5 of the shell. "Rule delay" and "Profile dwell" are disabled, caption "Not used with Immediate switching" |
 | Profile with RELEASE | Warning row: "This Profile sets Mode RELEASE: the Loop has no leak protection while it is active." Saving it needs no administrator password |
 | Shared slot | Information row: "Slot 2 is shared with Profile 3. A Leakshield change here changes both." |
 | Differs from other slots | One warning row for each Leakshield whose slots differ: "Alarm thresholds differ from 2 other slots" and the button "Apply to all slots". With more than one Leakshield, the row starts with the device label ("Leakshield 31072: "). The app compares the thresholds of this slot with `GetStoredFields` of every other slot of that Leakshield that has stored settings. The button applies the thresholds to every other slot of that Leakshield that has stored settings: `SetFields` for the slot that the device runs (`ActiveSlot`), `SetStoredFields` for the others. A slot that is not changed gets one row: "Slot 3: not changed. Not applied: the daemon refused the change." |

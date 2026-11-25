@@ -113,7 +113,7 @@ The wizard corrects a value of the band. It shows no error for it:
 | Loading | "Reading the settings" with a spinner in the step card |
 | Device offline | Offline banner. Controls are disabled. Pending changes stay |
 | Read-only field | Dashed field, padlock, "Read-only", and the reason: "Not a Verified field: this Safety field has no Verification write yet." with "Open Fields" |
-| Unknown firmware | Banner 3 of the shell. Every field is read-only. Per-field reasons are hidden |
+| Unknown firmware | Banner 4 of the shell. Every field is read-only. Per-field reasons are hidden |
 | Not authorized | A user outside `wheel` gets the polkit dialog on Apply when the Mode step holds RELEASE |
 | Value out of range | Only for a reservoir volume, the maximum speed and the maximum pressure of the pump, when the Leakshield cannot store the number. The input has a red outline and a caption with the range. The next button stays active, and the Summary lists the error and disables "Apply". The wizard corrects every other number to its range and shows no error |
 | Applying | Each row of the diff table shows its write status. "Apply" becomes "Applying 2 of 5" |

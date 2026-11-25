@@ -27,7 +27,7 @@ A selected row opens a panel under it with the explanation: why the field is rea
 | Empty | The filter has no match: "No field matches." |
 | Loading | Table frame with grey bars |
 | Leakshield unreachable | Offline banner. The table shows the last read, in dim text |
-| Unknown firmware | Banner 3 of the shell. The table shows the raw report only: "Offset" and "Bytes", and no field name. Text: "nicecooling cannot decode these settings. Every field is read-only." |
+| Unknown firmware | Banner 4 of the shell. The table shows the raw report only: "Offset" and "Bytes", and no field name. Text: "nicecooling cannot decode these settings. Every field is read-only." |
 | Code-defined | Read-only. Explanation: "aquasuite's code defines this field. nicecooling did not confirm it on your device yet." |
 | Plausible read, low risk | Writable. Explanation: "The value on the device is in the range and equals the default. That is enough for a low-risk field." |
 | Plausible read, Safety field | Read-only. Explanation: "A Safety field needs a Verification write before nicecooling writes it. The app does not run a Verification write: it is a supervised procedure. See the project documentation." |

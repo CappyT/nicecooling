@@ -29,7 +29,7 @@ A dialog, 560 px wide: a list of effects with a name and a one-line text. A sele
 | Covered controller | A bar that a higher bar covers completely is dim. Caption: "Covered by Controller 1" |
 | LEDs used by the device | LEDs that show a Leakshield state now (an alarm) have a small padlock in their cell. Caption: "The Leakshield uses these LEDs while an alarm is active." |
 | Sensor-driven without value | Warning icon on the parameter. The effect uses the "From" value |
-| Read-only | Unknown firmware: banner 3, no handles |
+| Read-only | Unknown firmware: banner 4, no handles |
 | Alarm | See "LEDs used by the device" |
 
 ## Interactions
