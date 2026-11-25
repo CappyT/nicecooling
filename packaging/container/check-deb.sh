@@ -18,11 +18,14 @@ else
 fi
 deb=$(readlink -f "$deb")
 echo "deb: $deb"
+# A pre-release 0.2.0-beta.1 of Cargo.toml is the DEB version 0.2.0~beta.1-1, which sorts before 0.2.0.
+cargo_version=$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -n 1)
+export EXPECTED_VERSION="${cargo_version//-/\~}-1"
 
 check() {
   local image=$1
   echo "=== $image"
-  podman run --rm -i -v "$deb":/in/nicecooling.deb:ro,Z "$image" bash -s <<'INNER'
+  podman run --rm -i -e EXPECTED_VERSION -v "$deb":/in/nicecooling.deb:ro,Z "$image" bash -s <<'INNER'
 set -euo pipefail
 export DEBIAN_FRONTEND=noninteractive
 . /etc/os-release
@@ -32,6 +35,9 @@ apt-get update -qq >/dev/null
 install -m 0644 /in/nicecooling.deb /tmp/nicecooling.deb
 apt-get install -y --no-install-recommends /tmp/nicecooling.deb >/dev/null
 echo "apt-get install ./nicecooling.deb: exit 0"
+version=$(dpkg-query -W -f='${Version}' nicecooling)
+[ "$version" = "$EXPECTED_VERSION" ] || { echo "deb version '$version', expected '$EXPECTED_VERSION'" >&2; exit 1; }
+echo "deb version: $version"
 
 paths="/usr/bin/nicecooling /usr/libexec/nicecoolingd
 /usr/lib/systemd/system/nicecoolingd.service /usr/lib/systemd/system-preset/80-nicecooling.preset
