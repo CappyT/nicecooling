@@ -75,6 +75,14 @@ impl Default for ProfilesState {
     }
 }
 
+/// A Graph sensor. The app computes its value and sends it. The daemon runs no Graph code.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct GraphSensorDef {
+    pub id: String,
+    pub name: String,
+    pub unit: String,
+}
+
 /// The scale and the offset of a Software sensor slot.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub struct SlotScale {
@@ -90,6 +98,9 @@ pub struct DaemonState {
     pub identities: BTreeMap<String, Identity>,
     pub names: BTreeMap<String, String>,
     pub derived_sensors: Vec<DerivedSensor>,
+    pub graph_sensors: Vec<GraphSensorDef>,
+    /// The number of the next Graph sensor. It never goes down, so an id is not used twice.
+    pub graph_sensor_next: u32,
     pub calibration_tables: Vec<CalibrationDef>,
     pub loops: Vec<Loop>,
     pub alarm_responses: BTreeMap<String, AlarmResponse>,
@@ -110,6 +121,8 @@ impl Default for DaemonState {
             identities: BTreeMap::new(),
             names: BTreeMap::new(),
             derived_sensors: Vec::new(),
+            graph_sensors: Vec::new(),
+            graph_sensor_next: 1,
             calibration_tables: Vec::new(),
             loops: Vec::new(),
             alarm_responses: BTreeMap::new(),
@@ -727,6 +740,50 @@ mod tests {
             id_of("devices/pci0000:00/0000:00:01.1/nvme/nvme0"),
             Some("nvme_2_temp1")
         );
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn state_roundtrip_with_graph_sensors() {
+        let dir = temp("graph-roundtrip");
+        let store = StateStore::new(&dir);
+        let mut state = sample_state();
+        state.graph_sensors = vec![
+            GraphSensorDef {
+                id: "graph_1".into(),
+                name: "Hot water".into(),
+                unit: "degC".into(),
+            },
+            GraphSensorDef {
+                id: "graph_4".into(),
+                name: "Flow".into(),
+                unit: "l/h".into(),
+            },
+        ];
+        state.graph_sensor_next = 5;
+        store.save(STATE_FILE, &state).unwrap();
+        let text = fs::read_to_string(dir.join(STATE_FILE)).unwrap();
+        assert!(text.contains("\"graph_sensor_next\": 5"), "{text}");
+        let loaded = StateStore::new(&dir).load::<DaemonState>(STATE_FILE);
+        assert_eq!(loaded.source, Source::Primary);
+        assert_eq!(loaded.value, state);
+        assert_eq!(loaded.value.schema_version, 1);
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn state_without_the_keys_loads_with_defaults() {
+        let dir = temp("graph-defaults");
+        fs::write(
+            dir.join(STATE_FILE),
+            br#"{"schema_version": 1, "names": {"x": "y"}}"#,
+        )
+        .unwrap();
+        let loaded = StateStore::new(&dir).load::<DaemonState>(STATE_FILE);
+        assert!(!loaded.fallback);
+        assert!(loaded.value.graph_sensors.is_empty());
+        assert_eq!(loaded.value.graph_sensor_next, 1);
+        assert_eq!(loaded.value.names["x"], "y");
         fs::remove_dir_all(dir).unwrap();
     }
 

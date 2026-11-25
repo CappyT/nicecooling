@@ -60,6 +60,11 @@ pub fn derived_sensor_id(n: u32) -> String {
     format!("derived_{n}")
 }
 
+/// `graph_<n>`.
+pub fn graph_sensor_id(n: u32) -> String {
+    format!("graph_{n}")
+}
+
 /// The calibrated flow sensor of a Loop.
 pub fn flow_sensor_id(loop_id: &str) -> String {
     format!("{loop_id}_flow")
@@ -104,6 +109,19 @@ pub fn next_number<'a>(prefix: &str, used: impl IntoIterator<Item = &'a str>) ->
         .filter_map(|id| id.strip_prefix(prefix)?.parse::<u32>().ok())
         .max()
         .map_or(1, |n| n + 1)
+}
+
+/// Takes the next number from a stored counter and moves the counter on. A number that was given
+/// once is never given again, also after its owner was removed. A counter that is behind an id
+/// in use (a state that was edited by hand) is lifted over it, so an id never exists twice.
+pub fn take_number<'a>(
+    prefix: &str,
+    counter: &mut u32,
+    used: impl IntoIterator<Item = &'a str>,
+) -> u32 {
+    let n = (*counter).max(next_number(prefix, used));
+    *counter = n.saturating_add(1);
+    n
 }
 
 #[cfg(test)]
@@ -157,5 +175,29 @@ mod tests {
     fn next_number_follows_the_highest() {
         assert_eq!(next_number("loop_", ["loop_1", "loop_3", "other"]), 4);
         assert_eq!(next_number("loop_", std::iter::empty()), 1);
+    }
+
+    #[test]
+    fn counter_never_reuses_an_id() {
+        let mut counter = 1;
+        let mut used = Vec::new();
+        for expected in 1..=3 {
+            let n = take_number("graph_", &mut counter, used.iter().map(String::as_str));
+            assert_eq!(n, expected);
+            used.push(graph_sensor_id(n));
+        }
+        // The highest sensor goes away: `next_number` would give 3 again, the counter gives 4.
+        used.pop();
+        assert_eq!(next_number("graph_", used.iter().map(String::as_str)), 3);
+        let n = take_number("graph_", &mut counter, used.iter().map(String::as_str));
+        assert_eq!((n, counter), (4, 5));
+        // A counter that is behind an id in use jumps over it.
+        let mut behind = 1;
+        assert_eq!(take_number("graph_", &mut behind, ["graph_7"]), 8);
+        assert_eq!(behind, 9);
+        // A counter of 0 (a state edited by hand) still gives ids from 1.
+        let mut zero = 0;
+        assert_eq!(take_number("graph_", &mut zero, []), 1);
+        assert_eq!(graph_sensor_id(5), "graph_5");
     }
 }
