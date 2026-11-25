@@ -1,0 +1,15 @@
+[package]
+name = "nicecooling-graph"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+nicecooling-core.workspace = true
+serde.workspace = true
+serde_json = { workspace = true, features = ["raw_value"] }
+fastrand.workspace = true

@@ -2,6 +2,7 @@
 resolver = "3"
 members = [
     "crates/nicecooling-core",
+    "crates/nicecooling-graph",
     "crates/nicecooling-protocol",
     "crates/nicecooling-hwmon",
     "crates/nicecooling-api",
@@ -29,6 +30,7 @@ sd-notify = "0.5"
 nusb = "0.2.9"
 rustix = "1.1"
 crc = "3.4"
+fastrand = "2.5"
 roxmltree = "0.21"
 base64 = "0.22"
 libc = "0.2"

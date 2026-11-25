@@ -4120,6 +4120,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "nicecooling-graph"
+version = "0.1.0"
+dependencies = [
+ "fastrand",
+ "nicecooling-core",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "nicecooling-hwmon"
 version = "0.1.0"
 dependencies = [
