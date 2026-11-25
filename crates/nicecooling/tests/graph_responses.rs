@@ -15,6 +15,9 @@ use nicecooling::graphs::store::GraphStore;
 use nicecooling::graphs::view::{SharedView, shared_view};
 use nicecooling::i18n::EN;
 use nicecooling::model::{DaemonEvent, Link, SensorSample};
+use nicecooling::mqtt::client::{MqttConfig, MqttHandle, ResponseEnd};
+use nicecooling::mqtt::publish::Publisher;
+use nicecooling::mqtt::settings::MqttSettings;
 use nicecooling::notify::{NotificationSpec, Notifier, Plan};
 use nicecooling::services::smtp_source;
 use nicecooling::smtp::send::SmtpAccount;
@@ -27,9 +30,11 @@ use nicecooling_graph::template::LabelledValue;
 use support::bus::PrivateBus;
 use support::fake_notification_server::FakeNotificationServer;
 use support::graphs::Dir;
+use support::mqtt_broker::{Behavior as BrokerBehavior, MqttBroker};
 use support::smtp_server::{Behavior as SmtpBehavior, SmtpServer};
 use support::{SESSION_LOCK, use_as_session_bus};
 use tokio::runtime::Handle;
+use tokio::sync::broadcast;
 use tokio::sync::mpsc::{UnboundedReceiver, unbounded_channel};
 
 /// The wall clock at the start of a test: 2025-12-17 19:33:20 UTC.
@@ -884,4 +889,179 @@ async fn email_response_failed_and_timeout_give_their_outcomes() {
     assert_eq!(runner.start(&run), Started::Pending);
     assert_eq!(wait_outcome(&mut runner, &run.id), Outcome::Timeout);
     assert!(started.elapsed() < Duration::from_secs(3));
+}
+
+fn mqtt_node(topic: &str, payload: &str) -> Node {
+    Node::new(2, Kind::ResponseEnd)
+        .with_param("kind", "mqtt")
+        .with_param("topic", topic)
+        .with_param("payload", payload)
+}
+
+/// The client config for a broker on `port`, with the base topic `nicecooling`.
+fn mqtt_config(port: u16) -> MqttConfig {
+    let settings = MqttSettings {
+        host: "127.0.0.1".to_owned(),
+        port: Some(port),
+        tls: false,
+        ..MqttSettings::default()
+    };
+    MqttConfig::new(&settings, &Password::default(), "desk").expect("MQTT is on")
+}
+
+/// A runner with its MQTT link on a publisher task. The test shortens the limit of 30 s for an
+/// acknowledgment. The sender of the events must stay alive as long as the runner.
+fn mqtt_runner(
+    client: &MqttHandle,
+    ends: UnboundedReceiver<ResponseEnd>,
+    limit: Duration,
+) -> (KindRunner, broadcast::Sender<DaemonEvent>) {
+    let (events, events_rx) = broadcast::channel(16);
+    let publisher = Publisher::new(
+        client.clone(),
+        Arc::default(),
+        Arc::new(SimWallClock::new(WALL_START_US)),
+    )
+    .with_response_limit(limit);
+    let (responses, done) = publisher.spawn(&Handle::current(), ends, events_rx);
+    let (notify, _requests) = unbounded_channel();
+    (KindRunner::new(notify).with_mqtt(responses, done), events)
+}
+
+/// The Graph service with `runner` and no Graph.
+fn rig_with(name: &str, runner: KindRunner) -> Rig {
+    Rig::build(
+        Dir::new(name),
+        SimWallClock::new(WALL_START_US),
+        Vec::new(),
+        FakeRunner::default(),
+        Box::new(runner),
+    )
+}
+
+fn logged_outcomes(rig: &Rig) -> Vec<Outcome> {
+    rig.view
+        .lock()
+        .unwrap()
+        .log
+        .iter()
+        .map(|row| row.outcome)
+        .collect()
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn mqtt_response_logs_ok_on_ack() {
+    let broker = MqttBroker::start(BrokerBehavior::plain());
+    let (client, ends) = MqttHandle::spawn(&Handle::current());
+    client.configure(Some(mqtt_config(broker.port)));
+    let (runner, _events) = mqtt_runner(&client, ends, Duration::from_secs(30));
+    let mut rig = rig_with("mqtt-ok", runner);
+
+    // An empty payload template gives the default message.
+    run_once(&mut rig, mqtt_node("alerts/water", ""));
+    assert!(rig.view.lock().unwrap().log.is_empty(), "no outcome yet");
+    wait_for_log(&mut rig, 1);
+
+    let log = rig.view.lock().unwrap().log.clone();
+    assert_eq!(log.len(), 1);
+    assert_eq!(log[0].kind, "mqtt");
+    assert_eq!(log[0].outcome, Outcome::Ok);
+    assert_eq!(log[0].graph_id, "graph_2");
+    assert_eq!(log[0].time_us, WALL_START_US);
+    let messages = broker.received_on("nicecooling/alerts/water");
+    assert_eq!(messages.len(), 1);
+    assert_eq!((messages[0].qos, messages[0].retain), (1, false));
+    assert_eq!(
+        messages[0].text(),
+        r#"{"graph_id":"graph_2","graph_name":"Hot water","time":1766000000000000}"#
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn mqtt_response_without_a_host_is_not_configured() {
+    // A runner that has no MQTT link.
+    let (notify, _requests) = unbounded_channel();
+    let run = run_of(mqtt_node("alerts/water", ""), Vec::new());
+    assert_eq!(
+        KindRunner::new(notify).start(&run),
+        Started::Done(Outcome::NotConfigured)
+    );
+
+    // A client with no config: the host is empty. The publisher gives the outcome.
+    let (client, ends) = MqttHandle::spawn(&Handle::current());
+    let (runner, _events) = mqtt_runner(&client, ends, Duration::from_secs(30));
+    let mut rig = rig_with("mqtt-no-host", runner);
+    run_once(&mut rig, mqtt_node("alerts/water", ""));
+    wait_for_log(&mut rig, 1);
+
+    let log = rig.view.lock().unwrap().log.clone();
+    assert_eq!(log.len(), 1);
+    assert_eq!(log[0].kind, "mqtt");
+    assert_eq!(log[0].outcome, Outcome::NotConfigured);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn mqtt_response_expands_placeholders_in_topic_and_payload() {
+    let broker = MqttBroker::start(BrokerBehavior::plain());
+    let (client, ends) = MqttHandle::spawn(&Handle::current());
+    client.configure(Some(mqtt_config(broker.port)));
+    let (mut runner, _events) = mqtt_runner(&client, ends, Duration::from_secs(30));
+    // The spec lists the payload template of the MQTT message among the texts with placeholders,
+    // and not the topic. The topic goes out as the node holds it.
+    let node = mqtt_node(
+        "alerts/{graph}",
+        "{graph}: water {value:water} {unit:water}, pump {value:pump}, at {time}. {{done}}",
+    );
+    let values = vec![
+        labelled("water", Some(46.2), "rpm"),
+        labelled("pump", None, ""),
+    ];
+    let run = run_of(node, values);
+
+    assert_eq!(runner.start(&run), Started::Pending);
+    assert_eq!(wait_outcome(&mut runner, &run.id), Outcome::Ok);
+
+    let messages = broker.received_on("nicecooling/alerts/{graph}");
+    assert_eq!(messages.len(), 1);
+    assert_eq!(
+        messages[0].text(),
+        "Hot water: water 46.2 rpm, pump --, at 2026-11-25 14:05:09. {done}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn mqtt_response_timeout_is_logged() {
+    let broker = MqttBroker::start(BrokerBehavior::plain());
+    broker.hold_acks(true);
+    let (client, ends) = MqttHandle::spawn(&Handle::current());
+    client.configure(Some(mqtt_config(broker.port)));
+    // The test shortens the limit of 30 s to 300 ms.
+    let (runner, _events) = mqtt_runner(&client, ends, Duration::from_millis(300));
+    let mut rig = rig_with("mqtt-timeout", runner);
+
+    run_once(&mut rig, mqtt_node("alerts/water", ""));
+    // The first run has no outcome yet, so a second run of the same node is busy.
+    run_once(&mut rig, mqtt_node("alerts/water", ""));
+    assert_eq!(logged_outcomes(&rig), [Outcome::Busy]);
+
+    wait_for_log(&mut rig, 2);
+    assert_eq!(logged_outcomes(&rig), [Outcome::Busy, Outcome::Timeout]);
+    // The broker has the message: it did not acknowledge it in time. One request went out.
+    assert_eq!(broker.received_on("nicecooling/alerts/water").len(), 1);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn mqtt_response_refuses_a_wildcard_topic() {
+    let (client, ends) = MqttHandle::spawn(&Handle::current());
+    let (mut runner, _events) = mqtt_runner(&client, ends, Duration::from_secs(30));
+
+    // A draft that is run once is not validated: the runner refuses the topic itself.
+    for topic in ["alerts/#", "alerts/+", "", "/alerts", "alerts//water"] {
+        let run = run_of(mqtt_node(topic, ""), Vec::new());
+        assert_eq!(
+            runner.start(&run),
+            Started::Done(Outcome::Failed),
+            "{topic:?}"
+        );
+    }
 }

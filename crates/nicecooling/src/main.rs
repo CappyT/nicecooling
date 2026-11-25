@@ -74,6 +74,19 @@ fn main() {
         settings.notify_prefs.clone(),
     );
     services::spawn_history(events_tx.subscribe(), services::history_path());
+    // MQTT stays off while the host is empty. The client lives until the end of `main`. The Graph
+    // service takes the channels of the MQTT message response.
+    let broker_password = Secrets::open(&GraphPaths::user().secrets).mqtt;
+    let services::MqttService {
+        client: _mqtt_client,
+        responses,
+        done,
+    } = services::spawn_mqtt(
+        runtime.handle(),
+        events_tx.subscribe(),
+        MqttConfig::new(&settings.values.mqtt, &broker_password, &hostname()),
+        settings.hidden_sensors.clone(),
+    );
     let graph_system = services::graph_system(system, runtime.handle(), graph_view.clone());
     let graphs = services::spawn_graphs(
         events_tx.subscribe(),
@@ -82,15 +95,11 @@ fn main() {
         locale,
         graph_view,
         graph_system,
-        runtime.handle().clone(),
-    );
-    // MQTT stays off while the host is empty. The service lives until the end of `main`.
-    let broker_password = Secrets::open(&GraphPaths::user().secrets).mqtt;
-    let _mqtt = services::spawn_mqtt(
-        runtime.handle(),
-        events_tx.subscribe(),
-        MqttConfig::new(&settings.values.mqtt, &broker_password, &hostname()),
-        settings.hidden_sensors.clone(),
+        services::GraphNetwork {
+            runtime: runtime.handle().clone(),
+            responses,
+            done,
+        },
     );
     // The end of the session takes the path of "Quit".
     if let Err(error) = services::spawn_sigterm(runtime.handle(), commands_tx.clone()) {

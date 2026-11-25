@@ -328,6 +328,14 @@ pub fn graph_system(
     }
 }
 
+/// What the Graph service takes for the e-mail and the MQTT message responses: the runtime for
+/// the send tasks, and the channels of `MqttService`.
+pub struct GraphNetwork {
+    pub runtime: tokio::runtime::Handle,
+    pub responses: ResponseSender,
+    pub done: UnboundedReceiver<ResponseDone>,
+}
+
 /// The SMTP account of the e-mail responses: the table `[smtp]` of `settings.toml` and the password
 /// of `secrets.toml`. Each call reads both files again, so a change in the settings holds at the
 /// next send.
@@ -349,12 +357,14 @@ pub fn spawn_graphs(
     locale: Locale,
     view: SharedView,
     system: GraphSystem,
-    runtime: tokio::runtime::Handle,
+    network: GraphNetwork,
 ) -> GraphChannel {
     let (channel, inputs) = GraphChannel::new();
     let channel = channel.with_view(view.clone());
     let smtp = smtp_source(settings_path(), paths.secrets.clone());
-    let runner = KindRunner::new(notify.clone()).with_email(runtime, smtp);
+    let runner = KindRunner::new(notify.clone())
+        .with_email(network.runtime, smtp)
+        .with_mqtt(network.responses, network.done);
     let service = GraphService::new(
         GraphStore::open(paths),
         Env {

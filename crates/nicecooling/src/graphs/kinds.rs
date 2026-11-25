@@ -1,10 +1,10 @@
-//! The response kinds that the app runs itself: notification, sound, command and e-mail. The
-//! power kinds run in `power.rs` and never come here. The MQTT message kind gives `not-configured`
-//! until its publisher exists.
+//! The response kinds that the app runs itself: notification, sound, command, e-mail and MQTT
+//! message. The power kinds run in `power.rs` and never come here.
 //!
-//! The e-mail has no account until `with_email` gives the runner one. A runner without it gives
-//! the outcome `not-configured`.
+//! The e-mail and the MQTT message have no account until `with_email` and `with_mqtt` give the
+//! runner one. A runner without it gives them the outcome `not-configured`.
 
+use std::collections::BTreeMap;
 use std::os::unix::process::CommandExt;
 use std::process::{Child, Command, Stdio};
 use std::sync::Arc;
@@ -12,11 +12,16 @@ use std::sync::mpsc::{Receiver, Sender, channel};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use nicecooling_graph::model::ResponseKind;
+use nicecooling_graph::model::{ParamType, ResponseKind};
 use nicecooling_graph::template::{Context, command_environment, expand};
-use tokio::sync::mpsc::UnboundedSender;
+use serde_json::Value;
+use tokio::sync::mpsc::error::TryRecvError;
+use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
 use super::responses::{Outcome, Run, Runner, Started};
+use crate::mqtt::publish::{
+    ResponseDone, ResponseOutcome, ResponseRequest, ResponseSender, default_response_payload,
+};
 use crate::notify::{Level, NotificationSpec, Plan};
 use crate::smtp::send::{Mail, SendError, SmtpAccount, send};
 
@@ -36,6 +41,47 @@ struct Email {
     source: SmtpSource,
 }
 
+/// The link to the MQTT publisher.
+struct Mqtt {
+    sender: ResponseSender,
+    done: UnboundedReceiver<ResponseDone>,
+    /// The run id of each request that has no outcome yet, by the id of the request.
+    open: BTreeMap<u64, String>,
+    /// The id of the last request.
+    serial: u64,
+}
+
+impl Mqtt {
+    /// Add the outcomes that have come in to `ended`.
+    fn collect(&mut self, ended: &mut Vec<(String, Outcome)>) {
+        loop {
+            match self.done.try_recv() {
+                Ok(done) => {
+                    if let Some(run) = self.open.remove(&done.id) {
+                        ended.push((run, outcome_of(done.outcome)));
+                    }
+                }
+                Err(TryRecvError::Empty) => return,
+                // The publisher task has ended: no outcome comes for a request that is open.
+                Err(TryRecvError::Disconnected) => {
+                    let lost = std::mem::take(&mut self.open);
+                    ended.extend(lost.into_values().map(|run| (run, Outcome::Failed)));
+                    return;
+                }
+            }
+        }
+    }
+}
+
+fn outcome_of(outcome: ResponseOutcome) -> Outcome {
+    match outcome {
+        ResponseOutcome::Ok => Outcome::Ok,
+        ResponseOutcome::Timeout => Outcome::Timeout,
+        ResponseOutcome::Failed => Outcome::Failed,
+        ResponseOutcome::NotConfigured => Outcome::NotConfigured,
+    }
+}
+
 /// What a message of a run can name.
 fn context_of(run: &Run) -> Context<'_> {
     Context {
@@ -45,7 +91,7 @@ fn context_of(run: &Run) -> Context<'_> {
     }
 }
 
-/// Starts the notification, sound, command and e-mail responses.
+/// Starts the notification, sound, command, e-mail and MQTT message responses.
 pub struct KindRunner {
     /// The channel that the notification thread reads.
     notify: UnboundedSender<Plan>,
@@ -53,6 +99,7 @@ pub struct KindRunner {
     outcomes: Sender<(String, Outcome)>,
     finished: Receiver<(String, Outcome)>,
     email: Option<Email>,
+    mqtt: Option<Mqtt>,
 }
 
 impl KindRunner {
@@ -63,12 +110,28 @@ impl KindRunner {
             outcomes,
             finished,
             email: None,
+            mqtt: None,
         }
     }
 
     /// Send the e-mail responses on `runtime`, with the account that `source` gives.
     pub fn with_email(mut self, runtime: tokio::runtime::Handle, source: SmtpSource) -> Self {
         self.email = Some(Email { runtime, source });
+        self
+    }
+
+    /// Send the MQTT message responses to the publisher, and read their outcomes from `done`.
+    pub fn with_mqtt(
+        mut self,
+        sender: ResponseSender,
+        done: UnboundedReceiver<ResponseDone>,
+    ) -> Self {
+        self.mqtt = Some(Mqtt {
+            sender,
+            done,
+            open: BTreeMap::new(),
+            serial: 0,
+        });
         self
     }
 
@@ -177,6 +240,34 @@ impl KindRunner {
         });
         Started::Pending
     }
+
+    /// Give the message to the publisher. Only the payload has placeholders: the topic is as the
+    /// node holds it.
+    fn publish(&mut self, run: &Run) -> Started {
+        let Some(mqtt) = &mut self.mqtt else {
+            return Started::Done(Outcome::NotConfigured);
+        };
+        let topic = run.node.text("topic");
+        // The validator refuses a topic with a wildcard, but a draft that is run once is not
+        // validated, and a broker closes the connection at a PUBLISH to a wildcard.
+        if !ParamType::Topic.accepts(&Value::from(topic.as_str())) {
+            return Started::Done(Outcome::Failed);
+        }
+        let template = run.node.text("payload");
+        let payload = if template.is_empty() {
+            default_response_payload(&run.graph_id, &run.graph_name, run.time_us)
+        } else {
+            expand(&template, &context_of(run)).into_bytes()
+        };
+        mqtt.serial += 1;
+        let id = mqtt.serial;
+        if mqtt.sender.send(ResponseRequest { id, topic, payload }) {
+            mqtt.open.insert(id, run.id.clone());
+            Started::Pending
+        } else {
+            Started::Done(Outcome::Failed)
+        }
+    }
 }
 
 impl Runner for KindRunner {
@@ -186,15 +277,19 @@ impl Runner for KindRunner {
             ResponseKind::Sound => self.sound(run),
             ResponseKind::Command => self.command(run),
             ResponseKind::Email => self.mail(run),
-            ResponseKind::Mqtt
-            | ResponseKind::Poweroff
-            | ResponseKind::Reboot
-            | ResponseKind::Suspend => Started::Done(Outcome::NotConfigured),
+            ResponseKind::Mqtt => self.publish(run),
+            ResponseKind::Poweroff | ResponseKind::Reboot | ResponseKind::Suspend => {
+                Started::Done(Outcome::NotConfigured)
+            }
         }
     }
 
     fn finished(&mut self) -> Vec<(String, Outcome)> {
-        self.finished.try_iter().collect()
+        let mut ended: Vec<(String, Outcome)> = self.finished.try_iter().collect();
+        if let Some(mqtt) = &mut self.mqtt {
+            mqtt.collect(&mut ended);
+        }
+        ended
     }
 }
 
