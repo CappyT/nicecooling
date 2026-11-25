@@ -55,6 +55,10 @@ In the state "run" with repeat on, the node SHALL run its response again when th
 - **WHEN** repeat is on at 60 s, the state is stored as "run" and the app starts at second 500 with the input true
 - **THEN** the response runs at second 560
 
+#### Scenario: Repeat after a dropped run
+- **WHEN** repeat is on at 60 s, the minimum interval is 600 s, and the repeat at second 170 is dropped
+- **THEN** the next repeat is due at second 230: a dropped run counts as an attempt for the repeat interval
+
 #### Scenario: No repeat
 - **WHEN** repeat is off and the input stays true for 1 hour after the run
 - **THEN** the response runs once
