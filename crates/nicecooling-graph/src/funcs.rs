@@ -107,7 +107,14 @@ pub fn source_value(reading: f64) -> f64 {
 
 /// A new number of the random node, between `min` and `max`, with 3 decimals.
 pub fn random_value(rng: &mut fastrand::Rng, min: f64, max: f64) -> f64 {
-    let value = min + rng.f64() * (max - min);
+    let position = rng.f64();
+    let span = max - min;
+    // A range from a large negative to a large positive number is wider than any finite number.
+    let value = if span.is_finite() {
+        min + position * span
+    } else {
+        min * (1.0 - position) + max * position
+    };
     round_to(value, 3, RoundMode::Nearest).clamp(min, max)
 }
 

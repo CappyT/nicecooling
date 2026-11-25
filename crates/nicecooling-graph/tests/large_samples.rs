@@ -177,3 +177,37 @@ fn graph_with_a_window_of_200_samples_of_1e308() {
         }
     }
 }
+
+/// A random node whose range is wider than the largest finite number still gives a number in
+/// its range in every tick.
+#[test]
+fn random_node_over_the_whole_range() {
+    for (min, max) in [(-BIG, BIG), (-f64::MAX, f64::MAX), (-5.0, BIG), (-BIG, 5.0)] {
+        let mut graph = Graph::new("graph_1", "Wide");
+        graph.nodes = vec![
+            Node::new(1, Kind::Random)
+                .with_param("min", min)
+                .with_param("max", max),
+            Node::new(2, Kind::SensorEnd),
+        ];
+        graph.connections = vec![Connection::new(1, 2, "a")];
+        let mut evaluator = Evaluator::with_seed(3);
+        let sources = Offline(ProcessList::default());
+        let mut seen = Vec::new();
+        for tick in 0..1000 {
+            let pass = evaluator.evaluate(std::slice::from_ref(&graph), &sources, at(tick));
+            let EndValue::Sensor(Some(value)) = pass.graphs[0].end else {
+                panic!("{min} {max} tick {tick}: {:?}", pass.graphs[0].end);
+            };
+            assert!((min..=max).contains(&value), "{min} {max}: {value}");
+            seen.push(value.to_bits());
+        }
+        seen.sort_unstable();
+        seen.dedup();
+        assert!(
+            seen.len() > 900,
+            "{min} {max}: {} distinct numbers",
+            seen.len()
+        );
+    }
+}
