@@ -111,6 +111,17 @@ pub fn random_value(rng: &mut fastrand::Rng, min: f64, max: f64) -> f64 {
     round_to(value, 3, RoundMode::Nearest).clamp(min, max)
 }
 
+/// The sum can overflow when both numbers and their average are finite. Halving first is exact
+/// there.
+fn average(a: f64, b: f64) -> f64 {
+    let sum = a + b;
+    if sum.is_finite() {
+        sum / 2.0
+    } else {
+        a / 2.0 + b / 2.0
+    }
+}
+
 fn logarithm(a: f64, base: f64) -> Option<f64> {
     if a <= 0.0 || base <= 0.0 || base == 1.0 {
         return None;
@@ -147,7 +158,7 @@ pub fn binary(kind: Kind, a: f64, b: f64) -> Option<f64> {
         Kind::Divide => (b != 0.0).then(|| a / b).and_then(finite),
         Kind::Minimum => Some(a.min(b)),
         Kind::Maximum => Some(a.max(b)),
-        Kind::Average => finite((a + b) / 2.0),
+        Kind::Average => finite(average(a, b)),
         Kind::Logarithm => logarithm(a, b),
         Kind::Power => finite(a.powf(b)),
         Kind::Less => comparison(Comparison::Lt),
@@ -235,6 +246,13 @@ mod tests {
         assert_eq!(math(Kind::Maximum, -2.0, 3.0), Some(3.0));
         assert_eq!(math(Kind::Average, 10.0, 4.0), Some(7.0));
         assert_eq!(math(Kind::Average, -3.0, 3.0), Some(0.0));
+    }
+
+    #[test]
+    fn average_of_two_large_numbers() {
+        assert_eq!(math(Kind::Average, f64::MAX, f64::MAX), Some(f64::MAX));
+        assert_eq!(math(Kind::Average, f64::MAX, -f64::MAX), Some(0.0));
+        assert_eq!(math(Kind::Average, 5e-324, 5e-324), Some(5e-324));
     }
 
     #[test]
