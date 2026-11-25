@@ -5,6 +5,7 @@ pub mod calibration;
 pub mod clock;
 pub mod curve;
 pub mod derived;
+pub mod graph_sensor;
 pub mod interpolate;
 pub mod loops;
 pub mod profile;
