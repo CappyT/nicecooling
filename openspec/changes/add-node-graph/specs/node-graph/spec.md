@@ -795,7 +795,7 @@ The app SHALL export one Graph to one JSON file with `format` `nicecooling-graph
 - **THEN** the file holds the recipient, the subject and the text, and no SMTP password
 
 ### Requirement: Graph import
-The app SHALL import a Graph from one file of at most 1 MiB. It SHALL give the Graph and its nodes new ids and add it disabled with no `sensor_id`. A sensor source that does not exist on this machine SHALL stay as an unbound source. A file with a higher format version or a Graph that fails the validator SHALL be refused with a message. The validator SHALL read the Graph of the file before the import gives new ids. The daemon SHALL have no part in it.
+The app SHALL import a Graph from one file of at most 1 MiB. It SHALL run the validator on the Graph of the file and refuse a Graph that fails, and a file with a higher format version, with a message. It SHALL keep only the parameters that the kind of each node defines, give the Graph and its nodes new ids and add it disabled with no `sensor_id`. A sensor source that does not exist on this machine SHALL stay as an unbound source. The daemon SHALL have no part in it.
 
 #### Scenario: Import twice
 - **WHEN** the user imports the same file twice
@@ -812,6 +812,10 @@ The app SHALL import a Graph from one file of at most 1 MiB. It SHALL give the G
 #### Scenario: Version 2
 - **WHEN** the file has `format_version` 2
 - **THEN** the app refuses it with a message
+
+#### Scenario: Unknown parameter
+- **WHEN** the file has an e-mail response node with the parameter `password`
+- **THEN** the imported node has no `password`, and `graphs.json` and a later export hold none
 
 #### Scenario: Two nodes with one id
 - **WHEN** the file has two nodes with the id 1

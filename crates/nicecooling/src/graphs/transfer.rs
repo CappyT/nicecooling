@@ -5,7 +5,7 @@ use std::fmt;
 use std::io::Read as _;
 use std::path::Path;
 
-use nicecooling_graph::model::{Export, ExportError, Graph};
+use nicecooling_graph::model::{Export, ExportError, Graph, Node};
 use nicecooling_graph::validate::{Refusal, validate};
 
 use super::store::describe;
@@ -66,14 +66,14 @@ fn new_graph_id(existing: &[Graph]) -> String {
 /// the file: a Graph that fails is refused. Then the Graph and its nodes get new ids. The Graph is
 /// disabled and has no `sensor_id`, so a response from another machine does not run before the user
 /// enabled it. A source on a sensor that this machine does not have stays as it is: it gives no
-/// value.
+/// value. A parameter that the kind of a node does not define is dropped.
 /// `existing` holds every stored entry as a Graph (`GraphStore::all_graphs`), for the id and the
 /// validator: an entry that does not run keeps its id and counts for the limit.
 pub fn import_text(text: &str, existing: &[Graph]) -> Result<Graph, ImportError> {
     let export = Export::parse(text).map_err(ImportError::Format)?;
     let mut graph = Graph::new(&new_graph_id(existing), &export.graph.name);
     graph.enabled = false;
-    graph.nodes = export.graph.nodes;
+    graph.nodes = export.graph.nodes.into_iter().map(known_params).collect();
     graph.connections = export.graph.connections;
     let refusals = validate(&graph, existing);
     if !refusals.is_empty() {
@@ -81,6 +81,15 @@ pub fn import_text(text: &str, existing: &[Graph]) -> Result<Graph, ImportError>
     }
     renumber(&mut graph);
     Ok(graph)
+}
+
+/// Keep the parameters that the kind of the node defines. A field that the kind does not know (a
+/// `password` of a hand-made file) never reaches `graphs.json` and the next export.
+fn known_params(mut node: Node) -> Node {
+    let specs = node.param_specs();
+    node.params
+        .retain(|name, _| specs.iter().any(|spec| spec.name == name.as_str()));
+    node
 }
 
 /// The nodes count from 1, in the order of the file, and the connections follow. The validator
