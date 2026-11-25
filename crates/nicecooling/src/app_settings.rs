@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 use crate::i18n::Language;
 use crate::mqtt::settings::{MqttSettings, lenient};
 use crate::notify::NotifyPrefs;
+use crate::smtp::settings::SmtpSettings;
 
 pub const SCHEMA_VERSION: u32 = 1;
 
@@ -62,6 +63,8 @@ pub struct AppSettings {
     /// A bad table gives the default table and leaves the other settings.
     #[serde(deserialize_with = "lenient")]
     pub mqtt: MqttSettings,
+    #[serde(deserialize_with = "lenient")]
+    pub smtp: SmtpSettings,
 }
 
 impl Default for AppSettings {
@@ -74,6 +77,7 @@ impl Default for AppSettings {
             hints: Hints::default(),
             sensors: HiddenSensors::default(),
             mqtt: MqttSettings::default(),
+            smtp: SmtpSettings::default(),
         }
     }
 }

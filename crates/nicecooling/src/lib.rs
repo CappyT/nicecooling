@@ -18,6 +18,7 @@ pub mod screens;
 pub mod services;
 pub mod shell;
 pub mod shell_view;
+pub mod smtp;
 pub mod tokens;
 pub mod tray;
 pub mod widgets;
