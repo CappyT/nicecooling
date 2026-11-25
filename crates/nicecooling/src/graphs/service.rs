@@ -19,7 +19,8 @@ use tokio::sync::mpsc::UnboundedSender;
 
 use super::channel::GraphCommand;
 use super::store::{GraphStore, describe, describe_invalid};
-use super::view::{Countdown, GraphRow, RowState, SharedView};
+use super::try_run::TryRun;
+use super::view::{Countdown, GraphRow, RowState, SharedView, TryView};
 use crate::i18n::Locale;
 use crate::model::{AppState, DaemonEvent};
 use crate::notify::{Level, NotificationSpec, Plan, open_button};
@@ -117,6 +118,8 @@ pub struct GraphService {
     notify: UnboundedSender<Plan>,
     locale: Locale,
     countdown: Option<RunningCountdown>,
+    /// The try of a draft that runs now. It has no part in the pass of the applied Graphs.
+    trying: Option<TryRun>,
     /// The last pass, for the view between two passes.
     last_pass: Option<Pass>,
     state: AppState,
@@ -157,6 +160,7 @@ impl GraphService {
             notify,
             locale,
             countdown: None,
+            trying: None,
             last_pass: None,
             state: AppState::default(),
             view,
@@ -274,12 +278,23 @@ impl GraphService {
                 self.store.state_mut().pause.turn_on();
                 self.write_state(self.clock.now(), true);
             }
-            // The editor "Try" is task 3.8. "Run once" and the MQTT and SMTP settings belong to
-            // the sections of the responses and the network clients.
-            GraphCommand::Try(_)
-            | GraphCommand::StopTry
-            | GraphCommand::RunOnce { .. }
-            | GraphCommand::NetworkSettingsEdited => {}
+            GraphCommand::Try(request) => {
+                let now = self.clock.now();
+                match TryRun::start(&request, &self.store.graphs(), now) {
+                    Ok(run) => {
+                        self.trying = Some(run);
+                        self.step_try(now);
+                    }
+                    Err(error) => self.refuse(error.to_string()),
+                }
+            }
+            GraphCommand::StopTry => {
+                self.trying = None;
+                self.publish_try(None);
+            }
+            // "Run once" and the MQTT and SMTP settings belong to the sections of the responses and
+            // the network clients.
+            GraphCommand::RunOnce { .. } | GraphCommand::NetworkSettingsEdited => {}
         }
     }
 
@@ -327,7 +342,39 @@ impl GraphService {
         self.store.state_mut().values = self.evaluator.stored_values();
         self.write_state(now, false);
         self.last_pass = Some(pass);
+        self.step_try(now);
         self.publish();
+    }
+
+    /// One evaluation of the try, and the end of it after its time. A try sends no Graph sensor
+    /// value and starts no response.
+    fn step_try(&mut self, now: Duration) {
+        let Some(run) = &mut self.trying else {
+            return;
+        };
+        if run.finished(now) {
+            self.trying = None;
+            self.publish_try(None);
+            return;
+        }
+        let sources = LiveSources::new(&self.state, self.scan.as_ref());
+        let shown = run.step(&sources, now).map(|pass| TryView {
+            graph_id: run.graph_id().to_owned(),
+            seconds_left: run.seconds_left(now),
+            values: pass.values,
+            end: pass.end,
+        });
+        if shown.is_none() {
+            // The draft panicked: the try ends.
+            self.trying = None;
+        }
+        self.publish_try(shown);
+    }
+
+    fn publish_try(&self, shown: Option<TryView>) {
+        if let Ok(mut view) = self.view.lock() {
+            view.trying = shown;
+        }
     }
 
     /// A Graph panicked: store it as disabled, and say so.

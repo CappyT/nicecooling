@@ -6,4 +6,5 @@ pub mod secrets;
 pub mod service;
 pub mod store;
 pub mod transfer;
+pub mod try_run;
 pub mod view;

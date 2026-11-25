@@ -39,6 +39,15 @@ pub struct Countdown {
     pub seconds_left: u64,
 }
 
+/// The node values of a try.
+#[derive(Clone, Debug, PartialEq)]
+pub struct TryView {
+    pub graph_id: String,
+    pub seconds_left: u64,
+    pub values: BTreeMap<u32, Option<f64>>,
+    pub end: EndValue,
+}
+
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct GraphView {
     pub rows: Vec<GraphRow>,
@@ -47,6 +56,8 @@ pub struct GraphView {
     /// Why the last Apply or Enable was refused. A command that works clears it.
     pub refusal: Option<String>,
     pub countdown: Option<Countdown>,
+    /// The try that runs now.
+    pub trying: Option<TryView>,
 }
 
 impl GraphView {
