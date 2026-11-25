@@ -20,6 +20,21 @@ A value in the value table that is older than 3 seconds SHALL count as no value.
 - **WHEN** the task of the Input sensor of a Curve publishes no value for 4 seconds
 - **THEN** the Input has no value and the Lost Input rule applies
 
+### Requirement: First tick after a pause
+A pause is a gap of more than 2 seconds between two ticks: the PC resumes from suspend, or the process was stopped. A value from before the pause SHALL count as no value. The first tick after a pause SHALL wait at most 2 seconds for each sensor that had a value before the pause to read again. A sensor that reads again in that time SHALL NOT raise a Warning. A Graph sensor SHALL stay without a value until the app sends a new one.
+
+#### Scenario: Resume from suspend
+- **WHEN** the PC resumes after 6 hours of suspend and the Input sensor of a Curve reads 31.5 degC within 2 seconds
+- **THEN** the Curve uses 31.5 degC and the daemon raises no `lost-input` Warning
+
+#### Scenario: Sensor gone after the pause
+- **WHEN** the PC resumes and the Input sensor of a Curve does not read within 2 seconds
+- **THEN** the Input has no value and the Lost Input rule applies
+
+#### Scenario: Value from before the pause
+- **WHEN** the app sent 46.2 for a Graph sensor 1 second before a suspend and the PC resumes
+- **THEN** the Graph sensor has no value until the app sends a new value
+
 ### Requirement: Watchdog and restart
 The systemd unit SHALL use `Type=notify`, `WatchdogSec=10s`, `TimeoutAbortSec=5s`, `Restart=on-failure` and `RestartSec=2s`. Its `[Unit]` section SHALL set `StartLimitIntervalSec=60s` and `StartLimitBurst=5`. The tick SHALL ping the watchdog after stages 1 to 10 of the tick order. `ExecStopPost=/usr/libexec/nicecoolingd --restore-bios` SHALL restore the BIOS snapshot.
 
