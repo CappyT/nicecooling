@@ -5,6 +5,7 @@ pub mod eval;
 pub mod funcs;
 pub mod generator;
 pub mod model;
+pub mod pause;
 pub mod response;
 pub mod state;
 pub mod table;
