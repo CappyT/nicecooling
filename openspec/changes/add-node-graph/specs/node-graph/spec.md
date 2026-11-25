@@ -723,6 +723,10 @@ The app SHALL store all Graphs in `graphs.json` in `$XDG_CONFIG_HOME/nicecooling
 - **WHEN** one of 3 stored Graphs has a node of the kind `quantum`
 - **THEN** the app evaluates 2 Graphs, lists the third as "invalid" and keeps its text when it writes the file
 
+#### Scenario: Validator refusal keeps the text
+- **WHEN** one of 3 stored Graphs has two end nodes and a field `note` that the app does not know, and the user applies another Graph
+- **THEN** the file holds the text of the third Graph as it was, with `note`
+
 #### Scenario: Higher schema version
 - **WHEN** `graphs.json` has `schema_version` 2 and the app knows 1
 - **THEN** the app writes no Graph file and shows an error

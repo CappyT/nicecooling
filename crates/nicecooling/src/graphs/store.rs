@@ -15,7 +15,7 @@ use nicecooling_graph::pause::Pause;
 use nicecooling_graph::response::RunRecord;
 use nicecooling_graph::validate::{Refusal, validate};
 use serde::{Deserialize, Serialize};
-use serde_json::value::to_raw_value;
+use serde_json::value::RawValue;
 
 use crate::app_settings::{config_home, data_home, write_atomic};
 
@@ -293,6 +293,12 @@ impl GraphStore {
     }
 }
 
+/// The Graphs of `graphs.json` as the file holds them.
+#[derive(Deserialize)]
+struct RawList {
+    graphs: Vec<Box<RawValue>>,
+}
+
 fn load_graphs(path: &Path) -> (Vec<StoredGraph>, Option<String>) {
     let text = match std::fs::read_to_string(path) {
         Ok(text) => text,
@@ -311,23 +317,25 @@ fn load_graphs(path: &Path) -> (Vec<StoredGraph>, Option<String>) {
             StoredGraph::Invalid(_) => None,
         })
         .collect();
+    // The text of each Graph in the file, in the order of `file.graphs`.
+    let texts: Vec<Box<RawValue>> = serde_json::from_str::<RawList>(&text)
+        .map(|list| list.graphs)
+        .unwrap_or_default();
     let entries = file
         .graphs
         .into_iter()
-        .map(|entry| match entry {
+        .enumerate()
+        .map(|(index, entry)| match entry {
             StoredGraph::Valid(graph) => {
                 let refusals = validate(&graph, &valid);
-                if refusals.is_empty() {
-                    return StoredGraph::Valid(graph);
-                }
-                match to_raw_value(&graph) {
-                    Ok(text) => StoredGraph::Invalid(InvalidGraph {
+                match texts.get(index) {
+                    Some(text) if !refusals.is_empty() => StoredGraph::Invalid(InvalidGraph {
                         id: Some(graph.id.clone()),
                         name: Some(graph.name.clone()),
                         problem: ParseProblem::Malformed(describe(&refusals)),
-                        text,
+                        text: text.clone(),
                     }),
-                    Err(_) => StoredGraph::Valid(graph),
+                    _ => StoredGraph::Valid(graph),
                 }
             }
             invalid @ StoredGraph::Invalid(_) => invalid,
