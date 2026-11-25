@@ -983,7 +983,7 @@ A Graph sensor value older than 3 s SHALL count as no value, as for every sensor
 - **THEN** every Graph sensor has no value
 
 ### Requirement: Graph sensor authorization
-The four members `CreateGraphSensor`, `SetDefinition`, `Delete` and `SetGraphSensorValues` SHALL need the polkit action `io.github.cappyt.NiceCooling1.write`. The daemon SHALL ask polkit at every call. The app SHALL call `SetGraphSensorValues` on its own call path without the interactive flag. After a denial the app SHALL stop for 60 s and show that it has no access.
+The four members `CreateGraphSensor`, `SetDefinition`, `Delete` and `SetGraphSensorValues` SHALL need the polkit action `io.github.cappyt.NiceCooling1.write`. The daemon SHALL ask polkit at every call, and for `SetGraphSensorValues` always without the interactive flag, whatever flag the message has. The app SHALL call it without the flag. After a denial the app SHALL stop for 60 s and show that it has no access.
 
 #### Scenario: Wheel member
 - **WHEN** a `wheel` member in the active session sends the values
@@ -996,6 +996,10 @@ The four members `CreateGraphSensor`, `SetDefinition`, `Delete` and `SetGraphSen
 #### Scenario: After the pause
 - **WHEN** 60 s pass after a denial
 - **THEN** the app tries the call again
+
+#### Scenario: Values call with the flag
+- **WHEN** a user outside `wheel` sends `SetGraphSensorValues` with the interactive flag set
+- **THEN** the daemon asks polkit without the interactive flag, shows no dialog and answers `AccessDenied`
 
 #### Scenario: Other writes
 - **WHEN** the app calls `CreateGraphSensor`

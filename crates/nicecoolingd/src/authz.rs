@@ -91,6 +91,31 @@ impl Authz {
         method: &str,
         mode: Option<&str>,
     ) -> Result<(), Error> {
+        self.check_with(connection, header, interface, method, mode, true)
+            .await
+    }
+
+    /// Like `check`, but polkit never shows a dialog, whatever flag the message has.
+    pub async fn check_without_dialog(
+        &self,
+        connection: &Connection,
+        header: &Header<'_>,
+        interface: &str,
+        method: &str,
+    ) -> Result<(), Error> {
+        self.check_with(connection, header, interface, method, None, false)
+            .await
+    }
+
+    async fn check_with(
+        &self,
+        connection: &Connection,
+        header: &Header<'_>,
+        interface: &str,
+        method: &str,
+        mode: Option<&str>,
+        allow_dialog: bool,
+    ) -> Result<(), Error> {
         let Some(authorization) = self.map.get(interface, method) else {
             return Err(Error::ZBus(
                 zbus::fdo::Error::Failed(format!("{interface}.{method} has no authorization"))
@@ -101,18 +126,29 @@ impl Authz {
             return Ok(());
         };
         let uid = caller_uid(connection, header).await?;
-        self.decide(header, uid, action).await
+        self.decide_with(header, uid, action, allow_dialog).await
     }
 
     /// The decision for a known caller. A caller with uid 0 needs no polkit check.
     pub async fn decide(&self, header: &Header<'_>, uid: u32, action: Action) -> Result<(), Error> {
+        self.decide_with(header, uid, action, true).await
+    }
+
+    async fn decide_with(
+        &self,
+        header: &Header<'_>,
+        uid: u32,
+        action: Action,
+        allow_dialog: bool,
+    ) -> Result<(), Error> {
         if uid == 0 {
             return Ok(());
         }
-        let interactive = header
-            .primary()
-            .flags()
-            .contains(Flags::ALLOW_INTERACTIVE_AUTH);
+        let interactive = allow_dialog
+            && header
+                .primary()
+                .flags()
+                .contains(Flags::ALLOW_INTERACTIVE_AUTH);
         let allowed = self
             .authorizer
             .check(Request {
@@ -226,5 +262,22 @@ mod tests {
             "org.freedesktop.DBus.Error.AccessDenied"
         );
         assert_eq!(authorizer.calls(), [(Action::Critical, false)]);
+    }
+
+    #[tokio::test]
+    async fn a_call_without_dialog_never_asks_interactively() {
+        let authorizer = TestAuthorizer::allow_all();
+        let authz = Authz::new(authorizer.clone());
+        let message = message(Some(Flags::ALLOW_INTERACTIVE_AUTH));
+        let header = message.header();
+        authz.decide(&header, 1000, Action::Write).await.unwrap();
+        authz
+            .decide_with(&header, 1000, Action::Write, false)
+            .await
+            .unwrap();
+        assert_eq!(
+            authorizer.calls(),
+            [(Action::Write, true), (Action::Write, false)]
+        );
     }
 }

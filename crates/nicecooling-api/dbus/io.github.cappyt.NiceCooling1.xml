@@ -37,7 +37,8 @@
       <arg name="sensor" type="o" direction="out"/>
     </method>
     <!-- One entry for each Graph sensor: (id, has a value, value). An entry for another id is
-         skipped. A value that is not finite fails the whole call. -->
+         skipped. A value that is not finite fails the whole call. The daemon asks polkit without
+         the interactive flag, so this call never shows a dialog. -->
     <method name="SetGraphSensorValues">
       <annotation name="io.github.cappyt.NiceCooling1.Authorization" value="write"/>
       <arg name="values" type="a(sbd)" direction="in"/>

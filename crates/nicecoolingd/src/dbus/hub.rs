@@ -995,6 +995,23 @@ impl Hub {
             .await
     }
 
+    /// Like `authorize`, but polkit never shows a dialog, whatever flag the message has.
+    pub async fn authorize_without_dialog(
+        &self,
+        connection: &zbus::Connection,
+        header: &zbus::message::Header<'_>,
+        interface: &str,
+        method: &str,
+    ) -> Result<()> {
+        let authz = self
+            .authz
+            .get()
+            .ok_or_else(|| failed("the API has no authorizer"))?;
+        authz
+            .check_without_dialog(connection, header, interface, method)
+            .await
+    }
+
     /// The logind that the poweroff calls. The first call wins.
     pub fn set_login1(&self, login1: Arc<dyn Login1>) {
         let _ = self.login1.set(login1);

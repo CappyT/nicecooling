@@ -78,7 +78,7 @@ impl Manager {
         values: Vec<(String, bool, f64)>,
     ) -> Result<()> {
         self.hub
-            .authorize(connection, &header, "Manager", "SetGraphSensorValues", None)
+            .authorize_without_dialog(connection, &header, "Manager", "SetGraphSensorValues")
             .await?;
         self.hub.set_graph_sensor_values(&values)
     }

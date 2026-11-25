@@ -97,10 +97,10 @@ async fn denied_caller_learns_nothing_from_validation() {
     assert_eq!(calls, vec![(WRITE.to_owned(), 0); 5]);
 }
 
-/// The values call passes the interactive flag exactly as the message carries it, and asks polkit
-/// at each call.
+/// Spec: the values call never allows a polkit dialog. The daemon asks polkit at each call without
+/// the interactive flag, whatever flag the message carries.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn values_call_passes_the_interactive_flag_as_sent() {
+async fn values_call_never_asks_polkit_with_the_dialog_flag() {
     if running_as_root() {
         return;
     }
@@ -141,7 +141,7 @@ async fn values_call_passes_the_interactive_flag_as_sent() {
         .iter()
         .map(|c| c.1)
         .collect();
-    assert_eq!(flags, [0, 1, 0, 1, 0]);
+    assert_eq!(flags, [0; 5]);
 }
 
 /// Spec: the delete of a Graph sensor that a Curve uses fails with `InUse`. The Curve is in a
