@@ -12,7 +12,7 @@ nicecooling has one fixed Overview. It answers one question: is every Loop safe 
 - A chart Tile reads the history store of the app, so it has data when the Dashboard opens.
 - Each Tile has a sensor, an own title or the name of the sensor, 0 to 3 decimals, a range for gauge and bar, and a time span for the chart.
 - Each Tile has two optional **Tile limits**: a warning limit and an alarm limit, each "above" or "below" a value. A Tile limit colors its Tile with the Warning or the Alarm color of the theme. It is not an Alarm of the daemon, and it runs no alarm response.
-- An **Edit mode** adds, removes, moves and resizes Tiles, with the mouse and with the keyboard.
+- An **Edit mode** adds, removes, moves and resizes Tiles, with the mouse and with the keyboard. It stores each change at once and has undo and redo.
 - A generator, "Create a Dashboard from this Loop", makes one Dashboard with the pressure, the fill level, the flow, the water temperature, the pump speed and the fans of a Loop. It computes the Tiles from the parts of the Loop.
 - The sidebar gets one entry, "Dashboards", after "Overview". The screen has one tab per Dashboard.
 - The app stores the Dashboards of a user in a file of the settings directory of that user.
@@ -30,9 +30,10 @@ None. The capabilities of `add-nicecooling-v1` are not archived yet. This change
 
 ## Impact
 
-- Code: the app crate `nicecooling` only. A new module for the Dashboard model, the grid rules, the store and the generator, a new screen, and one new custom widget (the ring gauge). The shell gets one page.
+- Code: the app crate `nicecooling` only. A new module for the Dashboard model, the grid rules, the store, the generator and the chart data, a new screen, and one new custom widget (the ring gauge). The shell gets one screen. `history/query.rs` gets a function that reduces rows to time buckets, and `screens/ui.rs` gets a tab strip with a "More" menu.
 - The root daemon `nicecoolingd`, the crates `nicecooling-api`, `nicecooling-core` and `nicecooling-protocol`, and the D-Bus contract do not change.
-- Dependencies: none new. The store uses the `toml` crate that the app has.
+- Dependencies: none new. The store uses the `toml` crate that the app has, and `write_atomic` of `app_settings.rs`.
+- Other changes: `add-node-graph` and `add-history-export` change the same crate. `design.md` gives the order.
 - Storage: one new file, `$XDG_CONFIG_HOME/nicecooling/dashboards.toml`. `settings.toml` and `history.db` do not change.
 - Design system: `docs/ui/DESIGN.md` gets a rule for Tiles and for Tile limits, because it forbids stat tiles and round gauges as decoration and keeps red and amber for an Alarm and a Warning.
 - Reverse engineering source: the feature study of aquasuite X.96, section 4, kept outside the repository.
