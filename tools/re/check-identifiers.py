@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Check that no identifier of the decompiled aquasuite code enters the repository (design D9).
 
-Scope: the text files of docs/protocol/, docs/api.md, docs/storage.md and crates/.
+Scope: the text files of docs/protocol/, docs/api.md, docs/storage.md, docs/graphs.md and crates/.
 
 Token rule: a token is a maximal run of [A-Za-z0-9_] with 6 or more characters that does not start
 with a digit and is a compound name: it holds an underscore between two characters, a lowercase
@@ -30,7 +30,7 @@ COMPOUND = re.compile(r"[A-Za-z0-9]_[A-Za-z0-9]|[a-z][A-Z]|[A-Za-z][0-9]")
 
 def checked(token):
     return not token[0].isdigit() and COMPOUND.search(token) is not None
-SCOPE = ("docs/protocol", "docs/api.md", "docs/storage.md", "crates")
+SCOPE = ("docs/protocol", "docs/api.md", "docs/storage.md", "docs/graphs.md", "crates")
 SKIP_DIRS = {"target", ".git"}
 TOOL_DIR = Path(__file__).resolve().parent
 
