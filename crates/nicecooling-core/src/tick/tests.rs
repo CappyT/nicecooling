@@ -318,6 +318,43 @@ fn window_cleared_on_lost_input() {
 }
 
 #[test]
+fn a_value_from_before_a_pause_counts_as_no_value() {
+    let mut h = Harness::new(one_channel(curve("t", 0.0, 5.0)), Duration::ZERO);
+    h.set("t", 40.0);
+    h.tick();
+    // The tick pauses for 2.5 s. The value is still younger than 3 s, but it is from before.
+    h.clock.advance(Duration::from_millis(1500));
+    h.tick();
+    assert!(h.ctx.channels["ch"].lost_input);
+    assert_eq!(h.duty("ch"), Some(100.0));
+}
+
+#[test]
+fn a_value_read_after_a_pause_counts() {
+    let mut h = Harness::new(one_channel(curve("t", 0.0, 5.0)), Duration::ZERO);
+    h.set("t", 40.0);
+    h.tick();
+    h.clock.advance(Duration::from_secs(6 * 3600));
+    h.set("t", 50.0);
+    h.tick();
+    assert!(!h.ctx.warnings.is_active("lost-input", "ch"));
+    assert_eq!(h.ctx.channels["ch"].input, Some(50.0));
+}
+
+#[test]
+fn window_cleared_after_a_pause() {
+    let mut h = Harness::new(one_channel(curve("t", 10.0, 100.0)), Duration::ZERO);
+    for _ in 0..2 {
+        h.set("t", 20.0);
+        h.tick();
+    }
+    h.clock.advance(Duration::from_secs(2));
+    h.set("t", 80.0);
+    h.tick();
+    assert_eq!(h.ctx.channels["ch"].input, Some(80.0));
+}
+
+#[test]
 fn window_cleared_on_input_change() {
     let mut h = Harness::new(one_channel(curve("a", 10.0, 100.0)), Duration::ZERO);
     for _ in 0..4 {
