@@ -6,6 +6,7 @@ members = [
     "crates/nicecooling-protocol",
     "crates/nicecooling-hwmon",
     "crates/nicecooling-api",
+    "crates/nicecooling-flow",
     "crates/nicecoolingd",
     "crates/nicecooling",
     "tools/nicecooling-verify",

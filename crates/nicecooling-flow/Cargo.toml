@@ -1,0 +1,16 @@
+[package]
+name = "nicecooling-flow"
+version.workspace = true
+edition.workspace = true
+description = "A node canvas for GPUI: pan, zoom, nodes, pins and connections."
+license = "MIT"
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+gpui-pre.workspace = true
+
+[dev-dependencies]
+gpui-pre = { workspace = true, features = ["test-support"] }
