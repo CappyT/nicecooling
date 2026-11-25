@@ -742,6 +742,17 @@ The app SHALL store all Graphs in `graphs.json` in `$XDG_CONFIG_HOME/nicecooling
 - **WHEN** node 4 of `graph_2` is a persistent storage node that holds 7
 - **THEN** `values` holds `"graph_2/4": 7`
 
+### Requirement: State file while the Graph file does not load
+While `graphs.json` does not load, the app SHALL leave `graph-state.json` as it is: it SHALL delete no stored value and no run state and SHALL write no state. The values and the run states come back in use when the Graph file loads again.
+
+#### Scenario: Graph file with a higher schema version
+- **WHEN** `graphs.json` has `schema_version` 2 and `graph-state.json` holds `"graph_1/4": 7` and the run state of `graph_3/5`, and the app runs one pass and stops
+- **THEN** `graph-state.json` still holds the value 7 and the run state of `graph_3/5`
+
+#### Scenario: Graph file repaired
+- **WHEN** the user repairs `graphs.json` that held `graph_1` and `graph_3`, and the app starts again
+- **THEN** node 4 of `graph_1` still holds 7 and a response of `graph_3` whose input stayed true does not run again
+
 ### Requirement: Apply resets state
 Apply of a Graph SHALL reset the state of its nodes except the stored values and the run state of nodes that keep their id and kind. The validator SHALL check the Graph again.
 

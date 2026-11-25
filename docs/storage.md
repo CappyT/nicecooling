@@ -265,6 +265,7 @@ A file that is not valid JSON or TOML, or that has a higher `schema_version` tha
 ```
 
 - `values` holds the value of each persistent storage node. The key is `<graph id>/<node id>`. The app deletes the entry of a node or a Graph that no longer exists.
+- While `graphs.json` does not load, the app deletes no entry and writes no state. The file keeps its content until `graphs.json` loads again.
 - `responses` holds the run state of each response end node, with the same key. `state` is `run` or `not_run`. `last_run_us` is the wall clock time of the last run, or `null`.
 - `pause` holds the Response pause: `count` is the number of poweroff and reboot runs, `quiet_s` is the app run time in seconds since the last of them, and `paused` is true while the Response pause is on.
 - The app writes the file at most every 30 s while a value or a run state changes, at its stop, and before a power call. A change of `quiet_s` alone does not start a write.

@@ -221,8 +221,12 @@ impl GraphStore {
     }
 
     /// Delete the stored values and run states of nodes and Graphs that are gone. The state of an
-    /// invalid Graph stays: the Graph can become valid again.
+    /// invalid Graph stays: the Graph can become valid again. A Graph file that does not load
+    /// prunes nothing: the Graphs are unknown, not gone.
     fn prune_state(&mut self) {
+        if self.file_error.is_some() {
+            return;
+        }
         let keep = |key: &str, kind: Kind| -> bool {
             let Some((graph_id, node)) = key.rsplit_once('/') else {
                 return false;
@@ -257,10 +261,15 @@ impl GraphStore {
 
     /// Write `graph-state.json`. Without `force`, the file is written when the state changed and
     /// 30 s passed since the last write. With `force` (the stop of the app, a power call), it is
-    /// written when the state differs from the file at all. Returns whether it wrote.
+    /// written when the state differs from the file at all. Returns whether it wrote. The file
+    /// stays as it is while `graphs.json` does not load: its values and run states belong to
+    /// Graphs that the store cannot see.
     pub fn write_state(&mut self, now: Duration, force: bool) -> std::io::Result<bool> {
         if let Some(error) = &self.state_error {
             return Err(io_error(error.clone()));
+        }
+        if self.file_error.is_some() {
+            return Ok(false);
         }
         self.prune_state();
         let default = StateFile::default();
