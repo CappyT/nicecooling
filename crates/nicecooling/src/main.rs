@@ -74,11 +74,12 @@ fn main() {
         settings.notify_prefs.clone(),
     );
     services::spawn_history(events_tx.subscribe(), services::history_path());
-    // MQTT stays off while the host is empty. The client lives until the end of `main`. The Graph
-    // service takes the channels of the MQTT message response.
+    // MQTT stays off while the host is empty. The app model holds the client, so the Settings screen
+    // can show its state and give it a new config. The Graph service takes the channels of the MQTT
+    // message response.
     let broker_password = Secrets::open(&GraphPaths::user().secrets).mqtt;
     let services::MqttService {
-        client: _mqtt_client,
+        client: mqtt_client,
         responses,
         done,
     } = services::spawn_mqtt(
@@ -119,6 +120,7 @@ fn main() {
     gpui_platform::application()
         .with_assets(nicecooling::icons::Assets)
         .run(move |cx| {
-            app::init(cx, mode, backend);
+            let model = app::init(cx, mode, backend);
+            model.update(cx, |app, _| app.mqtt = Some(mqtt_client));
         });
 }
