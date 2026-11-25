@@ -119,7 +119,7 @@ grep -q '^## Hardware watchdog' README.md && grep -q 'RuntimeWatchdogSec' README
 grep -q '^## Rollback' README.md && grep -q 'openspec/changes/add-nicecooling-v1/design.md' README.md
 readme_cmd() { grep -oP "(?<=$1: \`)[^\`]+" README.md; }
 install_cmd=$(readme_cmd 'Install it')
-enable_cmd=$(readme_cmd 'at boot')
+enable_cmd=$(readme_cmd 'Start the daemon')
 check_cmd=$(readme_cmd 'Check it' | head -n 1)
 stop_cmd=$(grep -oP '(?<=Stop the service: `)[^`]+' README.md)
 remove_cmd=$(grep -oP '(?<=Remove the package: `)[^`]+' README.md)
