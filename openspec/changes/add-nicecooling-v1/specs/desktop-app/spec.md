@@ -82,6 +82,10 @@ The app SHALL let the user edit the points of a Curve, choose its Input and see 
 - **WHEN** the user drags a point
 - **THEN** the app sends the new Curve to the daemon
 
+#### Scenario: Graph sensor as the Input
+- **WHEN** the user picks a Graph sensor as the Input of a Curve
+- **THEN** the editor shows "A Graph sensor has no value while the app does not run. The Channel then runs at 100%."
+
 ### Requirement: Leakshield pages
 The app SHALL show pages for every Leakshield setting group. A field that is not a Verified field SHALL show as read-only with the reason. The app SHALL NOT offer a write control for a Verification write.
 

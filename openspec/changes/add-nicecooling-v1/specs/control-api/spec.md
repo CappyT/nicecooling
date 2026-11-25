@@ -20,6 +20,10 @@ The API SHALL expose objects for Devices, Loops, Channels, sensors, Profiles and
 - **WHEN** a client introspects the daemon
 - **THEN** it finds an object for each Channel and each Loop
 
+#### Scenario: Graph sensor object
+- **WHEN** the app creates a Graph sensor
+- **THEN** the client finds a sensor object for it with the origin `graph`
+
 ### Requirement: Contract
 The interfaces, methods, signals, errors and identifiers of the API SHALL match `crates/nicecooling-api/dbus/io.github.cappyt.NiceCooling1.xml` and `docs/api.md` of this change.
 

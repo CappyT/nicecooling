@@ -215,6 +215,10 @@ The daemon SHALL evaluate four rule kinds as `docs/api.md` defines them, in sect
 - **WHEN** the sensor of a sensor rule has no value
 - **THEN** the rule does not hold
 
+#### Scenario: Graph sensor as the source
+- **WHEN** a sensor rule has the comparison `gt`, the value 50 and a Graph sensor as source, and the Graph sensor reads 55
+- **THEN** the rule holds after its hold time
+
 #### Scenario: Process name
 - **WHEN** a process rule lists the name `game` and a process runs with `comm` `game` or an executable `/opt/x/game`
 - **THEN** the rule holds, and a process `Game` also matches, because the match ignores case

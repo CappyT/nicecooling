@@ -21,6 +21,13 @@ The daemon SHALL discover the sensors and Channels of every Board that the kerne
 - **WHEN** a kernel driver exposes the sensors of an Aqua Computer device other than the Leakshield through hwmon
 - **THEN** the daemon lists those sensors through generic discovery and offers no write support for the device
 
+### Requirement: Sensor origins
+The daemon SHALL give each sensor one origin: measured, Derived or Graph sensor. The app computes a Graph sensor and sends its value to the daemon, so the daemon has no source task for it.
+
+#### Scenario: Graph sensor in the list
+- **WHEN** a client lists the sensors and a Graph sensor exists
+- **THEN** the list holds it with the origin `graph`, next to the measured and Derived sensors
+
 ### Requirement: Stable device identity
 The daemon SHALL identify a sensor or Channel by the hwmon `name` plus the resolved path of the hwmon `device` link, and MUST NOT identify it by the hwmon index. It SHALL take the driver for exclusion lists from the name of the `device/driver` link. It SHALL identify a Board by the DMI values `board_vendor` and `board_name`.
 

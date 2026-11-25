@@ -86,6 +86,10 @@ When the Input of a Curve has no value, the daemon SHALL set the Channel to 100%
 - **WHEN** the Input gives a value again
 - **THEN** the Warning closes and the Curve controls the Channel again
 
+#### Scenario: Graph sensor not fed
+- **WHEN** the Input of a Curve is a Graph sensor and the app sends no value for 4 seconds
+- **THEN** the Channel goes to 100% and a lost-Input Warning is raised
+
 ### Requirement: Pump floor
 The daemon SHALL apply the Pump floor of each Loop after the Duty step limit. Neither a Curve nor a fixed Duty SHALL set the Duty of a Pump channel below it.
 

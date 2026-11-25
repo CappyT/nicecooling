@@ -97,6 +97,10 @@ The daemon SHALL give each slot a scale and an offset (default 1 and 0). A slot 
 - **WHEN** a client asks for the sources of a Software sensor slot
 - **THEN** the list holds the sensors with a unit that has a device unit code and no sensor in ml
 
+#### Scenario: Graph sensor as the source
+- **WHEN** a Graph sensor with the unit `degC` exists and a client asks for the sources of a Software sensor slot
+- **THEN** the list holds the Graph sensor, and the slot carries no value while the Graph sensor has no value
+
 ### Requirement: Device status and events
 The daemon SHALL decode the Leakshield sensor report each tick and expose pressure, fill level, Mode, running Action, Warnings and Alarms.
 
