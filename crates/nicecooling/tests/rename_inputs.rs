@@ -151,6 +151,7 @@ fn start(cx: &mut TestAppContext, kind: &Kind) -> Rig {
         runtime: runtime.handle().clone(),
         language: Language::English,
         settings: Default::default(),
+        graphs: None,
     };
     let model = cx.update(|cx| app::init(cx, StartMode::Normal, backend));
     let state = full();
