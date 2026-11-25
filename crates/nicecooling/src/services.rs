@@ -239,9 +239,12 @@ pub fn spawn_service(
         loop {
             let wait = service.until_next_wake();
             let wake = runtime.block_on(async {
+                // The stop message wins when it is due together with an event or the end of a
+                // countdown: after the stop, the service makes no power call.
                 tokio::select! {
-                    event = events.recv() => Wake::Event(event),
+                    biased;
                     input = inputs.recv() => Wake::Input(input),
+                    event = events.recv() => Wake::Event(event),
                     () = tokio::time::sleep(wait) => Wake::Timer,
                 }
             });

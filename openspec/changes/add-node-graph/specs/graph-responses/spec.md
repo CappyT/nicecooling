@@ -313,11 +313,15 @@ While the daemon reports a poweroff countdown of an Alarm, the app SHALL start n
 - **THEN** the pump-stop Alarm still powers off after its delay
 
 ### Requirement: Stop of the app
-"Quit" and the end of the session (SIGTERM) SHALL take one path. The app SHALL tell the Graph service to stop. The service SHALL write `graph-state.json` and cancel a running countdown with no power call. The app SHALL wait for it for at most 2 s before it quits.
+"Quit" and the end of the session (SIGTERM) SHALL take one path. The app SHALL tell the Graph service to stop. The service SHALL write `graph-state.json` and cancel a running countdown with no power call. The stop message SHALL come before every event, command and timer, so a countdown that ended while "Quit" waited makes no power call. The app SHALL wait for it for at most 2 s before it quits.
 
 #### Scenario: Quit in a countdown
 - **WHEN** a poweroff countdown has 20 s left and the user chooses "Quit"
 - **THEN** the app writes `graph-state.json`, makes no power call and quits within 2 s
+
+#### Scenario: Countdown ends while Quit waits
+- **WHEN** a pass blocks for 3 s in a call to the daemon, a poweroff countdown ends 1 s after "Quit", and the stop message and a daemon event wait with it
+- **THEN** the service reads the stop message first and makes no power call
 
 #### Scenario: SIGTERM
 - **WHEN** the session ends and the app gets SIGTERM
