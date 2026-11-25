@@ -86,7 +86,8 @@ impl FlowGraph {
         self
     }
 
-    /// Hide the default node wrapper chrome (bg, border, shadow, padding).
+    /// Hide the default node wrapper chrome (bg, border, shadow, padding) and the border of a
+    /// selected node. The node renderer then draws the selection from `FlowNode::selected`.
     pub fn no_node_chrome(mut self) -> Self {
         self.show_node_chrome = false;
         self
@@ -243,7 +244,9 @@ impl FlowGraph {
                 CursorStyle::OpenHand
             })
             .when(dashed, |el: Stateful<Div>| el.border_dashed())
-            .when(selected, |el: Stateful<Div>| {
+            // Without the chrome the renderer of the app draws the selection: a border here
+            // would move the content and the pins of the node.
+            .when(selected && show_chrome, |el: Stateful<Div>| {
                 el.border_2().border_color(gpui::rgb(accent))
             })
             .on_mouse_down(MouseButton::Left, {
