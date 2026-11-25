@@ -160,6 +160,9 @@ notification:
   graph_stopped:
     title: "Graph %{name} arrêté"
     body: "Une erreur a arrêté le Graph. Il est désactivé."
+  graph_service_stopped:
+    title: "Service Graph arrêté"
+    body: "Une erreur a arrêté le service Graph. Aucun Graph ne fonctionne avant le redémarrage de nicecooling."
 feedback:
   pending: Écriture
   applied: "Appliqué à %{time}"

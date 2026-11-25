@@ -74,7 +74,8 @@ pub enum ValuesState {
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct GraphView {
     pub rows: Vec<GraphRow>,
-    /// Why a Graph file cannot be used. The app writes nothing over such a file.
+    /// Why a Graph file cannot be used (the app writes nothing over such a file), or why the
+    /// Graph service ended.
     pub error: Option<String>,
     /// Why the last Apply or Enable was refused. A command that works clears it.
     pub refusal: Option<String>,

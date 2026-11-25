@@ -494,3 +494,39 @@ fn full_channel_refuses_a_command_and_still_takes_the_stop() {
     );
     assert!(!channel.stop(Duration::from_secs(1)));
 }
+
+/// A link that panics: a bug outside the evaluation of a Graph.
+struct PanicLink;
+
+impl SensorLink for PanicLink {
+    fn values(&mut self, _values: &[(String, Option<f64>)]) {
+        panic!("the daemon link failed");
+    }
+}
+
+#[test]
+fn panic_outside_a_graph_ends_the_service_and_the_stop_reports_it() {
+    let mut parts = parts(
+        "panic-stop",
+        vec![constant_graph("graph_1", 1.0)],
+        Box::new(PanicLink),
+        Box::new(NoPower),
+    );
+    let (channel, inputs) = GraphChannel::new();
+    let (events, _) = broadcast::channel(8);
+    spawn_service(parts.service, events.subscribe(), inputs);
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while !channel.is_closed() {
+        assert!(Instant::now() < deadline, "the service did not end");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    // The state was not written, and the stop says so.
+    assert!(!channel.stop(QUIT_WAIT));
+    let error = parts.view.lock().unwrap().error.clone().expect("an error");
+    assert!(error.contains("the daemon link failed"), "{error}");
+    let Plan::Show(spec) = parts.notifications.try_recv().expect("a notification") else {
+        panic!("a notification to show");
+    };
+    assert_eq!(spec.title, "Graph service stopped");
+    assert_eq!(spec.key, "graph-service-stopped");
+}

@@ -234,37 +234,54 @@ pub fn spawn_service(
         Timer,
     }
     thread::spawn(move || {
-        let runtime = small_runtime();
-        let mut stop = None;
-        loop {
-            let wait = service.until_next_wake();
-            let wake = runtime.block_on(async {
-                // The stop message wins when it is due together with an event or the end of a
-                // countdown: after the stop, the service makes no power call.
-                tokio::select! {
-                    biased;
-                    input = inputs.recv() => Wake::Input(input),
-                    event = events.recv() => Wake::Event(event),
-                    () = tokio::time::sleep(wait) => Wake::Timer,
+        // A panic outside the evaluation of a Graph (the store, the link, the channel) ends the
+        // service. The view and a notification say so. The thread ends, so the channel closes and
+        // a stop of the app learns that nobody wrote the state.
+        let run = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let runtime = small_runtime();
+            let mut stop = None;
+            loop {
+                let wait = service.until_next_wake();
+                let wake = runtime.block_on(async {
+                    // The stop message wins when it is due together with an event or the end of a
+                    // countdown: after the stop, the service makes no power call.
+                    tokio::select! {
+                        biased;
+                        input = inputs.recv() => Wake::Input(input),
+                        event = events.recv() => Wake::Event(event),
+                        () = tokio::time::sleep(wait) => Wake::Timer,
+                    }
+                });
+                match wake {
+                    Wake::Event(Ok(event)) => service.apply_event(&event),
+                    Wake::Event(Err(RecvError::Closed)) | Wake::Input(None) => break,
+                    Wake::Event(Err(RecvError::Lagged(_))) | Wake::Timer => {}
+                    Wake::Input(Some(Input::Command(command))) => service.handle(command),
+                    Wake::Input(Some(Input::Stop(done))) => {
+                        stop = Some(done);
+                        break;
+                    }
                 }
-            });
-            match wake {
-                Wake::Event(Ok(event)) => service.apply_event(&event),
-                Wake::Event(Err(RecvError::Closed)) | Wake::Input(None) => break,
-                Wake::Event(Err(RecvError::Lagged(_))) | Wake::Timer => {}
-                Wake::Input(Some(Input::Command(command))) => service.handle(command),
-                Wake::Input(Some(Input::Stop(done))) => {
-                    stop = Some(done);
-                    break;
-                }
+                service.poll();
             }
-            service.poll();
-        }
-        service.stop();
-        if let Some(done) = stop {
-            let _ = done.send(());
+            service.stop();
+            if let Some(done) = stop {
+                let _ = done.send(());
+            }
+        }));
+        if let Err(payload) = run {
+            service.fail(&panic_text(payload.as_ref()));
         }
     });
+}
+
+/// The message of a panic.
+fn panic_text(payload: &(dyn std::any::Any + Send)) -> String {
+    payload
+        .downcast_ref::<&str>()
+        .map(|text| (*text).to_owned())
+        .or_else(|| payload.downcast_ref::<String>().cloned())
+        .unwrap_or_else(|| "a panic without a message".to_owned())
 }
 
 /// The link of the Graph service to the daemon, on the system bus. Without a system bus the link

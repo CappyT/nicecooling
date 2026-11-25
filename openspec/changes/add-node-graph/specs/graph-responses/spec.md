@@ -331,6 +331,10 @@ While the daemon reports a poweroff countdown of an Alarm, the app SHALL start n
 - **WHEN** the service does not stop in 2 s
 - **THEN** the app quits after 2 s
 
+#### Scenario: Service has ended
+- **WHEN** the service thread ended after a panic and the user chooses "Quit"
+- **THEN** the app does not claim that the state is written, logs it and quits at once
+
 ### Requirement: Response pause
 The app SHALL count the poweroff and reboot runs that it starts, "Run once" included. The count SHALL go back to 0 after 60 minutes of app run time with no such run. The app SHALL store this run time, so it adds up over restarts. At a count of 3 the app SHALL enter the Response pause: no Graph response runs by itself and the Graph sensors still work. The pause SHALL stay over a restart. A banner with "Turn the Graph responses on" SHALL set the count to 0 and end the pause.
 

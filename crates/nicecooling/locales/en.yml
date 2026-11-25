@@ -160,6 +160,9 @@ notification:
   graph_stopped:
     title: "Graph %{name} stopped"
     body: "An error stopped the Graph, and it is disabled."
+  graph_service_stopped:
+    title: "Graph service stopped"
+    body: "An error stopped the Graph service. No Graph runs until nicecooling starts again."
 feedback:
   pending: Writing
   applied: "Applied %{time}"

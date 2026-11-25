@@ -217,9 +217,13 @@ pub fn init(cx: &mut App, mode: StartMode, backend: Backend) -> Entity<AppModel>
                         // The service writes its state and cancels a countdown first. A service
                         // that does not answer holds the quit for QUIT_WAIT at most.
                         if let Some(graphs) = graphs.clone() {
-                            cx.background_executor()
+                            let written = cx
+                                .background_executor()
                                 .spawn(async move { graphs.stop(QUIT_WAIT) })
                                 .await;
+                            if !written {
+                                eprintln!("nicecooling: the Graph service did not write its state");
+                            }
                         }
                         cx.update(|cx| cx.quit());
                     }

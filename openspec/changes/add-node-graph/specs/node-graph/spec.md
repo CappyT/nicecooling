@@ -678,6 +678,17 @@ The app SHALL evaluate each Graph inside a panic boundary. A Graph whose evaluat
 - **WHEN** the app restarts after the panic
 - **THEN** Graph B is still disabled
 
+### Requirement: Failure of the Graph service
+A panic outside the evaluation of a Graph (the store, the link to the daemon, the channel) SHALL end the Graph service thread. The Graph view SHALL show an error, and the app SHALL show a notification that names the Graph service. A stop of the app after that SHALL report that no state was written.
+
+#### Scenario: Panic in the link
+- **WHEN** the call that sends the Graph sensor values panics in the first pass
+- **THEN** the Graph view shows "the Graph service stopped", the app shows "Graph service stopped", and no Graph runs
+
+#### Scenario: Quit after the failure
+- **WHEN** the Graph service has ended and the user chooses "Quit"
+- **THEN** the app quits at once and logs that the service did not write its state
+
 ### Requirement: Loop check inside a Graph
 The validator SHALL refuse a Graph with a connection that closes a loop, a connection between two input pins or two output pins, and a connection between two pins of one node. The refusal SHALL name the reason.
 

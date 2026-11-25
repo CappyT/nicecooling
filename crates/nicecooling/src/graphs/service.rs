@@ -613,6 +613,26 @@ impl GraphService {
         }
     }
 
+    /// The service ends after a panic outside the evaluation of a Graph: the view shows an error
+    /// and a notification names the Graph service. The caller ends the thread.
+    pub fn fail(&self, reason: &str) {
+        // A panic can leave the mutex poisoned: the error shows anyway.
+        let mut view = self
+            .view
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        view.error = Some(format!("the Graph service stopped: {reason}"));
+        drop(view);
+        let locale = self.locale;
+        let _ = self.notify.send(Plan::Show(NotificationSpec {
+            key: "graph-service-stopped".to_owned(),
+            title: locale.tr("notification.graph_service_stopped.title"),
+            body: locale.tr("notification.graph_service_stopped.body"),
+            level: Level::Normal,
+            buttons: vec![open_button(locale)],
+        }));
+    }
+
     /// The stop of the app: write the state file whatever the time since the last write.
     pub fn stop(&mut self) {
         self.cancel_countdown();
