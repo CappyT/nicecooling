@@ -18,9 +18,10 @@ use tokio::sync::mpsc::UnboundedSender;
 
 use super::channel::GraphCommand;
 use super::sensors::{self, CREATED_GRACE, SensorSpec};
+use super::session::AlwaysActive;
 use super::store::{GraphStore, describe, describe_invalid};
 use super::try_run::TryRun;
-use super::values::SensorError;
+use super::values::{ActiveSession, SensorError};
 use super::view::{Countdown, GraphRow, RowState, SharedView, TryView};
 use crate::i18n::Locale;
 use crate::model::{AppState, DaemonEvent};
@@ -144,6 +145,8 @@ pub struct GraphService {
     link: Box<dyn SensorLink>,
     scan: Box<dyn ProcessSource>,
     power: Box<dyn PowerCall>,
+    /// The session of the app in logind. An inactive session runs no response.
+    session: Box<dyn ActiveSession>,
     notify: UnboundedSender<Plan>,
     locale: Locale,
     countdown: Option<RunningCountdown>,
@@ -189,6 +192,7 @@ impl GraphService {
             link,
             scan,
             power,
+            session: Box::new(AlwaysActive),
             notify,
             locale,
             countdown: None,
@@ -203,6 +207,18 @@ impl GraphService {
         };
         service.publish();
         service
+    }
+
+    /// Use the session of logind instead of the session that is always active.
+    pub fn with_session(mut self, session: Box<dyn ActiveSession>) -> Self {
+        self.session = session;
+        self
+    }
+
+    /// Whether this app may run a Graph response now: only the app of the active session runs
+    /// one. The Graphs are evaluated whatever this says.
+    pub fn runs_responses(&self) -> bool {
+        self.session.active()
     }
 
     /// Follow the daemon. A new snapshot starts the comparison of the Graphs with the Graph

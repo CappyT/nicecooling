@@ -19,8 +19,9 @@ use crate::command::Command;
 use crate::daemon_client::DaemonClient;
 use crate::graphs::channel::{GraphChannel, Input, Inputs};
 use crate::graphs::service::{Env, GraphService, NoLink, NoPower, SensorLink};
+use crate::graphs::session::AlwaysActive;
 use crate::graphs::store::{GraphPaths, GraphStore};
-use crate::graphs::values::{DaemonCalls, DaemonLink, LogindSession};
+use crate::graphs::values::{ActiveSession, DaemonCalls, DaemonLink, LogindSession};
 use crate::graphs::view::SharedView;
 use crate::history::{HistoryDb, HistoryWriter};
 use crate::i18n::Locale;
@@ -287,22 +288,36 @@ fn panic_text(payload: &(dyn std::any::Any + Send)) -> String {
         .unwrap_or_else(|| "a panic without a message".to_owned())
 }
 
-/// The link of the Graph service to the daemon, on the system bus. Without a system bus the link
-/// sends nothing.
-pub fn graph_link(
+/// What the Graph service takes from the system bus: the link to the daemon and the session of the
+/// app in logind.
+pub struct GraphSystem {
+    pub link: Box<dyn SensorLink>,
+    pub session: Box<dyn ActiveSession>,
+}
+
+/// The link of the Graph service to the daemon and to logind, on the system bus. Without a system
+/// bus the link sends nothing and the session counts as active.
+pub fn graph_system(
     system: Option<(DaemonClient, zbus::Connection)>,
     runtime: &tokio::runtime::Handle,
     view: SharedView,
-) -> Box<dyn SensorLink> {
+) -> GraphSystem {
     let Some((client, conn)) = system else {
-        return Box::new(NoLink);
+        return GraphSystem {
+            link: Box::new(NoLink),
+            session: Box::new(AlwaysActive),
+        };
     };
-    Box::new(DaemonLink::new(
-        DaemonCalls::new(client, runtime.clone()),
-        Box::new(LogindSession::spawn(conn, runtime)),
-        Box::new(SystemClock::new()),
-        view,
-    ))
+    let session = LogindSession::spawn(conn, runtime);
+    GraphSystem {
+        link: Box::new(DaemonLink::new(
+            DaemonCalls::new(client, runtime.clone()),
+            Box::new(session.clone()),
+            Box::new(SystemClock::new()),
+            view,
+        )),
+        session: Box::new(session),
+    }
 }
 
 /// The Graph service with the real clock and the real `/proc`. It returns the channel of its
@@ -313,7 +328,7 @@ pub fn spawn_graphs(
     notify: UnboundedSender<Plan>,
     locale: Locale,
     view: SharedView,
-    link: Box<dyn SensorLink>,
+    system: GraphSystem,
 ) -> GraphChannel {
     let (channel, inputs) = GraphChannel::new();
     let channel = channel.with_view(view.clone());
@@ -321,14 +336,15 @@ pub fn spawn_graphs(
         GraphStore::open(paths),
         Env {
             clock: Box::new(SystemClock::new()),
-            link,
+            link: system.link,
             scan: Box::new(ProcFs::new("/proc")),
             power: Box::new(NoPower),
             notify,
             locale,
             view,
         },
-    );
+    )
+    .with_session(system.session);
     spawn_service(service, events, inputs);
     channel
 }

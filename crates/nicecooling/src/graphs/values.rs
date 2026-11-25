@@ -6,15 +6,13 @@
 //! the service thread: a test replaces the call, the session and the clock.
 
 use std::fmt;
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
-use futures_util::StreamExt;
 use nicecooling_core::clock::Clock;
 use tokio::runtime::Handle;
 
 use super::service::SensorLink;
+pub use super::session::LogindSession;
 use super::view::{SharedView, ValuesState};
 use crate::daemon_client::DaemonClient;
 
@@ -254,44 +252,5 @@ impl SensorLink for DaemonLink {
 
     fn delete_sensor(&mut self, id: &str) -> Result<(), SensorError> {
         self.calls.delete(id)
-    }
-}
-
-const LOGIND: &str = "org.freedesktop.login1";
-const SESSION_PATH: &str = "/org/freedesktop/login1/session/auto";
-const SESSION_INTERFACE: &str = "org.freedesktop.login1.Session";
-
-/// The `Active` property of the session of the app in logind. A state that logind does not give
-/// counts as active: a desktop without logind has one session and polkit decides the rest.
-pub struct LogindSession(Arc<AtomicBool>);
-
-impl LogindSession {
-    /// Follow the property on the runtime. The state is the last value that logind gave.
-    pub fn spawn(conn: zbus::Connection, runtime: &Handle) -> Self {
-        let active = Arc::new(AtomicBool::new(true));
-        let flag = active.clone();
-        runtime.spawn(async move {
-            let Ok(proxy) = zbus::Proxy::new(&conn, LOGIND, SESSION_PATH, SESSION_INTERFACE).await
-            else {
-                return;
-            };
-            // The stream comes before the first read, so no change is lost between the two.
-            let mut changes = proxy.receive_property_changed::<bool>("Active").await;
-            if let Ok(now) = proxy.get_property::<bool>("Active").await {
-                flag.store(now, Ordering::Relaxed);
-            }
-            while let Some(change) = changes.next().await {
-                if let Ok(now) = change.get().await {
-                    flag.store(now, Ordering::Relaxed);
-                }
-            }
-        });
-        Self(active)
-    }
-}
-
-impl ActiveSession for LogindSession {
-    fn active(&self) -> bool {
-        self.0.load(Ordering::Relaxed)
     }
 }

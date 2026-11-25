@@ -5,6 +5,7 @@ pub mod channel;
 pub mod secrets;
 pub mod sensors;
 pub mod service;
+pub mod session;
 pub mod store;
 pub mod transfer;
 pub mod try_run;

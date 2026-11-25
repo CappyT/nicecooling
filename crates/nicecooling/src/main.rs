@@ -74,14 +74,14 @@ fn main() {
         settings.notify_prefs.clone(),
     );
     services::spawn_history(events_tx.subscribe(), services::history_path());
-    let graph_link = services::graph_link(system, runtime.handle(), graph_view.clone());
+    let graph_system = services::graph_system(system, runtime.handle(), graph_view.clone());
     let graphs = services::spawn_graphs(
         events_tx.subscribe(),
         GraphPaths::user(),
         notify_tx,
         locale,
         graph_view,
-        graph_link,
+        graph_system,
     );
     // MQTT stays off while the host is empty. The service lives until the end of `main`.
     let broker_password = Secrets::open(&GraphPaths::user().secrets).mqtt;
