@@ -136,6 +136,9 @@ impl Filter {
         now: Duration,
     ) -> Option<f64> {
         self.window.age(Duration::from_secs(u64::from(span_s)), now);
+        if self.window.is_empty() {
+            self.damped = None;
+        }
         self.window.push(now, input?);
         match stat {
             Stat::Peak => self.window.peak().map(round5),
@@ -285,6 +288,23 @@ mod tests {
         let mut peak = Filter::default();
         let out = feed(&mut peak, Stat::Peak, 2, &some(&[9.0, 1.0, 2.0, 3.0]));
         assert_eq!(out, some(&[9.0, 9.0, 9.0, 3.0]));
+    }
+
+    #[test]
+    fn low_pass_starts_again_after_a_gap() {
+        let stat = Stat::LowPass { damping: 50.0 };
+        let mut filter = Filter::default();
+        for t in 0..6 {
+            filter.step(stat, Some(100.0), 3, Duration::from_secs(t));
+        }
+        // The window is empty at second 20: the next output starts from the first mean.
+        assert_eq!(filter.step(stat, None, 3, Duration::from_secs(20)), None);
+        for (t, want) in [(21, 10.0), (22, 10.0), (23, 10.0)] {
+            assert_eq!(
+                filter.step(stat, Some(10.0), 3, Duration::from_secs(t)),
+                Some(want)
+            );
+        }
     }
 
     #[test]

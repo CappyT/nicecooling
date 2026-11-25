@@ -495,7 +495,7 @@ The peak, minimum and average filter nodes SHALL give the largest, the smallest 
 - **THEN** the node gives no value and adds no sample
 
 ### Requirement: Low pass node
-The low pass node SHALL use the window of the filter nodes. With fewer than 3 samples it SHALL give their mean. Otherwise it SHALL sort the samples, drop the lowest and the highest in pairs while at least a third of the samples would remain, take the mean of the rest, and move its output toward that mean by the factor 1 - damping / 100. Damping SHALL be 0 to 99.99, default 25.
+The low pass node SHALL use the window of the filter nodes. With fewer than 3 samples it SHALL give their mean. Otherwise it SHALL sort the samples, drop the lowest and the highest in pairs while at least a third of the samples would remain, take the mean of the rest, and move its output toward that mean by the factor 1 - damping / 100. Damping SHALL be 0 to 99.99, default 25. After a gap that empties the window, the first output SHALL be the first mean again.
 
 #### Scenario: First samples
 - **WHEN** the window holds the samples 10 and 20
@@ -504,6 +504,10 @@ The low pass node SHALL use the window of the filter nodes. With fewer than 3 sa
 #### Scenario: Damped step
 - **WHEN** the window holds 10, 20 and 30, the damping is 25 and the last output was 10
 - **THEN** the trimmed mean is 20 and the node gives 17.5
+
+#### Scenario: After a gap
+- **WHEN** the window emptied because A had no value for longer than the span, and then the samples 10, 10 and 10 arrive
+- **THEN** the node gives 10 and not a value that moves from the output before the gap
 
 #### Scenario: No damping
 - **WHEN** the damping is 0 and the trimmed mean is 20
