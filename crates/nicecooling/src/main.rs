@@ -82,6 +82,7 @@ fn main() {
         locale,
         graph_view,
         graph_system,
+        runtime.handle().clone(),
     );
     // MQTT stays off while the host is empty. The service lives until the end of `main`.
     let broker_password = Secrets::open(&GraphPaths::user().secrets).mqtt;

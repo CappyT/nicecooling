@@ -5,14 +5,20 @@ use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use nicecooling::graphs::kinds::KindRunner;
+use nicecooling::app_settings::AppSettings;
+use nicecooling::graphs::channel::GraphCommand;
+use nicecooling::graphs::kinds::{KindRunner, SmtpSource};
 use nicecooling::graphs::responses::{Outcome, Run, Runner, Started};
+use nicecooling::graphs::secrets::Password;
 use nicecooling::graphs::service::{Env, GraphService, NoLink, NoPower};
 use nicecooling::graphs::store::GraphStore;
 use nicecooling::graphs::view::{SharedView, shared_view};
 use nicecooling::i18n::EN;
 use nicecooling::model::{DaemonEvent, Link, SensorSample};
 use nicecooling::notify::{NotificationSpec, Notifier, Plan};
+use nicecooling::services::smtp_source;
+use nicecooling::smtp::send::SmtpAccount;
+use nicecooling::smtp::settings::{SmtpSecurity, SmtpSettings};
 use nicecooling_core::clock::{SimClock, SimWallClock};
 use nicecooling_core::rules::proc_scan::ProcessSource;
 use nicecooling_core::rules::process::ProcessList;
@@ -21,7 +27,9 @@ use nicecooling_graph::template::LabelledValue;
 use support::bus::PrivateBus;
 use support::fake_notification_server::FakeNotificationServer;
 use support::graphs::Dir;
+use support::smtp_server::{Behavior as SmtpBehavior, SmtpServer};
 use support::{SESSION_LOCK, use_as_session_bus};
+use tokio::runtime::Handle;
 use tokio::sync::mpsc::{UnboundedReceiver, unbounded_channel};
 
 /// The wall clock at the start of a test: 2025-12-17 19:33:20 UTC.
@@ -112,12 +120,24 @@ impl Rig {
     }
 
     fn in_dir(dir: Dir, wall: SimWallClock, graphs: Vec<Graph>) -> Self {
+        let runner = FakeRunner::default();
+        Self::build(dir, wall, graphs, runner.clone(), Box::new(runner))
+    }
+
+    /// The service starts its responses with `starts`. `runner` is the fake that the test reads:
+    /// it records nothing when `starts` is another runner.
+    fn build(
+        dir: Dir,
+        wall: SimWallClock,
+        graphs: Vec<Graph>,
+        runner: FakeRunner,
+        starts: Box<dyn Runner>,
+    ) -> Self {
         let mut store = GraphStore::open(dir.graph_paths());
         for graph in graphs {
             store.put(graph).unwrap();
         }
         let clock = SimClock::default();
-        let runner = FakeRunner::default();
         let view = shared_view();
         let (notify, notifications) = unbounded_channel();
         let service = GraphService::new(
@@ -133,7 +153,7 @@ impl Rig {
             },
         )
         .with_wall_clock(Box::new(wall.clone()))
-        .with_runner(Box::new(runner.clone()));
+        .with_runner(starts);
         let mut rig = Self {
             service,
             clock,
@@ -690,4 +710,178 @@ fn command_output_is_discarded_and_it_leads_its_own_group() {
     // Field 5 of `stat` is the process group. The program leads its own group: it is its pid.
     let fields: Vec<&str> = lines[3].split(' ').collect();
     assert_eq!(fields[5], fields[0], "{}", lines[3]);
+}
+
+/// The Graph service with the real `KindRunner`: "Run once" runs the response of the draft, and
+/// the service logs its outcome when the runner reports it. Polls until the log has `rows` rows.
+fn wait_for_log(rig: &mut Rig, rows: usize) {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        rig.service.poll();
+        let logged = rig.view.lock().unwrap().log.len();
+        if logged >= rows {
+            return;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "the log has {logged} of {rows} rows"
+        );
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
+/// A Graph with one response end node, as the editor sends it to "Run once".
+fn draft(node: Node) -> Graph {
+    let mut graph = Graph::new("graph_2", "Hot water");
+    graph.nodes = vec![node];
+    graph
+}
+
+fn run_once(rig: &mut Rig, node: Node) {
+    rig.service.handle(GraphCommand::RunOnce {
+        graph: Box::new(draft(node)),
+    });
+}
+
+fn email_node() -> Node {
+    Node::new(2, Kind::ResponseEnd)
+        .with_param("kind", "email")
+        .with_param("to", "owner@example.org")
+        .with_param("subject", "Pump stopped")
+        .with_param("text", "The pump stopped.")
+}
+
+/// The account of a test server that has no encryption and no login.
+fn smtp_settings(port: u16) -> SmtpSettings {
+    SmtpSettings {
+        host: "127.0.0.1".to_owned(),
+        port: Some(port),
+        security: SmtpSecurity::None,
+        user: String::new(),
+        sender: "NiceCooling <nicecooling@example.org>".to_owned(),
+    }
+}
+
+/// A source that gives the same account at each send.
+fn fixed_account(account: SmtpAccount) -> SmtpSource {
+    Arc::new(move || account.clone())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn email_response_logs_ok() {
+    let dir = Dir::new("email-ok");
+    let server = SmtpServer::start(SmtpBehavior::plain());
+    // The source of the app reads the account from `settings.toml`.
+    let settings_path = dir.path().join("settings.toml");
+    let settings = AppSettings {
+        smtp: smtp_settings(server.port),
+        ..AppSettings::default()
+    };
+    settings.save(&settings_path).expect("the settings file");
+    let source = smtp_source(settings_path, dir.graph_paths().secrets);
+    let (notify, _requests) = unbounded_channel();
+    let runner = KindRunner::new(notify).with_email(Handle::current(), source);
+    let mut rig = Rig::build(
+        dir,
+        SimWallClock::new(WALL_START_US),
+        Vec::new(),
+        FakeRunner::default(),
+        Box::new(runner),
+    );
+
+    run_once(&mut rig, email_node());
+    // The send runs in a task: the service has no outcome yet.
+    assert!(rig.view.lock().unwrap().log.is_empty());
+    wait_for_log(&mut rig, 1);
+
+    let log = rig.view.lock().unwrap().log.clone();
+    assert_eq!(log.len(), 1);
+    assert_eq!(log[0].kind, "email");
+    assert_eq!(log[0].outcome, Outcome::Ok);
+    assert_eq!(log[0].graph_id, "graph_2");
+    assert_eq!(log[0].graph_name, "Hot water");
+    assert_eq!(log[0].time_us, WALL_START_US);
+    assert!(server.wait_for(|sessions| sessions.iter().any(|session| session.data.is_some())));
+    let sessions = server.sessions();
+    assert_eq!(sessions[0].rcpt_to, ["owner@example.org"]);
+    assert!(
+        sessions[0]
+            .data_lines()
+            .contains(&"Subject: Pump stopped".to_owned())
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn email_response_without_an_account_is_not_configured() {
+    let (notify, _requests) = unbounded_channel();
+    let run = run_of(email_node(), Vec::new());
+
+    // A runner that has no SMTP source.
+    let mut bare = KindRunner::new(notify.clone());
+    assert_eq!(bare.start(&run), Started::Done(Outcome::NotConfigured));
+
+    // An account with no host: the send gives the outcome in its task.
+    let empty = SmtpAccount::new(SmtpSettings::default(), Password::default());
+    let mut runner = KindRunner::new(notify).with_email(Handle::current(), fixed_account(empty));
+    assert_eq!(runner.start(&run), Started::Pending);
+    assert_eq!(wait_outcome(&mut runner, &run.id), Outcome::NotConfigured);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn email_response_expands_placeholders() {
+    let server = SmtpServer::start(SmtpBehavior::plain());
+    let account = SmtpAccount::new(smtp_settings(server.port), Password::default());
+    let (notify, _requests) = unbounded_channel();
+    let mut runner = KindRunner::new(notify).with_email(Handle::current(), fixed_account(account));
+    let node = email_node()
+        .with_param("subject", "{graph}: {value:water}")
+        .with_param(
+            "text",
+            "{graph}: water {value:water} {unit:water}, pump {value:pump}, at {time}. {{done}}",
+        );
+    let values = vec![
+        labelled("water", Some(46.2), "rpm"),
+        labelled("pump", None, ""),
+    ];
+    let run = run_of(node, values);
+
+    assert_eq!(runner.start(&run), Started::Pending);
+    assert_eq!(wait_outcome(&mut runner, &run.id), Outcome::Ok);
+
+    let sessions = server.sessions();
+    let lines = sessions[0].data_lines();
+    assert!(
+        lines.contains(&"Subject: Hot water: 46.2".to_owned()),
+        "{lines:?}"
+    );
+    assert!(
+        lines.contains(
+            &"Hot water: water 46.2 rpm, pump --, at 2026-11-25 14:05:09. {done}".to_owned()
+        ),
+        "{lines:?}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn email_response_failed_and_timeout_give_their_outcomes() {
+    let (notify, _requests) = unbounded_channel();
+
+    // A recipient that is no address: the send fails before it connects.
+    let account = SmtpAccount::new(smtp_settings(1), Password::default());
+    let mut runner =
+        KindRunner::new(notify.clone()).with_email(Handle::current(), fixed_account(account));
+    let run = run_of(email_node().with_param("to", "owner"), Vec::new());
+    assert_eq!(runner.start(&run), Started::Pending);
+    assert_eq!(wait_outcome(&mut runner, &run.id), Outcome::Failed);
+
+    // A server that waits 5 s before its greeting, and a limit of 300 ms in place of 30 s.
+    let server = SmtpServer::start(SmtpBehavior::plain().slow(Duration::from_secs(5)));
+    let account = SmtpAccount::new(smtp_settings(server.port), Password::default())
+        .with_limit(Duration::from_millis(300));
+    let mut runner = KindRunner::new(notify).with_email(Handle::current(), fixed_account(account));
+    let run = run_of(email_node(), Vec::new());
+    let started = Instant::now();
+    assert_eq!(runner.start(&run), Started::Pending);
+    assert_eq!(wait_outcome(&mut runner, &run.id), Outcome::Timeout);
+    assert!(started.elapsed() < Duration::from_secs(3));
 }

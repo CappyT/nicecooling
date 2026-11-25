@@ -1,9 +1,13 @@
-//! The response kinds that need no network and no power call: notification, sound and command.
-//! The MQTT message and e-mail kinds give `not-configured` until their clients exist. The power
-//! kinds run in `power.rs` and never come here.
+//! The response kinds that the app runs itself: notification, sound, command and e-mail. The
+//! power kinds run in `power.rs` and never come here. The MQTT message kind gives `not-configured`
+//! until its publisher exists.
+//!
+//! The e-mail has no account until `with_email` gives the runner one. A runner without it gives
+//! the outcome `not-configured`.
 
 use std::os::unix::process::CommandExt;
 use std::process::{Child, Command, Stdio};
+use std::sync::Arc;
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -14,6 +18,7 @@ use tokio::sync::mpsc::UnboundedSender;
 
 use super::responses::{Outcome, Run, Runner, Started};
 use crate::notify::{Level, NotificationSpec, Plan};
+use crate::smtp::send::{Mail, SendError, SmtpAccount, send};
 
 /// How often the wait for a command looks at the program.
 const POLL: Duration = Duration::from_millis(20);
@@ -21,13 +26,33 @@ const POLL: Duration = Duration::from_millis(20);
 /// The longest time limit of a command, in seconds.
 const MAX_LIMIT_S: f64 = 3600.0;
 
-/// Starts the notification, sound and command responses.
+/// Where an e-mail response gets its account. Each send calls it, so a change of the SMTP settings
+/// holds at the next run. The call can read files: it runs off the thread of the Graph service.
+pub type SmtpSource = Arc<dyn Fn() -> SmtpAccount + Send + Sync>;
+
+/// What the e-mail response needs: a runtime for its send tasks and the account.
+struct Email {
+    runtime: tokio::runtime::Handle,
+    source: SmtpSource,
+}
+
+/// What a message of a run can name.
+fn context_of(run: &Run) -> Context<'_> {
+    Context {
+        graph_name: &run.graph_name,
+        time: &run.time_text,
+        nodes: &run.values,
+    }
+}
+
+/// Starts the notification, sound, command and e-mail responses.
 pub struct KindRunner {
     /// The channel that the notification thread reads.
     notify: UnboundedSender<Plan>,
-    /// The commands that run report their outcome here.
+    /// The commands and the e-mails that run report their outcome here.
     outcomes: Sender<(String, Outcome)>,
     finished: Receiver<(String, Outcome)>,
+    email: Option<Email>,
 }
 
 impl KindRunner {
@@ -37,7 +62,14 @@ impl KindRunner {
             notify,
             outcomes,
             finished,
+            email: None,
         }
+    }
+
+    /// Send the e-mail responses on `runtime`, with the account that `source` gives.
+    pub fn with_email(mut self, runtime: tokio::runtime::Handle, source: SmtpSource) -> Self {
+        self.email = Some(Email { runtime, source });
+        self
     }
 
     fn show(&self, spec: NotificationSpec) -> Started {
@@ -48,16 +80,11 @@ impl KindRunner {
     }
 
     fn notification(&self, run: &Run) -> Started {
-        let context = Context {
-            graph_name: &run.graph_name,
-            time: &run.time_text,
-            nodes: &run.values,
-        };
         self.show(NotificationSpec {
             // A response that repeats replaces its last notification.
             key: format!("graph-response-{}", run.graph_id),
             title: run.node.text("title"),
-            body: expand(&run.node.text("text"), &context),
+            body: expand(&run.node.text("text"), &context_of(run)),
             level: match run.node.text("urgency").as_str() {
                 "low" => Level::Low,
                 "critical" => Level::Critical,
@@ -129,6 +156,27 @@ impl KindRunner {
         });
         Started::Pending
     }
+
+    /// Send the e-mail in a task of its own. The Graph service never waits for the server: the
+    /// outcome comes through `finished`, whatever it is.
+    fn mail(&self, run: &Run) -> Started {
+        let Some(email) = &self.email else {
+            return Started::Done(Outcome::NotConfigured);
+        };
+        let context = context_of(run);
+        let mail = Mail {
+            to: run.node.text("to"),
+            subject: expand(&run.node.text("subject"), &context),
+            text: expand(&run.node.text("text"), &context),
+        };
+        let source = Arc::clone(&email.source);
+        let outcomes = self.outcomes.clone();
+        let id = run.id.clone();
+        email.runtime.spawn(async move {
+            let _ = outcomes.send((id, send_mail(source, mail).await));
+        });
+        Started::Pending
+    }
 }
 
 impl Runner for KindRunner {
@@ -137,17 +185,33 @@ impl Runner for KindRunner {
             ResponseKind::Notification => self.notification(run),
             ResponseKind::Sound => self.sound(run),
             ResponseKind::Command => self.command(run),
-            // Section 6 gives the MQTT message its client, and task 7.4 gives the e-mail its
-            // client. Until then both kinds have no account.
-            ResponseKind::Mqtt | ResponseKind::Email => Started::Done(Outcome::NotConfigured),
-            ResponseKind::Poweroff | ResponseKind::Reboot | ResponseKind::Suspend => {
-                Started::Done(Outcome::NotConfigured)
-            }
+            ResponseKind::Email => self.mail(run),
+            ResponseKind::Mqtt
+            | ResponseKind::Poweroff
+            | ResponseKind::Reboot
+            | ResponseKind::Suspend => Started::Done(Outcome::NotConfigured),
         }
     }
 
     fn finished(&mut self) -> Vec<(String, Outcome)> {
         self.finished.try_iter().collect()
+    }
+}
+
+/// Get the account and send the message. The account comes from files, so it is read off the
+/// threads of the runtime. The send ends in the time limit of the account at the latest.
+async fn send_mail(source: SmtpSource, mail: Mail) -> Outcome {
+    let Ok(account) = tokio::task::spawn_blocking(move || source()).await else {
+        return Outcome::Failed;
+    };
+    match send(&account, &mail).await {
+        Ok(()) => Outcome::Ok,
+        Err(SendError::NotConfigured) => Outcome::NotConfigured,
+        Err(SendError::Timeout) => Outcome::Timeout,
+        Err(SendError::Failed(reason)) => {
+            eprintln!("nicecooling: e-mail response: {reason}");
+            Outcome::Failed
+        }
     }
 }
 

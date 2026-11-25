@@ -15,11 +15,13 @@ use nicecooling_core::clock::{SystemClock, SystemWallClock};
 use nicecooling_core::rules::proc_scan::ProcFs;
 
 use crate::app::now_us;
+use crate::app_settings::{AppSettings, settings_path};
 use crate::command::Command;
 use crate::daemon_client::DaemonClient;
 use crate::graphs::channel::{GraphChannel, Input, Inputs};
-use crate::graphs::kinds::KindRunner;
+use crate::graphs::kinds::{KindRunner, SmtpSource};
 use crate::graphs::power::LogindPower;
+use crate::graphs::secrets::Secrets;
 use crate::graphs::service::{Env, GraphService, NoLink, NoPower, PowerCall, SensorLink};
 use crate::graphs::session::AlwaysActive;
 use crate::graphs::store::{GraphPaths, GraphStore};
@@ -31,6 +33,7 @@ use crate::model::{AppState, DaemonEvent, FLAG_NO_VALUE};
 use crate::mqtt::client::{MqttConfig, MqttHandle, ResponseEnd};
 use crate::mqtt::publish::{Publisher, ResponseDone, ResponseSender};
 use crate::notify::{Notifier, NotifyPrefs, Plan, plan};
+use crate::smtp::send::SmtpAccount;
 use crate::tray::{Tray, TrayView};
 
 /// Wait for the next event. `None` after one second without an event. The thread then
@@ -325,6 +328,18 @@ pub fn graph_system(
     }
 }
 
+/// The SMTP account of the e-mail responses: the table `[smtp]` of `settings.toml` and the password
+/// of `secrets.toml`. Each call reads both files again, so a change in the settings holds at the
+/// next send.
+pub fn smtp_source(settings: PathBuf, secrets: PathBuf) -> SmtpSource {
+    Arc::new(move || {
+        SmtpAccount::new(
+            AppSettings::load(&settings).smtp,
+            Secrets::open(&secrets).smtp,
+        )
+    })
+}
+
 /// The Graph service with the real clock and the real `/proc`. It returns the channel of its
 /// commands.
 pub fn spawn_graphs(
@@ -334,9 +349,12 @@ pub fn spawn_graphs(
     locale: Locale,
     view: SharedView,
     system: GraphSystem,
+    runtime: tokio::runtime::Handle,
 ) -> GraphChannel {
     let (channel, inputs) = GraphChannel::new();
     let channel = channel.with_view(view.clone());
+    let smtp = smtp_source(settings_path(), paths.secrets.clone());
+    let runner = KindRunner::new(notify.clone()).with_email(runtime, smtp);
     let service = GraphService::new(
         GraphStore::open(paths),
         Env {
@@ -344,13 +362,13 @@ pub fn spawn_graphs(
             link: system.link,
             scan: Box::new(ProcFs::new("/proc")),
             power: system.power,
-            notify: notify.clone(),
+            notify,
             locale,
             view,
         },
     )
     .with_session(system.session)
-    .with_runner(Box::new(KindRunner::new(notify)));
+    .with_runner(Box::new(runner));
     spawn_service(service, events, inputs);
     channel
 }
