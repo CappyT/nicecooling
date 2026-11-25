@@ -2,12 +2,11 @@
 
 One term has one translation in a language. This table is the source for `crates/nicecooling/locales/<code>.yml`. A new text uses a term of this table. A new term gets a row in every language first.
 
-A term that Italian keeps in English stays in English in German. A term that Italian translates has a German word. French translates Input, and keeps the other English terms of Italian. Product names (nicecooling, Leakshield, aquasuite), the Mode names SHIELD, MONITOR and RELEASE, units, key names and identifiers in backticks stay as they are in every language.
+A term that Italian keeps in English stays in English in German. A term that Italian translates has a German word. French translates Input, and keeps the other English terms of Italian. Graph is "Grafo" in Italian (plural "Grafi"), with a capital letter as a term. German keeps "Graph" and French uses "Graphe". Product names (nicecooling, Leakshield, aquasuite), the Mode names SHIELD, MONITOR and RELEASE, units, key names and identifiers in backticks stay as they are in every language.
 
 | English | Italian | German | French |
 |---|---|---|---|
 | Loop | Loop | Loop | Loop |
-| Graph | Graph | Graph | Graph |
 | Feed | Feed | Feed | Feed |
 | Duty | Duty | Duty | Duty |
 | Input | Input | Input | Entrée |
@@ -25,9 +24,10 @@ A term that Italian keeps in English stays in English in German. A term that Ita
 | daemon | demone | Daemon | démon |
 | sensor | sensore | Sensor | capteur |
 | Derived sensor | sensore derivato | Abgeleiteter Sensor | capteur dérivé |
-| Graph sensor | sensore Graph | Graph-Sensor | capteur Graph |
-| Graph service | servizio Graph | Graph-Dienst | service Graph |
-| Graph response | risposta Graph | Graph-Reaktion | réponse Graph |
+| Graph | Grafo | Graph | Graphe |
+| Graph sensor | sensore Grafo | Graph-Sensor | capteur Graphe |
+| Graph service | servizio Grafo | Graph-Dienst | service Graphe |
+| Graph response | risposta Grafo | Graph-Reaktion | réponse Graphe |
 | Response pause | Pausa delle risposte | Reaktionspause | Pause des réponses |
 | Software sensor | sensore software | Software-Sensor | capteur logiciel |
 | Flow sensor | sensore di portata | Durchflusssensor | capteur de débit |

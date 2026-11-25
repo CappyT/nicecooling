@@ -11,7 +11,7 @@ use crate::app_settings::SettingsStore;
 use crate::command::Command;
 use crate::daemon_client::DaemonClient;
 use crate::graphs::channel::{GraphChannel, QUIT_WAIT};
-use crate::graphs::view::{Countdown, SharedView};
+use crate::graphs::view::{Countdown, GraphView, SharedView};
 use crate::i18n::{Language, Locale};
 use crate::model::{AppState, DaemonEvent, Link, Severity};
 use crate::screens::{Feedback, WriteOutcome};
@@ -130,6 +130,12 @@ impl AppModel {
             .lock()
             .ok()
             .and_then(|view| view.countdown.clone())
+    }
+
+    /// A copy of what the Graph service shows now. `None` without the service.
+    pub fn graphs(&self) -> Option<GraphView> {
+        let view = self.graph_view.as_ref()?.lock().ok()?;
+        Some(view.clone())
     }
 
     /// The count of power responses in a row while the Response pause is on.
@@ -337,6 +343,8 @@ pub fn init(cx: &mut App, mode: StartMode, backend: Backend) -> Entity<AppModel>
                         } else if app.state.next_poweroff().is_some()
                             || app.state.snapshot.dwell_until_us != 0
                             || app.graph_countdown().is_some()
+                            // The Graph service writes its results once per second.
+                            || app.page == Page::Graphs
                         {
                             app.now_us = now_us();
                             cx.notify();

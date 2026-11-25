@@ -5,7 +5,9 @@ use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 
 use nicecooling_graph::eval::EndValue;
+use nicecooling_graph::model::{Graph, StoredGraph};
 use nicecooling_graph::pause::PowerKind;
+use nicecooling_graph::response::RunRecord;
 
 use super::responses::LogRow;
 
@@ -30,6 +32,21 @@ pub struct GraphRow {
     pub values: BTreeMap<u32, Option<f64>>,
     /// The result of the end node in the last pass.
     pub end: EndValue,
+    /// The entry of `graphs.json`: the Graph, or the text that this version cannot run.
+    pub stored: StoredGraph,
+    /// The stored run state of the response end node: whether the response ran for the input
+    /// that is true now, and the time of the last run. `None` for a node that never ran.
+    pub run: Option<RunRecord>,
+}
+
+impl GraphRow {
+    /// The Graph of the row. `None` for an entry that this version cannot run.
+    pub fn graph(&self) -> Option<&Graph> {
+        match &self.stored {
+            StoredGraph::Valid(graph) => Some(graph),
+            StoredGraph::Invalid(_) => None,
+        }
+    }
 }
 
 /// The countdown of a power response that runs now.
@@ -89,6 +106,8 @@ pub struct GraphView {
     /// Why a Graph file cannot be used (the app writes nothing over such a file), or why the
     /// Graph service ended.
     pub error: Option<String>,
+    /// Why `graphs.json` cannot be used. The service stores no Graph while it is set.
+    pub file_error: Option<String>,
     /// Why the last Apply or Enable was refused. A command that works clears it.
     pub refusal: Option<String>,
     pub countdown: Option<Countdown>,
@@ -106,6 +125,22 @@ pub struct GraphView {
 impl GraphView {
     pub fn row(&self, id: &str) -> Option<&GraphRow> {
         self.rows.iter().find(|row| row.id == id)
+    }
+
+    /// Every row as a Graph, for the validator and for new ids. A row that this version cannot
+    /// run has its id and no nodes: it counts for the limit of 64 Graphs and its id is taken.
+    pub fn graphs(&self) -> Vec<Graph> {
+        self.rows
+            .iter()
+            .map(|row| match &row.stored {
+                StoredGraph::Valid(graph) => graph.clone(),
+                StoredGraph::Invalid(_) => {
+                    let mut graph = Graph::new(&row.id, &row.name);
+                    graph.enabled = false;
+                    graph
+                }
+            })
+            .collect()
     }
 
     /// The rows of the response log that belong to one Graph, in the order of the runs.

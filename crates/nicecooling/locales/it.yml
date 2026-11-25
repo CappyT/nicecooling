@@ -6,6 +6,7 @@ nav:
   devices: Dispositivi
   control: Controllo
   profiles: Profili
+  graphs: Grafi
   alarms: Allarmi
   history: Cronologia
   settings: Impostazioni
@@ -45,8 +46,8 @@ banner:
     button: Mostra come avviarlo
   response_pause:
     title: "Pausa delle risposte: %{count} risposte di spegnimento o riavvio di fila"
-    detail: Nessuna risposta Graph parte da sola. I sensori Graph continuano a funzionare.
-    button: Riattiva le risposte Graph
+    detail: Nessuna risposta Grafo parte da sola. I sensori Grafo continuano a funzionare.
+    button: Riattiva le risposte dei Grafi
   unknown_firmware:
     title: "Il firmware %{firmware} del Leakshield è sconosciuto. Ogni campo è in sola lettura."
     button: Apri i Campi
@@ -118,7 +119,7 @@ tray:
   tooltip_offline: "nicecooling: demone offline"
   tooltip_down: "nicecooling: demone fermo, la protezione è spenta"
   cancel_poweroff: "Annulla lo spegnimento (%{time})"
-  cancel_graph_countdown: "Annulla il conto alla rovescia del Graph %{name} (%{time})"
+  cancel_graph_countdown: "Annulla il conto alla rovescia del Grafo %{name} (%{time})"
   loop_line: "%{name}: %{values}"
   daemon_offline: Demone offline
   daemon_down: "Demone fermo: la protezione di nicecooling è spenta"
@@ -163,11 +164,11 @@ notification:
     title: Spegnimento non riuscito
     body: "Il demone non ha potuto spegnere il PC: %{error}"
   graph_stopped:
-    title: "Graph %{name} fermato"
-    body: "Un errore ha fermato il Graph, che ora è disattivato."
+    title: "Grafo %{name} fermato"
+    body: "Un errore ha fermato il Grafo, che ora è disattivato."
   graph_service_stopped:
-    title: "Servizio Graph fermato"
-    body: "Un errore ha fermato il servizio Graph. Nessun Graph funziona finché nicecooling non riparte."
+    title: "Servizio Grafo fermato"
+    body: "Un errore ha fermato il servizio Grafo. Nessun Grafo funziona finché nicecooling non riparte."
   graph_power_failed:
     title: "%{name}: il PC non ha cambiato stato"
     body: "Il sistema ha rifiutato la chiamata: %{error}"
@@ -176,10 +177,10 @@ graph_countdown:
   reboot: "%{name}: riavvio tra %{seconds} s"
   suspend: "%{name}: sospensione tra %{seconds} s"
   body: "Annulla il conto alla rovescia per lasciare il PC com'è."
-  text: "Una risposta Graph ha avviato questo conto alla rovescia. Alla fine il PC cambia stato."
+  text: "Una risposta Grafo ha avviato questo conto alla rovescia. Alla fine il PC cambia stato."
   ended: "Il PC cambia stato adesso."
-  graph: Graph
-  response: Risposta Graph
+  graph: Grafo
+  response: Risposta Grafo
   hint: "Il conto alla rovescia continua nella notifica e nel menu dell'icona."
   kind:
     poweroff: Spegnimento
@@ -363,7 +364,7 @@ channels:
   pump_stop: Pompa ferma. Ogni Canale è al 100 % finché la pompa non gira per 10 s.
   pump_stop_readonly: La pompa è ferma. L'editor è in sola lettura.
   lost_input_strip: "Input perso: il Canale resta al 100 % finché %{input} non torna."
-  graph_input_note: "Un sensore Graph non ha valore mentre l'app non è in esecuzione. Il Canale resta allora al 100 %."
+  graph_input_note: "Un sensore Grafo non ha valore mentre l'app non è in esecuzione. Il Canale resta allora al 100 %."
   rename: Rinomina
   control:
     label: Controllo
@@ -664,6 +665,67 @@ profiles:
     process_none: "Nessun processo tra %{names} è in esecuzione"
     time: "Fascia oraria dalle %{from} alle %{to}"
     interval: "Ogni %{every}, da %{delay} dopo l'avvio, per %{lasts}"
+graphs:
+  new_sensor: Nuovo sensore
+  new_response: Nuova risposta
+  import: Importa
+  new_name: "Grafo %{n}"
+  limit: Il limite è di 64 Grafi.
+  empty: Nessun Grafo. Un Grafo calcola un sensore o esegue una risposta a partire dai nodi.
+  file_error: nicecooling non riesce a leggere graphs.json.
+  no_access: "nicecooling non ha accesso al demone. I sensori Grafo non hanno valore. L'app riprova tra 60 s."
+  columns:
+    graph: Grafo
+    end: Nodo finale
+    state: Stato
+    result: Risultato
+  nodes:
+    one: "%{count} nodo"
+    other: "%{count} nodi"
+  end:
+    sensor: Sensore
+    response: Risposta
+  kind:
+    notification: Notifica
+    sound: Suono
+    command: Comando
+    email: E-mail
+    mqtt: Messaggio MQTT
+    poweroff: Spegnimento
+    reboot: Riavvio
+    suspend: Sospensione
+  state:
+    running: In esecuzione
+    disabled: Disattivato
+    invalid: Non valido
+    paused: In pausa
+  fired: Scattata
+  not_fired: Non scattata
+  last_run: "Ultima %{time}"
+  edit: Modifica
+  export: Esporta
+  delete: Elimina
+  cancel: Annulla
+  unreadable: "L'app non riesce a leggere questo Grafo."
+  invalid:
+    unknown_kind: "Tipo di nodo sconosciuto: %{kind}"
+  not_deleted:
+    curve: "Non eliminato: la Curva di %{name} usa il suo sensore Grafo."
+    other: "Non eliminato: %{reason}"
+  not_turned_on: "Non attivato: %{reason}"
+  delete_dialog:
+    title: "Eliminare il Grafo '%{name}'?"
+    sensor: Viene rimosso anche il suo sensore Grafo.
+    confirm: Elimina Grafo
+  remove_dialog:
+    title: "Rimuovere il sensore Grafo '%{name}'?"
+    text: Nessun Grafo di questo utente lo usa. Può appartenere a un altro utente.
+  orphans:
+    title: Sensori Grafo senza un Grafo
+    text: Nessun Grafo di questo utente usa questi sensori Grafo. Un sensore Grafo può appartenere a un altro utente.
+    remove: Rimuovi
+    in_use: "Non rimosso: una regola di Profilo o uno Slot dei sensori software usa questo sensore."
+    refused: "Non rimosso: il demone ha rifiutato il comando."
 alarms:
   active:
     title: Attivi

@@ -38,6 +38,10 @@ pub enum Command {
     DeleteDerivedSensor {
         sensor: String,
     },
+    /// Remove a Graph sensor that no Graph of this user holds.
+    DeleteGraphSensor {
+        sensor: String,
+    },
     SetChannelName {
         channel: String,
         name: String,
@@ -293,6 +297,7 @@ impl Command {
                     .await?
             }
             Self::DeleteDerivedSensor { sensor } => client.delete_derived_sensor(sensor).await?,
+            Self::DeleteGraphSensor { sensor } => client.delete_graph_sensor(sensor).await?,
             Self::SetChannelName { channel, name } => {
                 client.set_channel_name(channel, name).await?
             }
@@ -628,6 +633,7 @@ impl Command {
             Self::SetDerivedDefinition { sensor, .. } | Self::DeleteDerivedSensor { sensor } => {
                 format!("derived:{sensor}")
             }
+            Self::DeleteGraphSensor { sensor } => format!("graph-sensor:{sensor}"),
             Self::SetChannelName { channel, .. } => format!("channel-name:{channel}"),
             Self::SetCurve { channel, .. }
             | Self::SetFixedDuty { channel, .. }

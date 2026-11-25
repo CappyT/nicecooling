@@ -259,10 +259,16 @@ fn status_bar_and_sidebar_follow_the_state() {
         Some("Profile: Quiet (manual)")
     );
     assert_eq!(model.status.alarms, "1 Alarm, 1 Warning, poweroff in 0:21");
+    let control = model.groups.last().unwrap();
     assert_eq!(
-        model.groups.last().unwrap().entries[1].badge,
-        Some(NavBadge::Count(2))
+        control
+            .entries
+            .iter()
+            .map(|entry| entry.page.clone())
+            .collect::<Vec<_>>(),
+        [Page::Profiles, Page::Graphs, Page::Alarms, Page::History]
     );
+    assert_eq!(control.entries[2].badge, Some(NavBadge::Count(2)));
     let italian = ShellModel::build(&state, 0, IT);
     assert_eq!(
         italian.status.alarms,
@@ -284,6 +290,7 @@ fn app_shell_labels() {
         ("nav.sensors", "Sensors", "Sensori"),
         ("nav.devices", "Devices", "Dispositivi"),
         ("nav.profiles", "Profiles", "Profili"),
+        ("nav.graphs", "Graphs", "Grafi"),
         ("nav.alarms", "Alarms", "Allarmi"),
         ("nav.history", "History", "Cronologia"),
         ("nav.settings", "Settings", "Impostazioni"),

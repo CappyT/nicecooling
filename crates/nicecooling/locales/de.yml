@@ -6,6 +6,7 @@ nav:
   devices: Geräte
   control: Steuerung
   profiles: Profile
+  graphs: Graphen
   alarms: Alarme
   history: Verlauf
   settings: Einstellungen
@@ -664,6 +665,67 @@ profiles:
     process_none: "Keiner von %{names} läuft"
     time: "Zeitfenster %{from} bis %{to}"
     interval: "Alle %{every}, ab %{delay} nach dem Start, für %{lasts}"
+graphs:
+  new_sensor: Neuer Sensor
+  new_response: Neue Reaktion
+  import: Importieren
+  new_name: "Graph %{n}"
+  limit: Das Limit ist 64 Graphen.
+  empty: Kein Graph. Ein Graph berechnet aus Knoten einen Sensor oder führt eine Reaktion aus.
+  file_error: nicecooling kann graphs.json nicht lesen.
+  no_access: nicecooling hat keinen Zugriff auf den Daemon. Die Graph-Sensoren haben keinen Wert. Die App versucht es in 60 s erneut.
+  columns:
+    graph: Graph
+    end: Endknoten
+    state: Zustand
+    result: Ergebnis
+  nodes:
+    one: "%{count} Knoten"
+    other: "%{count} Knoten"
+  end:
+    sensor: Sensor
+    response: Reaktion
+  kind:
+    notification: Benachrichtigung
+    sound: Ton
+    command: Befehl
+    email: E-Mail
+    mqtt: MQTT-Nachricht
+    poweroff: Herunterfahren
+    reboot: Neustart
+    suspend: Bereitschaft
+  state:
+    running: Läuft
+    disabled: Ausgeschaltet
+    invalid: Ungültig
+    paused: Pausiert
+  fired: Ausgelöst
+  not_fired: Nicht ausgelöst
+  last_run: "Letzter Lauf %{time}"
+  edit: Bearbeiten
+  export: Exportieren
+  delete: Löschen
+  cancel: Abbrechen
+  unreadable: Die App kann diesen Graph nicht lesen.
+  invalid:
+    unknown_kind: "Unbekannte Knotenart: %{kind}"
+  not_deleted:
+    curve: "Nicht gelöscht: Die Kurve von %{name} verwendet seinen Graph-Sensor."
+    other: "Nicht gelöscht: %{reason}"
+  not_turned_on: "Nicht eingeschaltet: %{reason}"
+  delete_dialog:
+    title: "Den Graph '%{name}' löschen?"
+    sensor: Sein Graph-Sensor wird auch entfernt.
+    confirm: Graph löschen
+  remove_dialog:
+    title: "Den Graph-Sensor '%{name}' entfernen?"
+    text: Kein Graph dieses Benutzers hält ihn. Er kann einem anderen Benutzer gehören.
+  orphans:
+    title: Graph-Sensoren ohne Graph
+    text: Kein Graph dieses Benutzers hält diese Graph-Sensoren. Ein Graph-Sensor kann einem anderen Benutzer gehören.
+    remove: Entfernen
+    in_use: "Nicht entfernt: Eine Profilregel oder ein Slot der Software-Sensoren verwendet diesen Sensor."
+    refused: "Nicht entfernt: Der Daemon hat den Befehl abgelehnt."
 alarms:
   active:
     title: Aktiv

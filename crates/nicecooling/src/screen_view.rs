@@ -23,6 +23,7 @@ use crate::screens::ScreenInput;
 use crate::screens::alarms::AlarmsUi;
 use crate::screens::channels::ChannelsUi;
 use crate::screens::first_run::FirstRunUi;
+use crate::screens::graphs::GraphsUi;
 use crate::screens::history::{ChartData, HistoryUi};
 use crate::screens::leakshield::LeakshieldUi;
 use crate::screens::loops::LoopsUi;
@@ -92,6 +93,7 @@ pub struct ScreenView {
     pub(crate) loops: LoopsUi,
     pub(crate) history: HistoryUi,
     pub(crate) profiles: ProfilesUi,
+    pub(crate) graphs: GraphsUi,
     pub(crate) alarms: AlarmsUi,
     pub(crate) first_run: FirstRunUi,
     pub(crate) leakshield: LeakshieldUi,
@@ -168,6 +170,7 @@ impl ScreenView {
             loops: LoopsUi::default(),
             history: HistoryUi::default(),
             profiles: ProfilesUi::default(),
+            graphs: GraphsUi::default(),
             alarms: AlarmsUi::default(),
             first_run: FirstRunUi::default(),
             leakshield: LeakshieldUi::default(),
@@ -527,6 +530,7 @@ impl Render for ScreenView {
             Page::Loops => self.render_loops(&p, window, cx),
             Page::History => self.render_history(&p, window, cx),
             Page::Profiles => self.render_profiles(&p, window, cx),
+            Page::Graphs => self.render_graphs(&p, window, cx),
             Page::Alarms => self.render_alarms(&p, window, cx),
             Page::Settings => self.render_settings(&p, window, cx),
             Page::FirstRun => self.render_first_run(&p, window, cx),

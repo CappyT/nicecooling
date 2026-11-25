@@ -10,6 +10,8 @@ pub mod countdown_view;
 pub mod first_run;
 pub mod first_run_view;
 pub mod format;
+pub mod graphs;
+pub mod graphs_view;
 mod handlers;
 pub mod history;
 pub mod history_view;

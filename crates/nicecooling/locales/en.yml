@@ -6,6 +6,7 @@ nav:
   devices: Devices
   control: Control
   profiles: Profiles
+  graphs: Graphs
   alarms: Alarms
   history: History
   settings: Settings
@@ -664,6 +665,67 @@ profiles:
     process_none: "None of %{names} runs"
     time: "Time window %{from} to %{to}"
     interval: "Every %{every}, from %{delay} after the start, for %{lasts}"
+graphs:
+  new_sensor: New sensor
+  new_response: New response
+  import: Import
+  new_name: "Graph %{n}"
+  limit: The limit is 64 Graphs.
+  empty: No Graph. A Graph computes a sensor or runs a response from nodes.
+  file_error: nicecooling cannot read graphs.json.
+  no_access: nicecooling has no access to the daemon. The Graph sensors have no value. The app tries again in 60 s.
+  columns:
+    graph: Graph
+    end: End node
+    state: State
+    result: Result
+  nodes:
+    one: "%{count} node"
+    other: "%{count} nodes"
+  end:
+    sensor: Sensor
+    response: Response
+  kind:
+    notification: Notification
+    sound: Sound
+    command: Command
+    email: E-mail
+    mqtt: MQTT message
+    poweroff: Poweroff
+    reboot: Reboot
+    suspend: Suspend
+  state:
+    running: Running
+    disabled: Disabled
+    invalid: Invalid
+    paused: Paused
+  fired: Fired
+  not_fired: Not fired
+  last_run: "Last run %{time}"
+  edit: Edit
+  export: Export
+  delete: Delete
+  cancel: Cancel
+  unreadable: The app cannot read this Graph.
+  invalid:
+    unknown_kind: "Unknown node kind: %{kind}"
+  not_deleted:
+    curve: "Not deleted: the Curve of %{name} uses its Graph sensor."
+    other: "Not deleted: %{reason}"
+  not_turned_on: "Not turned on: %{reason}"
+  delete_dialog:
+    title: "Delete the Graph '%{name}'?"
+    sensor: Its Graph sensor is removed too.
+    confirm: Delete Graph
+  remove_dialog:
+    title: "Remove the Graph sensor '%{name}'?"
+    text: No Graph of this user holds it. It can belong to another user.
+  orphans:
+    title: Graph sensors without a Graph
+    text: No Graph of this user holds these Graph sensors. A Graph sensor can belong to another user.
+    remove: Remove
+    in_use: "Not removed: a Profile rule or a Software sensor slot uses this sensor."
+    refused: "Not removed: the daemon refused the command."
 alarms:
   active:
     title: Active

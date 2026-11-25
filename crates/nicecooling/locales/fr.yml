@@ -6,6 +6,7 @@ nav:
   devices: Appareils
   control: Contrôle
   profiles: Profils
+  graphs: Graphes
   alarms: Alarmes
   history: Historique
   settings: Paramètres
@@ -45,8 +46,8 @@ banner:
     button: Voir comment le démarrer
   response_pause:
     title: "Pause des réponses : %{count} réponses d'extinction ou de redémarrage à la suite"
-    detail: Aucune réponse Graph ne s'exécute seule. Les capteurs Graph continuent de fonctionner.
-    button: Réactiver les réponses Graph
+    detail: Aucune réponse Graphe ne s'exécute seule. Les capteurs Graphe continuent de fonctionner.
+    button: Réactiver les réponses Graphe
   unknown_firmware:
     title: "Le firmware %{firmware} du Leakshield est inconnu. Tous les champs sont en lecture seule."
     button: Ouvrir les Champs
@@ -118,7 +119,7 @@ tray:
   tooltip_offline: "nicecooling : démon hors ligne"
   tooltip_down: "nicecooling : démon arrêté, protection désactivée"
   cancel_poweroff: "Annuler l'extinction (%{time})"
-  cancel_graph_countdown: "Annuler le compte à rebours du Graph %{name} (%{time})"
+  cancel_graph_countdown: "Annuler le compte à rebours du Graphe %{name} (%{time})"
   loop_line: "%{name} : %{values}"
   daemon_offline: Démon hors ligne
   daemon_down: "Démon arrêté : la protection de nicecooling est désactivée"
@@ -163,11 +164,11 @@ notification:
     title: Échec de l'extinction
     body: "Le démon n'a pas pu éteindre le PC : %{error}"
   graph_stopped:
-    title: "Graph %{name} arrêté"
-    body: "Une erreur a arrêté le Graph. Il est désactivé."
+    title: "Graphe %{name} arrêté"
+    body: "Une erreur a arrêté le Graphe. Il est désactivé."
   graph_service_stopped:
-    title: "Service Graph arrêté"
-    body: "Une erreur a arrêté le service Graph. Aucun Graph ne fonctionne avant le redémarrage de nicecooling."
+    title: "Service Graphe arrêté"
+    body: "Une erreur a arrêté le service Graphe. Aucun Graphe ne fonctionne avant le redémarrage de nicecooling."
   graph_power_failed:
     title: "%{name} : le PC n'a pas changé d'état"
     body: "Le système a refusé l'appel : %{error}"
@@ -176,10 +177,10 @@ graph_countdown:
   reboot: "%{name} : redémarrage dans %{seconds} s"
   suspend: "%{name} : mise en veille dans %{seconds} s"
   body: "Annulez le compte à rebours pour laisser le PC dans son état."
-  text: "Une réponse Graph a lancé ce compte à rebours. À la fin, le PC change d'état."
+  text: "Une réponse Graphe a lancé ce compte à rebours. À la fin, le PC change d'état."
   ended: "Le PC change d'état maintenant."
-  graph: Graph
-  response: Réponse Graph
+  graph: Graphe
+  response: Réponse Graphe
   hint: "Le compte à rebours continue dans la notification et dans le menu de l'icône."
   kind:
     poweroff: Extinction
@@ -363,7 +364,7 @@ channels:
   pump_stop: Pompe arrêtée. Chaque Canal est à 100 % jusqu'à ce que la pompe tourne pendant 10 s.
   pump_stop_readonly: La pompe est arrêtée. L'éditeur est en lecture seule.
   lost_input_strip: "Entrée perdue : le Canal tourne à 100 % jusqu'au retour de %{input}."
-  graph_input_note: "Un capteur Graph n'a pas de valeur tant que l'app ne tourne pas. Le Canal tourne alors à 100 %."
+  graph_input_note: "Un capteur Graphe n'a pas de valeur tant que l'app ne tourne pas. Le Canal tourne alors à 100 %."
   rename: Renommer
   control:
     label: Contrôle
@@ -664,6 +665,67 @@ profiles:
     process_none: "Aucun processus parmi %{names} n'est en cours"
     time: "Plage horaire de %{from} à %{to}"
     interval: "Toutes les %{every}, à partir de %{delay} après le démarrage, pendant %{lasts}"
+graphs:
+  new_sensor: Nouveau capteur
+  new_response: Nouvelle réponse
+  import: Importer
+  new_name: "Graphe %{n}"
+  limit: La limite est de 64 Graphes.
+  empty: Aucun Graphe. Un Graphe calcule un capteur ou exécute une réponse à partir de nœuds.
+  file_error: nicecooling ne peut pas lire graphs.json.
+  no_access: "nicecooling n'a pas accès au démon. Les capteurs Graphe n'ont pas de valeur. L'app réessaie dans 60 s."
+  columns:
+    graph: Graphe
+    end: Nœud final
+    state: État
+    result: Résultat
+  nodes:
+    one: "%{count} nœud"
+    other: "%{count} nœuds"
+  end:
+    sensor: Capteur
+    response: Réponse
+  kind:
+    notification: Notification
+    sound: Son
+    command: Commande
+    email: E-mail
+    mqtt: Message MQTT
+    poweroff: Extinction
+    reboot: Redémarrage
+    suspend: Mise en veille
+  state:
+    running: En cours
+    disabled: Désactivé
+    invalid: Non valide
+    paused: En pause
+  fired: Déclenchée
+  not_fired: Non déclenchée
+  last_run: "Dernière exécution %{time}"
+  edit: Modifier
+  export: Exporter
+  delete: Supprimer
+  cancel: Annuler
+  unreadable: "L'app ne peut pas lire ce Graphe."
+  invalid:
+    unknown_kind: "Type de nœud inconnu : %{kind}"
+  not_deleted:
+    curve: "Non supprimé : la Courbe de %{name} utilise son capteur Graphe."
+    other: "Non supprimé : %{reason}"
+  not_turned_on: "Non activé : %{reason}"
+  delete_dialog:
+    title: "Supprimer le Graphe '%{name}' ?"
+    sensor: Son capteur Graphe est aussi supprimé.
+    confirm: Supprimer le Graphe
+  remove_dialog:
+    title: "Retirer le capteur Graphe '%{name}' ?"
+    text: "Aucun Graphe de cet utilisateur ne le détient. Il peut appartenir à un autre utilisateur."
+  orphans:
+    title: Capteurs Graphe sans Graphe
+    text: "Aucun Graphe de cet utilisateur ne détient ces capteurs Graphe. Un capteur Graphe peut appartenir à un autre utilisateur."
+    remove: Retirer
+    in_use: "Non retiré : une règle de Profil ou un Slot de capteur logiciel utilise ce capteur."
+    refused: "Non retiré : le démon a refusé la commande."
 alarms:
   active:
     title: Actives

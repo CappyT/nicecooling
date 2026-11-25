@@ -53,7 +53,7 @@ impl fmt::Display for ImportError {
 impl std::error::Error for ImportError {}
 
 /// The id of a Graph that does not exist yet: `graph_<n>` above every `graph_<n>` of `existing`.
-fn new_graph_id(existing: &[Graph]) -> String {
+pub fn new_graph_id(existing: &[Graph]) -> String {
     let highest = existing
         .iter()
         .filter_map(|g| nicecooling_graph::model::parse_sensor_id(&g.id))

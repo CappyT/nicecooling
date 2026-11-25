@@ -44,6 +44,7 @@ icons! {
     Fan => "fan",
     Flask => "flask",
     Gauge => "gauge",
+    Graph => "graph",
     Grip => "grip",
     Home => "home",
     Info => "info",

@@ -91,13 +91,14 @@ fn show(cx: &mut TestAppContext, model: &gpui::Entity<AppModel>, page: Page) {
     draw(cx);
 }
 
-const PAGES: [Page; 9] = [
+const PAGES: [Page; 10] = [
     Page::Overview,
     Page::Sensors,
     Page::Channels,
     Page::Loops,
     Page::History,
     Page::Profiles,
+    Page::Graphs,
     Page::Alarms,
     Page::Settings,
     Page::FirstRun,
@@ -647,4 +648,151 @@ fn the_alarm_time_stays_in_the_pressure_plot(cx: &mut TestAppContext) {
             );
         }
     }
+}
+
+#[gpui::test]
+fn the_graphs_screen_draws_rows_dialogs_and_the_editor(cx: &mut TestAppContext) {
+    use gpui::AppContext as _;
+    use nicecooling::graphs::view::{ForeignSensor, GraphRow, RowState, ValuesState, shared_view};
+    use nicecooling::screen_view::ScreenView;
+    use nicecooling_graph::eval::EndValue;
+    use nicecooling_graph::model::{Graph, InvalidGraph, Kind, Node, ParseProblem, StoredGraph};
+    use nicecooling_graph::response::{RunRecord, RunState};
+
+    let row = |graph: Graph, end: EndValue, run: Option<RunRecord>| GraphRow {
+        id: graph.id.clone(),
+        name: graph.name.clone(),
+        enabled: graph.enabled,
+        state: if graph.enabled {
+            RowState::Running
+        } else {
+            RowState::Disabled
+        },
+        values: Default::default(),
+        end,
+        stored: StoredGraph::Valid(graph),
+        run,
+    };
+    let mut render = Graph::new("graph_1", "Render temperature");
+    render.nodes = vec![Node::new(1, Kind::SensorEnd)];
+    render.sensor_id = Some("graph_3".to_owned());
+    let mut warm = Graph::new("graph_2", "Water too warm");
+    warm.nodes = vec![Node::new(1, Kind::ResponseEnd)];
+    let mut report = Graph::new("graph_4", "Pump speed report");
+    report.nodes = vec![Node::new(1, Kind::ResponseEnd).with_param("kind", "email")];
+    report.enabled = false;
+    let text = r#"{"id":"graph_5","name":"Radiator delta T","sensor_id":"graph_2","nodes":[{"id":1,"kind":"quantum"},{"id":2,"kind":"sensor_end"}]}"#;
+    let odd = GraphRow {
+        id: "graph_5".to_owned(),
+        name: "Radiator delta T".to_owned(),
+        enabled: false,
+        state: RowState::Invalid("unknown node kind \"quantum\"".to_owned()),
+        values: Default::default(),
+        end: EndValue::None,
+        stored: StoredGraph::Invalid(InvalidGraph {
+            id: Some("graph_5".to_owned()),
+            name: Some("Radiator delta T".to_owned()),
+            problem: ParseProblem::UnknownKind("quantum".to_owned()),
+            text: serde_json::value::RawValue::from_string(text.to_owned()).expect("JSON"),
+        }),
+        run: None,
+    };
+    let shared = shared_view();
+    {
+        let mut shown = shared.lock().unwrap();
+        shown.rows = vec![
+            row(render, EndValue::Sensor(Some(46.2)), None),
+            row(
+                warm,
+                EndValue::Response(Some(true)),
+                Some(RunRecord {
+                    state: RunState::Run,
+                    last_run_us: Some(app::now_us()),
+                }),
+            ),
+            row(
+                report,
+                EndValue::Response(Some(false)),
+                Some(RunRecord {
+                    state: RunState::NotRun,
+                    last_run_us: Some(NOW_US),
+                }),
+            ),
+            odd,
+        ];
+        shown.foreign_sensors = vec![ForeignSensor {
+            id: "graph_7".to_owned(),
+            name: "Case air delta".to_owned(),
+            unit: "degC".to_owned(),
+        }];
+        shown.values = ValuesState::NoAccess;
+        shown.refusal = Some("Render temperature: graph_3 is in use".to_owned());
+    }
+
+    let (model, rig) = start(cx, Language::English);
+    let state = full();
+    rig.events
+        .send(DaemonEvent::Snapshot(Box::new(state.snapshot.clone())))
+        .unwrap();
+    cx.run_until_parked();
+    let (commands, _inbox) = mpsc::unbounded_channel();
+    let window = cx.update(|cx| {
+        cx.open_window(gpui::WindowOptions::default(), |_, cx| {
+            cx.new(|cx| ScreenView::new(model.clone(), commands.clone(), cx))
+        })
+        .expect("a window")
+    });
+    cx.update_window(window.into(), |_, _, cx| {
+        model.update(cx, |app, _| {
+            app.graph_view = Some(shared.clone());
+            app.page = Page::Graphs;
+        });
+    })
+    .unwrap();
+    let draw_window = |cx: &mut TestAppContext| {
+        cx.run_until_parked();
+        let mut visual = VisualTestContext::from_window(window.into(), cx);
+        visual.update(|window, cx| window.draw(cx).clear(cx));
+    };
+    // The table with a refusal in a row, then the two questions, then the editor on a draft.
+    draw_window(cx);
+    window
+        .update(cx, |view, _, _| {
+            let ui = view.graphs_ui();
+            ui.asked = Some((
+                "graph_1".to_owned(),
+                nicecooling::screens::graphs::Asked::Delete,
+            ));
+            ui.delete = Some("graph_1".to_owned());
+        })
+        .unwrap();
+    draw_window(cx);
+    window
+        .update(cx, |view, _, _| {
+            let ui = view.graphs_ui();
+            ui.delete = None;
+            ui.remove = Some("graph_7".to_owned());
+        })
+        .unwrap();
+    draw_window(cx);
+    window
+        .update(cx, |view, _, _| {
+            let ui = view.graphs_ui();
+            ui.remove = None;
+            let shown = shared.lock().unwrap().clone();
+            ui.new_draft(&shown, Kind::ResponseEnd, nicecooling::i18n::EN);
+        })
+        .unwrap();
+    draw_window(cx);
+    // The empty list, and a Graph file that the app cannot read.
+    window
+        .update(cx, |view, _, _| {
+            view.graphs_ui().editor = None;
+            shared.lock().unwrap().rows.clear();
+        })
+        .unwrap();
+    draw_window(cx);
+    shared.lock().unwrap().file_error = Some("the file is not JSON".to_owned());
+    window.update(cx, |_, _, cx| cx.notify()).unwrap();
+    draw_window(cx);
 }

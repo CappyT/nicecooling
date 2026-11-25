@@ -13,6 +13,7 @@ pub enum Page {
     /// A Leakshield, by its identifier.
     Leakshield(String),
     Profiles,
+    Graphs,
     Alarms,
     History,
     Settings,
@@ -30,6 +31,7 @@ impl Page {
             Self::Sensors => "nav.sensors",
             Self::Leakshield(_) => "nav.leakshield",
             Self::Profiles => "nav.profiles",
+            Self::Graphs => "nav.graphs",
             Self::Alarms => "nav.alarms",
             Self::History => "nav.history",
             Self::Settings => "nav.settings",
@@ -257,6 +259,7 @@ fn sidebar(state: &AppState, locale: Locale) -> (Vec<NavGroup>, NavEntry) {
         title: Some(locale.tr("nav.control")),
         entries: vec![
             entry(locale, Page::Profiles, None),
+            entry(locale, Page::Graphs, None),
             entry(
                 locale,
                 Page::Alarms,

@@ -90,6 +90,7 @@ fn nav_icon(page: &Page) -> NcIcon {
         Page::Sensors => NcIcon::Gauge,
         Page::Leakshield(_) => NcIcon::Shield,
         Page::Profiles => NcIcon::Layers,
+        Page::Graphs => NcIcon::Graph,
         Page::Alarms => NcIcon::Bell,
         Page::History => NcIcon::Chart,
         Page::Settings => NcIcon::Sliders,

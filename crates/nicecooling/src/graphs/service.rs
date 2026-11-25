@@ -14,7 +14,7 @@ use nicecooling_core::rules::process::ProcessList;
 use nicecooling_graph::eval::{EndValue, Evaluator, GraphPass, Pass, Sources, value_key};
 use nicecooling_graph::model::{Graph, Kind, Node, ResponseKind, StoredGraph};
 use nicecooling_graph::pause::PowerKind;
-use nicecooling_graph::response::{Action, Timing};
+use nicecooling_graph::response::{Action, RunRecord, Timing};
 use nicecooling_graph::template::labelled_values;
 use tokio::sync::mpsc::UnboundedSender;
 
@@ -880,12 +880,19 @@ impl GraphService {
     /// Write the view for the screens.
     fn publish(&mut self) {
         let pass = self.last_pass.as_ref();
+        let records = &self.store.state().responses;
         let rows: Vec<GraphRow> = self
             .store
             .entries()
             .iter()
             .map(|entry| match entry {
-                StoredGraph::Valid(graph) => row_of(graph, pass),
+                StoredGraph::Valid(graph) => {
+                    let run = graph
+                        .response_end()
+                        .and_then(|node| records.get(&value_key(&graph.id, node.id)))
+                        .copied();
+                    row_of(graph, pass, run)
+                }
                 StoredGraph::Invalid(invalid) => GraphRow {
                     id: invalid.id.clone().unwrap_or_default(),
                     name: invalid.name.clone().unwrap_or_default(),
@@ -893,14 +900,18 @@ impl GraphService {
                     state: RowState::Invalid(describe_invalid(invalid)),
                     values: Default::default(),
                     end: nicecooling_graph::eval::EndValue::None,
+                    stored: entry.clone(),
+                    run: None,
                 },
             })
             .collect();
         let error = self.store.error().map(str::to_owned);
+        let file_error = self.store.file_error().map(str::to_owned);
         let foreign = sensors::foreign(self.store.entries(), &self.state.snapshot.sensors);
         if let Ok(mut view) = self.view.lock() {
             view.rows = rows;
             view.error = error;
+            view.file_error = file_error;
             view.foreign_sensors = foreign;
         }
     }
@@ -939,9 +950,11 @@ impl GraphService {
     }
 }
 
-fn row_of(graph: &Graph, pass: Option<&Pass>) -> GraphRow {
+fn row_of(graph: &Graph, pass: Option<&Pass>, run: Option<RunRecord>) -> GraphRow {
     let result = pass.and_then(|p| p.graph(&graph.id));
     GraphRow {
+        stored: StoredGraph::Valid(graph.clone()),
+        run,
         id: graph.id.clone(),
         name: graph.name.clone(),
         enabled: graph.enabled,

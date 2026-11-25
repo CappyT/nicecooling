@@ -1,0 +1,483 @@
+//! The window of the Graphs screen: the button row, the table of the Graphs and the Graph
+//! sensors that no Graph of this user holds.
+
+use gpui::prelude::*;
+use gpui::{AnyElement, Context, FontWeight, SharedString, Window, div, px};
+use gpui_component::button::ButtonVariants as _;
+use gpui_component::switch::Switch;
+use gpui_component::{Disableable as _, h_flex, v_flex};
+use nicecooling_graph::model::Kind;
+
+use crate::command::Command;
+use crate::icons::{NcIcon, icon, small_icon, text_icon};
+use crate::screen_view::{ScreenView, skeleton};
+use crate::screens::controls::act;
+use crate::screens::graphs::{
+    ConfirmDialog, EditorTarget, GraphLine, GraphsModel, GraphsState, GraphsUi, LineState,
+    OrphanCard,
+};
+use crate::screens::ui::Tip as _;
+use crate::screens::ui::{
+    TagKind, caption, card, card_header, card_row, cell, heading, label, modal, notice_row, page,
+    table_header, table_row, tag,
+};
+use crate::tokens::Palette;
+
+/// The widths of the cells after the name. The name takes the rest of the row.
+const END: f32 = 120.;
+const STATE: f32 = 110.;
+const RESULT: f32 = 190.;
+const BUTTONS: f32 = 236.;
+
+impl ScreenView {
+    pub(crate) fn render_graphs(
+        &mut self,
+        p: &Palette,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let shown = self.model.read(cx).graphs();
+        let model = self.with_input(cx, |input| {
+            GraphsModel::build(input, shown.as_ref(), &self.graphs)
+        });
+        if let Some(target) = &model.editor {
+            return self.graph_editor_page(target, p, cx);
+        }
+        let view = cx.entity();
+        let create = model.create_enabled;
+
+        let mut tools = h_flex()
+            .w_full()
+            .gap(px(6.))
+            .items_center()
+            .child(
+                Self::button("graph-new-sensor", model.new_sensor.clone())
+                    .icon(text_icon(NcIcon::Plus))
+                    .disabled(!create)
+                    .on_click(act(&view, |this, _, cx| {
+                        this.new_graph(Kind::SensorEnd, cx);
+                    })),
+            )
+            .child(
+                Self::button("graph-new-response", model.new_response.clone())
+                    .icon(text_icon(NcIcon::Plus))
+                    .disabled(!create)
+                    .on_click(act(&view, |this, _, cx| {
+                        this.new_graph(Kind::ResponseEnd, cx);
+                    })),
+            )
+            .child(div().flex_1());
+        if let Some(note) = &model.create_note {
+            tools = tools.child(caption(note.clone(), p).flex_none());
+        }
+        tools = tools.child(Self::button("graph-import", model.import.clone()).disabled(!create));
+
+        let mut content = page().child(tools);
+        let titles = [
+            model.columns[0].clone(),
+            model.columns[1].clone(),
+            model.columns[2].clone(),
+            model.columns[3].clone(),
+            String::new(),
+        ];
+        let widths = [None, Some(END), Some(STATE), Some(RESULT), Some(BUTTONS)];
+        match model.state {
+            GraphsState::Loading => {
+                let mut table = card(p)
+                    .child(card_header(model.title.clone(), p))
+                    .child(table_header(&titles, &widths, p));
+                for width in [220., 300., 180.] {
+                    table = table.child(table_row(p).min_h(px(48.)).child(skeleton(p, width)));
+                }
+                content = content.child(table);
+            }
+            GraphsState::FileError => {
+                let (text, error) = model.file_error.clone().unwrap_or_default();
+                content = content.child(
+                    card(p).child(
+                        h_flex()
+                            .p(px(18.))
+                            .gap(px(12.))
+                            .items_start()
+                            .child(icon(NcIcon::Warn, p.warning))
+                            .child(
+                                v_flex()
+                                    .flex_1()
+                                    .min_w_0()
+                                    .gap(px(3.))
+                                    .child(heading(text))
+                                    .child(caption(error, p)),
+                            ),
+                    ),
+                );
+            }
+            GraphsState::Empty => {
+                let mut list = card(p).child(card_header(model.title.clone(), p));
+                for text in &model.warnings {
+                    list = list.child(notice_row(text.clone(), true, p));
+                }
+                list = list.child(
+                    card_row(p).child(div().flex_1().min_w_0().child(model.empty_text.clone())),
+                );
+                list = list.child(
+                    card_row(p)
+                        .child(
+                            Self::small_button(
+                                "graph-empty-new-sensor",
+                                model.new_sensor.clone(),
+                                Some(NcIcon::Plus),
+                            )
+                            .disabled(!create)
+                            .on_click(act(&view, |this, _, cx| {
+                                this.new_graph(Kind::SensorEnd, cx);
+                            })),
+                        )
+                        .child(
+                            Self::small_button(
+                                "graph-empty-new-response",
+                                model.new_response.clone(),
+                                Some(NcIcon::Plus),
+                            )
+                            .disabled(!create)
+                            .on_click(act(&view, |this, _, cx| {
+                                this.new_graph(Kind::ResponseEnd, cx);
+                            })),
+                        ),
+                );
+                content = content.child(list);
+            }
+            GraphsState::Ready => {
+                let mut table = card(p).child(card_header(model.title.clone(), p));
+                for text in &model.warnings {
+                    table = table.child(notice_row(text.clone(), true, p));
+                }
+                table = table.child(table_header(&titles, &widths, p));
+                for (index, line) in model.rows.iter().enumerate() {
+                    table = table.child(self.graph_line(index, line, &model, p, cx));
+                }
+                content = content.child(table);
+            }
+        }
+        if model.state != GraphsState::FileError
+            && let Some(orphans) = &model.orphans
+        {
+            content = content.child(self.orphan_card(orphans, p, cx));
+        }
+
+        let mut root = div().id("graphs-page").relative().w_full().child(content);
+        if let Some(dialog) = &model.dialog {
+            root = root.child(self.graphs_dialog(dialog, p, cx));
+        }
+        root.into_any_element()
+    }
+
+    /// One row of the table: the name, the end node, the state, the result and the buttons.
+    fn graph_line(
+        &self,
+        index: usize,
+        line: &GraphLine,
+        model: &GraphsModel,
+        p: &Palette,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let view = cx.entity();
+        let id = line.id.clone();
+        let ink = if line.dim { p.fg_dim } else { p.fg };
+
+        let note = caption(line.caption.clone(), p).truncate();
+        let name = v_flex()
+            .id(("graph-name", index))
+            .flex_1()
+            .min_w_0()
+            .child(heading(line.name.clone()).truncate())
+            .child(if !line.caption_warns {
+                h_flex().child(note)
+            } else if line.state == LineState::Invalid {
+                h_flex().child(note.text_color(p.warning))
+            } else {
+                h_flex()
+                    .gap(px(4.))
+                    .items_center()
+                    .child(small_icon(NcIcon::Warn, p.warning))
+                    .child(note.text_color(p.warning))
+            })
+            // A double click opens the editor, as "Edit" does.
+            .when(line.readable, |name| {
+                let (view, id) = (view.clone(), id.clone());
+                name.on_click(move |event, _, cx| {
+                    if event.click_count() == 2 {
+                        view.update(cx, |this, cx| {
+                            this.edit_graph(&id, cx);
+                            cx.notify();
+                        });
+                    }
+                })
+            });
+
+        let mut end = v_flex()
+            .w(px(END))
+            .flex_none()
+            .min_w_0()
+            .child(label(line.end.clone()));
+        if let Some(text) = &line.end_caption {
+            let text = caption(text.clone(), p).truncate();
+            end = end.child(if line.end_mono {
+                text.font_family("Adwaita Mono")
+            } else {
+                text
+            });
+        }
+
+        let state = match line.state {
+            LineState::Invalid => h_flex()
+                .w(px(STATE))
+                .flex_none()
+                .gap(px(6.))
+                .items_center()
+                .text_color(p.warning)
+                .font_weight(FontWeight::SEMIBOLD)
+                .child(icon(NcIcon::Warn, p.warning))
+                .child(label(line.state_text.clone())),
+            LineState::Disabled => cell(STATE)
+                .text_color(p.fg_dim)
+                .child(line.state_text.clone()),
+            LineState::Running | LineState::Paused => cell(STATE).child(line.state_text.clone()),
+        };
+
+        let mut result = v_flex()
+            .w(px(RESULT))
+            .flex_none()
+            .min_w_0()
+            .text_color(ink)
+            .child(match (&line.value, line.fired) {
+                (Some((number, unit)), _) => h_flex()
+                    .gap(px(4.))
+                    .child(div().font_weight(FontWeight::BOLD).child(number.clone()))
+                    .child(div().text_color(p.fg_dim).child(unit.clone())),
+                (None, true) => h_flex().child(tag(line.result.clone(), TagKind::Accent, p)),
+                (None, false) => h_flex().child(label(line.result.clone())),
+            });
+        if let Some(text) = &line.last_run {
+            result = result.child(caption(text.clone(), p).truncate());
+        }
+
+        let switch = Switch::new(SharedString::from(format!("graph-switch-{index}")))
+            .checked(line.checked)
+            .disabled(!line.switch_enabled)
+            .on_click({
+                let (view, id) = (view.clone(), id.clone());
+                move |on, _, cx| {
+                    let on = *on;
+                    view.update(cx, |this, cx| {
+                        let command = this.graphs.toggle(&id, on);
+                        this.send_graph(command, cx);
+                        cx.notify();
+                    })
+                }
+            });
+        let edit = Self::small_button(
+            SharedString::from(format!("graph-edit-{index}")),
+            model.edit.clone(),
+            None,
+        )
+        .disabled(!line.readable)
+        .tip(line.read_tooltip.clone().unwrap_or_default())
+        .on_click(act(&view, {
+            let id = id.clone();
+            move |this, _, cx| this.edit_graph(&id, cx)
+        }));
+        let export = Self::flat_button(
+            SharedString::from(format!("graph-export-{index}")),
+            model.export.clone(),
+        )
+        .disabled(!line.readable)
+        .tip(line.read_tooltip.clone().unwrap_or_default());
+        let delete = Self::flat_button(
+            SharedString::from(format!("graph-delete-{index}")),
+            model.delete.clone(),
+        )
+        .disabled(!line.delete_enabled)
+        .tip(line.delete_tooltip.clone().unwrap_or_default())
+        .on_click(act(&view, move |this, _, _| {
+            this.graphs.delete = Some(id.clone());
+        }));
+        let buttons = h_flex()
+            .w(px(BUTTONS))
+            .flex_none()
+            .gap(px(3.))
+            .items_center()
+            .justify_end()
+            .child(
+                div()
+                    .id(("graph-switch-cell", index))
+                    .flex_none()
+                    .mr(px(6.))
+                    .child(switch)
+                    .tip(line.switch_tooltip.clone().unwrap_or_default()),
+            )
+            .child(edit)
+            .child(export)
+            .child(delete);
+
+        table_row(p)
+            .min_h(px(48.))
+            .items_center()
+            .debug_selector(move || format!("graph-row-{index}"))
+            .child(name)
+            .child(end)
+            .child(state)
+            .child(result)
+            .child(buttons)
+            .into_any_element()
+    }
+
+    /// The card "Graph sensors without a Graph".
+    fn orphan_card(&self, orphans: &OrphanCard, p: &Palette, cx: &mut Context<Self>) -> AnyElement {
+        let view = cx.entity();
+        let mut list = card(p).child(card_header(orphans.title.clone(), p)).child(
+            div()
+                .px(px(18.))
+                .pb(px(9.))
+                .child(caption(orphans.text.clone(), p)),
+        );
+        for (index, row) in orphans.rows.iter().enumerate() {
+            let sensor = row.id.clone();
+            let mut name = v_flex()
+                .flex_1()
+                .min_w_0()
+                .child(heading(row.name.clone()).truncate())
+                .child(caption(row.id.clone(), p).font_family("Adwaita Mono"));
+            if let Some(note) = &row.note {
+                name = name.child(caption(note.clone(), p).text_color(p.warning));
+            }
+            list = list.child(
+                card_row(p)
+                    .min_h(px(48.))
+                    .child(name)
+                    .child(
+                        div()
+                            .flex_none()
+                            .text_color(p.fg_dim)
+                            .child(row.value.clone()),
+                    )
+                    .child(
+                        Self::flat_button(
+                            SharedString::from(format!("graph-remove-{index}")),
+                            orphans.remove.clone(),
+                        )
+                        .disabled(!row.remove_enabled)
+                        .tip(row.tooltip.clone().unwrap_or_default())
+                        .on_click(act(&view, move |this, _, _| {
+                            this.graphs.remove = Some(sensor.clone());
+                        })),
+                    ),
+            );
+        }
+        list.into_any_element()
+    }
+
+    /// The question of "Delete" and of "Remove". "Cancel" is the first button: it takes the
+    /// focus first.
+    fn graphs_dialog(
+        &self,
+        dialog: &ConfirmDialog,
+        p: &Palette,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let view = cx.entity();
+        let cancel = Self::button("graph-dialog-cancel", dialog.cancel.clone()).on_click(act(
+            &view,
+            |this, _, _| {
+                this.graphs.delete = None;
+                this.graphs.remove = None;
+            },
+        ));
+        let confirm = Self::button("graph-dialog-confirm", dialog.confirm.clone())
+            .danger()
+            .on_click(act(&view, |this, _, cx| {
+                let command = this.graphs.confirm_delete();
+                let command = command.or_else(|| this.graphs.confirm_remove());
+                if let Some(command) = command {
+                    this.send_graph(command, cx);
+                }
+            }));
+        modal(
+            dialog.title.clone(),
+            dialog.text.clone(),
+            Vec::new(),
+            vec![cancel.into_any_element(), confirm.into_any_element()],
+            p,
+        )
+        .into_any_element()
+    }
+
+    /// The page of the Graph editor: the button that goes back to the list, the name of the
+    /// Graph, and the place of the editor.
+    fn graph_editor_page(
+        &self,
+        target: &EditorTarget,
+        p: &Palette,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let view = cx.entity();
+        page()
+            .child(
+                h_flex()
+                    .w_full()
+                    .gap(px(12.))
+                    .items_center()
+                    .child(
+                        Self::small_button(
+                            "graph-editor-back",
+                            target.back.clone(),
+                            Some(NcIcon::Left),
+                        )
+                        .ghost()
+                        .on_click(act(&view, |this, _, _| {
+                            this.graphs.editor = None;
+                        })),
+                    )
+                    .child(heading(target.name.clone()).truncate()),
+            )
+            .child(
+                card(p)
+                    .h(px(240.))
+                    .debug_selector(|| "graph-editor".to_owned()),
+            )
+            .into_any_element()
+    }
+
+    /// What the user changed on the Graphs screen: a test opens a dialog or the editor with it.
+    pub fn graphs_ui(&mut self) -> &mut GraphsUi {
+        &mut self.graphs
+    }
+
+    /// "New sensor" and "New response": open the Graph editor on a draft.
+    pub(crate) fn new_graph(&mut self, end: Kind, cx: &mut Context<Self>) {
+        let (shown, locale) = {
+            let app = self.model.read(cx);
+            (app.graphs(), app.locale)
+        };
+        if let Some(shown) = shown {
+            self.graphs.new_draft(&shown, end, locale);
+        }
+    }
+
+    /// "Edit": open the Graph editor on a stored Graph.
+    pub(crate) fn edit_graph(&mut self, graph: &str, cx: &mut Context<Self>) {
+        if let Some(shown) = self.model.read(cx).graphs() {
+            self.graphs.edit(&shown, graph);
+        }
+    }
+
+    /// Send a command of this screen. A refusal that an earlier command left does not show as
+    /// the refusal of this one.
+    pub(crate) fn send_graph(&mut self, command: Command, cx: &mut Context<Self>) {
+        if let Some(shown) = &self.model.read(cx).graph_view
+            && let Ok(mut shown) = shown.lock()
+        {
+            shown.refusal = None;
+        }
+        self.send(command);
+    }
+}
