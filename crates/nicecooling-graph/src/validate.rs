@@ -315,12 +315,17 @@ fn check_parameters(graph: &Graph, out: &mut Vec<Refusal>) {
         }
         let mut bad = BTreeSet::new();
         for spec in node.param_specs() {
-            if let Some(value) = node.params.get(spec.name) {
-                if !spec.ty.accepts(value) {
+            match node.params.get(spec.name) {
+                Some(value) if !spec.ty.accepts(value) => {
                     bad.insert(spec.name);
-                } else if spec.ty == ParamType::Pairs {
-                    check_pairs(node, out);
                 }
+                Some(_) if spec.ty == ParamType::Pairs => check_pairs(node, out),
+                Some(_) => {}
+                // A missing parameter reads as its default, so a default that fails is refused.
+                None if !spec.ty.accepts(&spec.default.to_value()) => {
+                    bad.insert(spec.name);
+                }
+                None => {}
             }
         }
         if matches!(node.kind, Kind::Random | Kind::Limiter)

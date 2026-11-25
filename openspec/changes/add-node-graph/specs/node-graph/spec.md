@@ -75,7 +75,11 @@ The app SHALL store at most 64 Graphs and at most 256 nodes in one Graph. A Grap
 - **THEN** the validator refuses it with the code `bad-parameter` for `label`
 
 ### Requirement: Parameter types
-Every time parameter SHALL be a whole number of seconds, except the period of a generator and of the counter, which is a number of at least 0.1. A comment node SHALL have a width of 60 to 800 and a height of 20 to 600. An e-mail address SHALL have one `@` and at most 254 characters. A command SHALL have at most 32 arguments of at most 1024 characters each. A sound name SHALL have at most 64 characters.
+Every time parameter SHALL be a whole number of seconds, except the period of a generator and of the counter, which is a number of at least 0.1. A comment node SHALL have a width of 60 to 800 and a height of 20 to 600. An e-mail address SHALL have one `@` and at most 254 characters. A command SHALL have at most 32 arguments of at most 1024 characters each. A sound name SHALL have at most 64 characters. A required parameter that a stored node leaves out SHALL be refused like an empty one.
+
+#### Scenario: Missing required parameter
+- **WHEN** a stored response node of kind `sound` has no `sound` parameter
+- **THEN** the validator refuses it with the code `bad-parameter` for `sound`
 
 #### Scenario: Fraction of a second
 - **WHEN** a response has a hold time of 2.5 s
