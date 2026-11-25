@@ -1,0 +1,1508 @@
+nav:
+  overview: Übersicht
+  loops: Loops
+  channels: Kanäle
+  sensors: Sensoren
+  devices: Geräte
+  control: Steuerung
+  profiles: Profile
+  alarms: Alarme
+  history: Verlauf
+  settings: Einstellungen
+  first_run: Ersteinrichtung
+  leakshield: Leakshield
+  more_notices: "%{count} weitere Hinweise"
+status:
+  connecting: Verbindung zum Daemon wird aufgebaut
+  daemon_connected: Daemon verbunden
+  daemon_offline: Daemon offline
+  daemon_down: Daemon ausgefallen
+  profile: "Profil: %{name}"
+  profile_with_cause: "Profil: %{name} (%{cause})"
+  cause_rule: Regel
+  cause_manual: manuell
+  profile_none: "Profil: keines"
+  protection_off: Schutz aus
+  no_alarms: Kein aktiver Alarm
+  alarms:
+    one: "%{count} Alarm"
+    other: "%{count} Alarme"
+  warnings:
+    one: "%{count} Warnung"
+    other: "%{count} Warnungen"
+  poweroff_in: "Herunterfahren in %{time}"
+banner:
+  poweroff:
+    title: "%{event} bei %{source}"
+    detail: "%{loop}. Der PC fährt herunter, wenn der Countdown abläuft."
+    button: Herunterfahren abbrechen
+  offline:
+    title: Der Daemon ist offline. Die Werte sind nicht aktuell, und Einstellungen lassen sich nicht ändern.
+    button: Erneut versuchen
+  down:
+    title: Der Daemon ist ausgefallen. Der Schutz von nicecooling ist aus.
+    detail: Keine Kurve, kein Feed, keine Alarmreaktion. Das Mainboard nutzt seine Hardware-Kurven aus dem BIOS-Snapshot.
+    button: Start anzeigen
+  unknown_firmware:
+    title: "Die Leakshield-Firmware %{firmware} ist unbekannt. Alle Felder sind schreibgeschützt."
+    button: Felder öffnen
+  immediate_switching:
+    title: Sofortwechsel ist an. Regeln wechseln das Profil ohne Verzögerung.
+    button: Profile öffnen
+dialog:
+  daemon_down:
+    title: Daemon starten
+    body: "Führen Sie diese Befehle in einem Terminal aus:"
+    close: Schließen
+tooltip:
+  daemon_offline: Der Daemon ist offline.
+menu:
+  primary: Hauptmenü
+  close: Schließen
+  shortcuts: Tastenkürzel
+  about: Über nicecooling
+  quit: Beenden
+event:
+  unknown:
+    title: "Ereignis %{id}"
+  pump_stop:
+    title: Pumpe gestoppt
+  leakshield_unreachable:
+    title: Leakshield nicht erreichbar
+  lost_input:
+    title: Input verloren
+  another_writer:
+    title: Ein anderes Programm schreibt einen Kanal
+  manual_at_snapshot:
+    title: Kanal beim BIOS-Snapshot im manuellen Modus
+  state_fallback:
+    title: Der gespeicherte Zustand wurde nicht gelesen
+  no_bios_snapshot:
+    title: Kanal ohne Eintrag im BIOS-Snapshot
+  leakshield_unknown_firmware:
+    title: Leakshield-Firmware nicht abgedeckt
+  leakshield_fill_level_low_warning:
+    title: Warnung Füllstand
+  leakshield_fill_level_low_alarm:
+    title: Alarm Füllstand
+  leakshield_leak_warning:
+    title: Warnung Leck
+  leakshield_leak_alarm:
+    title: Alarm großes Leck
+  leakshield_pump_idle_time_warning:
+    title: Warnung Pumpen-Leerlaufzeit
+  leakshield_pump_idle_time_alarm:
+    title: Alarm Pumpen-Leerlaufzeit
+  leakshield_pump_runtime_alarm:
+    title: Alarm Pumpenlaufzeit
+  leakshield_high_pressure_drop:
+    title: Alarm hoher Druckabfall
+  leakshield_supply_voltage:
+    title: Alarm Versorgungsspannung
+  leakshield_pump_stall:
+    title: Alarm Pumpenblockade
+  leakshield_pump_overcurrent:
+    title: Alarm Pumpen-Überstrom
+  leakshield_leak_alarm_small:
+    title: Alarm kleines Leck
+  leakshield_system_alarm:
+    title: Systemalarm
+  leakshield_pump_low_volume:
+    title: Alarm geringes Pumpenvolumen
+tray:
+  tooltip: "nicecooling: %{summary}"
+  tooltip_offline: "nicecooling: Daemon offline"
+  tooltip_down: "nicecooling: Daemon ausgefallen, Schutz ist aus"
+  cancel_poweroff: "Herunterfahren abbrechen (%{time})"
+  loop_line: "%{name}: %{values}"
+  daemon_offline: Daemon offline
+  daemon_down: "Daemon ausgefallen: Der Schutz von nicecooling ist aus"
+  profile: "Profil: %{name}"
+  profile_none: Profil
+  revoke_manual: Manuelle Aktivierung aufheben
+  open: nicecooling öffnen
+  quit: Beenden
+  hint:
+    text: Das Symbol im Statusbereich ist nicht sichtbar. Aktivieren Sie unter GNOME die Erweiterung AppIndicator.
+    link: So aktivieren Sie es
+notification:
+  action:
+    cancel_poweroff: Herunterfahren abbrechen
+    open: nicecooling öffnen
+    open_channels: Kanäle öffnen
+    open_leakshield: Leakshield öffnen
+  poweroff:
+    body: "%{source}. Der PC fährt in %{seconds} s herunter."
+  pump_stop:
+    body: "%{source}: Ein Pumpenkanal zeigt 0 rpm. Jeder Kanal läuft mit 100 %. Der PC fährt in %{seconds} s herunter."
+  leakshield_unreachable:
+    body: "%{source}: Seit 10 s keine Daten vom Leakshield. Prüfen Sie das USB-Kabel."
+  daemon_down:
+    title: Der Schutz von nicecooling ist aus
+    body: Der Daemon ist ausgefallen. Das Mainboard nutzt seine Hardware-Kurven. Kein Feed und keine Alarmreaktion, bis der Daemon läuft.
+  warning:
+    body: "%{source}."
+  lost_input:
+    body: "%{source} läuft mit 100 %, bis der Input zurückkehrt."
+  external_change:
+    title: Leakshield-Einstellung außerhalb von nicecooling geändert
+    body: "%{fields}. Die nächste Profilaktivierung überschreibt sie."
+  profile_switched:
+    title: "Profil: %{name}"
+    body: Die Profilregeln haben dieses Profil gewählt.
+  poweroff_cancelled:
+    title: Herunterfahren abgebrochen
+    body: Der Alarm ist weiterhin aktiv.
+  poweroff_failed:
+    title: Herunterfahren fehlgeschlagen
+    body: "Der Daemon konnte den PC nicht herunterfahren: %{error}"
+feedback:
+  pending: Schreiben
+  applied: "Angewendet %{time}"
+  not_authorized: Nicht autorisiert. Nichts geändert.
+  refused: "Nicht angewendet: Der Daemon hat die Änderung abgelehnt."
+loop:
+  with_leakshield: Leakshield
+  without_leakshield: Kein Leakshield
+  caption: "%{leakshield}, %{pumps}"
+  pumps:
+    one: "%{count} Pumpenkanal"
+    other: "%{count} Pumpenkanäle"
+diagram:
+  age: "Wert %{seconds} s alt"
+  reservoir: Füllstand
+  fill_level: Füllstand
+  blocks: Kühlblöcke und Radiatoren
+  no_leakshield:
+    title: Kein Leakshield
+    text: Der Druck wird nicht gemessen.
+  state:
+    alarm: Alarm
+    warning: Warnung
+    no_value: kein Wert
+  caption:
+    target: "Ziel %{value}"
+    below_min: "unter Minimum %{value}"
+    above_max: "über Maximum %{value}"
+    no_protection: kein Schutz
+    no_data: keine Daten
+    duty: "Duty %{value} %"
+    stopped: gestoppt
+    calibrated: kalibriert
+    above_table: über Tabellenbereich
+    below_flow: "unter %{value} L/h"
+    water: Wasser
+    last: "zuletzt %{value}"
+    pumps:
+      one: "%{count} Pumpe"
+      other: "%{count} Pumpen"
+  accessible:
+    pressure: "Druck %{value}"
+    pump: "Pumpe %{value}"
+    flow: "Durchfluss %{value}"
+    water: "Wasser %{value}"
+    fill_level: "Füllstand %{value}"
+overview:
+  not_live: Nicht live
+  last_value: "Letzter Wert %{time}"
+  last_values: "Letzte Werte %{time}"
+  open_loop: Loop öffnen
+  open_leakshield: Leakshield öffnen
+  open_profiles: Profile öffnen
+  empty:
+    title: Noch kein Loop
+    text: Ein Loop fasst eine Pumpe, einen Durchflusssensor, einen Wassertemperatursensor und einen Leakshield zusammen.
+    button: Loop einrichten
+  no_alarms: Kein aktiver Alarm
+  alarms_title: Aktive Alarme
+  temperatures_title: Wichtige Temperaturen
+  profile_title: Aktives Profil
+  daemon_down:
+    title: Daemon ausgefallen
+    detail: "Seit %{time}. Der Daemon führt die Alarmreaktionen aus: Derzeit läuft keine."
+  alarm_detail: "%{source}, seit %{time}. Alarmreaktion: %{response}."
+  response:
+    none: keine
+    notify: Benachrichtigung
+    poweroff: Herunterfahren
+    poweroff_after: "Herunterfahren nach %{seconds} s"
+  action_running:
+    test: Test läuft
+    measure_fill_level: Füllstand wird gemessen
+    deaerate: Entlüften läuft
+    refill: Nachfüllen läuft
+  pressure:
+    title: Druck
+    subtitle: Leakshield, letzte 10 Minuten
+    limit: "Grenze %{value}"
+    target: "Ziel %{value}"
+    minimum: "Minimum %{value}"
+    raised: "Alarm ausgelöst %{time}"
+    change: "Druckänderung %{value}"
+  temp:
+    cpu: CPU
+    gpu: GPU
+    chipset: Chipsatz
+    vrm: VRM
+  profile:
+    none: Keines
+    by_group: Nach Gruppe
+    manual: Manuell
+    manual_detail: Regelgruppen warten, bis Sie die manuelle Aktivierung aufheben.
+    down_detail: Profile und Regelgruppen brauchen den Daemon.
+sensors:
+  empty: Kein Sensor gefunden. Prüfen Sie, ob die hwmon-Treiber des Mainboards geladen sind.
+  search: Sensoren suchen
+  show_hidden: Ausgeblendete Sensoren zeigen
+  new_derived: Neuer abgeleiteter Sensor
+  columns:
+    sensor: Sensor
+    value: Wert
+    last_10_minutes: Letzte 10 Minuten
+    used_by: Verwendet von
+  group:
+    chip: Mainboard-Chip
+    leakshield: Leakshield
+    gpu: GPU
+    nvme: NVMe
+    calibrated: Kalibrierter Durchfluss
+    derived: Abgeleitete Sensoren
+  used:
+    curve: "Kurve von %{name}"
+  in_use:
+    curve: Eine Kurve verwendet diesen Sensor.
+    loop: Ein Loop verwendet diesen Sensor.
+    derived: Ein abgeleiteter Sensor verwendet diesen Sensor.
+  delete_refused:
+    curve: "Die Kurve von %{name} verwendet diesen Sensor."
+    loop: "Der Loop %{name} verwendet diesen Sensor."
+    derived: "Der abgeleitete Sensor %{name} verwendet diesen Sensor."
+  source_without_value: "Quelle ohne Wert: %{name}"
+  rename: Umbenennen
+  hide: Ausblenden
+  show: Einblenden
+  delete: Löschen
+  edit: Bearbeiten
+  rename_refused: "Nicht angewendet: Der Daemon hat den Namen abgelehnt."
+  rename_placeholder: Name
+  flow_no_loop: Kein Loop liest diesen Durchflusssensor. Legen Sie ihn als Durchflusssensor eines Loops fest, um ihm eine Kalibriertabelle zu geben.
+  help:
+    maximum: "Maximum: die höchste Quelle."
+    mean: "Mittelwert: der Durchschnitt der Quellen."
+    difference: "Differenz: die erste Quelle minus die zweite."
+  function:
+    maximum: Maximum
+    mean: Mittelwert
+    difference: Differenz
+  editor:
+    title_new: Neuer abgeleiteter Sensor
+    title_edit: Abgeleiteter Sensor
+    name: Name
+    function: Funktion
+    sources: Quellen
+    source: "Quelle %{n}"
+    minuend: Minuend
+    subtrahend: Subtrahend
+    add_source: Quelle hinzufügen
+    choose: Sensor wählen
+    now: "Jetzt %{value}"
+    mixed_units: Alle Quellen müssen dieselbe Einheit haben.
+    name_missing: Geben Sie dem Sensor einen Namen.
+    sources_missing: Wählen Sie jede Quelle.
+    refused: "Nicht angewendet: Der Daemon hat den abgeleiteten Sensor abgelehnt."
+    in_use: Eine Kurve, ein Loop oder ein anderer abgeleiteter Sensor verwendet diesen Sensor.
+    cancel: Abbrechen
+    save: Speichern
+channels:
+  empty:
+    text: Kein Kanal gefunden. nicecooling braucht einen hwmon-Treiber für den Lüftercontroller dieses Mainboards.
+    link: Einstellungen öffnen
+  columns:
+    channel: Kanal
+    rpm: rpm
+    duty: Duty
+  pump_tag: Pumpenkanal
+  no_signal: kein Drehzahlsignal
+  line:
+    curve: "Kurve auf %{input}"
+    curve_lost: "Kurve, Input verloren: %{input}"
+    fixed: Feste Duty
+    hardware: Hardware-Kurve, nicht gesteuert
+  pump_stop: Pumpe gestoppt. Jeder Kanal läuft mit 100 %, bis die Pumpe 10 s lang läuft.
+  pump_stop_readonly: Die Pumpe ist gestoppt. Der Editor ist schreibgeschützt.
+  lost_input_strip: "Input verloren: Der Kanal läuft mit 100 %, bis %{input} zurückkehrt."
+  rename: Umbenennen
+  control:
+    label: Steuerung
+    curve: Kurve
+    fixed: Feste Duty
+    hardware: Hardware-Kurve
+  hardware_text: nicecooling steuert diesen Kanal nicht. Das Mainboard nutzt seine Hardware-Kurve.
+  field:
+    input: Input
+    smoothing: Input-Glättung
+    smoothing_unit: s Mittelwert
+    step: Duty-Schrittgrenze
+    step_unit: "% pro s"
+    fixed: Duty
+  help:
+    smoothing: "Input-Glättung: Die Kurve liest den Mittelwert der letzten %{value} s, damit eine kurze Spitze den Lüfter nicht bewegt."
+    step: "Duty-Schrittgrenze: Die Duty ändert sich höchstens um %{value} % pro Sekunde."
+  plot:
+    y_title: "Duty, %"
+    x_title: "Input, %{unit}"
+    now: "Jetzt %{input}, %{duty} %"
+    floor: "Pumpenminimum %{value}: Keine Kurve geht darunter"
+    accessible: "Kurve von %{name}, %{count} Punkte"
+  readout:
+    input: "Input %{value}"
+    smoothing: "%{value} s Mittelwert"
+    curve: "Kurve %{value}"
+    duty: "Duty %{value}"
+  add_point: Punkt hinzufügen
+  remove_point: Punkt entfernen
+  point_input: Input
+  point_duty: Duty
+  try_again: Erneut versuchen
+  refused_curve: "Nicht angewendet: Der Daemon hat die Kurve abgelehnt."
+  refused_fixed: "Nicht angewendet: Der Daemon hat die feste Duty abgelehnt."
+  refused_release: "Nicht angewendet: Der Daemon hat die Freigabe des Kanals abgelehnt."
+  pump_floor_refused: "Das Pumpenminimum ist %{value}."
+  pump_floor_note: "Pumpenminimum %{value}: Eine feste Duty darunter wird abgelehnt."
+  bios:
+    title: BIOS-Snapshot
+    text: Wenn der Daemon stoppt, nutzt das Mainboard für diesen Kanal seine Hardware-Kurve.
+    saved: "Gespeichert %{time}"
+  release:
+    title: Diesen Kanal an das Mainboard zurückgeben?
+    text: nicecooling beendet seine Kurve.
+    cancel: Abbrechen
+    confirm: Hardware-Kurve verwenden
+loops:
+  new: Neu
+  new_name: "Loop %{n}"
+  none: Keiner
+  parts: Teile
+  part:
+    pumps: Pumpenkanäle
+    flow: Durchflusssensor
+    water: Wassertemperatur
+    leakshield: Leakshield
+  no_pump_warning: Ein Loop braucht einen Pumpenkanal. Ohne ihn erkennt nicecooling keinen Pumpenstopp.
+  leakshield_none: Keiner. Druck und Füllstand werden nicht gemessen, und es wird kein Feed gesendet.
+  pump_stopped: "Pumpe gestoppt: %{channel} zeigt 0 rpm. Jeder Kanal läuft mit 100 %."
+  rename: Umbenennen
+  menu: Loop-Menü
+  delete_loop: Loop löschen
+  delete:
+    title: "Den Loop '%{name}' löschen?"
+    text: Seine Kanäle behalten ihre Kurven. Das Pumpenminimum und der Alarm bei Pumpenstopp enden.
+    cancel: Abbrechen
+    confirm: Loop löschen
+  floor:
+    title: Pumpenminimum
+    text: Das Pumpenminimum ist die kleinste Duty des Pumpenkanals. Keine Kurve und kein Profil geht darunter. Es hält das Wasser in Bewegung, wenn eine Kurve eine niedrige Temperatur liest.
+    zero: Bei einem Pumpenminimum von 0 % kann eine Kurve die Pumpe stoppen.
+  feed:
+    title: Feed
+    feed_pump: "Pumpendrehzahl %{value}"
+    flow: "Durchfluss %{value}"
+    sent: "Vor %{seconds} s gesendet"
+    stale: "Letzter Feed vor %{seconds} s"
+    never: Noch nicht gesendet
+    caption: Der Leakshield berechnet mit dem Feed den Druck des Loops.
+calibration:
+  title: Kalibriertabelle
+  x_header: Rohdrehzahl (rpm)
+  y_header: Durchfluss (L/h)
+  add_point: Punkt hinzufügen
+  remove_point: Punkt entfernen
+  load_preset: Voreinstellung laden
+  out_of_range: Außerhalb des Bereichs
+  marker: "%{raw} rpm, %{flow} L/h"
+  above_last: "%{raw} rpm liegt über dem letzten Punkt. Der Durchfluss ist eine Schätzung."
+  table_name: "Durchflusssensor von %{loop}"
+  refused: "Nicht angewendet: Der Daemon hat die Tabelle abgelehnt."
+  error:
+    too_few: Eine Kalibriertabelle braucht mindestens 2 Punkte.
+    not_sorted: Die Rohdrehzahlen müssen steigen.
+  confirm:
+    title: "Die Tabelle durch %{name} ersetzen?"
+    text: Die Punkte der Tabelle werden ersetzt.
+    confirm: Tabelle ersetzen
+    cancel: Abbrechen
+history:
+  sensors: Sensoren
+  sensors_count:
+    one: "%{count} Sensor"
+    other: "%{count} Sensoren"
+  range:
+    1h: 1 h
+    24h: 24 h
+    48h: 48 h
+    7d: 7 d
+    30d: 30 d
+    1y: 1 J
+  back: Zurück
+  forward: Vor
+  now: Jetzt
+  reset_zoom: Zoom zurücksetzen
+  aggregate_hint: "Älter als 48 Stunden: Mittelwert pro Minute, mit Minimum und Maximum."
+  gap: "Keine Daten: Die App lief nicht"
+  empty: Wählen Sie Sensoren für das Diagramm.
+  no_data: Keine Daten in diesem Zeitraum. Die App zeichnet den Verlauf auf, solange sie läuft.
+  error: Die Verlaufsdatenbank ist nicht lesbar.
+  retry: Erneut versuchen
+  search: Sensoren suchen
+  legend:
+    extremes: "min %{min}, max %{max}"
+profiles:
+  list:
+    title: Profile
+  new: Neu
+  new_name: "Profil %{n}"
+  copy_name: "%{name} Kopie"
+  cancel: Abbrechen
+  open: Öffnen
+  activate: Manuell aktivieren
+  revoke: Manuelle Aktivierung aufheben
+  revoke_short: Aufheben
+  duplicate: Duplizieren
+  rename: Umbenennen
+  delete_button: Löschen
+  tag:
+    active: Aktiv
+    group: Aktiv durch Gruppe
+    manual: Manuell aktiv
+  caption:
+    default: Aktiv, wenn keine Gruppe zutrifft
+    active_by_group: "Aktiv durch Gruppe %{n}"
+    group: "Gruppe %{n}"
+    no_group: Keine Gruppe
+    slot: "Slot %{slot}"
+    release: Modus RELEASE
+    dwell: "Bleibt noch %{time} (Profil-Verweildauer)"
+  options:
+    title: Optionen
+    rule_delay: Regelverzögerung
+    dwell: Profil-Verweildauer
+    immediate: Sofortwechsel
+    immediate_text: Keine Regelverzögerung, keine Profil-Verweildauer
+    seconds: s
+    minutes: min
+    not_used: Bei Sofortwechsel nicht verwendet
+    help_delay: "Regelverzögerung: Eine Gruppe muss so lange zutreffen, bevor sie ein Profil aktiviert."
+    help_dwell: "Profil-Verweildauer: Ein Profil, das eine Gruppe aktiviert hat, bleibt mindestens so lange aktiv."
+  curves:
+    title: Kurven
+    none: In diesem Profil hat kein Kanal eine Kurve oder eine feste Duty.
+    fixed: "Feste Duty %{duty}"
+    curve:
+      one: "Kurve, %{count} Punkt"
+      other: "Kurve, %{count} Punkte"
+  leakshield:
+    title: Leakshield-Einstellungen
+    mode: Modus
+    display: Display
+    display_value: "Helligkeit %{active}, Ruhe %{idle}"
+    lighting: Beleuchtung
+    lighting_value: "Helligkeit %{value} %"
+    thresholds: Alarmschwellen
+    thresholds_value: "Füllstand %{warning} % und %{alarm} %, Leck %{leak} ml/h"
+  slot:
+    label: Slot
+    value: "Slot %{slot}"
+    shared: "Geteilt mit %{names}"
+  notice:
+    release: "Dieses Profil setzt den Modus RELEASE: Der Loop hat keinen Leckschutz, solange es aktiv ist."
+    shared_slot: "Slot %{slot} wird mit %{names} geteilt. Eine Leakshield-Änderung hier ändert beide."
+    thresholds_differ: "Die Alarmschwellen weichen von %{count} anderen Slots ab"
+    apply_all: Auf alle Slots anwenden
+    slot_failed: "Slot %{slot}: nicht geändert. %{reason}"
+    display_brightness: Display-Helligkeit
+    external_change: "%{field} wurde außerhalb von nicecooling geändert. Die Aktivierung eines Profils mit anderem Slot überschreibt sie."
+  diff:
+    title: "Das Profil '%{name}' aktivieren?"
+    text: "Slot %{slot} hat andere Einstellungen als der Leakshield. Diese Felder ändern sich auf dem Leakshield."
+    field: Feld
+    device: Leakshield jetzt
+    confirm: Aktivieren
+    "on": "an"
+    "off": "aus"
+  restore:
+    text: "Die Kurven sind aktiv. Das Schreiben auf den Leakshield ist fehlgeschlagen."
+    button: Backup wiederherstellen
+  slot_dialog:
+    title: "Zu Slot %{slot} wechseln?"
+    text: "Slot %{slot} hat andere Leakshield-Einstellungen. Sie werden jetzt auf den Leakshield geschrieben."
+    confirm: Slot wechseln
+  delete:
+    title: "Das Profil '%{name}' löschen?"
+    text: "Das Profil '%{name}' löschen? Die Leakshield-Einstellungen seines Slots bleiben."
+    text_groups: "Das Profil '%{name}' löschen? Gruppe %{groups} verwendet es und wird ebenfalls gelöscht. Die Leakshield-Einstellungen seines Slots bleiben."
+    confirm: Profil löschen
+    default_tooltip: Das Standardprofil lässt sich nicht löschen.
+  immediate:
+    title: Sofortwechsel einschalten?
+    text: Bei Sofortwechsel wechselt auch das Profil schnell, wenn eine Gruppe schnell wechselt. Jeder Wechsel kann den Leakshield beschreiben.
+    hide: Nicht mehr anzeigen
+    confirm: Einschalten
+  groups:
+    title: Regelgruppen
+    add: Gruppe hinzufügen
+    caption: Eine Gruppe trifft zu, wenn alle ihre Regeln zutreffen. Die erste zutreffende Gruppe gewinnt. Ziehen ändert die Reihenfolge.
+    empty: Keine Gruppe. Das Standardprofil ist aktiv, bis Sie ein anderes Profil von Hand aktivieren.
+    manual: Regelgruppen warten, bis Sie die manuelle Aktivierung aufheben.
+  group:
+    no_rule: "Keine Regel: Diese Gruppe trifft nie zu."
+    short_interval: Das Zeitfenster ist kürzer als die Regelverzögerung. Die Gruppe aktiviert ihr Profil nie.
+    holds_since: "Trifft zu seit %{time}"
+    holds_activates: "Trifft zu, aktiviert in %{seconds} s"
+    active: "Gruppe %{n}: %{rules}."
+  editor:
+    activate: Profil aktivieren
+    enabled: Aktiviert
+    add_rule: Regel hinzufügen
+    edit: Bearbeiten
+    remove: Entfernen
+    delete: Gruppe löschen
+    save: Gruppe speichern
+    save_rule: Regel speichern
+    condition: Bedingung
+  kind:
+    sensor: Sensor
+    process: Prozess
+    time: Zeitfenster
+    interval: Intervall
+  field:
+    sensor: Sensor
+    comparison: Ist
+    value: Wert
+    value_max: Bis
+    hold_s: Für (s)
+    names: Prozessnamen
+    match: Übereinstimmung
+    match_on: Übereinstimmung bei
+    days: Tage
+    start: Von
+    end: Bis
+    interval_s: Alle (s)
+    delay_s: Start nach (s)
+    duration_s: Dauer (s)
+  cmp:
+    lt: kleiner als
+    le: höchstens
+    eq: gleich
+    ge: mindestens
+    gt: größer als
+    ne: ungleich
+  cmp_select:
+    lt: kleiner als
+    le: höchstens
+    eq: gleich
+    ge: mindestens
+    gt: größer als
+    ne: ungleich
+    in_range: zwischen
+  match:
+    any: einer von
+    all: alle von
+    none: keiner von
+  match_on:
+    name: Prozessname
+    cmdline: Befehlszeile
+  day:
+    d1: Mo
+    d2: Di
+    d3: Mi
+    d4: Do
+    d5: Fr
+    d6: Sa
+    d7: So
+  duration:
+    s: "%{n} s"
+    min: "%{n} min"
+  rule:
+    sensor: "Sensor %{sensor} %{comparison} %{value}"
+    sensor_between: "Sensor %{sensor} zwischen %{low} und %{high}"
+    for: "für %{time}"
+    process_any: "Prozess %{names} läuft"
+    process_all: "Alle von %{names} laufen"
+    process_none: "Keiner von %{names} läuft"
+    time: "Zeitfenster %{from} bis %{to}"
+    interval: "Alle %{every}, ab %{delay} nach dem Start, für %{lasts}"
+alarms:
+  active:
+    title: Aktiv
+    empty: Kein aktiver Alarm
+  responses:
+    title: Alarmreaktionen
+    offline: Der Daemon führt die Alarmreaktionen aus. Solange er nicht läuft, läuft keine Alarmreaktion.
+  history:
+    title: Verlauf
+    empty: Noch kein Alarm und keine Warnung.
+    active: aktiv
+    notified: Benachrichtigt
+    cancelled: Herunterfahren vom Benutzer abgebrochen
+    none: Keine
+    poweroff_pending: Herunterfahren steht an
+    poweroff_requested: PC heruntergefahren
+    poweroff_stopped: "Herunterfahren gestoppt: Der Alarm wurde beendet"
+    poweroff_failed: Herunterfahren fehlgeschlagen
+    closed_by_restart: Durch Daemon-Neustart beendet
+    column:
+      time: Zeit
+      event: Ereignis
+      source: Quelle
+      duration: Dauer
+      response: Reaktion
+  column:
+    event: Ereignis
+    source: Quelle
+    since: Seit
+    value: Wert
+    response: Alarmreaktion
+    delay: Verzögerung
+  group:
+    nicecooling: nicecooling
+  option:
+    none: Keine
+    notify: Benachrichtigen
+    poweroff: Herunterfahren nach Verzögerung
+  response:
+    none: Keine
+    notify: Benachrichtigen
+    poweroff_after: "Herunterfahren nach %{seconds} s"
+  filter:
+    all: Alle
+    alarms: Alarme
+    warnings: Warnungen
+  reset: Zurücksetzen
+  countdown: "Herunterfahren in %{time}"
+  cancel_poweroff: Herunterfahren abbrechen
+  cancelled: "Herunterfahren %{time} abgebrochen. Der Alarm ist weiterhin aktiv."
+  poweroff_started: Der PC fährt bereits herunter. Der Abbruch kam zu spät.
+  delay_zero: Bei 0 s lässt sich das Herunterfahren nicht abbrechen.
+  overlap: Der Leakshield reagiert ebenfalls auf diesen Alarm. Siehe sein Tab Alarme.
+  caption:
+    pump_stop: Jeder Kanal läuft mit 100 %. Der Alarm endet, wenn die Pumpe 10 s lang läuft.
+  value:
+    pump_stop: "%{rpm} bei Duty %{duty}"
+    no_data: "Seit %{seconds} s keine Daten"
+    limit: "%{value}, Grenze %{limit}"
+  daemon_down:
+    title: Daemon ausgefallen
+    source: nicecooling
+    text: Der Schutz von nicecooling ist aus.
+  dialog:
+    text: Der PC fährt herunter, wenn der Countdown abläuft.
+    ended: Der PC fährt jetzt herunter.
+    seconds_of: "Sekunden übrig von %{total}"
+    hide: Ausblenden
+    hint: Der Countdown läuft im Banner weiter.
+    source: Quelle
+    raised: Ausgelöst
+    value: Wert
+    response: Alarmreaktion
+settings:
+  language:
+    title: Sprache
+    label: Sprache
+    system: System
+    en: English
+    it: Italiano
+    de: Deutsch
+    fr: Français
+  start:
+    title: Start und Tray
+    login: Beim Anmelden starten
+    login_text: Die App startet ohne Fenster und zeigt ihr Symbol im Statusbereich.
+    tray: Symbol im Statusbereich
+    tray_off: Ohne das Symbol im Statusbereich öffnen Sie das Fenster über die Anwendungsliste.
+  hint:
+    tray: Das Symbol im Statusbereich ist nicht sichtbar. Aktivieren Sie unter GNOME die Erweiterung AppIndicator.
+    tray_link: So aktivieren Sie es
+    dismiss: Nicht mehr anzeigen
+  notifications:
+    title: Benachrichtigungen
+    warnings: Warnungen
+    profile: Profilwechsel durch eine Regel
+    external: Externe Änderung an einem Leakshield
+    note: Alarmbenachrichtigungen sind immer an.
+  daemon:
+    title: Daemon
+    connection: Verbindung
+    connected: Verbunden
+    offline: Offline
+    down: Ausgefallen
+    offline_text: "Daemon starten: systemctl start nicecoolingd"
+    down_text: systemd hat die Neustarts des Daemons beendet. Der Schutz von nicecooling ist aus. Das Mainboard nutzt seine Hardware-Kurven aus dem BIOS-Snapshot.
+    try_again: Erneut versuchen
+    version: Daemon-Version
+    app_version: App-Version
+    board: Mainboard
+    state_directory: Zustandsverzeichnis
+    mismatch: "Der Daemon hat Version %{daemon}, die App hat Version %{app}. Aktualisieren Sie beide auf dieselbe Version."
+    no_board_file: "Mainboard: %{board}. Keine Mainboard-Datei: Kanäle und Sensoren haben die Namen des Kernels."
+  about:
+    title: Info
+    name: App
+    version: Version
+    license: Lizenz
+    license_value: GPL-3.0-or-later
+    project: Projektseite
+    note: nicecooling ist kein Produkt von Aqua Computer. LEAKSHIELD und aquasuite sind Namen der Aqua Computer GmbH & Co. KG.
+    firmware: nicecooling aktualisiert die Firmware keines Geräts.
+first_run:
+  title: nicecooling einrichten
+  loop_name: Haupt-Loop
+  offline: "nicecooling braucht seinen Daemon. Starten Sie ihn: systemctl start nicecoolingd"
+  try_again: Erneut versuchen
+  reading: Mainboard wird gelesen
+  skip: Einrichtung überspringen
+  back: Zurück
+  next: Weiter
+  step:
+    board: Mainboard
+    loop: Loop
+    bios: BIOS-Snapshot
+    leakshield: Leakshield
+    done: Fertig
+  column:
+    channel: Kanal
+    rpm: Drehzahl
+    duty: Duty
+  board:
+    known: "%{board}. Mainboard-Datei gefunden: Kanäle und Sensoren haben ihre Mainboard-Namen."
+    unknown: Keine Mainboard-Datei für dieses Mainboard. Kanäle und Sensoren haben die Namen des Kernels. Sie können sie unter Kanäle und Sensoren umbenennen.
+    counts: "%{channels} Kanäle und %{sensors} Sensoren gefunden."
+    no_channel: Kein Kanal gefunden. nicecooling braucht einen hwmon-Treiber für den Lüftercontroller dieses Mainboards.
+  loop:
+    pump: Pumpenkanal
+    pump_needed: Der Loop braucht einen Pumpenkanal.
+    flow: Durchflusssensor
+    preset: Voreinstellung der Kalibriertabelle
+    empty_table: Leere Tabelle
+    empty_table_note: Der Durchflusssensor hat keinen Wert, bis seine Kalibriertabelle 2 Punkte hat. Erstellen Sie die Tabelle auf der Seite Loops.
+    live_flow: "%{rpm} = %{flow}"
+    flow_name: Durchfluss
+    water: Wassertemperatur
+    leakshield: Leakshield
+    no_leakshield: Ohne Leakshield hat der Loop sein Pumpenminimum und seinen Alarm bei Pumpenstopp.
+  bios:
+    text: "Bevor nicecooling einen Kanal steuert, sichert es den BIOS-Snapshot: die Hardware-Kurven Ihres Mainboards. Wenn der Daemon stoppt, auch nach einem Absturz, schreibt nicecooling den Snapshot zurück. Hängt der Kernel, läuft kein Programm, und jeder Kanal bleibt bei seiner letzten Duty."
+    no_curve: Ein Kanal ohne Kurve bleibt bei seiner Hardware-Kurve. nicecooling ändert ihn nicht.
+  leakshield:
+    known: "Firmware %{firmware}: bekannt. %{verified} von %{total} Feldern sind geprüfte Felder. %{read_only} Sicherheitsfelder sind schreibgeschützt, bis ein Prüfschreibvorgang besteht."
+    known_short: "Firmware %{firmware}: bekannt."
+    unknown: "Die Firmware %{firmware} ist unbekannt. nicecooling zeigt den Leakshield an und kann seine Einstellungen nicht ändern."
+    text: "nicecooling schreibt nur geprüfte Felder. Ein Feld mit geringem Risiko ist durch einen plausiblen Lesewert geprüft. Ein Sicherheitsfeld braucht einen Prüfschreibvorgang. Das ist ein beaufsichtigtes Verfahren außerhalb der App: siehe die Projektdokumentation."
+    open_fields: Felder öffnen
+  done:
+    pump: "Pumpenkanal: %{channels}"
+    flow: "Durchflusssensor: %{sensor}"
+    water: "Wassertemperatur: %{sensor}"
+    floor: "Pumpenminimum: %{value}"
+    text: "Der Loop ist eingerichtet. Seine Kanäle nutzen weiter ihre Hardware-Kurven: Fügen Sie unter Kanäle eine Kurve hinzu."
+    overview: Übersicht öffnen
+    wizard: Leakshield-Assistenten öffnen
+leakshield:
+  serial: "S/N %{serial}"
+  offline: "Der Leakshield antwortet nicht. Prüfen Sie das USB-Kabel."
+  cancel: "Abbrechen"
+  close: "Schließen"
+  yes: "Ja"
+  no: "Nein"
+  open_fields: "Felder öffnen"
+  range: "%{min} bis %{max} %{unit}."
+  tab:
+    overview: "Übersicht"
+    settings: "Einstellungen"
+    sensors: "Sensoren"
+    display: "Display"
+    lighting: "Beleuchtung"
+    alarms: "Alarme"
+    status: "Status"
+    system: "System"
+    fields: "Felder"
+  reason:
+    unknown_firmware: "Schreibgeschützt: unbekannte Firmware."
+    unknown_structure: "Schreibgeschützt: unbekannte Struktur der Einstellungen."
+    not_verified: "Kein geprüftes Feld: Dieses Sicherheitsfeld hat noch keinen Prüfschreibvorgang."
+    disconnected: "Der Leakshield ist nicht verbunden."
+  refused:
+    read_only: "Nicht angewendet: Das Feld ist schreibgeschützt."
+    busy: "Nicht angewendet: Der Leakshield führt gerade einen Schreibvorgang aus."
+    read_back: "Schreiben fehlgeschlagen: Der Lesewert stimmt nicht überein."
+    disconnected: "Nicht angewendet: Der Leakshield ist nicht verbunden."
+    not_supported: "Diese Firmware hat keinen solchen Befehl."
+  mode:
+    shield: "SHIELD"
+    monitor: "MONITOR"
+    release: "RELEASE"
+  action:
+    test: "Test"
+    measure_fill_level: "Füllstand messen"
+    deaerate: "Entlüften"
+    refill: "Nachfüllen"
+  status_value:
+    protecting: "Schutz aktiv"
+    building: "Druckaufbau"
+    monitoring: "Überwachung"
+    released: "Freigegeben"
+    test: "Test"
+    measure: "Füllstand wird gemessen"
+    deaerate: "Entlüften"
+    refill: "Nachfüllen"
+  overview:
+    loading: "Leakshield wird gelesen"
+    pressure: "Druck"
+    status: "Status"
+    in_range: "Im Bereich"
+    below: "Unter dem Minimum"
+    above: "Über dem Maximum"
+    no_value: "Kein Wert"
+    gauge_tooltip: "Druck %{value}. Minimum %{min}, Ziel %{target}, Maximum %{max} mbar."
+    pressure_caption: "Unterdruck im Loop"
+    minimum: "Minimum %{value}"
+    maximum: "Maximum %{value}"
+    target: "Ziel %{value}"
+    fill_level: "Füllstand"
+    measured: "gemessen %{time}"
+    volume_change: "Volumenänderung"
+    pressure_change: "Druckänderung"
+    feed: "Feed"
+    feed_age: "vor %{seconds} s"
+    mode_and_actions: "Modus und Aktionen"
+    action_hint: "Eine Aktion ist vorübergehend: Wenn sie endet, kehrt der Leakshield zu seinem Modus zurück."
+    mode_caption:
+      shield: "SHIELD: voller Schutz durch Unterdruck und Lecksuche."
+      monitor: "MONITOR: niedriger Unterdruck, nur Lecksuche."
+      release: "RELEASE: Der Leakshield ist aus, und der Druck gleicht sich aus."
+    mode_not_verified: "Schreibgeschützt: Der Modus ist noch kein geprüftes Feld."
+    unknown_tooltip: "Schreibgeschützt: unbekannte Firmware."
+    denied: "Nicht autorisiert. Der Modus hat sich nicht geändert."
+    release_banner: "Modus RELEASE: Der Loop hat keinen Leckschutz."
+    refill: "%{action} lässt sich auch am Gerät starten:"
+    refill_link: "Schritte anzeigen"
+    refill_pause: "Pausieren oder fortsetzen"
+    refill_pause_text: "Der Leakshield pausiert ein laufendes Nachfüllen und setzt ein pausiertes fort."
+    refill_title: "Nachfüllen"
+    refill_step:
+      "1": "1. Setzen Sie den PC in den Standby."
+      "2": "2. Halten Sie die Taste des Leakshield länger als 1 s gedrückt und wählen Sie FILL."
+      "3": "3. Halten Sie den Füllschlauch in die Kühlflüssigkeit. Der Leakshield saugt sie an."
+      "4": "4. Wählen Sie EXIT. Der Leakshield kehrt zu seinem Modus zurück."
+    mode_confirm_title: "Den Modus auf %{mode} ändern?"
+    mode_confirm_button: "%{mode} setzen"
+    mode_confirm:
+      monitor: "MONITOR erkennt Lecks und verhindert sie nicht."
+      release: "RELEASE schaltet den Leckschutz aus."
+    measure_confirm: "Während der Messung hat der Loop keinen Leckschutz. Starten Sie sie nicht, wenn der Loop ein Leck haben kann."
+    measure_button: "Messen"
+    refill_confirm_title: "Nachfüllen starten?"
+    refill_confirm: "Die Pumpe läuft. Das Handbuch des Leakshield verlangt beim Nachfüllen eine ausgeschaltete Pumpe."
+    refill_button: "Nachfüllen starten"
+    measure_step: "Druck wird abgebaut"
+    measure_banner: "Die Füllstandsmessung läuft. Der Loop hat bis zu ihrem Ende keinen Leckschutz."
+    measure_result: "Füllstand %{value}"
+    cycle_current: "Aktueller Zyklus"
+    cycle_overall: "Gesamt"
+    test_pressure: "Testdruck"
+    test_hint: "Stoppen Sie die Pumpe vor einem Test: Eine laufende Pumpe verändert den Druck."
+    start_test: "Test starten"
+    source: "Quelle"
+    source_of:
+      pressure: "Druck"
+      difference: "Differenz zur Referenz"
+      change: "Druckänderung"
+    reference: "Referenz"
+    reset_zoom: "Zoom zurücksetzen"
+    range:
+      hour: "1 h"
+      day: "24 h"
+      week: "7 d"
+    dotted: "Gepunktet: Minimum %{min} und Maximum %{max} mbar"
+    now: "jetzt"
+    pressure_empty: "Kein Druckwert in diesem Zeitraum."
+    runtime_caption: "Vakuumpumpe"
+    runtime: "Pumpenlaufzeit pro Tag"
+    runtime_empty: "Kein Nachfüllen in den letzten 14 Tagen."
+    runtime_limit: "Warngrenze: %{seconds} s pro Tag"
+  sensors:
+    device: "Gerätesensoren"
+    software: "Software-Sensoren"
+    column:
+      number: "#"
+      name: "Name"
+      value: "Wert"
+      type: "Typ"
+      slot: "Slot"
+      source: "Datenquelle"
+      unit: "Einheit"
+      scale: "Skalierung"
+      offset: "Offset"
+    type_local: "Lokal"
+    type_feed: "Aus dem Feed"
+    software_name: "Software-Sensor %{n}"
+    no_source: "Keine Quelle"
+    no_value: "%{name} hat keinen Wert. Der Leakshield behält den letzten Wert."
+    used_page: "Verwendet von Displayseite %{n}"
+    used_controller: "Verwendet von Beleuchtungs-Controller %{n}"
+    page_n: "Displayseite %{n}"
+    controller_n: "Beleuchtungs-Controller %{n}"
+    clear: "Leeren"
+    clear_title: "Software-Sensor %{n} leeren?"
+    clear_text: "Software-Sensor %{n} leeren? %{users} verwendet ihn und zeigt danach keinen Wert."
+    clear_confirm: "Leeren"
+    caption: "Ein Software-Sensor bringt einen Wert vom PC zum Leakshield, für Displayseiten und Beleuchtung. Der Leakshield hat die Werte nur, solange nicecooling läuft."
+  fields:
+    search: "Felder suchen"
+    filter:
+      all: "Alle Felder"
+      read_only: "Schreibgeschützte Felder"
+      safety: "Sicherheitsfelder"
+    summary: "%{total} Felder: %{verified} geprüfte Felder, %{read_only} schreibgeschützt"
+    copy: "Als Text kopieren"
+    empty: "Kein Feld passt."
+    unknown: "nicecooling kann diese Einstellungen nicht dekodieren. Jedes Feld ist schreibgeschützt."
+    column:
+      field: "Feld"
+      value: "Wert"
+      risk: "Risiko"
+      verification: "Prüfung"
+      writable: "Beschreibbar"
+    group:
+      mode: "Modus"
+      pressure: "Druck"
+      reservoir: "Ausgleichsbehälter"
+      pump: "Pumpe"
+      alarms: "Alarme"
+      standby: "Standby"
+      display: "Display"
+      lighting: "Beleuchtung"
+      clock: "Uhr"
+    risk:
+      safety: "Sicherheitsfeld"
+      low: "Geringes Risiko"
+    verification:
+      code_defined: "Per Code definiert"
+      plausible: "Plausibler Lesewert"
+      passed: "Prüfschreibvorgang bestanden"
+    read_only: "Schreibgeschützt"
+    explain:
+      code_defined: "Der Code von aquasuite definiert dieses Feld. nicecooling hat es auf Ihrem Gerät noch nicht bestätigt."
+      plausible_low: "Der Wert auf dem Gerät liegt im Bereich und entspricht dem Standardwert. Das genügt für ein Feld mit geringem Risiko."
+      passed: "Ein Prüfschreibvorgang für die Firmware %{firmware} wurde bestanden."
+    risk_help: "Ein Sicherheitsfeld betrifft den Leckschutz: Modus, Druck, Ausgleichsbehälter, Pumpe, Alarme und Standby-Verhalten."
+    help:
+      code_defined: "Per Code definiert: nur aus dem Code von aquasuite."
+      plausible: "Plausibler Lesewert: Der Wert auf dem Gerät passt zum Code."
+      passed: "Prüfschreibvorgang bestanden: Ein beaufsichtigter Schreibvorgang hat nur dieses Feld geändert."
+  alarms:
+    recommendation: "Empfehlung"
+    reset_text: "Der Leakshield hält einen gespeicherten Alarm. Er bleibt aktiv, bis Sie ihn zurücksetzen."
+    reset_button: "Geräte-Alarme zurücksetzen"
+    rec:
+      ok: "Die Geräte-Reaktionen entsprechen der Empfehlung."
+      key_sequence: "Die Tastenfolge ist für %{event} an. Der Leakshield tippt sie in das fokussierte Fenster, auch in ein Terminal."
+      key_sequence_button: "Ausschalten"
+      double_poweroff: "Zwei Reaktionen zum Herunterfahren überschneiden sich bei %{event}: das Gerätesignal und nicecooling. Das Signal trennt den Strom ohne sauberes Herunterfahren."
+      double_poweroff_button: "Geräte-Reaktion auf Keine setzen"
+      use: "Empfohlen: %{response} bei %{event}. Es ist der einzige Schutz, wenn Linux hängt."
+      use_button: "Empfehlung verwenden"
+    column:
+      event: "Ereignis"
+      threshold: "Schwelle"
+      device: "Geräte-Reaktion"
+      response: "Alarmreaktion"
+    limit:
+      daily_pump_time_warning: "Warngrenze der täglichen Pumpenzeit"
+      daily_pump_time_warning_text: "Der Leakshield warnt, wenn die tägliche Pumpenzeit diese Grenze überschreitet. Von %{min} bis %{max} s."
+    options: "Optionen"
+    option:
+      standby_actions: "Alarmaktionen im Standby deaktivieren"
+      buzzer_until_confirmation: "Alarmsummer bis zur Bestätigung"
+      buzzer_off: "Alarmsummer deaktivieren"
+    group:
+      leakage: "Leck"
+      fill: "Füllstand"
+      system: "System"
+      nicecooling: "nicecooling"
+    device:
+      none: "Keine"
+      signal_short: "Signal: kurzer Druck"
+      signal_long: "Signal: langer Druck"
+      key_sequence: "Tastenfolge"
+    device_long:
+      none: "kein Signal"
+      signal_short: "ein Signal als kurzer Druck"
+      signal_long: "ein Signal als langer Druck"
+      key_sequence: "eine Tastenfolge"
+    sound: "Ton"
+    device_help: "Signal: Der Leakshield drückt über sein Kabel den Einschalter des Mainboards."
+    order_error: "Die Alarmschwelle muss unter der Warnschwelle liegen."
+    active_since: "Aktiv seit %{time}"
+    caption:
+      leak_warning: "Die Volumenänderung überschreitet die Schwelle. Auch Temperaturänderungen verschieben diesen Wert."
+      leak_alarm: "Der Leakshield erkennt die Größe des Lecks. Sie können keine Schwelle setzen."
+      system: "Ein Fehler des Leakshield oder seines Netzteils."
+      fill_warning: "Der Füllstand fällt unter die Schwelle."
+      fill_alarm: "Der Füllstand fällt unter die Schwelle des Alarms."
+      unreachable: "nicecooling erhält seit 10 s keine Daten."
+  display:
+    pages: "Seiten"
+    empty: "Leer"
+    choose: "Vorlage wählen"
+    change: "Vorlage ändern"
+    template_label: "Vorlage"
+    page_n: "Seite %{n}"
+    value_n: "Wert %{n}"
+    no_source: "Keine Quelle"
+    no_data_source: "%{name} hat keine Datenquelle."
+    open_sensors: "Sensoren öffnen"
+    not_shown: "Nicht angezeigt"
+    hide_normal: "Im Normalbetrieb ausblenden"
+    show_standby: "Im Standby anzeigen"
+    daemon_offline: "Der Daemon ist offline."
+    no_page: "Keine Seite"
+    name_n: "Name %{n}"
+    text_n: "Text %{n}"
+    no_text: "Kein Text"
+    icon_n: "Symbol %{n}"
+    no_icon: "Kein Symbol"
+    change_icon: "Symbol ändern"
+    logo: "Logo"
+    logo_text: "Der Leakshield zeigt das Logo beim Start und auf einer Seite mit der Vorlage Logo."
+    change_logo: "Logo ändern"
+    no_assets: "nicecooling hat keine Texte und Symbole dieses Leakshield."
+    no_settings: "Diese Vorlage hat keine Einstellungen."
+    column:
+      value: "Wert"
+      source: "Datenquelle"
+      decimals: "Dezimalstellen"
+      minimum: "Minimum"
+      maximum: "Maximum"
+    own_text:
+      button: "Eigener Text"
+      title: "Eigener Text"
+      text: "Text %{slot} von Seite %{page}. Ein Text hat höchstens 23 Zeichen."
+      target: "Der Text kommt in den Seitentext %{n} des Leakshield."
+      save: "Speichern"
+      too_long: "Der Text hat mehr als 23 Zeichen."
+      control: "Der Text enthält ein Steuerzeichen."
+      full: "Alle 15 Seitentexte sind belegt. Wählen Sie einen der Texte aus der Liste."
+    icons:
+      title: "Symbol wählen"
+      text: "Symbol %{slot} von Seite %{page}."
+      import: "Symbol importieren"
+      pick_first: "Wählen Sie zuerst ein Symbol. Der Import ersetzt das gewählte Symbol auf jeder Seite, die es verwendet."
+    import:
+      logo_title: "Logo ändern"
+      icon_title: "Symbol importieren"
+      logo_text: "Wählen Sie eine PNG-Datei. nicecooling wandelt sie in %{size} Pixel um, hell oder dunkel."
+      icon_text: "Wählen Sie eine PNG-Datei. nicecooling wandelt sie in %{size} Pixel um, hell oder dunkel, und ersetzt Symbol %{n} auf jeder Seite, die es verwendet."
+      choose: "Datei wählen"
+      no_file: "Wählen Sie zuerst eine Datei."
+      scaled: "Die Datei hat %{width} x %{height} Pixel. nicecooling skaliert sie auf %{size}."
+      not_png: "nicecooling kann diese Datei nicht als PNG-Bild lesen."
+      unreadable: "nicecooling kann die Datei nicht öffnen: %{error}"
+      threshold: "Hell ab %{value} % Helligkeit"
+      invert: "Hell und dunkel tauschen"
+      write_logo: "Logo schreiben"
+      write_icon: "Symbol schreiben"
+    preview:
+      caption: "Der Leakshield zeigt die Seite 30 s lang, jedes Mal wenn nicecooling ihr Bild liest."
+      refresh: "Vorschau aktualisieren"
+      short:
+        not_read: "Noch nicht gelesen"
+        reading: "Lesen"
+        empty: "Leer"
+        not_shown: "Nicht angezeigt"
+        read_only: "Schreibgeschützt"
+        offline: "Keine Antwort"
+        daemon: "Daemon offline"
+        no_method: "Nicht verfügbar"
+        not_supported: "Nicht unterstützt"
+        failed: "Lesen fehlgeschlagen"
+      long:
+        not_read: "Noch kein Bild. nicecooling liest es, wenn Sie die Seite wählen."
+        reading: "nicecooling liest die Seite vom Leakshield."
+        empty: "Diese Seite hat keine Vorlage. Der Leakshield überspringt sie."
+        not_shown: "Der Leakshield zeigt diese Seite jetzt nicht: Sein Display hat eine andere Seite oder keine."
+        read_only: "Der Leakshield ist schreibgeschützt. nicecooling sendet ihm keinen Befehl und kann die Seite daher nicht anfordern."
+        offline: "Der Leakshield antwortet nicht."
+        no_method: "Dieser Daemon kann das Display nicht lesen. Aktualisieren Sie nicecoolingd."
+        not_supported: "Diese Firmware hat keinen Befehl, der eine Seite anzeigt."
+        failed: "Das Lesen ist fehlgeschlagen: %{error}"
+    gallery: "Vorlagen"
+    settings: "Display-Einstellungen"
+    brightness_active: "Helligkeit"
+    brightness_idle: "Helligkeit bei Inaktivität"
+    brightness:
+      maximum: "Maximal"
+      mid: "Mittel"
+      low: "Niedrig"
+      off: "Aus"
+    auto_page: "Automatischer Seitenwechsel"
+    interval: "Intervall"
+    interval_text: "Von 1 bis 29 s."
+    rotate: "Um 180 Grad drehen"
+    invert: "Invertieren"
+    invert_text: "Schalten Sie das automatische Invertieren aus, um es von Hand zu setzen."
+    auto_invert: "Automatisch invertieren"
+    auto_invert_text: "Das Display invertiert die Hälfte der Zeit. Das verlangsamt den Verschleiß der OLED-Pixel."
+    off_standby: "Im Standby aus"
+    off_standby_text: "Das Display ist aus, solange der PC im Standby ist. Das verlängert seine Lebensdauer."
+    hint: "Eine Seite zeigt Werte des Leakshield und von Software-Sensoren. Für einen anderen Wert weisen Sie ihn zuerst einem Software-Sensor zu."
+    sensor:
+      pressure: "Druck"
+      fill_level: "Füllstand"
+      volume_change: "Volumenänderung"
+      pressure_change: "Druckänderung"
+      feed_rpm: "Pumpendrehzahl"
+      flow: "Durchfluss"
+    template:
+      logo: "Logo"
+      chart: "Diagramm"
+      values-1: "1 Wert"
+      values-2: "2 Werte"
+      values-4: "4 Werte"
+      values-3a: "3 Werte, Layout A"
+      values-3b: "3 Werte, Layout B"
+      time: "Uhrzeit"
+      bars-2: "2 Balken"
+      bars-4a: "4 Balken, Layout A"
+      bars-4b: "4 Balken, Layout B"
+      value-and-bar: "Wert und Balken"
+      value-and-time: "Wert und Uhrzeit"
+      leakshield-state: "Leakshield-Zustand"
+  lighting:
+    title: "LEDs und Controller"
+    add: "Hinzufügen"
+    duplicate: "Duplizieren"
+    delete: "Löschen"
+    limit: "Der Leakshield hat 2 Controller."
+    empty: "Kein Controller. Die LEDs sind aus."
+    add_first: "Controller hinzufügen"
+    controller_n: "Controller %{n}"
+    covered: "Abgedeckt von Controller %{n}"
+    priority: "Ein Controller weiter oben in der Liste gewinnt, wo sich zwei Controller eine LED teilen."
+    external: "Externe LEDs: 0 angeschlossen. Setzen Sie die Anzahl passend zum Streifen am RGBpx-Ausgang."
+    effect_label: "Effekt"
+    change_effect: "Effekt ändern"
+    leds: "LEDs (erste, Anzahl)"
+    speed: "Geschwindigkeit"
+    brightness: "Helligkeit"
+    color: "Farben (Farbton)"
+    driven: "Von einem Sensor gesteuert"
+    no_driver: "Nicht gesteuert"
+    from: "Von"
+    to: "Bis"
+    picker: "Effekte"
+    effect_confirm: "Diesen Effekt verwenden"
+    deleted: "Controller gelöscht."
+    undo: "Rückgängig"
+    effect:
+      fixed-color: "Feste Farbe"
+      breathing: "Atmen"
+      rainbow: "Regenbogen"
+      rainbow-shift: "Regenbogen-Verlauf"
+      ambient: "Ambiente"
+      blink-1: "Blinken"
+      blink-2: "Blinken, abwechselnd"
+      sequential: "Nacheinander"
+      visor-1: "Visier"
+      visor-2: "Visier, breit"
+      marquee-1: "Lauflicht"
+      marquee-2: "Lauflicht, rückwärts"
+      candle: "Kerze"
+      switch: "Umschalten"
+      bar: "Balken"
+      gradient: "Farbverlauf"
+    effect_text:
+      fixed-color: "Alle LEDs zeigen eine Farbe."
+      breathing: "Die Helligkeit steigt und fällt."
+      rainbow: "Der Farbton durchläuft die Farben."
+      rainbow-shift: "Der Regenbogen wandert über die LEDs."
+      ambient: "Eine sanfte Farbe, die einem Wert folgt."
+      blink-1: "Alle LEDs blinken."
+      blink-2: "Zwei Gruppen von LEDs blinken abwechselnd."
+      sequential: "Die LEDs leuchten nacheinander auf."
+      visor-1: "Ein Lichtpunkt läuft hin und her."
+      visor-2: "Ein breites Licht läuft hin und her."
+      marquee-1: "Licht läuft an den LEDs entlang."
+      marquee-2: "Licht läuft rückwärts an den LEDs entlang."
+      candle: "Ein flackerndes Licht."
+      switch: "Zwei Farben, gewählt durch einen Wert."
+      bar: "Ein Balken, der einem Wert folgt."
+      gradient: "Ein Farbverlauf über die LEDs."
+  status:
+    loading: "Leakshield wird gelesen"
+    operating: "Betriebsdaten"
+    operating_caption: "Wert wählen, um ihn darzustellen"
+    tile:
+      status: "Status"
+      pressure: "Druck"
+      volume_change: "Volumenänderung"
+      pressure_change: "Druckänderung"
+    schematic: "Schema"
+    schematic_caption: "aktive Teile sind gefüllt und beschriftet"
+    part:
+      atmosphere: "Atmosphäre"
+      vent_valve: "Entlüftungsventil, %{state}"
+      pump_valve: "Pumpenventil, %{state}"
+      vacuum_pump: "Vakuumpumpe, %{state}"
+      membrane: "Membran"
+      reservoir: "Ausgleichsbehälter"
+    part_state:
+      open: "offen"
+      closed: "geschlossen"
+      running: "läuft"
+      off: "aus"
+    target: "Ziel %{value}"
+    target_line: "Ziel %{value} mbar"
+    events: "Ereignisse"
+    column:
+      time: "Zeit"
+      event: "Ereignis"
+      details: "Details"
+    export: "Exportieren"
+    reset: "Zurücksetzen"
+    reset_title: "Ereignisliste löschen?"
+    reset_text: "Der Leakshield löscht jedes Ereignis seiner Liste. Das lässt sich nicht rückgängig machen. Exportieren Sie die Liste zuerst, wenn Sie sie brauchen."
+    reset_confirm: "Ereignisse löschen"
+    reset_offline: "Der Daemon ist offline."
+    no_events: "Kein Ereignis, seit der Leakshield Strom hat."
+    detail_pressure: "Druck %{value} mbar"
+  event:
+    mode_changed: "Modus geändert"
+    vacuum_pump_started: "Vakuumpumpe gestartet"
+    system_start: "Systemstart"
+    fill_level_measured: "Füllstand gemessen"
+    refill_finished: "Nachfüllen beendet"
+    test_finished: "Test beendet"
+    deaeration_finished: "Entlüften beendet"
+    mode_shield: "Modus auf SHIELD gesetzt"
+    mode_monitor: "Modus auf MONITOR gesetzt"
+    mode_release: "Modus auf RELEASE gesetzt"
+    action_measure_fill_level: "Aktion gestartet: Füllstand messen"
+    action_deaerate: "Aktion gestartet: Entlüften"
+    action_test: "Aktion gestartet: Test"
+    action_refill: "Aktion gestartet: Nachfüllen"
+    release: "Vakuum abgelassen"
+    sensor_calibration: "Sensor kalibriert"
+    release_run: "Vakuum wird abgelassen"
+    fill_level_measurement_start: "Füllstandsmessung gestartet"
+    fill_level_measurement_error: "Füllstandsmessung fehlgeschlagen"
+    fill_level_measurement_finished: "Füllstand gemessen"
+    test_fill_error: "Test: Füllfehler"
+    test_leak: "Test: Lecktest"
+    test_leak_prepare: "Test: Lecktest vorbereitet"
+    shield_setpoint_changed: "SHIELD: Solldruck geändert"
+    shield_pressure_low: "SHIELD: Druck niedrig"
+    shield_pressure_high: "SHIELD: Druck hoch"
+    shield_refill: "SHIELD: Nachfüllen"
+    shield_pump_cool_down: "SHIELD: Abkühlen der Vakuumpumpe"
+    shield_pump_cool_down_stopped: "SHIELD: Abkühlen der Vakuumpumpe gestoppt"
+    shield_pump_finished: "SHIELD: Vakuumpumpe fertig"
+    shield_pump_maximum_runtime: "SHIELD: Vakuumpumpe an ihrer maximalen Laufzeit"
+  system:
+    device: "Gerät"
+    serial: "Seriennummer"
+    firmware: "Firmware-Version"
+    known: "Bekannt"
+    unknown: "Unbekannt"
+    unknown_text: "nicecooling hat kein Feldlayout für diese Firmware. Jedes Feld ist schreibgeschützt."
+    update_hint: "Zum Aktualisieren der Firmware verwenden Sie aquasuite unter Windows."
+    maintenance: "Wartungsanzeige"
+    percent: "%{value} %"
+    maintenance_zero: "Die Vakuumpumpe und die Ventile brauchen eine Wartung durch Aqua Computer."
+    maintenance_caption: "100 % ist neu. Bei 0 % brauchen die Vakuumpumpe und die Ventile eine Wartung durch Aqua Computer."
+    state:
+      title: "Gerätezustand"
+      pump_runtime_s: "Laufzeit der Vakuumpumpe"
+      pump_short_cycle_runtime_s: "Laufzeit der Vakuumpumpe in Kurzzyklen"
+      pump_revolution_count: "Umdrehungen der Vakuumpumpe"
+      fill_valve_cycles: "Zyklen des Füllventils"
+      release_valve_cycles: "Zyklen des Entlüftungsventils"
+      total_runtime_s: "Betriebszeit"
+      power_up_count: "Einschaltvorgänge"
+      hours: "%{h} h %{m} min"
+      minutes: "%{m} min %{s} s"
+      no_counters: "Der Daemon hat keine Zähler geliefert."
+    reset_counter: "Wartungszähler zurücksetzen"
+    reset_counter_text: "Den Wartungszähler des Leakshield zurücksetzen? Tun Sie das nur, nachdem Aqua Computer die Wartung durchgeführt hat. Das lässt sich nicht rückgängig machen."
+    reset_counter_confirm: "Zähler zurücksetzen"
+    clock: "Uhr"
+    device_time: "Gerätezeit"
+    zone: "Zeitzone"
+    time_format: "Zeitformat"
+    hour24: "24 Stunden"
+    hour12: "12 Stunden"
+    sync: "Vom PC übernehmen"
+    clock_unset: "Der Leakshield hat keine Batterie für seine Uhr. Stellen Sie die Zeit nach einem Stromausfall neu ein."
+    standby: "Standby-Verhalten"
+    standby_text: "Diese Einstellungen legen fest, was der Leakshield in jedem USB-Zustand tut."
+    standby_row:
+      suspended: "Standby bei angehaltenem USB-Bus"
+      no_usb: "Standby ohne USB-Verbindung"
+      alarm: "Alarmaktionen im Standby deaktivieren"
+    backups: "Backups"
+    column:
+      time: "Zeit"
+      reason: "Grund"
+      hash: "Prüfsumme"
+      duration: "Dauer"
+      volume: "Volumen"
+    reason:
+      before_write: "Vor einem Schreibvorgang"
+      manual: "Manuell"
+      import: "Importiert"
+      first: "Erstes Lesen"
+    no_backups: "Noch kein Backup. nicecooling sichert vor jedem Schreibvorgang eines."
+    backups_caption: "Backups liegen in /var/lib/nicecooling/backups, ein Ordner pro Seriennummer."
+    back_up: "Jetzt sichern"
+    import: "Importieren"
+    export: "Exportieren"
+    restore: "Wiederherstellen"
+    restore_text: "Das Backup vom %{time} wiederherstellen? Jede Einstellung des Leakshield kehrt zu diesem Zustand zurück. nicecooling sichert zuerst den aktuellen Zustand."
+    restore_failed: "Wiederherstellen fehlgeschlagen: Der Lesewert stimmt nicht mit dem Backup überein."
+    try_again: "Erneut versuchen"
+    refill: "Nachfüll-Verlauf"
+    refill_empty: "Der Nachfüll-Verlauf ist leer."
+    reset_history: "Nachfüll-Verlauf zurücksetzen"
+    reset_history_text: "Den Nachfüll-Verlauf auf dem Leakshield löschen? Das lässt sich nicht rückgängig machen."
+    reset_history_confirm: "Verlauf zurücksetzen"
+    reset: "Zurücksetzen"
+    factory: "Auf Werkseinstellungen zurücksetzen"
+    factory_text: "Den Leakshield auf Werkseinstellungen zurücksetzen? Sie müssen ihn danach mit dem Assistenten neu einrichten. Bis dahin kann der Leckschutz für Ihre Pumpe falsch sein. Geben Sie RESET ein, um die Schaltfläche zu aktivieren."
+    factory_confirm: "Zurücksetzen"
+    denied: "Nicht autorisiert. Nichts geändert."
+  settings:
+    loading: "Einstellungen werden gelesen"
+    step:
+      reservoir: "Ausgleichsbehälter"
+      pump: "Pumpe"
+      flow: "Durchfluss"
+      pressure: "Druck"
+      loop: "Loop"
+      standby: "Standby"
+      mode: "Modus"
+      summary: "Zusammenfassung"
+    step_of: "Schritt %{n} von %{total}"
+    verified: "Geprüftes Feld"
+    custom: "Benutzerdefiniert"
+    preset_value: "Voreingestellter Wert"
+    reservoir: "Ausgleichsbehälter"
+    reservoir_text: "Ein bekannter Ausgleichsbehälter setzt die drei Volumen. Wählen Sie Benutzerdefiniert, um eigene einzugeben."
+    volume_sum: "Gesamtvolumen"
+    air_full: "Luftvolumen bei maximalem Füllstand"
+    air_empty: "Luftvolumen bei minimalem Füllstand"
+    pump: "Pumpe"
+    pump_text: "Eine bekannte Pumpe setzt ihren Maximaldruck, ihre Maximaldrehzahl und ihre Startdrehzahl. Wählen Sie Benutzerdefiniert, um eigene einzugeben."
+    max_pressure: "Maximaldruck"
+    max_speed: "Maximaldrehzahl"
+    two_pumps: "Mehr als eine Pumpe"
+    two_pumps_text: "Hintereinander geschaltete Pumpen addieren ihre Drücke. nicecooling rechnet dann mit dem doppelten Maximaldruck."
+    two_pumps_warning: "Bei mehr als einer Pumpe braucht der Leakshield das doppelte Vakuum. Prüfen Sie die Werte im Schritt Druck."
+    pump_now: "Pumpendruck jetzt"
+    pump_now_text: "Etwa %{pressure} mbar bei %{speed} rpm."
+    pump_now_none: "Keine Pumpendrehzahl vom Loop. Ohne Drehzahl rechnet der Leakshield mit der Maximaldrehzahl."
+    pump_limit: "Drehzahlgrenze"
+    pump_limit_text: "Über %{speed} rpm erzeugt die Pumpe mehr als %{pressure} mbar, den höchsten Solldruck des Leakshield."
+    pump_limit_none: "Bei jeder Drehzahl bleibt die Pumpe unter %{pressure} mbar, dem höchsten Solldruck des Leakshield."
+    speed_source: "Drehzahlquelle"
+    pump_source: "Pumpenkanal von %{loop}: %{channel}"
+    no_source: "Kein Pumpenkanal. Der Leakshield nutzt seine Startdrehzahl."
+    open_loop: "Loop öffnen"
+    flow_label: "Durchflussquelle"
+    flow_source: "Durchflusssensor von %{loop}: %{name}, %{value}"
+    flow_none: "Keine. Der Leakshield nutzt nur die Pumpendrehzahl."
+    values: "Druckwerte"
+    values_text: "Die drei Werte bilden ein Regelband für SHIELD: Der Leakshield hält den Druck zwischen Minimum und Maximum. Kein Wert löst einen Alarm aus."
+    values_recommended: "Empfohlene Werte: nicecooling berechnet sie aus dem Maximaldruck Ihrer Pumpe."
+    values_own: "Eigene Werte: Sie setzen Minimum, Ziel und Maximum."
+    values_own_warning: "Mit eigenen Werten kann der Leakshield den Loop eventuell nicht schützen. Empfohlen für Ihre Pumpe: Minimum %{min}, Ziel %{target}, Maximum %{max} mbar."
+    values_differ: "Der Leakshield hält andere Werte. Empfohlen für Ihre Pumpe: Minimum %{min}, Ziel %{target}, Maximum %{max} mbar."
+    use_recommended: "Empfohlene Werte verwenden"
+    recommended_value: "Empfohlener Wert"
+    band_max: "Maximaldruck"
+    band_max_text: "Über diesem Wert öffnet der Leakshield sein Entlüftungsventil und lässt Vakuum ab."
+    band_target: "Solldruck"
+    band_target_text: "Der Druck, den Sie in SHIELD wollen. Die Pumpe des Leakshield baut das Vakuum bis zu diesem Wert auf und stoppt."
+    band_min: "Minimaldruck"
+    band_min_text: "Unter diesem Wert startet der Leakshield seine Pumpe."
+    band_note:
+      max_close: "Das Maximum liegt so nah am Ziel, wie der Leakshield es annimmt: 30 mbar."
+      target_close: "Das Ziel liegt so nah am Minimum, wie der Leakshield es annimmt: 20 mbar."
+      min_lowest: "Das ist das niedrigste Minimum, das der Leakshield annimmt."
+      min_highest: "Das ist das höchste Minimum, das der Leakshield annimmt."
+    diagram:
+      title: "Was der Leakshield in SHIELD tut"
+      above: "Entlüftungsventil offen: lässt Vakuum ab"
+      inside: "Pumpe aus, Entlüftungsventil geschlossen"
+      below: "Pumpe an: baut Vakuum bis zum Ziel auf"
+      maximum: "Maximum %{value} mbar"
+      target: "Ziel %{value} mbar"
+      minimum: "Minimum %{value} mbar"
+      set_value: "gesetzt: %{value} mbar"
+      new_value: "neu: %{value} mbar"
+      marker: "Jetzt %{value} mbar"
+      now: "Jetzt: Minimum %{min}, Ziel %{target}, Maximum %{max} mbar."
+      not_regulating: "Der Leakshield regelt in SHIELD gerade nicht. Die Linien sind die gespeicherten Werte."
+      draft_text: "Gestrichelte Linien: die neuen Werte, noch nicht geschrieben."
+    adaptive: "Adaptiver Druck"
+    adaptive_text: "Der Leakshield senkt Minimum und Ziel mit der Pumpendrehzahl aus dem Feed. Der Abstand zwischen Minimum und Ziel sowie das Maximum bleiben wie hier gesetzt."
+    loop_height: "Höhenunterschied"
+    loop_height_text: "Die Höhe vom tiefsten Punkt des Loops zu seinem höchsten Punkt. Der Leakshield addiert den Druck dieser Wassersäule zum Pumpendruck. Der Standardwert ist 30 cm."
+    loop_height_warning: "Über 100 cm können die empfohlenen Druckwerte zu niedrig sein. Setzen Sie im Schritt Druck eigene Werte."
+    timer: "Zeitgesteuerte Vakuumerzeugung"
+    timer_text: "Der Leakshield baut den Unterdruck zu zwei Tageszeiten auf, damit Sie wählen, wann seine Pumpe Geräusche macht."
+    timer_1: "Erste Zeit"
+    timer_2: "Zweite Zeit"
+    default_speed: "Standard-Pumpendrehzahl"
+    default_flow: "Standard-Durchfluss"
+    use_current: "Aktuellen Wert verwenden"
+    standby_text: "Nach dem Standby sendet der PC noch keinen Feed. Der Leakshield nutzt dann diese Werte."
+    reduced_vacuum: "Reduziertes Vakuum im Standby"
+    reduced_vacuum_text: "Im Standby läuft die Pumpe des Loops nicht. Der Leakshield kann dann einen niedrigeren Minimaldruck halten, damit seine eigene Pumpe weniger läuft."
+    reduced_value: "Druck im Standby"
+    reduced_value_text: "Der Minimaldruck im Standby: %{min} mbar bis zum Minimaldruck, %{max} mbar."
+    reduced_value_off: "Schalten Sie \"Reduziertes Vakuum im Standby\" ein, um ihn zu setzen."
+    mode: "Modus nach dem Einschalten"
+    cancel: "Abbrechen"
+    keep_editing: "Änderungen behalten"
+    discard:
+      one: "%{count} Änderung verwerfen?"
+      other: "%{count} Änderungen verwerfen?"
+    discard_button: "Verwerfen"
+    pending: "Ausstehende Änderungen"
+    no_change: "Noch keine Änderung."
+    pending_note: "Der Assistent schreibt nichts, bevor Sie im Schritt Zusammenfassung Anwenden wählen. Dann hat jeder Schreibvorgang vier Schritte:"
+    pending_step:
+      "1": "Backup gespeichert"
+      "2": "Geschrieben"
+      "3": "Zurückgelesen"
+      "4": "Geprüft: Nur die erwarteten Bytes haben sich geändert"
+    column:
+      setting: "Einstellung"
+      now: "Jetzt"
+      new: "Neu"
+      note: "Hinweis"
+    nothing: "Nichts anzuwenden."
+    apply:
+      one: "%{count} Änderung anwenden"
+      other: "%{count} Änderungen anwenden"
+    applying:
+      one: "%{count} Änderung wird angewendet"
+      other: "%{count} Änderungen werden angewendet"
+    applied:
+      one: "%{count} Einstellung geschrieben und geprüft."
+      other: "%{count} Einstellungen geschrieben und geprüft."
+    error_row: "%{name} liegt außerhalb des Bereichs."
+    warn_monitor: "MONITOR verhindert kein Leck."
+    warn_pump_pressure: "Die Pumpe kann %{value} mbar erzeugen. Der Leakshield hält höchstens %{limit} mbar, daher kann er den Loop bei voller Pumpendrehzahl nicht vollständig schützen."
+    write_failed: "Schreiben fehlgeschlagen: Der Lesewert stimmt nicht überein."
+    restore: "Backup wiederherstellen"
+    keep_state: "Aktuellen Zustand behalten"
