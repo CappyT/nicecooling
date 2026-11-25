@@ -5,7 +5,7 @@ use std::fmt;
 use std::io::Read as _;
 use std::path::Path;
 
-use nicecooling_graph::model::{Connection, Endpoint, Export, ExportError, Graph, Node};
+use nicecooling_graph::model::{Export, ExportError, Graph};
 use nicecooling_graph::validate::{Refusal, validate};
 
 use super::store::describe;
@@ -62,57 +62,42 @@ fn new_graph_id(existing: &[Graph]) -> String {
     nicecooling_graph::model::format_sensor_id(highest.saturating_add(1))
 }
 
-/// Make a Graph of an export. The Graph and its nodes get new ids. The Graph is disabled and has
-/// no `sensor_id`, so a response from another machine does not run before the user enabled it.
-/// A source on a sensor that this machine does not have stays as it is: it gives no value.
+/// Make a Graph of an export. The validator reads the Graph of the file first, with the ids of
+/// the file: a Graph that fails is refused. Then the Graph and its nodes get new ids. The Graph is
+/// disabled and has no `sensor_id`, so a response from another machine does not run before the user
+/// enabled it. A source on a sensor that this machine does not have stays as it is: it gives no
+/// value.
 /// `existing` holds every stored entry as a Graph (`GraphStore::all_graphs`), for the id and the
 /// validator: an entry that does not run keeps its id and counts for the limit.
 pub fn import_text(text: &str, existing: &[Graph]) -> Result<Graph, ImportError> {
     let export = Export::parse(text).map_err(ImportError::Format)?;
-    // The nodes count from 1, in the order of the file.
-    let new_id = |old: u32| {
-        export
-            .graph
-            .nodes
-            .iter()
-            .position(|n| n.id == old)
-            .map(|index| index as u32 + 1)
-    };
-    let nodes: Vec<Node> = export
-        .graph
-        .nodes
-        .iter()
-        .enumerate()
-        .map(|(index, node)| Node {
-            id: index as u32 + 1,
-            ..node.clone()
-        })
-        .collect();
-    // A connection to a node that does not exist keeps its old id, so the validator names it.
-    let connections: Vec<Connection> = export
-        .graph
-        .connections
-        .iter()
-        .map(|c| {
-            let end = |e: &Endpoint| Endpoint {
-                node: new_id(e.node).unwrap_or(u32::MAX),
-                pin: e.pin.clone(),
-            };
-            Connection {
-                from: end(&c.from),
-                to: end(&c.to),
-            }
-        })
-        .collect();
     let mut graph = Graph::new(&new_graph_id(existing), &export.graph.name);
     graph.enabled = false;
-    graph.nodes = nodes;
-    graph.connections = connections;
+    graph.nodes = export.graph.nodes;
+    graph.connections = export.graph.connections;
     let refusals = validate(&graph, existing);
-    if refusals.is_empty() {
-        Ok(graph)
-    } else {
-        Err(ImportError::Invalid(refusals))
+    if !refusals.is_empty() {
+        return Err(ImportError::Invalid(refusals));
+    }
+    renumber(&mut graph);
+    Ok(graph)
+}
+
+/// The nodes count from 1, in the order of the file, and the connections follow. The validator
+/// accepted the Graph, so each node id is unique and each connection ends on a node.
+fn renumber(graph: &mut Graph) {
+    let old: Vec<u32> = graph.nodes.iter().map(|n| n.id).collect();
+    let new_id = |id: u32| {
+        old.iter()
+            .position(|&o| o == id)
+            .map_or(id, |index| index as u32 + 1)
+    };
+    for (index, node) in graph.nodes.iter_mut().enumerate() {
+        node.id = index as u32 + 1;
+    }
+    for connection in &mut graph.connections {
+        connection.from.node = new_id(connection.from.node);
+        connection.to.node = new_id(connection.to.node);
     }
 }
 

@@ -795,7 +795,7 @@ The app SHALL export one Graph to one JSON file with `format` `nicecooling-graph
 - **THEN** the file holds the recipient, the subject and the text, and no SMTP password
 
 ### Requirement: Graph import
-The app SHALL import a Graph from one file of at most 1 MiB. It SHALL give the Graph and its nodes new ids and add it disabled with no `sensor_id`. A sensor source that does not exist on this machine SHALL stay as an unbound source. A file with a higher format version or a Graph that fails the validator SHALL be refused with a message. The daemon SHALL have no part in it.
+The app SHALL import a Graph from one file of at most 1 MiB. It SHALL give the Graph and its nodes new ids and add it disabled with no `sensor_id`. A sensor source that does not exist on this machine SHALL stay as an unbound source. A file with a higher format version or a Graph that fails the validator SHALL be refused with a message. The validator SHALL read the Graph of the file before the import gives new ids. The daemon SHALL have no part in it.
 
 #### Scenario: Import twice
 - **WHEN** the user imports the same file twice
@@ -812,6 +812,10 @@ The app SHALL import a Graph from one file of at most 1 MiB. It SHALL give the G
 #### Scenario: Version 2
 - **WHEN** the file has `format_version` 2
 - **THEN** the app refuses it with a message
+
+#### Scenario: Two nodes with one id
+- **WHEN** the file has two nodes with the id 1
+- **THEN** the app refuses it with a message that names `bad-parameter` for `id`, and adds no Graph
 
 ### Requirement: Enable of a Graph with a sensor end node without a sensor
 When the user enables a Graph with a sensor end node that has no `sensor_id`, the app SHALL call `Manager.CreateGraphSensor` first and store the returned id. When the daemon refuses, the Graph SHALL stay disabled and the app SHALL show the reason.

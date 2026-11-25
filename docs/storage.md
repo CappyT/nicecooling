@@ -311,7 +311,7 @@ The export of one Graph is one JSON file. It holds no `sensor_id`, no stored val
 }
 ```
 
-`nodes` and `connections` have the form of `graphs.json`. The app refuses a file over 1 MiB and a file with a `format_version` above 1. An import gives the Graph and its nodes new ids and adds the Graph disabled, with `sensor_id` `null`.
+`nodes` and `connections` have the form of `graphs.json`. The app refuses a file over 1 MiB and a file with a `format_version` above 1. An import runs the validator on the Graph of the file first and refuses a Graph that fails. Then it gives the Graph and its nodes new ids and adds the Graph disabled, with `sensor_id` `null`.
 
 ## App history: `$XDG_DATA_HOME/nicecooling/history.db`
 
