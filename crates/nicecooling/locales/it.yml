@@ -833,6 +833,39 @@ settings:
     profile: Profilo cambiato da una regola
     external: Modifica esterna su un Leakshield
     note: Le notifiche degli Allarmi sono sempre attive.
+  network:
+    title: Rete
+    mqtt: Broker MQTT
+    smtp: Account SMTP
+    connection: Connessione
+    state_off: Spento
+    state_connecting: Connessione in corso
+    state_connected: Connesso
+    state_failed: Non riuscito
+    host: Host
+    port: Porta
+    tls: TLS
+    ca_file: File della CA
+    no_file: Nessuno
+    choose: Scegli
+    user: Nome utente
+    password: Password
+    client_id: Id del client
+    base_topic: Topic di base
+    interval: Intervallo dei valori
+    seconds: s
+    security: Sicurezza
+    security_starttls: STARTTLS
+    security_tls: TLS
+    security_none: Nessuna
+    sender: Mittente
+    warning_mqtt: La password passa sulla rete in chiaro
+    warning_smtp: "L'accesso non è cifrato. Il nome utente e la password passano sulla rete in chiaro."
+    note: "L'app pubblica i valori dei sensori e gli eventi di Allarme mentre è in esecuzione. Non legge nulla dal broker."
+    error:
+      port: Una porta va da 1 a 65535.
+      interval: "L'intervallo va da 1 a 3600 s."
+      base_topic: Un topic di base non ha caratteri jolly né livelli vuoti.
   daemon:
     title: Demone
     connection: Connessione

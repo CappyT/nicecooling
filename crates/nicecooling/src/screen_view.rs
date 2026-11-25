@@ -56,6 +56,8 @@ pub enum InputKey {
     ResponseDelay(String),
     /// An input of the Leakshield page. The first part of the key names the control.
     Ls(String),
+    /// An input of the group "Network" of the Settings screen.
+    Network(crate::screens::settings::NetworkField),
 }
 
 use crate::screens::history::{PROGRESS_DELAY, progress_due};
@@ -97,6 +99,9 @@ pub struct ScreenView {
     pub(crate) alarms: AlarmsUi,
     pub(crate) first_run: FirstRunUi,
     pub(crate) leakshield: LeakshieldUi,
+    pub(crate) network: crate::screens::settings::NetworkUi,
+    /// The dim text that each password input of the group "Network" shows now.
+    pub(crate) password_hints: HashMap<crate::screens::settings::NetworkField, String>,
     /// The focus of the Fields table of the Leakshield page: Up and Down move the selection.
     pub(crate) ls_focus: Option<gpui::FocusHandle>,
     /// The focus of the Rule group list: Alt+Up and Alt+Down move the selected group.
@@ -174,6 +179,8 @@ impl ScreenView {
             alarms: AlarmsUi::default(),
             first_run: FirstRunUi::default(),
             leakshield: LeakshieldUi::default(),
+            network: Default::default(),
+            password_hints: HashMap::new(),
             ls_focus: Some(cx.focus_handle()),
             groups_focus: Some(cx.focus_handle()),
             channels_focus: Some(cx.focus_handle()),

@@ -1,10 +1,19 @@
 //! The Settings screen (`docs/ui/screens/settings.md`). The switches write `settings.toml` and
 //! the autostart override at once (`docs/storage.md`).
 
+use std::fmt;
+
 use crate::app_settings::{HINT_APPINDICATOR, SettingsStore};
+use crate::graphs::secrets::PasswordEdit;
 use crate::i18n::{Language, Locale};
 use crate::model::Link;
+use crate::mqtt::client::{MqttConfig, MqttHandle, MqttStatus};
+use crate::mqtt::settings::{
+    DEFAULT_BASE_TOPIC, DEFAULT_INTERVAL_S, MqttSettings, check_base_topic, check_interval,
+    hostname,
+};
 use crate::screens::ScreenInput;
+use crate::smtp::settings::SmtpSecurity;
 
 pub const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
 pub const PROJECT_URL: &str = "https://github.com/CappyT/nicecooling";
@@ -45,6 +54,473 @@ pub fn apply(store: &mut SettingsStore, change: Change) {
         }
         Change::ExternalChange(on) => store.update(|s| s.notifications.external_change = on),
         Change::DismissTrayHint => store.update(|s| s.dismiss_hint(HINT_APPINDICATOR)),
+    }
+}
+
+/// An input of the group "Network".
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum NetworkField {
+    MqttHost,
+    MqttPort,
+    MqttUser,
+    MqttPassword,
+    MqttClientId,
+    MqttBaseTopic,
+    MqttInterval,
+    SmtpHost,
+    SmtpPort,
+    SmtpUser,
+    SmtpPassword,
+    SmtpSender,
+}
+
+impl NetworkField {
+    pub fn is_password(self) -> bool {
+        matches!(self, Self::MqttPassword | Self::SmtpPassword)
+    }
+
+    /// The field is a setting of the MQTT broker: a change opens a new connection.
+    pub fn is_broker(self) -> bool {
+        matches!(
+            self,
+            Self::MqttHost
+                | Self::MqttPort
+                | Self::MqttUser
+                | Self::MqttPassword
+                | Self::MqttClientId
+                | Self::MqttBaseTopic
+                | Self::MqttInterval
+        )
+    }
+}
+
+/// What the user can change in the group "Network". The app holds these settings: they work
+/// while the daemon is offline.
+#[derive(Clone, PartialEq, Eq)]
+pub enum NetworkChange {
+    /// The text of an input, as the user confirmed it.
+    Field(NetworkField, String),
+    MqttTls(bool),
+    /// The path of the CA file. Empty: the system certificates only.
+    MqttCaFile(String),
+    Security(SmtpSecurity),
+}
+
+impl fmt::Debug for NetworkChange {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            // The text of a password input never reaches a log.
+            Self::Field(field, _) if field.is_password() => write!(f, "Field({field:?}, ..)"),
+            Self::Field(field, text) => write!(f, "Field({field:?}, {text:?})"),
+            Self::MqttTls(on) => write!(f, "MqttTls({on})"),
+            Self::MqttCaFile(path) => write!(f, "MqttCaFile({path:?})"),
+            Self::Security(security) => write!(f, "Security({security:?})"),
+        }
+    }
+}
+
+/// Why the app refuses the text of an input. The setting stays as it was.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum NetworkError {
+    Port,
+    Interval,
+    BaseTopic,
+}
+
+impl NetworkError {
+    pub fn text(self, locale: Locale) -> String {
+        locale.tr(match self {
+            Self::Port => "settings.network.error.port",
+            Self::Interval => "settings.network.error.interval",
+            Self::BaseTopic => "settings.network.error.base_topic",
+        })
+    }
+}
+
+/// The state of the group "Network" that the user changes.
+#[derive(Clone, Debug, Default)]
+pub struct NetworkUi {
+    /// The input whose last text the app refused, with the reason.
+    pub refused: Option<(NetworkField, NetworkError)>,
+}
+
+/// A port as the user types it. An empty text gives the default port.
+fn parse_port(text: &str) -> Result<Option<u16>, NetworkError> {
+    if text.is_empty() {
+        return Ok(None);
+    }
+    match text.parse::<u16>() {
+        Ok(port) if port > 0 => Ok(Some(port)),
+        _ => Err(NetworkError::Port),
+    }
+}
+
+/// The config that the settings give to the MQTT client. `None` while the host is empty.
+pub fn broker_config(store: &SettingsStore) -> Option<MqttConfig> {
+    MqttConfig::new(&store.values.mqtt, &store.secrets.mqtt, &hostname())
+}
+
+/// Apply a change of the group "Network": the store writes `settings.toml`, and `secrets.toml`
+/// for a password. After a change of a broker setting the MQTT client gets the new config: it
+/// closes its connection and opens a new one. A text that the app refuses changes nothing.
+pub fn change_network(
+    store: &mut SettingsStore,
+    mqtt: Option<&MqttHandle>,
+    change: NetworkChange,
+) -> Result<(), NetworkError> {
+    let broker = match &change {
+        NetworkChange::Field(field, _) => field.is_broker(),
+        NetworkChange::MqttTls(_) | NetworkChange::MqttCaFile(_) => true,
+        NetworkChange::Security(_) => false,
+    };
+    match change {
+        NetworkChange::Field(field, text) => {
+            let trimmed = text.trim().to_owned();
+            match field {
+                NetworkField::MqttHost => store.update(|s| s.mqtt.host = trimmed),
+                NetworkField::MqttPort => {
+                    let port = parse_port(&trimmed)?;
+                    store.update(|s| s.mqtt.port = port);
+                }
+                NetworkField::MqttUser => store.update(|s| s.mqtt.user = trimmed),
+                // A password is taken as typed. An empty text clears it.
+                NetworkField::MqttPassword => {
+                    store.edit_secrets(|secrets| secrets.edit_mqtt(PasswordEdit::Set(text)));
+                }
+                NetworkField::MqttClientId => store.update(|s| s.mqtt.client_id = trimmed),
+                NetworkField::MqttBaseTopic => {
+                    let topic = if trimmed.is_empty() {
+                        DEFAULT_BASE_TOPIC.to_owned()
+                    } else {
+                        trimmed
+                    };
+                    if check_base_topic(&topic).is_err() || topic.split('/').any(str::is_empty) {
+                        return Err(NetworkError::BaseTopic);
+                    }
+                    store.update(|s| s.mqtt.base_topic = topic);
+                }
+                NetworkField::MqttInterval => {
+                    let seconds = if trimmed.is_empty() {
+                        DEFAULT_INTERVAL_S
+                    } else {
+                        trimmed
+                            .parse::<u32>()
+                            .ok()
+                            .and_then(|seconds| check_interval(seconds).ok())
+                            .ok_or(NetworkError::Interval)?
+                    };
+                    store.update(|s| s.mqtt.interval_s = seconds);
+                }
+                NetworkField::SmtpHost => store.update(|s| s.smtp.host = trimmed),
+                NetworkField::SmtpPort => {
+                    let port = parse_port(&trimmed)?;
+                    store.update(|s| s.smtp.port = port);
+                }
+                NetworkField::SmtpUser => store.update(|s| s.smtp.user = trimmed),
+                NetworkField::SmtpPassword => {
+                    store.edit_secrets(|secrets| secrets.edit_smtp(PasswordEdit::Set(text)));
+                }
+                NetworkField::SmtpSender => store.update(|s| s.smtp.sender = trimmed),
+            }
+        }
+        NetworkChange::MqttTls(on) => store.update(|s| s.mqtt.tls = on),
+        NetworkChange::MqttCaFile(path) => store.update(|s| s.mqtt.ca_file = path),
+        NetworkChange::Security(security) => store.update(|s| s.smtp.security = security),
+    }
+    if broker && let Some(mqtt) = mqtt {
+        mqtt.configure(broker_config(store));
+    }
+    Ok(())
+}
+
+/// The text that the input of `field` shows for the stored setting. A password input shows none.
+pub fn stored_text(store: &SettingsStore, field: NetworkField) -> String {
+    let (mqtt, smtp) = (&store.values.mqtt, &store.values.smtp);
+    let port = |port: Option<u16>| port.map(|port| port.to_string()).unwrap_or_default();
+    match field {
+        NetworkField::MqttHost => mqtt.host.clone(),
+        NetworkField::MqttPort => port(mqtt.port),
+        NetworkField::MqttUser => mqtt.user.clone(),
+        NetworkField::MqttPassword | NetworkField::SmtpPassword => String::new(),
+        NetworkField::MqttClientId => mqtt.client_id.clone(),
+        // The default shows as the dim text of the empty input.
+        NetworkField::MqttBaseTopic if mqtt.base_topic == DEFAULT_BASE_TOPIC => String::new(),
+        NetworkField::MqttBaseTopic => mqtt.base_topic.clone(),
+        NetworkField::MqttInterval => mqtt.interval_s.to_string(),
+        NetworkField::SmtpHost => smtp.host.clone(),
+        NetworkField::SmtpPort => port(smtp.port),
+        NetworkField::SmtpUser => smtp.user.clone(),
+        NetworkField::SmtpSender => smtp.sender.clone(),
+    }
+}
+
+/// The placeholder of a password input while a password is set: eight dots. The input never
+/// shows the stored password.
+pub const PASSWORD_DOTS: &str = "\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}";
+
+/// A text input of the group "Network".
+#[derive(Clone, Debug, PartialEq)]
+pub struct NetworkInput {
+    pub field: NetworkField,
+    pub label: String,
+    /// The stored setting. Always empty for a password.
+    pub value: String,
+    /// The default that shows as dim text in the empty input, or the dots of a password.
+    pub placeholder: String,
+    pub unit: Option<String>,
+    /// A number input: it is narrower.
+    pub short: bool,
+    pub password: bool,
+    /// Why the app refused the last text of this input.
+    pub error: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum NetworkRow {
+    Input(NetworkInput),
+    Tls {
+        label: String,
+        on: bool,
+    },
+    CaFile {
+        label: String,
+        /// `None` without a file: the row shows `none`.
+        path: Option<String>,
+        none: String,
+        choose: String,
+    },
+    Security {
+        label: String,
+        value: SmtpSecurity,
+        shown: String,
+        options: Vec<(SmtpSecurity, String)>,
+    },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BrokerState {
+    Off,
+    Connecting,
+    Connected,
+    Failed,
+}
+
+/// The row "Connection" of the MQTT broker.
+#[derive(Clone, Debug, PartialEq)]
+pub struct BrokerRow {
+    pub label: String,
+    pub state: BrokerState,
+    pub value: String,
+    /// The host and the port of a connection, or the last error text.
+    pub caption: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct NetworkCard {
+    pub title: String,
+    pub mqtt_title: String,
+    pub connection: BrokerRow,
+    pub mqtt: Vec<NetworkRow>,
+    /// "The password goes over the network in clear text". It blocks nothing.
+    pub mqtt_warning: Option<String>,
+    pub smtp_title: String,
+    pub smtp: Vec<NetworkRow>,
+    /// The login without encryption. It blocks nothing.
+    pub smtp_warning: Option<String>,
+    pub note: String,
+}
+
+impl NetworkCard {
+    /// The inputs of both halves, in the order of the rows.
+    pub fn inputs(&self) -> impl Iterator<Item = &NetworkInput> {
+        self.mqtt
+            .iter()
+            .chain(&self.smtp)
+            .filter_map(|row| match row {
+                NetworkRow::Input(input) => Some(input),
+                _ => None,
+            })
+    }
+
+    pub fn input(&self, field: NetworkField) -> Option<&NetworkInput> {
+        self.inputs().find(|input| input.field == field)
+    }
+}
+
+fn security_name(locale: Locale, security: SmtpSecurity) -> String {
+    match security {
+        SmtpSecurity::Starttls => locale.tr("settings.network.security_starttls"),
+        SmtpSecurity::Tls => locale.tr("settings.network.security_tls"),
+        SmtpSecurity::None => locale.tr("settings.network.security_none"),
+    }
+}
+
+fn network_card(
+    locale: Locale,
+    store: &SettingsStore,
+    status: &MqttStatus,
+    ui: &NetworkUi,
+) -> NetworkCard {
+    let (mqtt, smtp) = (&store.values.mqtt, &store.values.smtp);
+    let secrets = &store.secrets;
+    let input = |field: NetworkField, key: &str, placeholder: String| NetworkInput {
+        field,
+        label: locale.tr(key),
+        value: stored_text(store, field),
+        placeholder,
+        unit: None,
+        short: matches!(
+            field,
+            NetworkField::MqttPort | NetworkField::MqttInterval | NetworkField::SmtpPort
+        ),
+        password: field.is_password(),
+        error: ui
+            .refused
+            .filter(|(refused, _)| *refused == field)
+            .map(|(_, error)| error.text(locale)),
+    };
+    let dots = |set: bool| {
+        if set {
+            PASSWORD_DOTS.to_owned()
+        } else {
+            String::new()
+        }
+    };
+    // The default of the port follows the TLS switch.
+    let default_port = MqttSettings {
+        port: None,
+        ..mqtt.clone()
+    }
+    .effective_port();
+    let label = locale.tr("settings.network.connection");
+    let connection = match status {
+        MqttStatus::Off => BrokerRow {
+            label,
+            state: BrokerState::Off,
+            value: locale.tr("settings.network.state_off"),
+            caption: None,
+        },
+        MqttStatus::Connecting => BrokerRow {
+            label,
+            state: BrokerState::Connecting,
+            value: locale.tr("settings.network.state_connecting"),
+            caption: None,
+        },
+        MqttStatus::Connected => BrokerRow {
+            label,
+            state: BrokerState::Connected,
+            value: locale.tr("settings.network.state_connected"),
+            caption: Some(format!("{}:{}", mqtt.host.trim(), mqtt.effective_port())),
+        },
+        MqttStatus::Failed(error) => BrokerRow {
+            label,
+            state: BrokerState::Failed,
+            value: locale.tr("settings.network.state_failed"),
+            caption: Some(error.clone()),
+        },
+    };
+    NetworkCard {
+        title: locale.tr("settings.network.title"),
+        mqtt_title: locale.tr("settings.network.mqtt"),
+        connection,
+        mqtt: vec![
+            NetworkRow::Input(input(
+                NetworkField::MqttHost,
+                "settings.network.host",
+                String::new(),
+            )),
+            NetworkRow::Input(input(
+                NetworkField::MqttPort,
+                "settings.network.port",
+                default_port.to_string(),
+            )),
+            NetworkRow::Tls {
+                label: locale.tr("settings.network.tls"),
+                on: mqtt.tls,
+            },
+            NetworkRow::CaFile {
+                label: locale.tr("settings.network.ca_file"),
+                path: (!mqtt.ca_file.trim().is_empty()).then(|| mqtt.ca_file.clone()),
+                none: locale.tr("settings.network.no_file"),
+                choose: locale.tr("settings.network.choose"),
+            },
+            NetworkRow::Input(input(
+                NetworkField::MqttUser,
+                "settings.network.user",
+                String::new(),
+            )),
+            NetworkRow::Input(input(
+                NetworkField::MqttPassword,
+                "settings.network.password",
+                dots(secrets.mqtt.is_set()),
+            )),
+            NetworkRow::Input(input(
+                NetworkField::MqttClientId,
+                "settings.network.client_id",
+                format!("nicecooling-{}", hostname()),
+            )),
+            NetworkRow::Input(input(
+                NetworkField::MqttBaseTopic,
+                "settings.network.base_topic",
+                DEFAULT_BASE_TOPIC.to_owned(),
+            )),
+            NetworkRow::Input(NetworkInput {
+                unit: Some(locale.tr("settings.network.seconds")),
+                ..input(
+                    NetworkField::MqttInterval,
+                    "settings.network.interval",
+                    DEFAULT_INTERVAL_S.to_string(),
+                )
+            }),
+        ],
+        mqtt_warning: mqtt
+            .warns_plain_password(&secrets.mqtt)
+            .then(|| locale.tr("settings.network.warning_mqtt")),
+        smtp_title: locale.tr("settings.network.smtp"),
+        smtp: vec![
+            NetworkRow::Input(input(
+                NetworkField::SmtpHost,
+                "settings.network.host",
+                String::new(),
+            )),
+            NetworkRow::Security {
+                label: locale.tr("settings.network.security"),
+                value: smtp.security,
+                shown: security_name(locale, smtp.security),
+                options: [
+                    SmtpSecurity::Starttls,
+                    SmtpSecurity::Tls,
+                    SmtpSecurity::None,
+                ]
+                .into_iter()
+                .map(|security| (security, security_name(locale, security)))
+                .collect(),
+            },
+            NetworkRow::Input(input(
+                NetworkField::SmtpPort,
+                "settings.network.port",
+                smtp.security.default_port().to_string(),
+            )),
+            NetworkRow::Input(input(
+                NetworkField::SmtpUser,
+                "settings.network.user",
+                String::new(),
+            )),
+            NetworkRow::Input(input(
+                NetworkField::SmtpPassword,
+                "settings.network.password",
+                dots(secrets.smtp.is_set()),
+            )),
+            NetworkRow::Input(input(
+                NetworkField::SmtpSender,
+                "settings.network.sender",
+                String::new(),
+            )),
+        ],
+        smtp_warning: smtp
+            .warns_plain_login()
+            .then(|| locale.tr("settings.network.warning_smtp")),
+        note: locale.tr("settings.network.note"),
     }
 }
 
@@ -154,6 +630,7 @@ pub struct SettingsModel {
     pub notifications_title: String,
     pub notifications: Vec<SwitchRow>,
     pub notifications_note: String,
+    pub network: NetworkCard,
     pub daemon: DaemonCard,
     pub about: AboutCard,
     /// The last write of the settings file or the autostart override that failed.
@@ -162,6 +639,16 @@ pub struct SettingsModel {
 
 impl SettingsModel {
     pub fn build(input: &ScreenInput<'_>, store: &SettingsStore) -> Self {
+        Self::build_with(input, store, &MqttStatus::Off, &NetworkUi::default())
+    }
+
+    /// As `build`, with the state of the MQTT connection and the state of the group "Network".
+    pub fn build_with(
+        input: &ScreenInput<'_>,
+        store: &SettingsStore,
+        status: &MqttStatus,
+        network: &NetworkUi,
+    ) -> Self {
         let locale = input.locale;
         let values = &store.values;
         let language = values.language();
@@ -235,6 +722,7 @@ impl SettingsModel {
                 ),
             ],
             notifications_note: locale.tr("settings.notifications.note"),
+            network: network_card(locale, store, status, network),
             daemon: daemon_card(input),
             about: AboutCard {
                 title: locale.tr("settings.about.title"),

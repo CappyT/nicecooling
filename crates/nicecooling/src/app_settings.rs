@@ -8,6 +8,7 @@ use std::sync::atomic::{AtomicU32, Ordering};
 
 use serde::{Deserialize, Serialize};
 
+use crate::graphs::secrets::Secrets;
 use crate::i18n::Language;
 use crate::mqtt::settings::{MqttSettings, lenient};
 use crate::notify::NotifyPrefs;
@@ -241,6 +242,9 @@ pub struct SettingsStore {
     pub hidden_sensors: std::sync::Arc<std::sync::Mutex<std::collections::BTreeSet<String>>>,
     /// False when no StatusNotifier host takes the tray icon.
     pub tray_visible: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    /// The passwords of the MQTT broker and of the SMTP account: `secrets.toml` next to the
+    /// settings file. A store without a path keeps them in memory only.
+    pub secrets: Secrets,
     /// The last write that failed.
     pub error: Option<String>,
 }
@@ -255,8 +259,15 @@ impl SettingsStore {
     pub fn new(values: AppSettings, path: Option<PathBuf>, autostart_dir: Option<PathBuf>) -> Self {
         let prefs = values.notify_prefs();
         let hidden = values.hidden_sensors();
+        // A store without a path reads no file: the empty path does not exist.
+        let secrets = Secrets::open(
+            &path
+                .as_ref()
+                .map_or_else(PathBuf::new, |path| path.with_file_name("secrets.toml")),
+        );
         Self {
             values,
+            secrets,
             path,
             autostart_dir,
             notify_prefs: std::sync::Arc::new(std::sync::Mutex::new(prefs)),
@@ -286,6 +297,14 @@ impl SettingsStore {
             .as_ref()
             .and_then(|path| self.values.save(path).err())
             .map(|error| error.to_string());
+    }
+
+    /// Change a password and write `secrets.toml` at once. A store without a path writes no file.
+    pub fn edit_secrets(&mut self, change: impl FnOnce(&mut Secrets)) {
+        change(&mut self.secrets);
+        if self.path.is_some() {
+            self.error = self.secrets.save().err().map(|error| error.to_string());
+        }
     }
 
     /// The "Start at login" switch. It follows the override file when the store has a directory.

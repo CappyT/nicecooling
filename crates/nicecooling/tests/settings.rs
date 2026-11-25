@@ -1,20 +1,28 @@
 mod support;
 
+use std::os::unix::fs::PermissionsExt as _;
 use std::path::PathBuf;
 use std::sync::atomic::Ordering;
+use std::time::Duration;
 
 use nicecooling::app_settings::{
     AppSettings, HINT_APPINDICATOR, HINT_IMMEDIATE_SWITCHING, SettingsStore,
 };
 use nicecooling::autostart;
-use nicecooling::i18n::{DE, EN, IT, Language};
+use nicecooling::graphs::secrets::Secrets;
+use nicecooling::i18n::{DE, EN, IT, Language, Locale};
 use nicecooling::model::{AppState, BoardInfo, Link};
+use nicecooling::mqtt::client::{MqttHandle, MqttStatus};
 use nicecooling::screens::settings::{
-    APP_VERSION, Change, ConnectionKind, STATE_DIRECTORY, SettingsModel, SwitchKey, apply,
+    APP_VERSION, BrokerState, Change, ConnectionKind, NetworkCard, NetworkChange, NetworkError,
+    NetworkField, NetworkRow, NetworkUi, PASSWORD_DOTS, STATE_DIRECTORY, SettingsModel, SwitchKey,
+    apply, broker_config, change_network,
 };
 use nicecooling::screens::{Feedback, ScreenInput};
+use nicecooling::smtp::settings::SmtpSecurity;
 use support::fixtures::{NOW_US, full};
 use support::labels;
+use support::mqtt_broker::{Behavior, MqttBroker};
 
 /// A new empty directory for one test.
 struct Dir(PathBuf);
@@ -528,4 +536,492 @@ fn settings_labels() {
     assert_eq!(german.language.label, "Sprache");
     assert_eq!(german.daemon.connection.value, "Verbunden");
     assert_eq!(german.start.label, "Beim Anmelden starten");
+}
+
+/// The card "Network" for a state of the daemon link and of the MQTT connection.
+fn network_in(
+    locale: Locale,
+    state: &AppState,
+    store: &SettingsStore,
+    status: &MqttStatus,
+    ui: &NetworkUi,
+) -> NetworkCard {
+    let feedback = Feedback::default();
+    SettingsModel::build_with(
+        &ScreenInput {
+            state,
+            now_us: NOW_US,
+            locale,
+            down_since_us: None,
+            feedback: &feedback,
+        },
+        store,
+        status,
+        ui,
+    )
+    .network
+}
+
+fn network_of(store: &SettingsStore, status: &MqttStatus) -> NetworkCard {
+    network_in(EN, &with_board(), store, status, &NetworkUi::default())
+}
+
+/// The user confirms `text` in an input of the group. No MQTT client runs.
+fn confirm(store: &mut SettingsStore, field: NetworkField, text: &str) -> Result<(), NetworkError> {
+    change_network(store, None, NetworkChange::Field(field, text.to_owned()))
+}
+
+fn row_label(row: &NetworkRow) -> &str {
+    match row {
+        NetworkRow::Input(input) => &input.label,
+        NetworkRow::Tls { label, .. }
+        | NetworkRow::CaFile { label, .. }
+        | NetworkRow::Security { label, .. } => label,
+    }
+}
+
+#[test]
+fn network_group_shows_connected() {
+    let mut store = SettingsStore::default();
+
+    // MQTT is off while the host is empty.
+    let card = network_of(&store, &MqttStatus::Off);
+    assert_eq!(card.title, "Network");
+    assert_eq!(
+        (card.mqtt_title.as_str(), card.smtp_title.as_str()),
+        ("MQTT broker", "SMTP account")
+    );
+    assert_eq!(card.connection.label, "Connection");
+    assert_eq!(card.connection.state, BrokerState::Off);
+    assert_eq!(card.connection.value, "Off");
+    assert_eq!(card.connection.caption, None);
+
+    // The rows of the two halves, in the order of the screen file.
+    let labels = |rows: &[NetworkRow]| {
+        rows.iter()
+            .map(row_label)
+            .map(str::to_owned)
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        labels(&card.mqtt),
+        [
+            "Host",
+            "Port",
+            "TLS",
+            "CA file",
+            "User name",
+            "Password",
+            "Client id",
+            "Base topic",
+            "Value interval"
+        ]
+    );
+    assert_eq!(
+        labels(&card.smtp),
+        [
+            "Host",
+            "Security",
+            "Port",
+            "User name",
+            "Password",
+            "Sender"
+        ]
+    );
+    assert_eq!(
+        card.note,
+        "The app publishes the sensor values and the Alarm events while it runs. It reads nothing from the broker."
+    );
+    // The defaults show as the dim text of the empty inputs.
+    let port = card.input(NetworkField::MqttPort).unwrap();
+    assert_eq!(
+        (port.value.as_str(), port.placeholder.as_str()),
+        ("", "8883")
+    );
+    assert!(port.short);
+    let client = card.input(NetworkField::MqttClientId).unwrap();
+    assert!(client.value.is_empty() && client.placeholder.starts_with("nicecooling-"));
+    let topic = card.input(NetworkField::MqttBaseTopic).unwrap();
+    assert_eq!(
+        (topic.value.as_str(), topic.placeholder.as_str()),
+        ("", "nicecooling")
+    );
+    let interval = card.input(NetworkField::MqttInterval).unwrap();
+    assert_eq!(interval.value, "10");
+    assert_eq!(interval.unit.as_deref(), Some("s"));
+    assert!(matches!(
+        &card.mqtt[3],
+        NetworkRow::CaFile { path: None, none, choose, .. } if none == "None" && choose == "Choose"
+    ));
+    assert!(matches!(
+        &card.smtp[1],
+        NetworkRow::Security { value: SmtpSecurity::Starttls, shown, options, .. }
+            if shown == "STARTTLS" && options.len() == 3
+    ));
+
+    // The states of the connection.
+    confirm(&mut store, NetworkField::MqttHost, "broker.lan").unwrap();
+    change_network(&mut store, None, NetworkChange::MqttTls(false)).unwrap();
+    let card = network_of(&store, &MqttStatus::Connecting);
+    assert_eq!(card.connection.state, BrokerState::Connecting);
+    assert_eq!(card.connection.value, "Connecting");
+    let card = network_of(&store, &MqttStatus::Connected);
+    assert_eq!(card.connection.state, BrokerState::Connected);
+    assert_eq!(card.connection.value, "Connected");
+    assert_eq!(card.connection.caption.as_deref(), Some("broker.lan:1883"));
+    assert_eq!(
+        card.input(NetworkField::MqttPort).unwrap().placeholder,
+        "1883"
+    );
+    let failed = MqttStatus::Failed("The broker refused the login.".to_owned());
+    let card = network_of(&store, &failed);
+    assert_eq!(card.connection.state, BrokerState::Failed);
+    assert_eq!(card.connection.value, "Failed");
+    assert_eq!(
+        card.connection.caption.as_deref(),
+        Some("The broker refused the login.")
+    );
+
+    // The card uses the language of its input.
+    let italian = network_in(
+        IT,
+        &with_board(),
+        &store,
+        &MqttStatus::Connected,
+        &NetworkUi::default(),
+    );
+    assert_eq!(italian.title, "Rete");
+    assert_eq!(italian.connection.value, "Connesso");
+    assert_eq!(row_label(&italian.mqtt[8]), "Intervallo dei valori");
+}
+
+#[test]
+fn password_field_shows_a_placeholder_never_the_value() {
+    let dir = Dir::new("network-password");
+    let path = dir.0.join("settings.toml");
+    let secrets_path = dir.0.join("secrets.toml");
+    let mut store = SettingsStore::new(AppSettings::default(), Some(path.clone()), None);
+
+    // No password is set: the input is empty and has no placeholder.
+    let card = network_of(&store, &MqttStatus::Off);
+    let row = card.input(NetworkField::MqttPassword).unwrap();
+    assert!(row.password && row.value.is_empty() && row.placeholder.is_empty());
+
+    confirm(&mut store, NetworkField::MqttHost, "broker.lan").unwrap();
+    confirm(&mut store, NetworkField::MqttPassword, "hunter2").unwrap();
+    confirm(&mut store, NetworkField::SmtpPassword, "s3cret").unwrap();
+    assert!(store.error.is_none());
+    assert_eq!(Secrets::open(&secrets_path).mqtt.expose(), "hunter2");
+    assert_eq!(Secrets::open(&secrets_path).smtp.expose(), "s3cret");
+    let mode = std::fs::metadata(&secrets_path)
+        .unwrap()
+        .permissions()
+        .mode();
+    assert_eq!(mode & 0o777, 0o600);
+
+    // A password is set: eight dots as the placeholder, and never the stored text.
+    assert_eq!(PASSWORD_DOTS.chars().count(), 8);
+    let card = network_of(&store, &MqttStatus::Off);
+    for field in [NetworkField::MqttPassword, NetworkField::SmtpPassword] {
+        let row = card.input(field).unwrap();
+        assert!(row.password && row.value.is_empty());
+        assert_eq!(row.placeholder, PASSWORD_DOTS);
+    }
+    let shown = format!("{card:?} {store:?}");
+    assert!(
+        !shown.contains("hunter2") && !shown.contains("s3cret"),
+        "{shown}"
+    );
+    let settings = std::fs::read_to_string(&path).unwrap();
+    assert!(!settings.contains("hunter2") && !settings.contains("password"));
+    let change = NetworkChange::Field(NetworkField::MqttPassword, "hunter2".to_owned());
+    assert!(!format!("{change:?}").contains("hunter2"));
+
+    // An untouched password input keeps the password: other fields change, and it stays.
+    confirm(&mut store, NetworkField::MqttInterval, "30").unwrap();
+    confirm(&mut store, NetworkField::SmtpHost, "mail.lan").unwrap();
+    assert_eq!(Secrets::open(&secrets_path).mqtt.expose(), "hunter2");
+    assert_eq!(Secrets::open(&secrets_path).smtp.expose(), "s3cret");
+    // The app that starts again reads it, and shows the dots.
+    let again = SettingsStore::new(AppSettings::load(&path), Some(path.clone()), None);
+    assert_eq!(again.values.mqtt.interval_s, 30);
+    let card = network_of(&again, &MqttStatus::Off);
+    assert_eq!(
+        card.input(NetworkField::MqttPassword).unwrap().placeholder,
+        PASSWORD_DOTS
+    );
+
+    // An empty input that the user confirms clears the password.
+    confirm(&mut store, NetworkField::MqttPassword, "").unwrap();
+    assert!(!Secrets::open(&secrets_path).mqtt.is_set());
+    assert!(Secrets::open(&secrets_path).smtp.is_set());
+    let card = network_of(&store, &MqttStatus::Off);
+    assert!(
+        card.input(NetworkField::MqttPassword)
+            .unwrap()
+            .placeholder
+            .is_empty()
+    );
+    assert_eq!(
+        card.input(NetworkField::SmtpPassword).unwrap().placeholder,
+        PASSWORD_DOTS
+    );
+}
+
+#[test]
+fn network_tls_off_with_password_warning() {
+    let mut store = SettingsStore::default();
+    confirm(&mut store, NetworkField::MqttHost, "broker.lan").unwrap();
+    confirm(&mut store, NetworkField::MqttPassword, "hunter2").unwrap();
+
+    // TLS is on: no warning.
+    assert!(store.values.mqtt.tls);
+    assert_eq!(network_of(&store, &MqttStatus::Off).mqtt_warning, None);
+
+    // TLS off with a password: the warning shows, and the app refuses nothing.
+    assert_eq!(
+        change_network(&mut store, None, NetworkChange::MqttTls(false)),
+        Ok(())
+    );
+    assert!(!store.values.mqtt.tls);
+    let card = network_of(&store, &MqttStatus::Off);
+    assert_eq!(
+        card.mqtt_warning.as_deref(),
+        Some("The password goes over the network in clear text")
+    );
+    assert_eq!(
+        confirm(&mut store, NetworkField::MqttUser, "nicecooling"),
+        Ok(())
+    );
+    assert_eq!(store.values.mqtt.user, "nicecooling");
+    assert!(broker_config(&store).is_some(), "MQTT stays on");
+    let italian = network_in(
+        IT,
+        &with_board(),
+        &store,
+        &MqttStatus::Off,
+        &NetworkUi::default(),
+    );
+    assert_eq!(
+        italian.mqtt_warning.as_deref(),
+        Some("La password passa sulla rete in chiaro")
+    );
+
+    // Without a password there is no warning.
+    confirm(&mut store, NetworkField::MqttPassword, "").unwrap();
+    assert_eq!(network_of(&store, &MqttStatus::Off).mqtt_warning, None);
+}
+
+#[test]
+fn network_smtp_none_login_warning() {
+    let mut store = SettingsStore::default();
+    confirm(&mut store, NetworkField::SmtpHost, "mail.lan").unwrap();
+
+    // "None" without a user name: no warning.
+    assert_eq!(
+        change_network(
+            &mut store,
+            None,
+            NetworkChange::Security(SmtpSecurity::None)
+        ),
+        Ok(())
+    );
+    let card = network_of(&store, &MqttStatus::Off);
+    assert_eq!(card.smtp_warning, None);
+    assert_eq!(
+        card.input(NetworkField::SmtpPort).unwrap().placeholder,
+        "25"
+    );
+
+    // "None" with a user name: the warning shows, and the app refuses nothing.
+    assert_eq!(
+        confirm(&mut store, NetworkField::SmtpUser, "alerts"),
+        Ok(())
+    );
+    assert_eq!(store.values.smtp.security, SmtpSecurity::None);
+    assert_eq!(store.values.smtp.user, "alerts");
+    let card = network_of(&store, &MqttStatus::Off);
+    assert_eq!(
+        card.smtp_warning.as_deref(),
+        Some(
+            "The login is not encrypted. The user name and the password go over the network in clear text."
+        )
+    );
+    assert_eq!(
+        confirm(&mut store, NetworkField::SmtpSender, "nicecooling@desk.lan"),
+        Ok(())
+    );
+    assert!(matches!(
+        &card.smtp[1],
+        NetworkRow::Security { shown, .. } if shown == "None"
+    ));
+
+    // A security with encryption has no warning.
+    for (security, port) in [(SmtpSecurity::Starttls, "587"), (SmtpSecurity::Tls, "465")] {
+        change_network(&mut store, None, NetworkChange::Security(security)).unwrap();
+        let card = network_of(&store, &MqttStatus::Off);
+        assert_eq!(card.smtp_warning, None);
+        assert_eq!(
+            card.input(NetworkField::SmtpPort).unwrap().placeholder,
+            port
+        );
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn network_fields_work_while_the_daemon_is_offline() {
+    let dir = Dir::new("network-offline");
+    let path = dir.0.join("settings.toml");
+    let mut store = SettingsStore::new(AppSettings::default(), Some(path.clone()), None);
+    let mut offline = with_board();
+    offline.link = Link::Offline;
+    let card_offline = |store: &SettingsStore, ui: &NetworkUi| {
+        network_in(EN, &offline, store, &MqttStatus::Off, ui)
+    };
+
+    // The daemon has no part in the card: it is the same with the daemon and without it.
+    assert_eq!(
+        card_offline(&store, &NetworkUi::default()),
+        network_of(&store, &MqttStatus::Off)
+    );
+
+    // The host `broker.lan` without TLS: the app stores it, and the client gets the port 1883.
+    change_network(&mut store, None, NetworkChange::MqttTls(false)).unwrap();
+    confirm(&mut store, NetworkField::MqttHost, " broker.lan ").unwrap();
+    assert!(store.error.is_none());
+    assert_eq!(AppSettings::load(&path).mqtt.host, "broker.lan");
+    let config = broker_config(&store).expect("MQTT is on");
+    assert_eq!(
+        (config.host.as_str(), config.port, config.tls),
+        ("broker.lan", 1883, false)
+    );
+    assert_eq!(
+        card_offline(&store, &NetworkUi::default())
+            .input(NetworkField::MqttHost)
+            .unwrap()
+            .value,
+        "broker.lan"
+    );
+
+    // The SMTP host `mail.lan` with the security "TLS": both are in the file, and the port is 465.
+    confirm(&mut store, NetworkField::SmtpHost, "mail.lan").unwrap();
+    change_network(&mut store, None, NetworkChange::Security(SmtpSecurity::Tls)).unwrap();
+    let loaded = AppSettings::load(&path);
+    assert_eq!(loaded.smtp.host, "mail.lan");
+    assert_eq!(loaded.smtp.security, SmtpSecurity::Tls);
+    assert_eq!(loaded.smtp.effective_port(), 465);
+
+    // A value that the app refuses does not apply, and the input shows the reason.
+    assert_eq!(
+        confirm(&mut store, NetworkField::MqttInterval, "7200"),
+        Err(NetworkError::Interval)
+    );
+    assert_eq!(store.values.mqtt.interval_s, 10);
+    for topic in ["home/#", "home/+/pc", "home//pc", "/home"] {
+        assert_eq!(
+            confirm(&mut store, NetworkField::MqttBaseTopic, topic),
+            Err(NetworkError::BaseTopic),
+            "{topic}"
+        );
+    }
+    assert_eq!(store.values.mqtt.base_topic, "nicecooling");
+    for port in ["0", "70000", "mqtt"] {
+        assert_eq!(
+            confirm(&mut store, NetworkField::MqttPort, port),
+            Err(NetworkError::Port),
+            "{port}"
+        );
+    }
+    assert_eq!(store.values.mqtt.port, None);
+    let refused = NetworkUi {
+        refused: Some((NetworkField::MqttInterval, NetworkError::Interval)),
+    };
+    let card = card_offline(&store, &refused);
+    assert_eq!(
+        card.input(NetworkField::MqttInterval)
+            .unwrap()
+            .error
+            .as_deref(),
+        Some("The interval is 1 to 3600 s.")
+    );
+    assert_eq!(card.input(NetworkField::MqttHost).unwrap().error, None);
+    assert_eq!(
+        NetworkError::BaseTopic.text(EN),
+        "A base topic has no wildcard and no empty level."
+    );
+    confirm(&mut store, NetworkField::MqttBaseTopic, "home/pc").unwrap();
+    assert_eq!(AppSettings::load(&path).mqtt.base_topic, "home/pc");
+    // An empty input gives the default.
+    confirm(&mut store, NetworkField::MqttBaseTopic, "").unwrap();
+    assert_eq!(store.values.mqtt.base_topic, "nicecooling");
+    confirm(&mut store, NetworkField::MqttInterval, "").unwrap();
+    assert_eq!(store.values.mqtt.interval_s, 10);
+
+    // A change of a broker setting gives the MQTT client the new config: it opens a connection.
+    let broker = MqttBroker::start(Behavior::plain());
+    let (client, _ends) = MqttHandle::spawn(&tokio::runtime::Handle::current());
+    confirm(&mut store, NetworkField::MqttPort, &broker.port.to_string()).unwrap();
+    change_network(
+        &mut store,
+        Some(&client),
+        NetworkChange::Field(NetworkField::MqttHost, "127.0.0.1".to_owned()),
+    )
+    .unwrap();
+    assert!(broker.wait_until(|broker| broker.connects().len() == 1));
+    let mut status = client.watch_status();
+    tokio::time::timeout(
+        Duration::from_secs(10),
+        status.wait_for(|status| *status == MqttStatus::Connected),
+    )
+    .await
+    .expect("the client connects in time")
+    .expect("the status channel is open");
+    let card = network_in(
+        EN,
+        &offline,
+        &store,
+        &client.status(),
+        &NetworkUi::default(),
+    );
+    assert_eq!(card.connection.value, "Connected");
+    assert_eq!(
+        card.connection.caption,
+        Some(format!("127.0.0.1:{}", broker.port))
+    );
+
+    // Another client id: the client closes the connection and opens a new one.
+    change_network(
+        &mut store,
+        Some(&client),
+        NetworkChange::Field(NetworkField::MqttClientId, "other".to_owned()),
+    )
+    .unwrap();
+    assert!(broker.wait_until(|broker| broker.connects().len() == 2));
+    assert_eq!(broker.connects()[1].client_id, "other");
+    // A change of the SMTP account leaves the connection.
+    change_network(
+        &mut store,
+        Some(&client),
+        NetworkChange::Field(NetworkField::SmtpUser, "alerts".to_owned()),
+    )
+    .unwrap();
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert_eq!(broker.connects().len(), 2);
+
+    // The host is cleared: MQTT is off.
+    change_network(
+        &mut store,
+        Some(&client),
+        NetworkChange::Field(NetworkField::MqttHost, String::new()),
+    )
+    .unwrap();
+    assert!(broker_config(&store).is_none());
+    let mut status = client.watch_status();
+    tokio::time::timeout(
+        Duration::from_secs(10),
+        status.wait_for(|status| *status == MqttStatus::Off),
+    )
+    .await
+    .expect("the client stops in time")
+    .expect("the status channel is open");
 }

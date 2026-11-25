@@ -14,6 +14,7 @@ use crate::graphs::channel::{GraphChannel, QUIT_WAIT};
 use crate::graphs::view::{Countdown, GraphView, SharedView};
 use crate::i18n::{Language, Locale};
 use crate::model::{AppState, DaemonEvent, Link, Severity};
+use crate::mqtt::client::{MqttHandle, MqttStatus};
 use crate::screens::{Feedback, WriteOutcome};
 use crate::shell::{Page, ShellModel};
 use crate::shell_view::ShellView;
@@ -69,6 +70,9 @@ pub struct AppModel {
     pub settings: SettingsStore,
     /// What the Graph service shows. `None` in a test that runs without the service.
     pub graph_view: Option<SharedView>,
+    /// The MQTT client. The Settings screen shows its connection state, and gives it the new
+    /// config when the user changes a broker setting. `None` while no client runs.
+    pub mqtt: Option<MqttHandle>,
     /// The first-run flow opens once, when the first read shows a daemon without a Loop.
     first_run_offered: bool,
     connecting_since: Instant,
@@ -86,6 +90,7 @@ impl AppModel {
             history_path: Some(crate::services::history_path()),
             settings: SettingsStore::default(),
             graph_view: None,
+            mqtt: None,
             first_run_offered: false,
             connecting_since: Instant::now(),
         }
@@ -136,6 +141,13 @@ impl AppModel {
     pub fn graphs(&self) -> Option<GraphView> {
         let view = self.graph_view.as_ref()?.lock().ok()?;
         Some(view.clone())
+    }
+
+    /// The state of the connection to the MQTT broker. Without a client it is off.
+    pub fn mqtt_status(&self) -> MqttStatus {
+        self.mqtt
+            .as_ref()
+            .map_or(MqttStatus::Off, MqttHandle::status)
     }
 
     /// The count of power responses in a row while the Response pause is on.
@@ -343,8 +355,10 @@ pub fn init(cx: &mut App, mode: StartMode, backend: Backend) -> Entity<AppModel>
                         } else if app.state.next_poweroff().is_some()
                             || app.state.snapshot.dwell_until_us != 0
                             || app.graph_countdown().is_some()
-                            // The Graph service writes its results once per second.
+                            // The Graph service writes its results once per second, and the
+                            // Settings screen shows the state of the MQTT connection.
                             || app.page == Page::Graphs
+                            || app.page == Page::Settings
                         {
                             app.now_us = now_us();
                             cx.notify();

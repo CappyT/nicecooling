@@ -833,6 +833,39 @@ settings:
     profile: Profil changé par une règle
     external: Modification externe sur un Leakshield
     note: Les notifications d'Alarme sont toujours activées.
+  network:
+    title: Réseau
+    mqtt: Broker MQTT
+    smtp: Compte SMTP
+    connection: Connexion
+    state_off: Désactivée
+    state_connecting: Connexion en cours
+    state_connected: Connecté
+    state_failed: Échec
+    host: Hôte
+    port: Port
+    tls: TLS
+    ca_file: Fichier CA
+    no_file: Aucun
+    choose: Choisir
+    user: "Nom d'utilisateur"
+    password: Mot de passe
+    client_id: Id du client
+    base_topic: Topic de base
+    interval: Intervalle des valeurs
+    seconds: s
+    security: Sécurité
+    security_starttls: STARTTLS
+    security_tls: TLS
+    security_none: Aucune
+    sender: Expéditeur
+    warning_mqtt: Le mot de passe passe en clair sur le réseau
+    warning_smtp: "La connexion n'est pas chiffrée. Le nom d'utilisateur et le mot de passe passent en clair sur le réseau."
+    note: "L'app publie les valeurs des capteurs et les événements d'Alarme pendant qu'elle fonctionne. Elle ne lit rien depuis le broker."
+    error:
+      port: Un port va de 1 à 65535.
+      interval: "L'intervalle va de 1 à 3600 s."
+      base_topic: "Un topic de base n'a ni joker ni niveau vide."
   daemon:
     title: Démon
     connection: Connexion

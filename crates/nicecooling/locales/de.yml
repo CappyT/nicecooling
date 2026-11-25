@@ -833,6 +833,39 @@ settings:
     profile: Profilwechsel durch eine Regel
     external: Externe Änderung an einem Leakshield
     note: Alarmbenachrichtigungen sind immer an.
+  network:
+    title: Netzwerk
+    mqtt: MQTT-Broker
+    smtp: SMTP-Konto
+    connection: Verbindung
+    state_off: Aus
+    state_connecting: Verbindet
+    state_connected: Verbunden
+    state_failed: Fehlgeschlagen
+    host: Host
+    port: Port
+    tls: TLS
+    ca_file: CA-Datei
+    no_file: Keine
+    choose: Auswählen
+    user: Benutzername
+    password: Passwort
+    client_id: Client-ID
+    base_topic: Basis-Topic
+    interval: Werteintervall
+    seconds: s
+    security: Sicherheit
+    security_starttls: STARTTLS
+    security_tls: TLS
+    security_none: Keine
+    sender: Absender
+    warning_mqtt: Das Passwort geht im Klartext über das Netzwerk
+    warning_smtp: Die Anmeldung ist nicht verschlüsselt. Benutzername und Passwort gehen im Klartext über das Netzwerk.
+    note: Die App veröffentlicht die Sensorwerte und die Alarmereignisse, solange sie läuft. Sie liest nichts vom Broker.
+    error:
+      port: Ein Port ist 1 bis 65535.
+      interval: Das Intervall ist 1 bis 3600 s.
+      base_topic: Ein Basis-Topic hat keinen Platzhalter und keine leere Ebene.
   daemon:
     title: Daemon
     connection: Verbindung

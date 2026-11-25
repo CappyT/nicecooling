@@ -1,30 +1,68 @@
 //! The window of the Settings screen: one card for each group, one row for each setting.
 
 use gpui::prelude::*;
-use gpui::{AnyElement, Context, Window, div, px};
+use gpui::{
+    AnyElement, Context, Div, Entity, Focusable as _, FontWeight, SharedString, Window, div, px,
+};
+use gpui_component::input::{InputEvent, InputState};
+use gpui_component::spinner::Spinner;
 use gpui_component::switch::Switch;
 use gpui_component::{h_flex, v_flex};
 
+use crate::command::Command;
+use crate::graphs::channel::GraphCommand;
 use crate::i18n::Language;
 use crate::icons::{NcIcon, icon};
-use crate::screen_view::{ScreenView, skeleton};
+use crate::screen_view::{InputKey, ScreenView, skeleton};
 use crate::screens::controls::{Pick, act};
-use crate::screens::settings::{Change, ConnectionKind, InfoRow, SettingsModel, SwitchRow};
-use crate::screens::ui::{
-    caption, card, card_header, card_row, field_row, label, notice_row, page,
+use crate::screens::settings::{
+    BrokerState, Change, ConnectionKind, InfoRow, NetworkCard, NetworkChange, NetworkError,
+    NetworkField, NetworkRow, SettingsModel, SwitchRow, stored_text,
 };
+use crate::screens::ui::{
+    caption, card, card_header, card_row, field_row, heading, label, notice_row, page,
+};
+use crate::smtp::settings::SmtpSecurity;
 use crate::tokens::Palette;
+
+/// A row of a half of the group "Network": 36 px, the name at the left and the control at the
+/// right.
+fn net_row(p: &Palette) -> Div {
+    h_flex()
+        .w_full()
+        .min_h(px(36.))
+        .px(px(18.))
+        .py(px(3.))
+        .gap(px(12.))
+        .border_t_1()
+        .border_color(p.border)
+}
+
+/// The identifier of a security in the select.
+fn security_id(security: SmtpSecurity) -> &'static str {
+    match security {
+        SmtpSecurity::Starttls => "starttls",
+        SmtpSecurity::Tls => "tls",
+        SmtpSecurity::None => "none",
+    }
+}
 
 impl ScreenView {
     pub(crate) fn render_settings(
         &mut self,
         p: &Palette,
-        _window: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let store = self.model.read(cx).settings.clone();
-        let model = self.with_input(cx, |input| SettingsModel::build(input, &store));
+        let (store, status) = {
+            let app = self.model.read(cx);
+            (app.settings.clone(), app.mqtt_status())
+        };
+        let model = self.with_input(cx, |input| {
+            SettingsModel::build_with(input, &store, &status, &self.network)
+        });
         let view = cx.entity();
+        let network_card = self.network_card(&model.network, p, window, cx);
 
         let pick: Pick = std::rc::Rc::new(|this, id, _, cx| {
             let language = Language::from_setting(id.as_str());
@@ -168,6 +206,7 @@ impl ScreenView {
             .child(language_card)
             .child(start_card)
             .child(notifications)
+            .child(network_card)
             .child(daemon_card)
             .child(about_card);
         if let Some(error) = &model.error {
@@ -200,6 +239,305 @@ impl ScreenView {
                     }),
             )
             .into_any_element()
+    }
+
+    /// The card "Network": the MQTT broker at the left and the SMTP account at the right.
+    fn network_card(
+        &mut self,
+        model: &NetworkCard,
+        p: &Palette,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let connection = &model.connection;
+        let state = h_flex().gap(px(6.)).items_center();
+        let state = match connection.state {
+            BrokerState::Off => state.text_color(p.fg_dim),
+            BrokerState::Connecting => state.child(Spinner::new()),
+            BrokerState::Connected => state
+                .font_weight(FontWeight::SEMIBOLD)
+                .child(div().size(px(8.)).flex_none().rounded_full().bg(p.success)),
+            BrokerState::Failed => state
+                .font_weight(FontWeight::SEMIBOLD)
+                .child(icon(NcIcon::Alarm, p.alarm)),
+        }
+        .child(connection.value.clone());
+        let mut broker = v_flex()
+            .flex_1()
+            .min_w_0()
+            .border_r_1()
+            .border_color(p.border)
+            .child(net_row(p).child(heading(model.mqtt_title.clone())))
+            .child(
+                net_row(p)
+                    .child(label(connection.label.clone()).flex_1())
+                    .child(
+                        v_flex()
+                            .flex_none()
+                            .max_w(px(260.))
+                            .items_end()
+                            .child(state)
+                            .children(connection.caption.clone().map(|text| caption(text, p))),
+                    ),
+            );
+        for row in &model.mqtt {
+            broker = broker.child(self.network_row(row, p, window, cx));
+        }
+        if let Some(text) = &model.mqtt_warning {
+            broker = broker.child(notice_row(text.clone(), true, p));
+        }
+        let mut account = v_flex()
+            .flex_1()
+            .min_w_0()
+            .child(net_row(p).child(heading(model.smtp_title.clone())));
+        for row in &model.smtp {
+            account = account.child(self.network_row(row, p, window, cx));
+        }
+        if let Some(text) = &model.smtp_warning {
+            account = account.child(notice_row(text.clone(), true, p));
+        }
+        card(p)
+            .child(card_header(model.title.clone(), p))
+            // The two halves have the same height: the line between them runs to the note.
+            .child(div().flex().w_full().child(broker).child(account))
+            .child(card_row(p).child(caption(model.note.clone(), p)))
+            .into_any_element()
+    }
+
+    fn network_row(
+        &mut self,
+        row: &NetworkRow,
+        p: &Palette,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let view = cx.entity();
+        match row {
+            NetworkRow::Input(input) => {
+                let state = if input.password {
+                    self.password_input(input.field, &input.placeholder, window, cx)
+                } else {
+                    self.input(
+                        InputKey::Network(input.field),
+                        &input.value,
+                        &input.placeholder,
+                        window,
+                        cx,
+                    )
+                };
+                let unit = input.unit.clone().map(SharedString::from);
+                let control = Self::field_input(&state, unit, true, p);
+                let control = if input.error.is_some() {
+                    control.border_color(p.alarm)
+                } else {
+                    control
+                };
+                let width = if input.short { 126. } else { 200. };
+                v_flex()
+                    .w_full()
+                    .child(
+                        net_row(p)
+                            .child(label(input.label.clone()).flex_1())
+                            .child(div().w(px(width)).flex_none().child(control)),
+                    )
+                    // The reason of a refused text shows under the input.
+                    .children(input.error.clone().map(|text| {
+                        div()
+                            .px(px(18.))
+                            .pb(px(6.))
+                            .child(caption(text, p).text_color(p.alarm))
+                    }))
+                    .into_any_element()
+            }
+            NetworkRow::Tls { label: name, on } => {
+                net_row(p)
+                    .child(label(name.clone()).flex_1())
+                    .child(Switch::new("settings-mqtt-tls").checked(*on).on_click(
+                        move |on, _, cx| {
+                            let on = *on;
+                            view.update(cx, |this, cx| {
+                                let _ = this.change_network(NetworkChange::MqttTls(on), cx);
+                            })
+                        },
+                    ))
+                    .into_any_element()
+            }
+            NetworkRow::CaFile {
+                label: name,
+                path,
+                none,
+                choose,
+            } => net_row(p)
+                .child(label(name.clone()).flex_none())
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .truncate()
+                        .text_right()
+                        .text_color(p.fg_dim)
+                        .child(path.clone().unwrap_or_else(|| none.clone())),
+                )
+                .child(
+                    Self::small_button("settings-mqtt-ca", choose.clone(), None)
+                        .on_click(act(&view, |this, _, cx| this.choose_ca_file(cx))),
+                )
+                .into_any_element(),
+            NetworkRow::Security {
+                label: name,
+                value,
+                shown,
+                options,
+            } => {
+                let pick: Pick = std::rc::Rc::new(|this, id, _, cx| {
+                    let security = match id.as_str() {
+                        "tls" => SmtpSecurity::Tls,
+                        "none" => SmtpSecurity::None,
+                        _ => SmtpSecurity::Starttls,
+                    };
+                    let _ = this.change_network(NetworkChange::Security(security), cx);
+                });
+                let select = self.select_field(
+                    "settings-smtp-security",
+                    shown,
+                    options
+                        .iter()
+                        .map(|(security, text)| {
+                            (
+                                security_id(*security).to_owned(),
+                                text.clone(),
+                                security == value,
+                            )
+                        })
+                        .collect(),
+                    true,
+                    true,
+                    p.track,
+                    pick,
+                    p,
+                    cx,
+                );
+                net_row(p)
+                    .child(label(name.clone()).flex_1())
+                    .child(div().w(px(200.)).flex_none().child(select))
+                    .into_any_element()
+            }
+        }
+    }
+
+    /// The input of a password. It never holds the stored password: it starts empty, and it
+    /// shows `hint` as dim text, which is eight dots while a password is set.
+    fn password_input(
+        &mut self,
+        field: NetworkField,
+        hint: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Entity<InputState> {
+        let key = InputKey::Network(field);
+        if !self.inputs.contains_key(&key) {
+            let shown = hint.to_owned();
+            let state = cx.new(|cx| InputState::new(window, cx).masked(true).placeholder(shown));
+            let subscribed = key.clone();
+            cx.subscribe_in(
+                &state,
+                window,
+                move |this: &mut Self, state, event: &InputEvent, window, cx| {
+                    this.on_input(&subscribed, state, event, window, cx);
+                },
+            )
+            .detach();
+            self.inputs.insert(key.clone(), state);
+            self.password_hints.insert(field, hint.to_owned());
+        }
+        let state = self.input(key, "", hint, window, cx);
+        if self.password_hints.get(&field).map(String::as_str) != Some(hint) {
+            let shown = hint.to_owned();
+            state.update(cx, |input, cx| input.set_placeholder(shown, window, cx));
+            self.password_hints.insert(field, hint.to_owned());
+        }
+        state
+    }
+
+    /// "Choose": the file dialog of the system for the CA file.
+    fn choose_ca_file(&mut self, cx: &mut Context<Self>) {
+        let paths = cx.prompt_for_paths(gpui::PathPromptOptions {
+            files: true,
+            directories: false,
+            multiple: false,
+            prompt: None,
+        });
+        cx.spawn(async move |this, cx| {
+            if let Ok(Ok(Some(mut paths))) = paths.await
+                && let Some(path) = paths.pop()
+            {
+                let _ = this.update(cx, |this, cx| {
+                    let file = path.display().to_string();
+                    let _ = this.change_network(NetworkChange::MqttCaFile(file), cx);
+                });
+            }
+        })
+        .detach();
+    }
+
+    /// Apply a change of the group "Network" at once. The MQTT client gets the new config, and
+    /// the Graph service reads the settings again for its e-mail and MQTT responses.
+    pub(crate) fn change_network(
+        &mut self,
+        change: NetworkChange,
+        cx: &mut Context<Self>,
+    ) -> Result<(), NetworkError> {
+        let result = self.model.update(cx, |app, cx| {
+            let result = crate::screens::settings::change_network(
+                &mut app.settings,
+                app.mqtt.as_ref(),
+                change,
+            );
+            cx.notify();
+            result
+        });
+        if result.is_ok() {
+            self.send(Command::Graph(GraphCommand::NetworkSettingsEdited));
+        }
+        cx.notify();
+        result
+    }
+
+    /// Enter or the loss of the focus in an input of the group "Network". A text that the app
+    /// refuses stays in the input, and the input keeps the focus, until the user corrects it or
+    /// presses Escape.
+    pub(crate) fn commit_network(
+        &mut self,
+        field: NetworkField,
+        text: &str,
+        input: &Entity<InputState>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let unchanged = !field.is_password()
+            && text.trim() == stored_text(&self.model.read(cx).settings, field);
+        let result = if unchanged {
+            Ok(())
+        } else {
+            self.change_network(NetworkChange::Field(field, text.to_owned()), cx)
+        };
+        match result {
+            Ok(()) => {
+                if self
+                    .network
+                    .refused
+                    .is_some_and(|(refused, _)| refused == field)
+                {
+                    self.network.refused = None;
+                }
+            }
+            Err(error) => {
+                self.network.refused = Some((field, error));
+                self.edited = Some(InputKey::Network(field));
+                let focus = input.read(cx).focus_handle(cx);
+                window.focus(&focus, cx);
+            }
+        }
     }
 
     /// Apply a switch or the language at once. A new language changes the window now.

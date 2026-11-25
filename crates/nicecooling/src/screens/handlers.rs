@@ -64,6 +64,7 @@ impl ScreenView {
             InputKey::ChannelRename => self.channels.rename = None,
             InputKey::LoopRename => self.loops.rename = None,
             InputKey::ProfileRename => self.profiles.rename = None,
+            InputKey::Network(_) => self.network.refused = None,
             _ => {}
         }
     }
@@ -232,6 +233,10 @@ impl ScreenView {
                 }
             }
             InputKey::Ls(name) => self.on_ls_input(name, &value, changes, commits, cx),
+            // Enter commits a password input that the user did not type in: empty clears.
+            InputKey::Network(field) if commits && (edited || field.is_password()) => {
+                self.commit_network(*field, &value, state, window, cx);
+            }
             _ => {}
         }
         cx.notify();
