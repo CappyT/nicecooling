@@ -29,6 +29,7 @@ fn click_bubble(cx: &mut TestAppContext, page: Page, width: f32, tag: &str) -> P
         commands,
         inbox,
         client: None,
+        graphs: None,
         runtime: runtime.handle().clone(),
         language: Language::English,
         settings: Default::default(),

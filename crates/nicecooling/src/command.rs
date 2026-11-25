@@ -2,6 +2,7 @@
 
 use crate::bitmap::Bitmap;
 use crate::daemon_client::DaemonClient;
+use crate::graphs::channel::GraphCommand;
 use crate::model::{DaemonEvent, Derived, FieldValue, Response, RuleGroup};
 use crate::shell::Page;
 
@@ -17,6 +18,8 @@ pub enum Command {
     /// Show the window, on a page or on the last one.
     OpenWindow(Option<Page>),
     Quit,
+    /// The Graph service handles it. The app never sends it to the daemon.
+    Graph(GraphCommand),
     /// An empty name restores the default name.
     SetSensorName {
         sensor: String,
@@ -269,7 +272,7 @@ impl Command {
             Self::CancelPoweroff { instance } => client.cancel_poweroff(instance).await?,
             Self::ActivateProfile { id } => client.activate_profile(id).await?,
             Self::ReturnToAutomatic => client.return_to_automatic().await?,
-            Self::OpenWindow(_) | Self::Quit => return Ok(false),
+            Self::OpenWindow(_) | Self::Quit | Self::Graph(_) => return Ok(false),
             Self::SetSensorName { sensor, name } => client.set_sensor_name(sensor, name).await?,
             Self::CreateDerivedSensor {
                 name,
@@ -692,7 +695,7 @@ impl Command {
             | Self::ImportBackup { leakshield, .. } => format!("ls:{leakshield}:backups"),
             Self::FactoryReset { leakshield } => format!("ls:{leakshield}:factory-reset"),
             Self::CancelPoweroff { instance } => format!("poweroff:{instance}"),
-            Self::OpenWindow(_) | Self::Quit => return None,
+            Self::OpenWindow(_) | Self::Quit | Self::Graph(_) => return None,
         })
     }
 }

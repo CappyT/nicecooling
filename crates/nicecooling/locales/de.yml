@@ -114,6 +114,7 @@ tray:
   tooltip_offline: "nicecooling: Daemon offline"
   tooltip_down: "nicecooling: Daemon ausgefallen, Schutz ist aus"
   cancel_poweroff: "Herunterfahren abbrechen (%{time})"
+  cancel_graph_countdown: "Countdown von Graph %{name} abbrechen (%{time})"
   loop_line: "%{name}: %{values}"
   daemon_offline: Daemon offline
   daemon_down: "Daemon ausgefallen: Der Schutz von nicecooling ist aus"

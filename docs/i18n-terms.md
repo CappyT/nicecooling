@@ -36,6 +36,7 @@ A term that Italian keeps in English stays in English in German. A term that Ita
 | Event | Evento | Ereignis | Événement |
 | Source | Sorgente | Quelle | Source |
 | Poweroff | Spegnimento | Herunterfahren | Extinction |
+| Countdown | conto alla rovescia | Countdown | compte à rebours |
 | Rule | Regola | Regel | Règle |
 | Rule group | Gruppo di regole | Regelgruppe | Groupe de règles |
 | Rule delay | Ritardo regola | Regelverzögerung | Délai de règle |

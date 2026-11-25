@@ -10,6 +10,8 @@ use ksni::{MenuItem, Status};
 use tokio::sync::mpsc::UnboundedSender;
 
 use crate::command::Command;
+use crate::graphs::channel::GraphCommand;
+use crate::graphs::view::Countdown;
 use crate::i18n::Locale;
 use crate::model::{AppState, Cause, Link, LoopInfo, SensorSample, format_countdown};
 use crate::shell::alarm_summary;
@@ -48,6 +50,10 @@ pub enum TrayEntry {
     CancelPoweroff {
         label: String,
         instance: String,
+    },
+    /// The countdown of a Graph power response.
+    CancelGraphCountdown {
+        label: String,
     },
     /// A line that does not react to a click.
     Info {
@@ -135,6 +141,30 @@ impl TrayView {
             tooltip,
             entries,
         }
+    }
+}
+
+impl TrayView {
+    /// Add the entry that cancels the countdown of a Graph power response. It comes after the
+    /// entry of an Alarm poweroff, which has the priority.
+    pub fn with_graph_countdown(mut self, countdown: Option<&Countdown>, locale: Locale) -> Self {
+        if let Some(countdown) = countdown {
+            let at = usize::from(matches!(
+                self.entries.first(),
+                Some(TrayEntry::CancelPoweroff { .. })
+            ));
+            let time = format_countdown(countdown.seconds_left);
+            self.entries.insert(
+                at,
+                TrayEntry::CancelGraphCountdown {
+                    label: locale.fmt(
+                        "tray.cancel_graph_countdown",
+                        &[("name", &countdown.graph_name), ("time", &time)],
+                    ),
+                },
+            );
+        }
+        self
     }
 }
 
@@ -264,6 +294,14 @@ impl ksni::Tray for NiceTray {
                     }
                     .into()
                 }
+                TrayEntry::CancelGraphCountdown { label } => StandardItem {
+                    label: label.clone(),
+                    activate: Box::new(|tray: &mut Self| {
+                        Self::send(tray, Command::Graph(GraphCommand::CancelCountdown));
+                    }),
+                    ..Default::default()
+                }
+                .into(),
                 TrayEntry::Info { label } => StandardItem {
                     label: label.clone(),
                     enabled: false,

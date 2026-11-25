@@ -3,7 +3,7 @@ mod support;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use nicecooling::graphs::service::{Env, GraphService, SensorLink};
+use nicecooling::graphs::service::{Env, GraphService, NoPower, SensorLink};
 use nicecooling::graphs::store::GraphStore;
 use nicecooling::graphs::view::{RowState, SharedView, shared_view};
 use nicecooling::i18n::EN;
@@ -71,6 +71,7 @@ fn rig(name: &str, graphs: Vec<Graph>) -> Rig {
             clock: Box::new(clock.clone()),
             link: Box::new(Recorder(calls.clone())),
             scan: Box::new(scan.clone()),
+            power: Box::new(NoPower),
             notify,
             locale: EN,
             view: view.clone(),
@@ -298,7 +299,7 @@ fn evaluates_once_per_second_with_a_fake_clock() {
     assert_eq!(ran, 11);
     assert_eq!(rig.calls.lock().unwrap().len(), 11);
     // The time to the next pass shrinks with the clock.
-    assert!(rig.service.until_next_pass() <= Duration::from_secs(1));
+    assert!(rig.service.until_next_wake() <= Duration::from_secs(1));
 }
 
 #[test]
@@ -393,6 +394,7 @@ fn graph_stays_disabled_after_restart() {
             clock: Box::new(SimClock::default()),
             link: Box::new(Recorder(calls.clone())),
             scan: Box::new(scan.clone()),
+            power: Box::new(NoPower),
             notify,
             locale: EN,
             view: shared_view(),

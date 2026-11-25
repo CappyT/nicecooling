@@ -10,6 +10,7 @@ use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use crate::app_settings::SettingsStore;
 use crate::command::Command;
 use crate::daemon_client::DaemonClient;
+use crate::graphs::channel::{GraphChannel, QUIT_WAIT};
 use crate::i18n::{Language, Locale};
 use crate::model::{AppState, DaemonEvent, Link, Severity};
 use crate::screens::{Feedback, WriteOutcome};
@@ -44,6 +45,8 @@ pub struct Backend {
     /// Every command of the tray, the notifications and the window.
     pub inbox: UnboundedReceiver<Command>,
     pub client: Option<DaemonClient>,
+    /// The Graph service. `None` in a test that runs without it.
+    pub graphs: Option<GraphChannel>,
     pub runtime: tokio::runtime::Handle,
     pub language: Language,
     /// The app settings. A test passes `SettingsStore::default()`: it writes no file.
@@ -145,6 +148,7 @@ pub fn init(cx: &mut App, mode: StartMode, backend: Backend) -> Entity<AppModel>
         commands,
         mut inbox,
         client,
+        graphs,
         runtime,
         language,
         settings,
@@ -191,6 +195,14 @@ pub fn init(cx: &mut App, mode: StartMode, backend: Backend) -> Entity<AppModel>
         let commands = commands.clone();
         async move |cx| {
             while let Some(command) = inbox.recv().await {
+                // A Graph command goes to the Graph service and never to the daemon client.
+                let command = match &graphs {
+                    Some(graphs) => match graphs.route(command) {
+                        None => continue,
+                        Some(command) => command,
+                    },
+                    None => command,
+                };
                 match command {
                     Command::OpenWindow(page) => cx.update(|cx| {
                         if let Some(page) = page {
@@ -201,7 +213,16 @@ pub fn init(cx: &mut App, mode: StartMode, backend: Backend) -> Entity<AppModel>
                         }
                         show_window(cx, &model, &commands);
                     }),
-                    Command::Quit => cx.update(|cx| cx.quit()),
+                    Command::Quit => {
+                        // The service writes its state and cancels a countdown first. A service
+                        // that does not answer holds the quit for QUIT_WAIT at most.
+                        if let Some(graphs) = graphs.clone() {
+                            cx.background_executor()
+                                .spawn(async move { graphs.stop(QUIT_WAIT) })
+                                .await;
+                        }
+                        cx.update(|cx| cx.quit());
+                    }
                     daemon_command => {
                         let Some(client) = client.clone() else {
                             continue;

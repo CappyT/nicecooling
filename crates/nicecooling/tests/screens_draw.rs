@@ -34,6 +34,7 @@ fn start(cx: &mut TestAppContext, language: Language) -> (gpui::Entity<AppModel>
         commands: commands.clone(),
         inbox,
         client: None,
+        graphs: None,
         runtime: runtime.handle().clone(),
         language,
         settings: Default::default(),

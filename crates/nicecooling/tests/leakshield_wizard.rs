@@ -1352,6 +1352,7 @@ mod layout {
             commands: commands.clone(),
             inbox,
             client: None,
+            graphs: None,
             runtime: runtime.handle().clone(),
             language,
             settings: Default::default(),

@@ -8,14 +8,15 @@ use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use tokio::sync::broadcast::{self, error::RecvError};
-use tokio::sync::mpsc::UnboundedSender;
+use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
 use nicecooling_core::clock::SystemClock;
 use nicecooling_core::rules::proc_scan::ProcFs;
 
 use crate::app::now_us;
 use crate::command::Command;
-use crate::graphs::service::{Env, GraphService, NoLink};
+use crate::graphs::channel::{GraphChannel, Input};
+use crate::graphs::service::{Env, GraphService, NoLink, NoPower};
 use crate::graphs::store::{GraphPaths, GraphStore};
 use crate::graphs::view::SharedView;
 use crate::history::{HistoryDb, HistoryWriter};
@@ -63,11 +64,17 @@ pub fn spawn_tray(
     commands: UnboundedSender<Command>,
     locale: Locale,
     visible: Arc<AtomicBool>,
+    graphs: SharedView,
 ) {
     thread::spawn(move || {
         let runtime = small_runtime();
         let mut state = AppState::default();
-        let view = TrayView::build(&state, now_us(), locale);
+        let build = |state: &AppState| {
+            let countdown = graphs.lock().ok().and_then(|view| view.countdown.clone());
+            TrayView::build(state, now_us(), locale)
+                .with_graph_countdown(countdown.as_ref(), locale)
+        };
+        let view = build(&state);
         let tray = match Tray::spawn(commands.clone(), view.clone()) {
             Ok(tray) => tray,
             Err(error) => {
@@ -90,7 +97,7 @@ pub fn spawn_tray(
                 opened = true;
                 let _ = commands.send(Command::OpenWindow(None));
             }
-            let view = TrayView::build(&state, now_us(), locale);
+            let view = build(&state);
             if view != shown {
                 tray.update(view.clone());
                 shown = view;
@@ -101,25 +108,52 @@ pub fn spawn_tray(
 }
 
 /// The desktop notifications.
+///
+/// `requests` carries the notifications of the other services, the Graph service among them:
+/// this thread owns the connection to the notification server.
 pub fn spawn_notifications(
     mut events: broadcast::Receiver<DaemonEvent>,
+    mut requests: UnboundedReceiver<Plan>,
     commands: UnboundedSender<Command>,
     locale: Locale,
     prefs: Arc<Mutex<NotifyPrefs>>,
 ) {
+    enum Wake {
+        Event(Result<DaemonEvent, RecvError>),
+        Request(Option<Plan>),
+    }
     thread::spawn(move || {
         let runtime = small_runtime();
         let mut state = AppState::default();
         let mut notifier = Notifier::new(commands);
-        while let Ok(event) = next_event(&runtime, &mut events) {
-            let Some(event) = event else { continue };
-            state.apply(&event);
-            // The first read after a start holds the Alarms that were active before. They
-            // arrive as a snapshot, not as an event, so they stay quiet.
-            let current = prefs
-                .lock()
-                .map_or_else(|poisoned| *poisoned.into_inner(), |p| *p);
-            for step in plan(&event, &state, now_us(), locale, current) {
+        let mut requests_open = true;
+        loop {
+            let wake = runtime.block_on(async {
+                tokio::select! {
+                    event = events.recv() => Wake::Event(event),
+                    request = requests.recv(), if requests_open => Wake::Request(request),
+                }
+            });
+            let steps = match wake {
+                Wake::Request(Some(step)) => vec![step],
+                // Every sender is gone. The events go on.
+                Wake::Request(None) => {
+                    requests_open = false;
+                    continue;
+                }
+                Wake::Event(Ok(event)) => {
+                    state.apply(&event);
+                    // The first read after a start holds the Alarms that were active before.
+                    // They arrive as a snapshot, not as an event, so they stay quiet.
+                    let current = prefs
+                        .lock()
+                        .map_or_else(|poisoned| *poisoned.into_inner(), |p| *p);
+                    plan(&event, &state, now_us(), locale, current)
+                }
+                Wake::Event(Err(RecvError::Lagged(_))) => continue,
+                Wake::Event(Err(RecvError::Closed)) => break,
+            };
+            for step in steps {
                 if let Err(error) = notifier.apply(step) {
                     eprintln!("nicecooling: notification: {error:?}");
                 }
@@ -169,39 +203,89 @@ pub fn spawn_history(mut events: broadcast::Receiver<DaemonEvent>, path: PathBuf
     });
 }
 
-/// The Graph service: one evaluation of every enabled Graph per second.
-pub fn spawn_graphs(
+/// SIGTERM, the end of the session, takes the path of "Quit": it sends `Command::Quit`. The
+/// handler is in place when the function returns.
+pub fn spawn_sigterm(
+    runtime: &tokio::runtime::Handle,
+    commands: UnboundedSender<Command>,
+) -> std::io::Result<()> {
+    let _guard = runtime.enter();
+    let mut signal = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
+    runtime.spawn(async move {
+        while signal.recv().await.is_some() {
+            let _ = commands.send(Command::Quit);
+        }
+    });
+    Ok(())
+}
+
+/// The Graph service on its own thread. It follows the daemon events, takes the commands of the
+/// channel, and ends at the stop message of the channel or when the events end.
+pub fn spawn_service(
+    mut service: GraphService,
     mut events: broadcast::Receiver<DaemonEvent>,
-    paths: GraphPaths,
-    notify: UnboundedSender<Plan>,
-    locale: Locale,
-    view: SharedView,
+    mut inputs: UnboundedReceiver<Input>,
 ) {
+    enum Wake {
+        Event(Result<DaemonEvent, RecvError>),
+        Input(Option<Input>),
+        Timer,
+    }
     thread::spawn(move || {
         let runtime = small_runtime();
-        let mut service = GraphService::new(
-            GraphStore::open(paths),
-            Env {
-                clock: Box::new(SystemClock::new()),
-                link: Box::new(NoLink),
-                scan: Box::new(ProcFs::new("/proc")),
-                notify,
-                locale,
-                view,
-            },
-        );
+        let mut stop = None;
         loop {
-            let wait = service.until_next_pass();
-            let got = runtime.block_on(async { tokio::time::timeout(wait, events.recv()).await });
-            match got {
-                Ok(Ok(event)) => service.apply_event(&event),
-                Ok(Err(RecvError::Closed)) => break,
-                Ok(Err(RecvError::Lagged(_))) | Err(_) => {}
+            let wait = service.until_next_wake();
+            let wake = runtime.block_on(async {
+                tokio::select! {
+                    event = events.recv() => Wake::Event(event),
+                    input = inputs.recv() => Wake::Input(input),
+                    () = tokio::time::sleep(wait) => Wake::Timer,
+                }
+            });
+            match wake {
+                Wake::Event(Ok(event)) => service.apply_event(&event),
+                Wake::Event(Err(RecvError::Closed)) | Wake::Input(None) => break,
+                Wake::Event(Err(RecvError::Lagged(_))) | Wake::Timer => {}
+                Wake::Input(Some(Input::Command(command))) => service.handle(command),
+                Wake::Input(Some(Input::Stop(done))) => {
+                    stop = Some(done);
+                    break;
+                }
             }
             service.poll();
         }
         service.stop();
+        if let Some(done) = stop {
+            let _ = done.send(());
+        }
     });
+}
+
+/// The Graph service with the real clock and the real `/proc`. It returns the channel of its
+/// commands.
+pub fn spawn_graphs(
+    events: broadcast::Receiver<DaemonEvent>,
+    paths: GraphPaths,
+    notify: UnboundedSender<Plan>,
+    locale: Locale,
+    view: SharedView,
+) -> GraphChannel {
+    let (channel, inputs) = GraphChannel::new();
+    let service = GraphService::new(
+        GraphStore::open(paths),
+        Env {
+            clock: Box::new(SystemClock::new()),
+            link: Box::new(NoLink),
+            scan: Box::new(ProcFs::new("/proc")),
+            power: Box::new(NoPower),
+            notify,
+            locale,
+            view,
+        },
+    );
+    spawn_service(service, events, inputs);
+    channel
 }
 
 /// `$XDG_DATA_HOME/nicecooling/history.db`.

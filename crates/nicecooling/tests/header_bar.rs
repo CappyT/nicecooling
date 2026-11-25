@@ -28,6 +28,7 @@ fn start(cx: &mut TestAppContext) -> (gpui::Entity<AppModel>, Rig, VisualTestCon
         commands: commands.clone(),
         inbox,
         client: None,
+        graphs: None,
         runtime: runtime.handle().clone(),
         language: Language::English,
         settings: Default::default(),

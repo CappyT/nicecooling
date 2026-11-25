@@ -5,6 +5,7 @@ use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 
 use nicecooling_graph::eval::EndValue;
+use nicecooling_graph::pause::PowerKind;
 
 /// Why a Graph does not run, or that it runs.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -29,11 +30,23 @@ pub struct GraphRow {
     pub end: EndValue,
 }
 
+/// The countdown of a power response that runs now.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Countdown {
+    pub graph_id: String,
+    pub graph_name: String,
+    pub kind: PowerKind,
+    pub seconds_left: u64,
+}
+
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct GraphView {
     pub rows: Vec<GraphRow>,
     /// Why a Graph file cannot be used. The app writes nothing over such a file.
     pub error: Option<String>,
+    /// Why the last Apply or Enable was refused. A command that works clears it.
+    pub refusal: Option<String>,
+    pub countdown: Option<Countdown>,
 }
 
 impl GraphView {

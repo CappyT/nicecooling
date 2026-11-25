@@ -28,6 +28,7 @@ fn backend_in(language: Language) -> (Backend, Rig) {
         commands: commands.clone(),
         inbox,
         client: None,
+        graphs: None,
         runtime: runtime.handle().clone(),
         language,
         settings: Default::default(),

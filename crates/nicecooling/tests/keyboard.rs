@@ -191,6 +191,7 @@ fn start_with(
         commands: sent,
         inbox: mpsc::unbounded_channel().1,
         client: None,
+        graphs: None,
         runtime: runtime.handle().clone(),
         language: Language::English,
         settings: Default::default(),

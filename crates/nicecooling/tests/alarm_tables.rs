@@ -22,6 +22,7 @@ fn check(cx: &mut TestAppContext, language: Language, poweroff: bool) {
         commands: commands.clone(),
         inbox,
         client: None,
+        graphs: None,
         runtime: runtime.handle().clone(),
         language,
         settings: Default::default(),

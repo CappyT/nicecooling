@@ -114,6 +114,7 @@ tray:
   tooltip_offline: "nicecooling : démon hors ligne"
   tooltip_down: "nicecooling : démon arrêté, protection désactivée"
   cancel_poweroff: "Annuler l'extinction (%{time})"
+  cancel_graph_countdown: "Annuler le compte à rebours du Graph %{name} (%{time})"
   loop_line: "%{name} : %{values}"
   daemon_offline: Démon hors ligne
   daemon_down: "Démon arrêté : la protection de nicecooling est désactivée"

@@ -13,10 +13,13 @@ use nicecooling_core::rules::proc_scan::ProcessSource;
 use nicecooling_core::rules::process::ProcessList;
 use nicecooling_graph::eval::{Evaluator, Pass, Sources};
 use nicecooling_graph::model::{Graph, StoredGraph};
+use nicecooling_graph::pause::PowerKind;
+use nicecooling_graph::validate::validate;
 use tokio::sync::mpsc::UnboundedSender;
 
-use super::store::{GraphStore, describe_invalid};
-use super::view::{GraphRow, RowState, SharedView};
+use super::channel::GraphCommand;
+use super::store::{GraphStore, describe, describe_invalid};
+use super::view::{Countdown, GraphRow, RowState, SharedView};
 use crate::i18n::Locale;
 use crate::model::{AppState, DaemonEvent};
 use crate::notify::{Level, NotificationSpec, Plan, open_button};
@@ -30,6 +33,19 @@ pub trait SensorLink: Send {
     /// The value of each Graph sensor, in the order of the Graphs. `None` is the no-value entry,
     /// also for the Graph sensor of a disabled Graph.
     fn values(&mut self, values: &[(String, Option<f64>)]);
+}
+
+/// The power call at the end of a countdown. The call to logind is one implementation of it. A test
+/// records the calls.
+pub trait PowerCall: Send {
+    fn call(&mut self, kind: PowerKind);
+}
+
+/// A power call that does nothing.
+pub struct NoPower;
+
+impl PowerCall for NoPower {
+    fn call(&mut self, _kind: PowerKind) {}
 }
 
 /// A link that sends nothing.
@@ -76,10 +92,19 @@ pub struct Env {
     pub clock: Box<dyn Clock>,
     pub link: Box<dyn SensorLink>,
     pub scan: Box<dyn ProcessSource>,
+    pub power: Box<dyn PowerCall>,
     /// The channel that the notification thread reads.
     pub notify: UnboundedSender<Plan>,
     pub locale: Locale,
     pub view: SharedView,
+}
+
+/// The countdown of a power response, on the monotonic clock of the service.
+struct RunningCountdown {
+    graph_id: String,
+    graph_name: String,
+    kind: PowerKind,
+    ends: Duration,
 }
 
 pub struct GraphService {
@@ -88,8 +113,12 @@ pub struct GraphService {
     clock: Box<dyn Clock>,
     link: Box<dyn SensorLink>,
     scan: Box<dyn ProcessSource>,
+    power: Box<dyn PowerCall>,
     notify: UnboundedSender<Plan>,
     locale: Locale,
+    countdown: Option<RunningCountdown>,
+    /// The last pass, for the view between two passes.
+    last_pass: Option<Pass>,
     state: AppState,
     view: SharedView,
     next_pass: Duration,
@@ -105,6 +134,7 @@ impl GraphService {
             clock,
             link,
             scan,
+            power,
             notify,
             locale,
             view,
@@ -123,15 +153,18 @@ impl GraphService {
             clock,
             link,
             scan,
+            power,
             notify,
             locale,
+            countdown: None,
+            last_pass: None,
             state: AppState::default(),
             view,
             next_pass: Duration::ZERO,
             stopped: BTreeSet::new(),
             state_error: None,
         };
-        service.publish(None);
+        service.publish();
         service
     }
 
@@ -140,14 +173,21 @@ impl GraphService {
         self.state.apply(event);
     }
 
-    /// The time until the next pass is due.
-    pub fn until_next_pass(&self) -> Duration {
-        self.next_pass.saturating_sub(self.clock.now())
+    /// The time until the service has work again: the next pass, or the end of a countdown.
+    pub fn until_next_wake(&self) -> Duration {
+        let now = self.clock.now();
+        let pass = self.next_pass.saturating_sub(now);
+        match &self.countdown {
+            Some(countdown) => pass.min(countdown.ends.saturating_sub(now)),
+            None => pass,
+        }
     }
 
-    /// Run a pass when a second has passed since the last one. Returns whether it ran.
+    /// Do the work that is due: the end of a countdown, and a pass when a second has passed since
+    /// the last one. Returns whether a pass ran.
     pub fn poll(&mut self) -> bool {
         let now = self.clock.now();
+        self.tick_countdown(now);
         if now < self.next_pass {
             return false;
         }
@@ -159,6 +199,118 @@ impl GraphService {
         };
         self.pass(now);
         true
+    }
+
+    /// Start the countdown of a power response. One countdown runs at a time: a second start
+    /// returns false.
+    pub fn start_countdown(&mut self, graph_id: &str, kind: PowerKind, seconds: u32) -> bool {
+        if self.countdown.is_some() {
+            return false;
+        }
+        let Some(graph) = self.store.graph(graph_id) else {
+            return false;
+        };
+        self.countdown = Some(RunningCountdown {
+            graph_id: graph_id.to_owned(),
+            graph_name: graph.name.clone(),
+            kind,
+            ends: self.clock.now() + Duration::from_secs(u64::from(seconds)),
+        });
+        self.publish_countdown();
+        true
+    }
+
+    /// Cancel the countdown. No power call follows.
+    pub fn cancel_countdown(&mut self) {
+        self.countdown = None;
+        self.publish_countdown();
+    }
+
+    fn tick_countdown(&mut self, now: Duration) {
+        let Some(countdown) = &self.countdown else {
+            return;
+        };
+        if now >= countdown.ends {
+            let kind = countdown.kind;
+            self.countdown = None;
+            self.power.call(kind);
+        }
+        self.publish_countdown();
+    }
+
+    fn publish_countdown(&self) {
+        let now = self.clock.now();
+        let shown = self.countdown.as_ref().map(|c| Countdown {
+            graph_id: c.graph_id.clone(),
+            graph_name: c.graph_name.clone(),
+            kind: c.kind,
+            seconds_left: c.ends.saturating_sub(now).as_secs_f64().ceil() as u64,
+        });
+        if let Ok(mut view) = self.view.lock() {
+            view.countdown = shown;
+        }
+    }
+
+    /// One command of the window, the tray or a notification.
+    pub fn handle(&mut self, command: GraphCommand) {
+        match command {
+            GraphCommand::Apply(graph) => self.store_graph(*graph, true),
+            GraphCommand::Enable { graph, enabled } => {
+                if let Some(mut graph) = self.store.graph(&graph).cloned() {
+                    graph.enabled = enabled;
+                    self.store_graph(graph, false);
+                }
+            }
+            GraphCommand::Delete { graph } => {
+                match self.store.remove(&graph) {
+                    Ok(()) => self.evaluator.remove_graph(&graph),
+                    Err(error) => self.refuse(error.to_string()),
+                }
+                self.stopped.remove(&graph);
+                self.publish();
+            }
+            GraphCommand::CancelCountdown => self.cancel_countdown(),
+            GraphCommand::ResponsesOn => {
+                self.store.state_mut().pause.turn_on();
+                self.write_state(self.clock.now(), true);
+            }
+            // The editor "Try" is task 3.8. "Run once" and the MQTT and SMTP settings belong to
+            // the sections of the responses and the network clients.
+            GraphCommand::Try(_)
+            | GraphCommand::StopTry
+            | GraphCommand::RunOnce { .. }
+            | GraphCommand::NetworkSettingsEdited => {}
+        }
+    }
+
+    /// Validate a Graph and store it. `reset` starts the state of its nodes again (Apply).
+    fn store_graph(&mut self, graph: Graph, reset: bool) {
+        let stored = self.store.graphs();
+        let refusals = validate(&graph, &stored);
+        if !refusals.is_empty() {
+            self.refuse(format!("{}: {}", graph.name, describe(&refusals)));
+            return;
+        }
+        let id = graph.id.clone();
+        match self.store.put(graph.clone()) {
+            Ok(()) => {
+                if reset {
+                    self.evaluator.apply(&graph);
+                }
+                self.stopped.remove(&id);
+                if let Ok(mut view) = self.view.lock() {
+                    view.refusal = None;
+                }
+            }
+            Err(error) => self.refuse(error.to_string()),
+        }
+        self.publish();
+    }
+
+    fn refuse(&self, reason: String) {
+        if let Ok(mut view) = self.view.lock() {
+            view.refusal = Some(reason);
+        }
     }
 
     fn pass(&mut self, now: Duration) {
@@ -174,7 +326,8 @@ impl GraphService {
         self.link.values(&pass.sensor_values());
         self.store.state_mut().values = self.evaluator.stored_values();
         self.write_state(now, false);
-        self.publish(Some(&pass));
+        self.last_pass = Some(pass);
+        self.publish();
     }
 
     /// A Graph panicked: store it as disabled, and say so.
@@ -210,7 +363,8 @@ impl GraphService {
     }
 
     /// Write the view for the screens.
-    fn publish(&mut self, pass: Option<&Pass>) {
+    fn publish(&mut self) {
+        let pass = self.last_pass.as_ref();
         let rows: Vec<GraphRow> = self
             .store
             .entries()
@@ -236,6 +390,7 @@ impl GraphService {
 
     /// The stop of the app: write the state file whatever the time since the last write.
     pub fn stop(&mut self) {
+        self.cancel_countdown();
         let now = self.clock.now();
         self.store.state_mut().values = self.evaluator.stored_values();
         self.write_state(now, true);
