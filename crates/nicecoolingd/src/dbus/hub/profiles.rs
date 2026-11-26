@@ -137,7 +137,9 @@ impl Hub {
                     .cloned()
                     .ok_or_else(|| Error::not_found(format!("no Profile {id}")))?,
             };
-            Ok(i.profiles.create(name, &source))
+            i.profiles
+                .create(name, &source)
+                .ok_or_else(|| Error::invalid("no Profile id is left"))
         })
     }
 

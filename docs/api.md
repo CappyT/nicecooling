@@ -27,6 +27,8 @@ Identifiers contain only `[a-z0-9_]`, so the object path element is the identifi
 | Rule group | `group_<n>` | `group_3` |
 | Calibration table | preset: the preset file id; user table: `table_<n>` | `alphacool_17558`, `table_1` |
 
+In `<n>`, a number is decimal digits only, with no sign and no leading zero. A new id is one above the highest number in use. When that number is 4294967295, a create call of the family fails with `InvalidArgument` and "no ... id is left", and gives no id.
+
 The daemon keeps the map from identifier to hardware identity in its state (`storage.md`). The hardware identity is the hwmon `name` plus the resolved path of the hwmon `device` link, never `hwmonN`.
 
 ## Values and units

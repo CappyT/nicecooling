@@ -103,7 +103,8 @@ impl Hub {
                 .collect();
             for n in 0..groups.len() {
                 if groups[n].id.is_empty() {
-                    let number = ids::next_number("group_", used.iter().map(String::as_str));
+                    let number = ids::next_number("group_", used.iter().map(String::as_str))
+                        .ok_or_else(|| Error::invalid("no Rule group id is left"))?;
                     groups[n].id = ids::rule_group_id(number);
                     used.push(groups[n].id.clone());
                 } else if !ids::is_identifier(&groups[n].id) {

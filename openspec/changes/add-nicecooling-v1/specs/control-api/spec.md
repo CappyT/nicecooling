@@ -24,6 +24,10 @@ The API SHALL expose objects for Devices, Loops, Channels, sensors, Profiles and
 - **WHEN** the app creates a Graph sensor
 - **THEN** the client finds a sensor object for it with the origin `graph`
 
+#### Scenario: No id left
+- **WHEN** a Loop `loop_4294967295` exists and the app creates a Loop
+- **THEN** the call fails with `InvalidArgument` and "no Loop id is left", and the daemon gives no id twice
+
 ### Requirement: Contract
 The interfaces, methods, signals, errors and identifiers of the API SHALL match `crates/nicecooling-api/dbus/io.github.cappyt.NiceCooling1.xml` and `docs/api.md` of this change.
 

@@ -84,8 +84,9 @@ impl ProfileSet {
     }
 
     /// A copy of `source` under a new id: same Curves, same Pump floors, same slot.
-    pub fn create(&mut self, name: &str, source: &ProfileFile) -> String {
-        let n = nicecooling_api::ids::next_number("profile_", self.map.keys().map(String::as_str));
+    /// `None` when no number is left above the Profile ids in use.
+    pub fn create(&mut self, name: &str, source: &ProfileFile) -> Option<String> {
+        let n = nicecooling_api::ids::next_number("profile_", self.map.keys().map(String::as_str))?;
         let id = nicecooling_api::ids::numbered_profile(n);
         let mut profile = source.clone();
         profile.id = id.clone();
@@ -95,7 +96,7 @@ impl ProfileSet {
             name.to_owned()
         };
         self.map.insert(id.clone(), profile);
-        id
+        Some(id)
     }
 
     pub fn delete(&mut self, id: &str) -> Result<ProfileFile, ProfileError> {
@@ -149,7 +150,7 @@ mod tests {
         let mut set = ProfileSet::first_start();
         let source = set.get("profile_3").unwrap().clone();
         for n in 0..20 {
-            set.create(&format!("Extra {n}"), &source);
+            set.create(&format!("Extra {n}"), &source).unwrap();
         }
         assert_eq!(set.iter().count(), 24);
         assert!(set.contains("profile_24"));
@@ -159,7 +160,7 @@ mod tests {
     fn new_profile_takes_slot_of_source() {
         let mut set = ProfileSet::first_start();
         let source = set.get("profile_3").unwrap().clone();
-        let id = set.create("Copy", &source);
+        let id = set.create("Copy", &source).unwrap();
         assert_eq!(id, "profile_5");
         assert_eq!(set.get(&id).unwrap().slot, 3);
         assert_eq!(set.get(&id).unwrap().name, "Copy");

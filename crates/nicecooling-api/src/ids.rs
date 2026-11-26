@@ -115,11 +115,12 @@ pub fn id_number(prefix: &str, id: &str) -> Option<u32> {
 }
 
 /// The next number for an identifier family: one more than the highest `<prefix><n>` in use.
-pub fn next_number<'a>(prefix: &str, used: impl IntoIterator<Item = &'a str>) -> u32 {
+/// `None` when the highest number is the largest one: no id is left.
+pub fn next_number<'a>(prefix: &str, used: impl IntoIterator<Item = &'a str>) -> Option<u32> {
     used.into_iter()
         .filter_map(|id| id_number(prefix, id))
         .max()
-        .map_or(1, |n| n + 1)
+        .map_or(Some(1), |n| n.checked_add(1))
 }
 
 /// Takes the next number from a stored counter and moves the counter on. A number that was given
@@ -131,11 +132,7 @@ pub fn take_number<'a>(
     counter: &mut u32,
     used: impl IntoIterator<Item = &'a str>,
 ) -> Option<u32> {
-    let above_used = used
-        .into_iter()
-        .filter_map(|id| id_number(prefix, id))
-        .max()
-        .map_or(Some(1), |n| n.checked_add(1))?;
+    let above_used = next_number(prefix, used)?;
     let n = (*counter).max(above_used);
     *counter = n.saturating_add(1);
     Some(n)
@@ -190,9 +187,11 @@ mod tests {
 
     #[test]
     fn next_number_follows_the_highest() {
-        assert_eq!(next_number("loop_", ["loop_1", "loop_3", "other"]), 4);
-        assert_eq!(next_number("loop_", std::iter::empty()), 1);
-        assert_eq!(next_number("loop_", ["loop_+9", "loop_007"]), 1);
+        assert_eq!(next_number("loop_", ["loop_1", "loop_3", "other"]), Some(4));
+        assert_eq!(next_number("loop_", std::iter::empty()), Some(1));
+        assert_eq!(next_number("loop_", ["loop_+9", "loop_007"]), Some(1));
+        assert_eq!(next_number("loop_", ["loop_4294967294"]), Some(u32::MAX));
+        assert_eq!(next_number("loop_", ["loop_4294967295", "loop_1"]), None);
     }
 
     #[test]
@@ -241,7 +240,10 @@ mod tests {
         }
         // The highest sensor goes away: `next_number` would give 3 again, the counter gives 4.
         used.pop();
-        assert_eq!(next_number("graph_", used.iter().map(String::as_str)), 3);
+        assert_eq!(
+            next_number("graph_", used.iter().map(String::as_str)),
+            Some(3)
+        );
         let n = take_number("graph_", &mut counter, used.iter().map(String::as_str));
         assert_eq!((n, counter), (Some(4), 5));
         // A counter that is behind an id in use jumps over it.

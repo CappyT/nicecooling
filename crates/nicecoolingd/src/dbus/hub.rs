@@ -1311,10 +1311,12 @@ impl Hub {
                 MAX_DERIVED_SENSORS,
             )?;
             i.check_derived(None, kind, sources)?;
-            let id = ids::derived_sensor_id(ids::next_number(
+            let number = ids::next_number(
                 "derived_",
                 i.state.derived_sensors.iter().map(|d| d.id.as_str()),
-            ));
+            )
+            .ok_or_else(|| Error::invalid("no Derived sensor id is left"))?;
+            let id = ids::derived_sensor_id(number);
             i.state.derived_sensors.push(DerivedSensor {
                 id: id.clone(),
                 name: if name.is_empty() {
@@ -1570,10 +1572,9 @@ impl Hub {
         check_name(name)?;
         self.edit(|i| {
             check_count("Loops", i.state.loops.len(), MAX_LOOPS)?;
-            let id = ids::loop_id(ids::next_number(
-                "loop_",
-                i.state.loops.iter().map(|l| l.id.as_str()),
-            ));
+            let number = ids::next_number("loop_", i.state.loops.iter().map(|l| l.id.as_str()))
+                .ok_or_else(|| Error::invalid("no Loop id is left"))?;
+            let id = ids::loop_id(number);
             i.state.loops.push(Loop {
                 id: id.clone(),
                 name: if name.is_empty() {
@@ -1732,10 +1733,12 @@ impl Hub {
                     i.state.calibration_tables.len(),
                     MAX_CALIBRATION_TABLES,
                 )?;
-                let id = ids::table_id(ids::next_number(
+                let number = ids::next_number(
                     "table_",
                     i.state.calibration_tables.iter().map(|t| t.id.as_str()),
-                ));
+                )
+                .ok_or_else(|| Error::invalid("no Calibration table id is left"))?;
+                let id = ids::table_id(number);
                 i.state.calibration_tables.push(CalibrationDef {
                     id: id.clone(),
                     name: name.to_owned(),
