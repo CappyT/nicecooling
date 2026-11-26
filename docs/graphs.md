@@ -178,7 +178,7 @@ The app holds one account for the e-mail response, in the table `[smtp]` of `set
 
 - The secure modes check the certificate of the server against the system certificates and the host name. The sender has no way to skip the check.
 - With the security `none` and a user, the login is not encrypted. The settings warn and do not refuse.
-- The app sends one plain text message in its own task, with a limit of 30 s, so a slow server never delays a pass. It removes line breaks from the subject.
+- The app sends one plain text message in its own task, with a limit of 30 s, so a slow server never delays a pass. It replaces each run of CR and LF in the subject with one space.
 
 ## Process source and process Profile rule
 
