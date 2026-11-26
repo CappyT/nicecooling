@@ -7,17 +7,18 @@
 //!
 //! Leaving the editor with a draft that is not applied asks: "Cancel", "Discard" or "Apply".
 
+use nicecooling_core::graph_sensor::MAX_GRAPH_SENSORS;
 use nicecooling_graph::model::Graph;
 use nicecooling_graph::validate::validate;
 
 use super::EditorUi;
+use super::params::user_text;
 use super::rules::first_rule_text;
 use crate::command::Command;
 use crate::graphs::channel::GraphCommand;
 use crate::graphs::transfer::new_graph_id;
 use crate::graphs::values::SensorError;
 use crate::graphs::view::{ApplyError, GraphRow, GraphView};
-use crate::i18n::Locale;
 use crate::screens::ScreenInput;
 use crate::screens::sensors::{SensorUse, sensor_users};
 use crate::shell::Page;
@@ -83,17 +84,56 @@ pub fn offline_reason(input: &ScreenInput<'_>, ui: &EditorUi) -> Option<String> 
     (needs_daemon && !input.state.is_online()).then(|| input.locale.tr("graph_editor.offline"))
 }
 
-/// A reason of the daemon or of the app without its last full stop: the text of the toolbar adds
-/// one.
-fn reason_text(reason: &str, locale: Locale) -> String {
-    locale.fmt(
-        "graph_editor.not_applied_reason",
-        &[("reason", reason.trim().trim_end_matches('.'))],
-    )
+/// The text of a Graph sensor that something uses. The snapshot gives the names of the users:
+/// Curves, Loops, Derived sensors and Software sensor slots. The reason of the daemon has ids:
+/// it shows only for a user that the snapshot does not have.
+fn in_use_text(reason: &str, input: &ScreenInput<'_>, ui: &EditorUi) -> String {
+    let locale = input.locale;
+    let stored = ui.draft.stored();
+    let sensor = stored.and_then(|stored| stored.sensor_id.as_deref());
+    let users = sensor
+        .map(|sensor| sensor_users(input.state, sensor))
+        .unwrap_or_default();
+    let slots: Vec<String> = input
+        .state
+        .snapshot
+        .leakshield_data
+        .values()
+        .flat_map(|device| &device.software_sensors)
+        .filter(|(_, held)| sensor.is_some() && held.as_deref() == sensor)
+        .map(|(slot, _)| slot.to_string())
+        .collect();
+    let one = |key: &str, name: &str| locale.fmt(key, &[("name", name)]);
+    match (users.as_slice(), slots.as_slice()) {
+        ([], []) => locale.fmt(
+            "graph_editor.refused.in_use_detail",
+            &[("detail", reason.trim())],
+        ),
+        ([SensorUse::Curve { name, .. }], []) => one("graph_editor.not_applied_curve", name),
+        ([SensorUse::Loop { name, .. }], []) => one("graph_editor.refused.in_use_loop", name),
+        ([SensorUse::Derived { name, .. }], []) => one("graph_editor.refused.in_use_derived", name),
+        ([], [slot]) => locale.fmt("graph_editor.refused.in_use_slot", &[("slot", slot)]),
+        (users, slots) => {
+            let names: Vec<String> = users
+                .iter()
+                .map(|user| user_text(user, locale))
+                .chain(
+                    slots
+                        .iter()
+                        .map(|slot| locale.fmt("leakshield.sensors.software_name", &[("n", slot)])),
+                )
+                .collect();
+            locale.fmt(
+                "graph_editor.refused.in_use_many",
+                &[("users", &names.join(", "))],
+            )
+        }
+    }
 }
 
 /// The text of a refused Apply for the toolbar: "Not applied: the limit of 64 Graph sensors is
-/// reached."
+/// reached." Each kind of refusal has its own sentence in the locale files. A text of the daemon
+/// or of the service that the app does not know shows after such a sentence, as its detail.
 pub fn refusal_text(
     error: &ApplyError,
     input: &ScreenInput<'_>,
@@ -101,32 +141,35 @@ pub fn refusal_text(
     ui: &EditorUi,
 ) -> String {
     let locale = input.locale;
+    let detail = |key: &str, text: &str| locale.fmt(key, &[("detail", text.trim())]);
     match error {
         ApplyError::Rules(refusals) => {
             let others = view.graphs();
             let rule = first_rule_text(refusals, &ui.draft.candidate(), &others, locale);
-            reason_text(&rule.unwrap_or_default(), locale)
+            locale.fmt(
+                "graph_editor.not_applied_reason",
+                &[("reason", rule.unwrap_or_default().trim_end_matches('.'))],
+            )
         }
-        ApplyError::Sensor(SensorError::InUse(reason)) => {
-            // The snapshot gives the name of the Channel. The reason of the daemon has its id.
-            let curve = ui
-                .draft
-                .stored()
-                .and_then(|stored| stored.sensor_id.as_deref())
-                .map(|sensor| sensor_users(input.state, sensor))
-                .unwrap_or_default()
-                .into_iter()
-                .find_map(|user| match user {
-                    SensorUse::Curve { name, .. } => Some(name),
-                    _ => None,
-                });
-            match curve {
-                Some(name) => locale.fmt("graph_editor.not_applied_curve", &[("name", &name)]),
-                None => reason_text(reason, locale),
+        ApplyError::Sensor(error) => match error {
+            SensorError::Unavailable => locale.tr("graph_editor.refused.unavailable"),
+            SensorError::Denied => locale.tr("graph_editor.refused.denied"),
+            SensorError::Missing => locale.tr("graph_editor.refused.missing"),
+            SensorError::InUse(reason) => in_use_text(reason, input, ui),
+            // The text of the daemon at its limit of Graph sensors.
+            SensorError::Refused(reason)
+                if *reason == format!("at most {MAX_GRAPH_SENSORS} Graph sensors") =>
+            {
+                locale.tr("graph_editor.refused.limit")
             }
-        }
-        ApplyError::Sensor(error) => reason_text(&error.to_string(), locale),
-        ApplyError::Other(reason) => reason_text(reason, locale),
+            SensorError::Refused(reason) => detail("graph_editor.refused.refused_detail", reason),
+            // The service gives up a call after 120 s, with this text.
+            SensorError::Failed(reason) if *reason == locale.tr("graph_refusal.no_answer") => {
+                locale.tr("graph_editor.refused.no_answer")
+            }
+            SensorError::Failed(reason) => detail("graph_editor.refused.failed_detail", reason),
+        },
+        ApplyError::Other(reason) => detail("graph_editor.refused.other_detail", reason),
     }
 }
 

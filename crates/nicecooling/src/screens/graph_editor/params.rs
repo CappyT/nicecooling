@@ -485,6 +485,21 @@ fn input_rows(ui: &EditorUi, node: &Node, locale: Locale) -> Vec<InputRow> {
         .collect()
 }
 
+/// What reads a Graph sensor, as the panel and a refused Apply name it: "Curve of Waterpump".
+pub(super) fn user_text(user: &SensorUse, locale: Locale) -> String {
+    match user {
+        SensorUse::Curve { name, .. } => {
+            locale.fmt("graph_editor.panel.used.curve", &[("name", name)])
+        }
+        SensorUse::Loop { name, .. } => {
+            locale.fmt("graph_editor.panel.used.loop", &[("name", name)])
+        }
+        SensorUse::Derived { name, .. } => {
+            locale.fmt("graph_editor.panel.used.derived", &[("name", name)])
+        }
+    }
+}
+
 /// The Graph sensor of the sensor end node, and what reads it.
 fn end_sensor(input: &ScreenInput<'_>, ui: &EditorUi) -> EndSensor {
     let locale = input.locale;
@@ -493,18 +508,8 @@ fn end_sensor(input: &ScreenInput<'_>, ui: &EditorUi) -> EndSensor {
         .as_deref()
         .map(|id| sensor_users(input.state, id))
         .unwrap_or_default()
-        .into_iter()
-        .map(|user| match user {
-            SensorUse::Curve { name, .. } => {
-                locale.fmt("graph_editor.panel.used.curve", &[("name", &name)])
-            }
-            SensorUse::Loop { name, .. } => {
-                locale.fmt("graph_editor.panel.used.loop", &[("name", &name)])
-            }
-            SensorUse::Derived { name, .. } => {
-                locale.fmt("graph_editor.panel.used.derived", &[("name", &name)])
-            }
-        })
+        .iter()
+        .map(|user| user_text(user, locale))
         .collect();
     EndSensor {
         label: locale.tr("graph_editor.canvas.graph_sensor"),

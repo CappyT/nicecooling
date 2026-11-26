@@ -1072,6 +1072,20 @@ graph_editor:
   offline: "Der Daemon ist offline. Der Graph-Sensor braucht den Daemon."
   not_applied_reason: "Nicht angewendet: %{reason}."
   not_applied_curve: "Nicht angewendet: die Kurve von %{name} verwendet den Graph-Sensor."
+  refused:
+    unavailable: "Nicht angewendet: Die App hat keine Verbindung zum Daemon."
+    no_answer: "Nicht angewendet: Der Daemon hat nicht innerhalb von 120 s geantwortet."
+    denied: "Nicht angewendet: Das System erlaubt diesem Benutzer nicht, Sensoren zu ändern."
+    missing: "Nicht angewendet: Der Graph-Sensor existiert auf dem Daemon nicht."
+    limit: "Nicht angewendet: Das Limit von 64 Graph-Sensoren ist erreicht."
+    in_use_loop: "Nicht angewendet: Der Loop %{name} verwendet den Graph-Sensor."
+    in_use_derived: "Nicht angewendet: Der abgeleitete Sensor %{name} verwendet den Graph-Sensor."
+    in_use_slot: "Nicht angewendet: Der Software-Sensor %{slot} verwendet den Graph-Sensor."
+    in_use_many: "Nicht angewendet: Diese verwenden den Graph-Sensor: %{users}."
+    in_use_detail: "Nicht angewendet: Etwas verwendet den Graph-Sensor. Detail: %{detail}"
+    refused_detail: "Nicht angewendet: Der Daemon hat den Graph-Sensor abgelehnt. Detail: %{detail}"
+    failed_detail: "Nicht angewendet: Der Aufruf an den Daemon ist fehlgeschlagen. Detail: %{detail}"
+    other_detail: "Nicht angewendet. Detail: %{detail}"
   response:
     warning:
       power: "Diese Reaktion kann den PC herunterfahren oder neu starten"

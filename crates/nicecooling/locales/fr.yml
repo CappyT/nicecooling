@@ -1072,6 +1072,20 @@ graph_editor:
   offline: "Le démon est hors ligne. Le capteur Graphe a besoin du démon."
   not_applied_reason: "Non appliqué : %{reason}."
   not_applied_curve: "Non appliqué : la Courbe de %{name} utilise le capteur Graphe."
+  refused:
+    unavailable: "Non appliqué : l'app n'a pas de connexion au démon."
+    no_answer: "Non appliqué : le démon n'a pas répondu en 120 s."
+    denied: "Non appliqué : le système n'autorise pas cet utilisateur à modifier les capteurs."
+    missing: "Non appliqué : le capteur Graphe n'existe pas sur le démon."
+    limit: "Non appliqué : la limite de 64 capteurs Graphe est atteinte."
+    in_use_loop: "Non appliqué : le Loop %{name} utilise le capteur Graphe."
+    in_use_derived: "Non appliqué : le capteur dérivé %{name} utilise le capteur Graphe."
+    in_use_slot: "Non appliqué : le capteur logiciel %{slot} utilise le capteur Graphe."
+    in_use_many: "Non appliqué : ceux-ci utilisent le capteur Graphe : %{users}."
+    in_use_detail: "Non appliqué : quelque chose utilise le capteur Graphe. Détail : %{detail}"
+    refused_detail: "Non appliqué : le démon a refusé le capteur Graphe. Détail : %{detail}"
+    failed_detail: "Non appliqué : l'appel au démon a échoué. Détail : %{detail}"
+    other_detail: "Non appliqué. Détail : %{detail}"
   response:
     warning:
       power: "Cette réponse peut éteindre ou redémarrer le PC"

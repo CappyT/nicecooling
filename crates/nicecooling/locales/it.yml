@@ -1072,6 +1072,20 @@ graph_editor:
   offline: "Il demone è offline. Il sensore Grafo ha bisogno del demone."
   not_applied_reason: "Non applicato: %{reason}."
   not_applied_curve: "Non applicato: la Curva di %{name} usa il sensore Grafo."
+  refused:
+    unavailable: "Non applicato: l'app non ha una connessione al demone."
+    no_answer: "Non applicato: il demone non ha risposto entro 120 s."
+    denied: "Non applicato: il sistema non permette a questo utente di cambiare i sensori."
+    missing: "Non applicato: il sensore Grafo non esiste sul demone."
+    limit: "Non applicato: il limite di 64 sensori Grafo è raggiunto."
+    in_use_loop: "Non applicato: il Loop %{name} usa il sensore Grafo."
+    in_use_derived: "Non applicato: il sensore derivato %{name} usa il sensore Grafo."
+    in_use_slot: "Non applicato: il sensore software %{slot} usa il sensore Grafo."
+    in_use_many: "Non applicato: questi usano il sensore Grafo: %{users}."
+    in_use_detail: "Non applicato: qualcosa usa il sensore Grafo. Dettaglio: %{detail}"
+    refused_detail: "Non applicato: il demone ha rifiutato il sensore Grafo. Dettaglio: %{detail}"
+    failed_detail: "Non applicato: la chiamata al demone non è riuscita. Dettaglio: %{detail}"
+    other_detail: "Non applicato. Dettaglio: %{detail}"
   response:
     warning:
       power: "Questa risposta può spegnere o riavviare il PC"

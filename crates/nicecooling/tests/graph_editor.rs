@@ -49,7 +49,7 @@ use nicecooling_flow::{
 use nicecooling_graph::eval::EndValue;
 use nicecooling_graph::model::{Connection, Family, Graph, Kind, Node, ResponseKind, StoredGraph};
 use serde_json::json;
-use support::fixtures::{LEAKSHIELD, alarm, full, online, sensor};
+use support::fixtures::{LEAKSHIELD, alarm, full, online, sensor, with_leakshield};
 use support::graphs::{Dir, constant_graph};
 use tokio::sync::mpsc::{UnboundedReceiver, unbounded_channel};
 
@@ -2315,7 +2315,7 @@ fn apply_shows_a_pending_state_until_the_service_answers() {
     let bar = model_with(&state, &rig.shown(), &ui).toolbar;
     assert_eq!(
         bar.refused.as_deref(),
-        Some("Not applied: the name is too long.")
+        Some("Not applied: the daemon refused the Graph sensor. Detail: the name is too long")
     );
     assert_eq!(bar.draft_state.as_deref(), Some("Not applied"));
     assert!(bar.apply.enabled);
@@ -2460,10 +2460,9 @@ fn leave_with_a_draft_asks() {
 fn daemon_refusal_keeps_the_draft_and_shows_the_reason() {
     let mut rig = Rig::new("editor-refusal", Vec::new());
     let state = online();
-    // The daemon answers `InvalidArgument` to the create call.
-    *rig.link.no_create.lock().unwrap() = Some(SensorError::Refused(
-        "the limit of 64 Graph sensors is reached".to_owned(),
-    ));
+    // The daemon answers `InvalidArgument` to the create call, with its text for the limit.
+    *rig.link.no_create.lock().unwrap() =
+        Some(SensorError::Refused("at most 64 Graph sensors".to_owned()));
     let mut ui = EditorUi::open(fresh_graph("graph_2"), &rig.shown());
     let draft = ui.draft.graph().clone();
     apply(&mut rig, &mut ui);
@@ -2521,11 +2520,14 @@ fn end_node_kind_change_of_a_used_sensor_fails_with_in_use() {
         bar.refused.as_deref(),
         Some("Not applied: the Curve of Waterpump uses the Graph sensor.")
     );
-    // Without the Curve in the snapshot the toolbar has the reason of the daemon.
+    // Without the Curve in the snapshot the reason of the daemon is the detail of the text.
     let bar = model_with(&online(), &rig.shown(), &ui).toolbar;
     assert_eq!(
         bar.refused.as_deref(),
-        Some("Not applied: graph_3 is read by the Curve of nct6798_pwm6 in profile_default.")
+        Some(
+            "Not applied: something uses the Graph sensor. Detail: graph_3 is read by the Curve \
+             of nct6798_pwm6 in profile_default"
+        )
     );
 
     // Nothing uses the sensor: the sensor goes, and the Graph has a response end node.
@@ -2565,11 +2567,19 @@ fn unit_change_calls_set_definition() {
 
     // A Software sensor slot uses the sensor: the daemon refuses the new unit with `InUse`.
     *rig.link.no_rename.lock().unwrap() = Some(SensorError::InUse(
-        "Software sensor 4 uses the Graph sensor".to_owned(),
+        "graph_3 is held by the Software sensor 4".to_owned(),
     ));
     assert!(ui.choose_param(3, "unit", "degC"));
     apply(&mut rig, &mut ui);
-    let bar = model_with(&online(), &rig.shown(), &ui).toolbar;
+    // The snapshot gives the slot that takes the sensor.
+    let mut with_slot = with_leakshield();
+    with_slot
+        .snapshot
+        .leakshield_data
+        .get_mut(LEAKSHIELD)
+        .expect("the Leakshield")
+        .software_sensors = vec![(4, Some("graph_3".to_owned()))];
+    let bar = model_with(&with_slot, &rig.shown(), &ui).toolbar;
     assert_eq!(
         bar.refused.as_deref(),
         Some("Not applied: Software sensor 4 uses the Graph sensor.")

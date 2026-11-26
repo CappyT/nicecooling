@@ -1072,6 +1072,20 @@ graph_editor:
   offline: "The daemon is offline. The Graph sensor needs the daemon."
   not_applied_reason: "Not applied: %{reason}."
   not_applied_curve: "Not applied: the Curve of %{name} uses the Graph sensor."
+  refused:
+    unavailable: "Not applied: the app has no connection to the daemon."
+    no_answer: "Not applied: the daemon did not answer in 120 s."
+    denied: "Not applied: the system does not allow this user to change sensors."
+    missing: "Not applied: the Graph sensor does not exist on the daemon."
+    limit: "Not applied: the limit of 64 Graph sensors is reached."
+    in_use_loop: "Not applied: the Loop %{name} uses the Graph sensor."
+    in_use_derived: "Not applied: the Derived sensor %{name} uses the Graph sensor."
+    in_use_slot: "Not applied: Software sensor %{slot} uses the Graph sensor."
+    in_use_many: "Not applied: these use the Graph sensor: %{users}."
+    in_use_detail: "Not applied: something uses the Graph sensor. Detail: %{detail}"
+    refused_detail: "Not applied: the daemon refused the Graph sensor. Detail: %{detail}"
+    failed_detail: "Not applied: the call to the daemon failed. Detail: %{detail}"
+    other_detail: "Not applied. Detail: %{detail}"
   response:
     warning:
       power: "This response can power off or restart the PC"
