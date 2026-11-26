@@ -60,7 +60,7 @@ On a pump-stop Alarm, the daemon SHALL set every Channel to 100%, Channels on th
 - **THEN** each Channel without a Curve or a fixed Duty gets its BIOS snapshot attributes back
 
 ### Requirement: Leakshield unreachable Alarm
-The daemon SHALL raise the Alarm "Leakshield unreachable" when report 1 is missing, or the Feed message fails, for 10 seconds. The default alarm response SHALL be notify.
+The daemon SHALL raise the Alarm "Leakshield unreachable" when report 1 is missing, or the Feed message fails, for 10 seconds. A pause of the tick SHALL end a run of failed Feed messages: the run starts again at the first failed Feed message after the pause. The default alarm response SHALL be notify.
 
 #### Scenario: Device disconnected
 - **WHEN** the Leakshield sends no report 1 for 10 seconds
@@ -69,6 +69,10 @@ The daemon SHALL raise the Alarm "Leakshield unreachable" when report 1 is missi
 #### Scenario: Feed message fails
 - **WHEN** the Feed message fails for 10 seconds
 - **THEN** the daemon raises the Alarm "Leakshield unreachable"
+
+#### Scenario: Failed Feed message before a pause
+- **WHEN** one Feed message fails, the PC suspends for 6 hours, and every Feed message after the resume is accepted
+- **THEN** the daemon raises no Alarm "Leakshield unreachable"
 
 #### Scenario: Leakshield answers again
 - **WHEN** the Leakshield sends report 1 and accepts the Feed message for 10 seconds in a row

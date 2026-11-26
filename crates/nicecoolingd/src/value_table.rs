@@ -107,6 +107,14 @@ impl ValueTable {
 }
 
 impl ValueTable {
+    /// A pause of the tick ends every run of failed Feed messages: the next failure starts a new
+    /// run, so a failure from before the pause cannot count as 10 s of failures after it.
+    pub fn end_feed_runs(&self) {
+        for status in self.leakshields.lock().unwrap().values_mut() {
+            status.feed_failing_since = None;
+        }
+    }
+
     /// The Feed of a Leakshield is off: a failing run ends with it.
     pub fn feed_off(&self, leakshield: &str) {
         if let Some(status) = self.leakshields.lock().unwrap().get_mut(leakshield) {
@@ -134,6 +142,19 @@ mod tests {
     use super::*;
 
     const SECOND: Duration = Duration::from_secs(1);
+
+    #[test]
+    fn a_pause_ends_the_run_of_failed_feeds() {
+        let table = ValueTable::default();
+        table.publish_feed("lk", false, SECOND);
+        table.end_feed_runs();
+        assert_eq!(table.leakshields()["lk"].feed_failing_since, None);
+        table.publish_feed("lk", false, 5 * SECOND);
+        assert_eq!(
+            table.leakshields()["lk"].feed_failing_since,
+            Some(5 * SECOND)
+        );
+    }
 
     #[tokio::test(start_paused = true)]
     async fn wait_for_reads_ends_with_the_read_of_each_source_sensor() {

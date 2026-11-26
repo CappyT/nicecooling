@@ -237,6 +237,7 @@ impl TickRunner {
     /// After a pause of the tick (suspend, a stopped process) the values in the table are from
     /// before it. Waits until each sensor that was live in the last tick has a new read, or for
     /// `REREAD_LIMIT`. A sensor that does not read is lost in this tick, as it is after 3 s.
+    /// A run of failed Feed messages that began before the pause starts again.
     async fn reread_after_pause(&mut self) {
         let now = self.clock.now();
         self.ctx.suspended = self.suspended.suspended();
@@ -244,6 +245,7 @@ impl TickRunner {
             return;
         };
         self.ctx.resumed_from = Some(now);
+        values.end_feed_runs();
         values
             .wait_for_reads(self.ctx.values.keys(), now, REREAD_LIMIT)
             .await;
