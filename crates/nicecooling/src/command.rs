@@ -17,7 +17,11 @@ pub enum Command {
     ReturnToAutomatic,
     /// Show the window, on a page or on the last one.
     OpenWindow(Option<Page>),
+    /// "Quit" of the window menu and of the tray. A draft of the Graph editor that is not
+    /// applied asks first.
     Quit,
+    /// SIGTERM, the end of the session: the app ends and asks nothing.
+    Terminate,
     /// The Graph service handles it. The app never sends it to the daemon.
     Graph(GraphCommand),
     /// An empty name restores the default name.
@@ -276,7 +280,9 @@ impl Command {
             Self::CancelPoweroff { instance } => client.cancel_poweroff(instance).await?,
             Self::ActivateProfile { id } => client.activate_profile(id).await?,
             Self::ReturnToAutomatic => client.return_to_automatic().await?,
-            Self::OpenWindow(_) | Self::Quit | Self::Graph(_) => return Ok(false),
+            Self::OpenWindow(_) | Self::Quit | Self::Terminate | Self::Graph(_) => {
+                return Ok(false);
+            }
             Self::SetSensorName { sensor, name } => client.set_sensor_name(sensor, name).await?,
             Self::CreateDerivedSensor {
                 name,
@@ -701,7 +707,7 @@ impl Command {
             | Self::ImportBackup { leakshield, .. } => format!("ls:{leakshield}:backups"),
             Self::FactoryReset { leakshield } => format!("ls:{leakshield}:factory-reset"),
             Self::CancelPoweroff { instance } => format!("poweroff:{instance}"),
-            Self::OpenWindow(_) | Self::Quit | Self::Graph(_) => return None,
+            Self::OpenWindow(_) | Self::Quit | Self::Terminate | Self::Graph(_) => return None,
         })
     }
 }

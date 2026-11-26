@@ -632,7 +632,6 @@ impl ShellView {
     ) -> impl IntoElement {
         let locale = self.model.read(cx).locale;
         let commands = self.commands.clone();
-        let model = self.model.clone();
         let item = |id: &'static str, label: String| Button::new(id).ghost().small().label(label);
         let _ = shell;
         v_flex()
@@ -647,15 +646,10 @@ impl ShellView {
             .child(item("menu-shortcuts", locale.tr("menu.shortcuts")))
             .child(item("menu-about", locale.tr("menu.about")))
             .child(
-                item("menu-quit", locale.tr("menu.quit")).on_click(move |_, _, cx| {
-                    // A draft of the Graph editor that is not applied asks first.
-                    let asks = model.update(cx, |app, cx| {
-                        cx.notify();
-                        app.request_quit()
-                    });
-                    if !asks {
-                        let _ = commands.send(Command::Quit);
-                    }
+                // A draft of the Graph editor that is not applied asks first: the app model
+                // decides, as for "Quit" of the tray.
+                item("menu-quit", locale.tr("menu.quit")).on_click(move |_, _, _| {
+                    let _ = commands.send(Command::Quit);
                 }),
             )
     }

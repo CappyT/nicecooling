@@ -141,8 +141,8 @@ impl AppModel {
         }
     }
 
-    /// "Quit" of the window menu. Returns false when the app can quit at once. While the Graph
-    /// editor holds a draft that is not applied, the editor shows and asks first.
+    /// "Quit" of the window menu and of the tray. Returns false when the app can quit at once.
+    /// While the Graph editor holds a draft that is not applied, the editor shows and asks first.
     pub fn request_quit(&mut self) -> bool {
         if !self.graph_draft {
             return false;
@@ -282,7 +282,23 @@ pub fn init(cx: &mut App, mode: StartMode, backend: Backend) -> Entity<AppModel>
                         }
                         show_window(cx, &model, &commands);
                     }),
-                    Command::Quit => {
+                    Command::Quit | Command::Terminate => {
+                        // "Quit" with a draft that is not applied shows the window with the
+                        // question of the editor. SIGTERM never asks.
+                        let asks = command == Command::Quit
+                            && cx.update(|cx| {
+                                let asks = model.update(cx, |app, cx| {
+                                    cx.notify();
+                                    app.request_quit()
+                                });
+                                if asks {
+                                    show_window(cx, &model, &commands);
+                                }
+                                asks
+                            });
+                        if asks {
+                            continue;
+                        }
                         // The service writes its state and cancels a countdown first. A service
                         // that does not answer holds the quit for QUIT_WAIT at most.
                         if let Some(graphs) = graphs.clone() {

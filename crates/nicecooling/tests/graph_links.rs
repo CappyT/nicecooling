@@ -441,7 +441,7 @@ fn countdown_end_makes_the_power_call() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn sigterm_takes_the_quit_path() {
+async fn sigterm_ends_the_app_without_a_question() {
     let (commands, mut inbox) = mpsc::unbounded_channel();
     spawn_sigterm(&tokio::runtime::Handle::current(), commands).expect("the handler");
     // The handler is in place: the signal gives a command and does not end the test process.
@@ -453,7 +453,8 @@ async fn sigterm_takes_the_quit_path() {
     let command = tokio::time::timeout(Duration::from_secs(10), inbox.recv())
         .await
         .expect("a command in 10 s");
-    assert_eq!(command, Some(Command::Quit));
+    // Not `Command::Quit`: that one asks first with a draft of the Graph editor.
+    assert_eq!(command, Some(Command::Terminate));
 }
 
 #[test]

@@ -102,7 +102,7 @@ fn main() {
             done,
         },
     );
-    // The end of the session takes the path of "Quit".
+    // The end of the session ends the app as "Quit" does, without a question.
     if let Err(error) = services::spawn_sigterm(runtime.handle(), commands_tx.clone()) {
         eprintln!("nicecooling: no SIGTERM handler: {error}");
     }

@@ -214,8 +214,8 @@ pub fn spawn_history(mut events: broadcast::Receiver<DaemonEvent>, path: PathBuf
     });
 }
 
-/// SIGTERM, the end of the session, takes the path of "Quit": it sends `Command::Quit`. The
-/// handler is in place when the function returns.
+/// SIGTERM, the end of the session, ends the app as "Quit" does, and asks nothing: it sends
+/// `Command::Terminate`. The handler is in place when the function returns.
 pub fn spawn_sigterm(
     runtime: &tokio::runtime::Handle,
     commands: UnboundedSender<Command>,
@@ -224,7 +224,7 @@ pub fn spawn_sigterm(
     let mut signal = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
     runtime.spawn(async move {
         while signal.recv().await.is_some() {
-            let _ = commands.send(Command::Quit);
+            let _ = commands.send(Command::Terminate);
         }
     });
     Ok(())

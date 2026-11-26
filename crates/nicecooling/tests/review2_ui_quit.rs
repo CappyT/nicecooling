@@ -42,6 +42,10 @@ fn quit_of_the_tray_asks_first_with_a_draft(cx: &mut TestAppContext) {
         let app = model.read(cx);
         (app.leave_request.clone(), app.page.clone())
     });
-    assert_eq!(asked, Some(LeaveRequest::Quit), "the app quit without the question");
+    assert_eq!(
+        asked,
+        Some(LeaveRequest::Quit),
+        "the app quit without the question"
+    );
     assert_eq!(page, Page::Graphs);
 }
