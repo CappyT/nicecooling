@@ -488,7 +488,13 @@ impl ScreenView {
 
     /// Give the canvas the nodes and the connections of the draft, the selection, and the
     /// faces that its node renderer draws.
-    fn sync_canvas(&mut self, model: &EditorModel, p: &Palette, cx: &mut Context<Self>) {
+    fn sync_canvas(
+        &mut self,
+        model: &EditorModel,
+        p: &Palette,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let Some(host) = self.graph_editor.as_mut() else {
             return;
         };
@@ -503,7 +509,13 @@ impl ScreenView {
         }
         if host.dark != p.dark {
             host.dark = p.dark;
+            // The canvas of the new theme takes the keyboard focus of the old canvas.
+            let focused = host.canvas.read(cx).focus_handle().is_focused(window);
             host.canvas = new_canvas(&host.flow, &host.look, p, cx);
+            if focused {
+                let focus = host.canvas.read(cx).focus_handle().clone();
+                window.focus(&focus, cx);
+            }
         }
         let shape = shape_of(&model.nodes, &model.edges);
         let changed = shape != host.shape;
@@ -615,7 +627,7 @@ impl ScreenView {
         if let Some(command) = stop {
             self.send(command);
         }
-        self.sync_canvas(&model, p, cx);
+        self.sync_canvas(&model, p, window, cx);
         let question = model
             .leave
             .as_ref()
