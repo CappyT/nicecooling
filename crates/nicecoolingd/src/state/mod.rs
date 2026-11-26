@@ -210,45 +210,69 @@ fn is_graph_sensor_id(id: &str) -> bool {
     id_number("graph_", id).is_some()
 }
 
-/// `true` for an id that is a D-Bus path element. Another id goes, with one journal line.
-fn keep_entry(what: &str, id: &str) -> bool {
-    let keep = is_identifier(id);
-    if !keep {
-        eprintln!(
-            "nicecoolingd: state.json: dropped the {what} {id:?}, its id is not an identifier"
-        );
+/// How many ids a journal line names. A state file with thousands of bad entries gives one line
+/// for each kind of entry, not one line for each entry.
+const NAMED_IDS: usize = 5;
+
+/// The journal line for the entries of one kind that the load dropped: the count and the first
+/// ids. `None` when no entry was dropped.
+fn dropped_line(what: &str, why: &str, ids: &[String]) -> Option<String> {
+    if ids.is_empty() {
+        return None;
     }
-    keep
+    let first: Vec<_> = ids.iter().take(NAMED_IDS).collect();
+    Some(format!(
+        "nicecoolingd: state.json: dropped {} {what}: {why}; first ids: {first:?}",
+        ids.len()
+    ))
+}
+
+fn report_dropped(what: &str, why: &str, ids: &[String]) {
+    if let Some(line) = dropped_line(what, why, ids) {
+        eprintln!("{line}");
+    }
+}
+
+/// Keeps the entries whose id is a D-Bus path element. The other entries go, with one journal
+/// line for the kind.
+fn retain_identifiers<T>(what: &str, entries: &mut Vec<T>, id: impl Fn(&T) -> &str) {
+    let mut dropped = Vec::new();
+    entries.retain(|entry| {
+        let keep = is_identifier(id(entry));
+        if !keep {
+            dropped.push(id(entry).to_owned());
+        }
+        keep
+    });
+    report_dropped(what, "its id is not an identifier", &dropped);
 }
 
 /// Drops the entries that the daemon cannot serve as objects, so a file that was edited by hand
 /// never stops the start. An entry with an id that is not a path element goes. Of the Graph
 /// sensors, the first 64 with a valid and unique id stay.
 fn drop_unservable(state: &mut DaemonState) {
-    state
-        .derived_sensors
-        .retain(|d| keep_entry("Derived sensor", &d.id));
-    state.loops.retain(|l| keep_entry("Loop", &l.id));
+    retain_identifiers("Derived sensors", &mut state.derived_sensors, |d| &d.id);
+    retain_identifiers("Loops", &mut state.loops, |l| &l.id);
     let mut seen = BTreeSet::new();
     let mut kept = Vec::new();
-    let mut dropped = 0;
+    let mut dropped = Vec::new();
     for graph in std::mem::take(&mut state.graph_sensors) {
-        if !is_graph_sensor_id(&graph.id) {
-            eprintln!(
-                "nicecoolingd: state.json: dropped the Graph sensor {:?}, its id is not graph_<n>",
-                graph.id
-            );
-        } else if kept.len() < MAX_GRAPH_SENSORS && seen.insert(graph.id.clone()) {
+        if is_graph_sensor_id(&graph.id)
+            && kept.len() < MAX_GRAPH_SENSORS
+            && seen.insert(graph.id.clone())
+        {
             kept.push(graph);
         } else {
-            dropped += 1;
+            dropped.push(graph.id);
         }
     }
-    if dropped > 0 {
-        eprintln!(
-            "nicecoolingd: state.json: dropped {dropped} Graph sensors: a repeated id or more than {MAX_GRAPH_SENSORS}"
-        );
-    }
+    report_dropped(
+        "Graph sensors",
+        &format!(
+            "the id is not graph_<n>, the id is repeated, or more than {MAX_GRAPH_SENSORS} exist"
+        ),
+        &dropped,
+    );
     state.graph_sensors = kept;
 }
 
@@ -492,6 +516,18 @@ mod tests {
     use super::*;
     use std::fs;
     use std::path::PathBuf;
+
+    #[test]
+    fn a_dropped_line_names_the_count_and_the_first_5_ids() {
+        let ids: Vec<String> = (0..10_000).map(|n| format!("Bad-{n}")).collect();
+        let line = dropped_line("Loops", "why", &ids).unwrap();
+        assert_eq!(
+            line,
+            "nicecoolingd: state.json: dropped 10000 Loops: why; first ids: \
+             [\"Bad-0\", \"Bad-1\", \"Bad-2\", \"Bad-3\", \"Bad-4\"]"
+        );
+        assert_eq!(dropped_line("Loops", "why", &[]), None);
+    }
 
     fn temp(name: &str) -> PathBuf {
         let dir =

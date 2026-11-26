@@ -958,11 +958,11 @@ A new Graph sensor SHALL get an id above the counter, above every Graph sensor a
 - **THEN** the Curve has no value and the Channel follows the Lost Input rule
 
 ### Requirement: Graph sensor entries at load
-At load, the daemon SHALL drop each Graph sensor, Derived sensor and Loop whose id is not a path element (a Graph sensor id is `graph_<n>`), with one journal line that names the id, and SHALL start. It SHALL keep the first 64 other Graph sensors with a unique id, drop the rest and write one journal line with the count dropped. A Curve on a dropped sensor has no value.
+At load, the daemon SHALL drop each Graph sensor, Derived sensor and Loop whose id is not a path element (a Graph sensor id is `graph_<n>`), and SHALL start. It SHALL keep the first 64 other Graph sensors with a unique id and drop the rest. It SHALL write one journal line for each kind of entry, with the count dropped and the first 5 ids, never one line for each entry. A Curve on a dropped sensor has no value.
 
 #### Scenario: 70 stored sensors
 - **WHEN** `state.json` holds `graph_1` to `graph_70`
-- **THEN** the daemon keeps `graph_1` to `graph_64` and writes one journal line that names 6 dropped sensors
+- **THEN** the daemon keeps `graph_1` to `graph_64` and writes one journal line with the count 6 and the ids `graph_65` to `graph_69` (the first 5 of 6)
 
 #### Scenario: Repeated id
 - **WHEN** `state.json` holds `graph_3` twice
@@ -970,11 +970,15 @@ At load, the daemon SHALL drop each Graph sensor, Derived sensor and Loop whose 
 
 #### Scenario: Bad Graph sensor id
 - **WHEN** `state.json` holds `graph-1` and `graph_2`
-- **THEN** the daemon starts, drops `graph-1` with a journal line that names it and keeps `graph_2`
+- **THEN** the daemon starts, drops `graph-1` with a journal line that has the count 1 and names it, and keeps `graph_2`
+
+#### Scenario: 10 000 bad Graph sensor ids
+- **WHEN** `state.json` holds 10 000 Graph sensors with an id that is not `graph_<n>`
+- **THEN** the daemon starts and writes one journal line with the count 10000 and the first 5 ids
 
 #### Scenario: Bad Derived sensor id
 - **WHEN** `state.json` holds a Derived sensor `derived-1`
-- **THEN** the daemon starts and drops it with a journal line that names `derived-1`
+- **THEN** the daemon starts and drops it with one journal line with the count 1 and the id `derived-1`
 
 ### Requirement: Graph sensor units
 The unit of a Graph sensor SHALL be one of `degC`, `rpm`, `%`, `V`, `A`, `W`, `l/h` and `mbar`. The `Kind` of the sensor SHALL come from the unit: `temperature` for `degC`, `fan` for `rpm`, `voltage` for `V`, `flow` for `l/h`, `pressure` for `mbar`, and `other` for `%`, `A` and `W`.
