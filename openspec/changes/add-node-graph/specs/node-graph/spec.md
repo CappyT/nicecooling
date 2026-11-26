@@ -943,11 +943,15 @@ The counter of the Graph sensor ids SHALL NOT wrap. When no id above the counter
 - **THEN** the daemon refuses it with `InvalidArgument` and the counter stays 4294967295
 
 ### Requirement: Graph sensor id after a downgrade
-A new Graph sensor SHALL get an id above the counter, above every Graph sensor and above every `graph_<n>` that the stored state still names: a Curve Input of any Profile, a sensor of a rule, a Software sensor slot and a user name. A Curve that names a Graph sensor that does not exist SHALL have no value and follow the Lost Input rule.
+A new Graph sensor SHALL get an id above the counter, above every Graph sensor and above every `graph_<n>` that the stored state still names: a Curve Input of any Profile, a sensor of a rule, a Software sensor slot and a user name. In `graph_<n>`, `<n>` is decimal digits only, with no sign and no leading zero: any other text is a name that the user chose and gives no number. A Curve that names a Graph sensor that does not exist SHALL have no value and follow the Lost Input rule.
 
 #### Scenario: New id after a downgrade
 - **WHEN** the counter is 1, a Curve of `nct6798_pwm1` has `graph_1` as Input, slot 4 holds `graph_1`, `graph_1` has the user name "Mine" and the app creates a Graph sensor
 - **THEN** `CreateGraphSensor` returns `/io/github/cappyt/NiceCooling1/sensor/graph_2`, its name is not "Mine" and no slot holds it
+
+#### Scenario: Name key with a sign
+- **WHEN** the counter is 1, `names` holds the key `graph_+4294967295` and the app creates a Graph sensor
+- **THEN** `CreateGraphSensor` returns `/io/github/cappyt/NiceCooling1/sensor/graph_1`
 
 #### Scenario: Curve on a missing sensor
 - **WHEN** a Curve has `graph_1` as Input and no Graph sensor `graph_1` exists

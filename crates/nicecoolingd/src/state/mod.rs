@@ -5,7 +5,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
-use nicecooling_api::ids::{DEFAULT_PROFILE, graph_sensor_id};
+use nicecooling_api::ids::{DEFAULT_PROFILE, id_number};
 use nicecooling_core::calibration::{CalibrationTable, Preset};
 use nicecooling_core::curve::Curve;
 use nicecooling_core::derived::DerivedSensor;
@@ -207,9 +207,7 @@ fn is_identifier(id: &str) -> bool {
 
 /// `graph_<n>` with no leading zero: the one form that the daemon gives.
 fn is_graph_sensor_id(id: &str) -> bool {
-    id.strip_prefix("graph_")
-        .and_then(|n| n.parse::<u32>().ok())
-        .is_some_and(|n| graph_sensor_id(n) == id)
+    id_number("graph_", id).is_some()
 }
 
 /// `true` for an id that is a D-Bus path element. Another id goes, with one journal line.

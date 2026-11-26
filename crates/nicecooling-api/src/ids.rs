@@ -103,10 +103,21 @@ pub fn id_from_path(kind: Kind, path: &str) -> Option<&str> {
     is_identifier(id).then_some(id)
 }
 
+/// The number of `<prefix><n>`: decimal digits only, with no sign and no leading zero. This is the
+/// one form that the daemon gives, so any other text is a name that a user chose.
+pub fn id_number(prefix: &str, id: &str) -> Option<u32> {
+    let digits = id.strip_prefix(prefix)?;
+    if !digits.bytes().all(|b| b.is_ascii_digit()) || (digits.len() > 1 && digits.starts_with('0'))
+    {
+        return None;
+    }
+    digits.parse().ok()
+}
+
 /// The next number for an identifier family: one more than the highest `<prefix><n>` in use.
 pub fn next_number<'a>(prefix: &str, used: impl IntoIterator<Item = &'a str>) -> u32 {
     used.into_iter()
-        .filter_map(|id| id.strip_prefix(prefix)?.parse::<u32>().ok())
+        .filter_map(|id| id_number(prefix, id))
         .max()
         .map_or(1, |n| n + 1)
 }
@@ -122,7 +133,7 @@ pub fn take_number<'a>(
 ) -> Option<u32> {
     let above_used = used
         .into_iter()
-        .filter_map(|id| id.strip_prefix(prefix)?.parse::<u32>().ok())
+        .filter_map(|id| id_number(prefix, id))
         .max()
         .map_or(Some(1), |n| n.checked_add(1))?;
     let n = (*counter).max(above_used);
@@ -181,6 +192,42 @@ mod tests {
     fn next_number_follows_the_highest() {
         assert_eq!(next_number("loop_", ["loop_1", "loop_3", "other"]), 4);
         assert_eq!(next_number("loop_", std::iter::empty()), 1);
+        assert_eq!(next_number("loop_", ["loop_+9", "loop_007"]), 1);
+    }
+
+    #[test]
+    fn a_number_is_decimal_digits_without_a_sign_or_a_leading_zero() {
+        assert_eq!(id_number("graph_", "graph_1"), Some(1));
+        assert_eq!(id_number("graph_", "graph_4294967295"), Some(u32::MAX));
+        assert_eq!(id_number("graph_", "graph_0"), Some(0));
+        for id in [
+            "graph_",
+            "graph_+5",
+            "graph_-5",
+            "graph_05",
+            "graph_00",
+            "graph_+4294967295",
+            "graph_4294967296",
+            "graph_1_2",
+            "graph_ 1",
+            "graph_١",
+            "loop_1",
+        ] {
+            assert_eq!(id_number("graph_", id), None, "{id}");
+        }
+        // The ids of every family that the daemon has given: `<prefix><n>` for n from 1.
+        for n in [1, 9, 10, 99, 100, 12345, u32::MAX] {
+            for (prefix, id) in [
+                ("derived_", derived_sensor_id(n)),
+                ("graph_", graph_sensor_id(n)),
+                ("loop_", loop_id(n)),
+                ("profile_", numbered_profile(n)),
+                ("group_", rule_group_id(n)),
+                ("table_", table_id(n)),
+            ] {
+                assert_eq!(id_number(prefix, &id), Some(n), "{id}");
+            }
+        }
     }
 
     #[test]
