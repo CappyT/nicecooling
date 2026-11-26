@@ -2,7 +2,10 @@
 //! sensors that no Graph of this user holds.
 
 use gpui::prelude::*;
-use gpui::{AnyElement, Context, ElementId, FontWeight, SharedString, Window, div, px};
+use gpui::{
+    AnyElement, App, Context, Div, ElementId, FontWeight, KeyDownEvent, SharedString, Window, div,
+    px,
+};
 use gpui_component::button::ButtonVariants as _;
 use gpui_component::switch::Switch;
 use gpui_component::{Disableable as _, h_flex, v_flex};
@@ -26,11 +29,14 @@ use crate::screens::ui::{
 use crate::shell::Page;
 use crate::tokens::Palette;
 
-/// The widths of the cells after the name. The name takes the rest of the row.
-const END: f32 = 120.;
-const STATE: f32 = 110.;
-const RESULT: f32 = 190.;
-const BUTTONS: f32 = 236.;
+/// The widths of the cells after the name. The name takes the rest of the row. The cell of the
+/// buttons has the width of its buttons: their texts change with the language.
+const END: f32 = 92.;
+const STATE: f32 = 100.;
+const RESULT: f32 = 156.;
+/// The gap between the switch of a row and its buttons, and the gap between two buttons.
+const SWITCH_GAP: f32 = 6.;
+const BUTTON_GAP: f32 = 3.;
 
 impl ScreenView {
     pub(crate) fn render_graphs(
@@ -99,19 +105,16 @@ impl ScreenView {
         });
 
         let mut content = page().child(tools);
-        let titles = [
-            model.columns[0].clone(),
-            model.columns[1].clone(),
-            model.columns[2].clone(),
-            model.columns[3].clone(),
-            String::new(),
-        ];
-        let widths = [None, Some(END), Some(STATE), Some(RESULT), Some(BUTTONS)];
+        let titles = model.columns.clone();
+        let widths = [None, Some(END), Some(STATE), Some(RESULT)];
+        // The last cell of the header has the width of the buttons of a row, so the titles
+        // stand above their columns.
+        let header = || table_header(&titles, &widths, p).child(Self::graph_buttons_width(&model));
         match model.state {
             GraphsState::Loading => {
                 let mut table = card(p)
                     .child(card_header(model.title.clone(), p))
-                    .child(table_header(&titles, &widths, p));
+                    .child(header());
                 for width in [220., 300., 180.] {
                     table = table.child(table_row(p).min_h(px(48.)).child(skeleton(p, width)));
                 }
@@ -188,9 +191,7 @@ impl ScreenView {
                 for text in &model.warnings {
                     table = table.child(notice_row(text.clone(), true, p));
                 }
-                table = table
-                    .children(notice)
-                    .child(table_header(&titles, &widths, p));
+                table = table.children(notice).child(header());
                 for (index, line) in model.rows.iter().enumerate() {
                     table = table.child(self.graph_line(index, line, &model, p, window, cx));
                 }
@@ -208,6 +209,43 @@ impl ScreenView {
             root = root.child(self.graphs_dialog(dialog, p, cx));
         }
         root.into_any_element()
+    }
+
+    /// The switch and the three buttons of a row: the look that the row and the header share.
+    fn graph_row_buttons(
+        index: Option<usize>,
+        model: &GraphsModel,
+    ) -> (
+        gpui_component::button::Button,
+        gpui_component::button::Button,
+        gpui_component::button::Button,
+    ) {
+        let id = |name: &str| match index {
+            Some(index) => SharedString::from(format!("graph-{name}-{index}")),
+            None => SharedString::from(format!("graph-{name}-width")),
+        };
+        (
+            Self::small_button(id("edit"), model.edit.clone(), None),
+            Self::flat_button(id("export"), model.export.clone()).px(px(6.)),
+            Self::flat_button(id("delete"), model.delete.clone()).px(px(6.)),
+        )
+    }
+
+    /// An element with the width of the buttons of a row and no height. It shows nothing and
+    /// takes no focus.
+    fn graph_buttons_width(model: &GraphsModel) -> Div {
+        let (edit, export, delete) = Self::graph_row_buttons(None, model);
+        h_flex()
+            .flex_none()
+            .h(px(0.))
+            .overflow_hidden()
+            .invisible()
+            .gap(px(BUTTON_GAP))
+            // The switch of a row is 36 px wide.
+            .child(div().w(px(36.)).mr(px(SWITCH_GAP)).flex_none())
+            .child(edit.tab_stop(false).disabled(true))
+            .child(export.tab_stop(false).disabled(true))
+            .child(delete.tab_stop(false).disabled(true))
     }
 
     /// One row of the table: the name, the end node, the state, the result and the buttons.
@@ -232,7 +270,13 @@ impl ScreenView {
         let focused = focus.is_focused(window);
         let ink = if line.dim { p.fg_dim } else { p.fg };
 
-        let note = caption(line.caption.clone(), p).truncate();
+        // The count of the nodes stays on one line. A reason or a refusal wraps: it is never cut.
+        let note = caption(line.caption.clone(), p);
+        let note = if line.caption_warns {
+            note
+        } else {
+            note.truncate()
+        };
         let name = v_flex()
             .id(("graph-name", index))
             .flex_1()
@@ -245,8 +289,8 @@ impl ScreenView {
             } else {
                 h_flex()
                     .gap(px(4.))
-                    .items_center()
-                    .child(small_icon(NcIcon::Warn, p.warning))
+                    .items_start()
+                    .child(small_icon(NcIcon::Warn, p.warning).mt(px(2.)))
                     .child(note.text_color(p.warning))
             })
             // A double click opens the editor, as "Edit" does.
@@ -305,8 +349,9 @@ impl ScreenView {
                 (None, true) => h_flex().child(tag(line.result.clone(), TagKind::Accent, p)),
                 (None, false) => h_flex().child(label(line.result.clone())),
             });
+        // The time of the last run wraps in a language with a long text: it is never cut.
         if let Some(text) = &line.last_run {
-            result = result.child(caption(text.clone(), p).truncate());
+            result = result.child(caption(text.clone(), p));
         }
 
         let switch = Switch::new(SharedString::from(format!("graph-switch-{index}")))
@@ -323,47 +368,43 @@ impl ScreenView {
                     })
                 }
             });
-        let edit = Self::small_button(
-            SharedString::from(format!("graph-edit-{index}")),
-            model.edit.clone(),
-            None,
-        )
-        .disabled(!line.readable)
-        .tip(line.read_tooltip.clone().unwrap_or_default())
-        .on_click(act(&view, {
-            let id = id.clone();
-            move |this, _, cx| this.edit_graph(&id, cx)
-        }));
-        let export = Self::flat_button(
-            SharedString::from(format!("graph-export-{index}")),
-            model.export.clone(),
-        )
-        .disabled(!line.readable)
-        .tip(line.read_tooltip.clone().unwrap_or_default())
-        .on_click(act(&view, {
-            let id = id.clone();
-            move |this, _, cx| this.export_graph(&id, cx)
-        }));
-        let delete = Self::flat_button(
-            SharedString::from(format!("graph-delete-{index}")),
-            model.delete.clone(),
-        )
-        .disabled(!line.delete_enabled)
-        .tip(line.delete_tooltip.clone().unwrap_or_default())
-        .on_click(act(&view, move |this, _, _| {
-            this.graphs.delete = Some(id.clone());
-        }));
+        let (edit, export, delete) = Self::graph_row_buttons(Some(index), model);
+        let edit = edit
+            .disabled(!line.readable)
+            .tip(line.read_tooltip.clone().unwrap_or_default())
+            .on_click(act(&view, {
+                let id = id.clone();
+                move |this, _, cx| this.edit_graph(&id, cx)
+            }));
+        let export = export
+            .disabled(!line.readable)
+            .tip(line.read_tooltip.clone().unwrap_or_default())
+            .on_click(act(&view, {
+                let id = id.clone();
+                move |this, _, cx| this.export_graph(&id, cx)
+            }));
+        let delete = delete
+            .disabled(!line.delete_enabled)
+            .tip(line.delete_tooltip.clone().unwrap_or_default())
+            .on_click(act(&view, {
+                let (row, readable) = (focus.clone(), line.readable);
+                move |this, window, cx| {
+                    // The question gives the focus back to what had it: the row.
+                    if readable {
+                        window.focus(&row, cx);
+                    }
+                    this.graphs.delete = Some(id.clone());
+                }
+            }));
         let buttons = h_flex()
-            .w(px(BUTTONS))
             .flex_none()
-            .gap(px(3.))
+            .gap(px(BUTTON_GAP))
             .items_center()
-            .justify_end()
             .child(
                 div()
                     .id(("graph-switch-cell", index))
                     .flex_none()
-                    .mr(px(6.))
+                    .mr(px(SWITCH_GAP))
                     .child(switch)
                     .tip(line.switch_tooltip.clone().unwrap_or_default()),
             )
