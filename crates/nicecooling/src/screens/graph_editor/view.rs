@@ -23,7 +23,7 @@ use super::canvas::{
     opening_view, shape_of, view_centre,
 };
 use super::palette::{ListForm, ListKey, ListRow, NodeList, family_key};
-use super::response_panel::Network;
+use super::response_panel::{Network, is_executable};
 use super::{EditorKey, EditorModel, EditorUi, Selected, editor_key};
 use crate::app::{LeaveRequest, now_us};
 use crate::command::Command;
@@ -74,6 +74,8 @@ pub(crate) struct EditorHost {
     leave_focus: FocusHandle,
     /// The question on leaving showed in the last frame.
     leave_shown: bool,
+    /// The program of a "Command" response that a check runs for now.
+    program_pending: Option<String>,
 }
 
 /// A color of the palette as 0xRRGGBB, for the canvas.
@@ -428,7 +430,40 @@ impl ScreenView {
             panel_focus: cx.focus_handle(),
             leave_focus: cx.focus_handle().tab_stop(true),
             leave_shown: false,
+            program_pending: None,
         });
+    }
+
+    /// Check the program of a "Command" response off the UI thread: when the editor opens and
+    /// when the field "Program" commits. The panel reads the stored result.
+    fn check_graph_program(&mut self, cx: &mut Context<Self>) {
+        let Some(host) = self.graph_editor.as_mut() else {
+            return;
+        };
+        let Some(path) = host.ui.program_to_check() else {
+            return;
+        };
+        if host.program_pending.as_deref() == Some(path.as_str()) {
+            return;
+        }
+        host.program_pending = Some(path.clone());
+        cx.spawn(async move |this, cx| {
+            let checked = path.clone();
+            let executable = cx
+                .background_executor()
+                .spawn(async move { is_executable(&checked) })
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                if let Some(host) = this.graph_editor.as_mut() {
+                    if host.program_pending.as_deref() == Some(path.as_str()) {
+                        host.program_pending = None;
+                    }
+                    host.ui.set_program_check(path, executable);
+                    cx.notify();
+                }
+            });
+        })
+        .detach();
     }
 
     /// An event of the canvas. The events of one input come one by one: they wait here, and the
@@ -509,6 +544,7 @@ impl ScreenView {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         self.sync_graph_editor(shown, p, window, cx);
+        self.check_graph_program(cx);
         let app = self.model.clone();
         let width = f32::from(window.viewport_size().width);
         let Some(host) = self.graph_editor.as_mut() else {

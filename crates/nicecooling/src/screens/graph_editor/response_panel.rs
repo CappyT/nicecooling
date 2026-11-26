@@ -86,14 +86,28 @@ pub struct ResponsePanel {
     pub no_run: Option<String>,
 }
 
-/// Whether a path is a file that the user can execute.
-fn is_executable(path: &str) -> bool {
+/// The result of the check of the program of a "Command" response.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ProgramCheck {
+    pub path: String,
+    pub executable: bool,
+}
+
+/// Whether a path is a file that the user can execute. It reads the disk: the window calls it
+/// off the UI thread.
+pub fn is_executable(path: &str) -> bool {
     std::fs::metadata(Path::new(path))
         .is_ok_and(|file| file.is_file() && file.permissions().mode() & 0o111 != 0)
 }
 
-/// The warning of the response kind of a node, when one applies.
-fn warning_of(node: &Node, network: &Network, locale: Locale) -> Option<Warning> {
+/// The warning of the response kind of a node, when one applies. `program` is the last check
+/// of the program of a "Command" response: a path without a check has no warning yet.
+fn warning_of(
+    node: &Node,
+    network: &Network,
+    program: Option<&ProgramCheck>,
+    locale: Locale,
+) -> Option<Warning> {
     let plain = |key: &str| Warning {
         text: locale.tr(key),
         link: None,
@@ -106,7 +120,10 @@ fn warning_of(node: &Node, network: &Network, locale: Locale) -> Option<Warning>
         ResponseKind::Poweroff | ResponseKind::Reboot | ResponseKind::Suspend => {
             Some(plain("graph_editor.response.warning.power"))
         }
-        ResponseKind::Command if !is_executable(&node.text("path")) => {
+        ResponseKind::Command
+            if program
+                .is_some_and(|check| !check.executable && check.path == node.text("path")) =>
+        {
             Some(plain("graph_editor.response.warning.command"))
         }
         ResponseKind::Email if !network.smtp => Some(account("graph_editor.response.warning.smtp")),
@@ -172,7 +189,7 @@ pub fn response_panel(
         ResponseKind::Notification | ResponseKind::Email | ResponseKind::Mqtt
     );
     Some(ResponsePanel {
-        warning: warning_of(node, &ui.network, locale),
+        warning: warning_of(node, &ui.network, ui.program.as_ref(), locale),
         topic_prefix: (kind == ResponseKind::Mqtt).then(|| format!("{}/", ui.network.base_topic)),
         placeholders: has_text.then(|| locale.tr("graph_editor.response.placeholders")),
         run_once: locale.tr("graph_editor.response.run_once"),
@@ -189,6 +206,24 @@ pub fn response_panel(
 }
 
 impl EditorUi {
+    /// The program of the "Command" response of the draft, when the editor holds no check of
+    /// it. The window then checks it off the UI thread and gives the result to
+    /// `set_program_check`. A new editor and a commit of the field "Program" hold no check.
+    pub fn program_to_check(&self) -> Option<String> {
+        let node = self.draft.graph().response_end()?;
+        if node.response_kind() != ResponseKind::Command {
+            return None;
+        }
+        let path = node.text("path");
+        let checked = self.program.as_ref().map(|check| check.path.as_str());
+        (checked != Some(path.as_str())).then_some(path)
+    }
+
+    /// Keep the result of the check of a program.
+    pub fn set_program_check(&mut self, path: String, executable: bool) {
+        self.program = Some(ProgramCheck { path, executable });
+    }
+
     /// "Run once": the command that runs the response one time at once, with the parameters of
     /// the draft. It ignores the state of the response, its minimum interval and the Response
     /// pause. While the daemon reports the poweroff countdown of an Alarm, a power response

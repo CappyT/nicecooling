@@ -660,6 +660,10 @@ impl EditorUi {
         match typed_value(spec.ty, text) {
             Some(value) => {
                 self.field_error = None;
+                // A commit of the field "Program" checks the program again.
+                if name == "path" {
+                    self.program = None;
+                }
                 self.draft.set_param(node, name, value);
                 true
             }

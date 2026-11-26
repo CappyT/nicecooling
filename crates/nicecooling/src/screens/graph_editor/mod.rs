@@ -26,7 +26,7 @@ use self::draft::Draft;
 use self::live::LiveValues;
 use self::palette::{ListForm, ListUi, NodeList, node_list};
 use self::params::{Panel, panel};
-use self::response_panel::Network;
+use self::response_panel::{Network, ProgramCheck};
 use self::rules::first_rule_text;
 use self::try_run::{TryBanner, TryUi, try_banner};
 use crate::graphs::view::{GraphRow, GraphView, ValuesState};
@@ -116,6 +116,9 @@ pub struct EditorUi {
     pub apply: ApplyUi,
     /// What the response panel needs of the network settings of the app.
     pub network: Network,
+    /// The last check of the program of a "Command" response. `None` before the first check and
+    /// after a commit of the field "Program".
+    pub program: Option<ProgramCheck>,
     /// The last "Run once" ran nothing: the poweroff countdown of an Alarm runs.
     pub run_blocked: bool,
 }
@@ -137,6 +140,7 @@ impl EditorUi {
             tries: TryUi::default(),
             apply: ApplyUi::default(),
             network: Network::default(),
+            program: None,
             run_blocked: false,
         }
     }

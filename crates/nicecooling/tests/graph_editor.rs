@@ -34,7 +34,9 @@ use nicecooling::screens::graph_editor::palette::{ListForm, ListKey};
 use nicecooling::screens::graph_editor::params::{
     Control, Guide, InputRow, Panel, arg_key, label_key, pair_key, param_key,
 };
-use nicecooling::screens::graph_editor::response_panel::{ResponsePanel, TIMING, Warning};
+use nicecooling::screens::graph_editor::response_panel::{
+    ResponsePanel, TIMING, Warning, is_executable,
+};
 use nicecooling::screens::graph_editor::try_run::{for_key, test_key};
 use nicecooling::screens::graph_editor::{EditorKey, EditorModel, EditorUi, Selected, editor_key};
 use nicecooling::screens::graphs::{GraphsModel, GraphsState, GraphsUi, LineState};
@@ -2991,6 +2993,14 @@ fn poweroff_warning_and_apply_allowed() {
     }
 }
 
+/// The check of the program of a "Command" response, as the window runs it off the UI thread.
+fn check_program(ui: &mut EditorUi) {
+    if let Some(path) = ui.program_to_check() {
+        let executable = is_executable(&path);
+        ui.set_program_check(path, executable);
+    }
+}
+
 #[test]
 fn command_path_warning() {
     let rig = Rig::new("editor-command", vec![response_graph("graph_2")]);
@@ -2999,8 +3009,11 @@ fn command_path_warning() {
     assert!(ui.choose_param(2, "kind", "command"));
     let text = "The program is not an executable file";
 
-    // A path that is no file.
+    // A path that is no file. The warning comes with the result of the check.
     assert!(ui.commit_param(2, "path", "/nonexistent/nicecooling-test-program", EN));
+    assert_eq!(response_of(&rig, &ui).warning, None, "no check yet");
+    check_program(&mut ui);
+    assert_eq!(ui.program_to_check(), None, "one check for one commit");
     assert_eq!(response_of(&rig, &ui).warning, warning(text));
     // The path is absolute, so the draft breaks no rule: the warning does not turn "Apply" off.
     let shown = model_with(&state, &rig.shown(), &ui);
@@ -3010,15 +3023,21 @@ fn command_path_warning() {
     // A directory, and a file that nobody can execute.
     let folder = rig.dir.path().to_str().unwrap().to_owned();
     assert!(ui.commit_param(2, "path", &folder, EN));
+    check_program(&mut ui);
     assert_eq!(response_of(&rig, &ui).warning, warning(text));
     let file = rig.dir.path().join("program");
     std::fs::write(&file, "#!/bin/sh\n").unwrap();
     std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o644)).unwrap();
     assert!(ui.commit_param(2, "path", file.to_str().unwrap(), EN));
+    check_program(&mut ui);
     assert_eq!(response_of(&rig, &ui).warning, warning(text));
 
-    // The file is executable: the warning goes.
+    // The file is executable now. The panel reads the stored check and not the disk: the
+    // warning goes at the next commit of the field.
     std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o755)).unwrap();
+    assert_eq!(response_of(&rig, &ui).warning, warning(text));
+    assert!(ui.commit_param(2, "path", file.to_str().unwrap(), EN));
+    check_program(&mut ui);
     assert_eq!(response_of(&rig, &ui).warning, None);
 
     // A relative path does not commit: the validator needs an absolute path.
