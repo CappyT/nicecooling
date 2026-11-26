@@ -978,8 +978,8 @@ impl GraphService {
         self.publish();
     }
 
-    /// Step the response end nodes of one pass and start the runs that are due. An app of a session
-    /// that is not active runs no response, and its machines still follow their inputs.
+    /// Step the response end nodes of one pass and start the runs that are due. A run that is held
+    /// back is not a run (see `held`): the machines still follow their inputs.
     fn run_responses(&mut self, now: Duration, graphs: &[Graph], pass: &Pass) {
         let seconds = self.responses.app_seconds(now);
         self.store.state_mut().pause.advance(seconds);
@@ -1005,10 +1005,14 @@ impl GraphService {
             let EndValue::Response(input) = result.end else {
                 continue;
             };
-            // In a session that is not active a true input counts as no value: the state stays,
-            // and the hold time starts when the session is active again. A false input still
-            // sets the state "not run".
-            let input = input.filter(|on| active || !on);
+            // A run that is held back is not a run: in a session that is not active, in the
+            // Response pause, and for a power response while an Alarm poweroff countdown runs, a
+            // true input counts as no value. The state stays, and the hold time starts when the
+            // hold ends. A false input still sets the state "not run".
+            let held = !active
+                || self.store.state().pause.paused
+                || (node.response_kind().is_power() && self.alarm_poweroff_pending());
+            let input = input.filter(|on| !held || !on);
             let key = value_key(&graph.id, node.id);
             let action = self.responses.step(
                 &key,
@@ -1017,9 +1021,7 @@ impl GraphService {
                 now,
                 &mut self.store.state_mut().responses,
             );
-            // The Response pause: no response runs by itself. The state machine has moved on, so a
-            // condition that stays true runs nothing when the pause ends.
-            if action == Action::Run && !self.store.state().pause.paused {
+            if action == Action::Run {
                 let run = self.make_run(graph, node, result, key);
                 self.start_run(run);
             }

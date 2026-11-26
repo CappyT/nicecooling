@@ -19,6 +19,7 @@ use nicecooling_core::rules::proc_scan::ProcessSource;
 use nicecooling_core::rules::process::ProcessList;
 use nicecooling_graph::model::{Connection, Graph, Kind, Node};
 use nicecooling_graph::pause::PowerKind;
+use nicecooling_graph::response::{RunRecord, RunState};
 use support::fixtures::{LEAKSHIELD, alarm, with_leakshield};
 use support::graphs::Dir;
 use tokio::sync::broadcast;
@@ -215,6 +216,21 @@ impl Rig {
         self.view.lock().unwrap().countdown.is_some()
     }
 
+    /// The stored run record of the response end node of `graph_1`. `None` for a node that never
+    /// ran.
+    fn record(&self) -> Option<RunRecord> {
+        self.service
+            .store()
+            .state()
+            .responses
+            .get("graph_1/2")
+            .copied()
+    }
+
+    fn log_len(&self) -> usize {
+        self.view.lock().unwrap().log.len()
+    }
+
     fn state_json(&self) -> serde_json::Value {
         let text = std::fs::read_to_string(self.dir.graph_paths().state).expect("the state file");
         serde_json::from_str(&text).expect("valid JSON")
@@ -270,16 +286,11 @@ fn pause_blocks_responses_not_sensor_values() {
     assert!(rig.runs().is_empty());
     assert!(rig.view.lock().unwrap().log.is_empty());
 
-    // The user turns the responses on. The condition has been true all along: it runs nothing
-    // until it rises again.
+    // The user turns the responses on. The condition has been true all along, and the held run
+    // was not a run: the response runs once at the next pass.
     rig.service.handle(GraphCommand::ResponsesOn);
     assert!(!rig.paused());
     rig.ticks(3);
-    assert!(rig.runs().is_empty());
-    rig.feed(0.0);
-    rig.ticks(1);
-    rig.feed(1.0);
-    rig.ticks(1);
     assert_eq!(rig.runs().len(), 1);
 }
 
@@ -403,6 +414,114 @@ fn run_once_blocked_during_an_alarm_countdown() {
     drop(view);
     rig.ticks(30);
     assert_eq!(rig.power_calls(), []);
+}
+
+/// `response_graph` of `graph_1` with a hold time and a minimum interval.
+fn timed_graph(kind: &str, hold: u32, min_interval: u32) -> Graph {
+    let mut graph = response_graph("graph_1", kind, 10, Some(60));
+    graph.nodes[1] = graph.nodes[1]
+        .clone()
+        .with_param("hold_s", hold)
+        .with_param("min_interval_s", min_interval);
+    graph
+}
+
+/// A response whose input is true in the Response pause is held back: it is not a run. After the
+/// user turns the responses on, the input must stay true for the hold time, then the response runs
+/// and its countdown starts.
+#[test]
+fn a_run_held_by_the_response_pause_runs_after_the_responses_are_on() {
+    let mut rig = Rig::with_count("held-pause-runs", vec![timed_graph("poweroff", 5, 0)], 3);
+    assert!(rig.paused());
+    rig.feed(1.0);
+    rig.ticks(20);
+    assert!(!rig.countdown_runs());
+    assert_eq!(rig.record(), None);
+
+    rig.service.handle(GraphCommand::ResponsesOn);
+    assert_eq!((rig.paused(), rig.count()), (false, 0));
+    // The pass at second 21 sees the input true: the hold time of 5 s ends at second 26.
+    rig.ticks(5);
+    assert!(!rig.countdown_runs(), "the hold time starts at turn on");
+    rig.ticks(1);
+    assert!(rig.countdown_runs());
+    assert_eq!(rig.count(), 1);
+    assert_eq!(rig.record().map(|record| record.state), Some(RunState::Run));
+    rig.ticks(10);
+    assert_eq!(rig.power_calls(), [PowerKind::Poweroff]);
+}
+
+/// An input that falls in the pause ends the held run. A response that ran before the pause goes
+/// back to "not run" when its input falls.
+#[test]
+fn a_held_run_whose_input_falls_in_the_pause_does_not_run() {
+    let mut rig = Rig::with_count("held-pause-falls", vec![timed_graph("poweroff", 5, 0)], 3);
+    rig.feed(1.0);
+    rig.ticks(20);
+    rig.feed(0.0);
+    rig.ticks(2);
+    rig.service.handle(GraphCommand::ResponsesOn);
+    rig.ticks(30);
+    assert!(!rig.countdown_runs());
+    assert_eq!(rig.record(), None);
+
+    // The input is true for 3 s of the hold time of 5 s, and falls.
+    rig.feed(1.0);
+    rig.ticks(3);
+    rig.feed(0.0);
+    rig.ticks(30);
+    assert!(!rig.countdown_runs());
+    assert_eq!(rig.power_calls(), []);
+    assert_eq!(rig.log_len(), 0);
+
+    // A response that ran before the pause: the input falls in the pause, and the state is "not
+    // run" while the input is true again.
+    let mut rig = three_reboots("held-pause-falls-ran");
+    rig.ticks(10);
+    assert_eq!(rig.power_calls().len(), 3);
+    assert_eq!(rig.record().map(|record| record.state), Some(RunState::Run));
+    rig.feed(0.0);
+    rig.ticks(1);
+    assert_eq!(
+        rig.record().map(|record| record.state),
+        Some(RunState::NotRun)
+    );
+    rig.feed(1.0);
+    rig.ticks(40);
+    assert_eq!(
+        rig.record().map(|record| record.state),
+        Some(RunState::NotRun)
+    );
+    assert_eq!(rig.power_calls().len(), 3);
+    assert!(!rig.countdown_runs());
+}
+
+/// A held run leaves no run state, no last run time, no attempt for the minimum interval and the
+/// repeat interval, and no log row.
+#[test]
+fn a_held_run_writes_no_run_state_and_no_log_row() {
+    let mut rig = Rig::with_count(
+        "held-pause-writes",
+        vec![timed_graph("notification", 5, 300)],
+        3,
+    );
+    rig.feed(1.0);
+    rig.ticks(200);
+    assert!(rig.runs().is_empty());
+    assert_eq!(rig.log_len(), 0);
+    assert_eq!(rig.record(), None);
+    assert!(rig.state_json()["responses"].get("graph_1/2").is_none());
+
+    // The minimum interval of 300 s did not start: the run after turn on is not dropped.
+    rig.service.handle(GraphCommand::ResponsesOn);
+    rig.ticks(5);
+    assert!(rig.runs().is_empty());
+    rig.ticks(1);
+    assert_eq!(rig.runs().len(), 1);
+    assert_eq!(rig.log_len(), 1);
+    let record = rig.record().expect("the run state");
+    assert_eq!(record.state, RunState::Run);
+    assert!(record.last_run_us.is_some());
 }
 
 /// The window with the Graph channel, and the shared view that the service writes.

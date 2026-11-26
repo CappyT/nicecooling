@@ -401,7 +401,7 @@ The app SHALL run one power countdown at a time. A power run that starts while a
 - **THEN** the new run gets the outcome `busy` and the app starts no second program
 
 ### Requirement: Alarm poweroff wins
-While the daemon reports a poweroff countdown of an Alarm, the app SHALL start no power response, "Run once" included, and SHALL cancel its own power countdown. No Graph SHALL change the alarm response table or delay the poweroff of an Alarm.
+While the daemon reports a poweroff countdown of an Alarm, the app SHALL start no power response, "Run once" included, and SHALL cancel its own power countdown. A power response that the Alarm holds back SHALL follow the requirement "Run held back". No Graph SHALL change the alarm response table or delay the poweroff of an Alarm.
 
 #### Scenario: Alarm countdown starts
 - **WHEN** a Graph poweroff countdown has 20 s left and the pump-stop Alarm starts its poweroff countdown
@@ -409,7 +409,7 @@ While the daemon reports a poweroff countdown of an Alarm, the app SHALL start n
 
 #### Scenario: Graph power response during an Alarm countdown
 - **WHEN** a power response fires while an Alarm poweroff countdown runs
-- **THEN** it does not start
+- **THEN** it does not start, its state stays "not run" and no log row is written
 
 #### Scenario: No Graph
 - **WHEN** all Graphs are deleted
@@ -476,6 +476,29 @@ The app SHALL count the poweroff and reboot runs that it starts, "Run once" incl
 #### Scenario: Suspend
 - **WHEN** a suspend response runs
 - **THEN** the count does not change
+
+### Requirement: Run held back
+A run that the app holds back SHALL NOT count as a run. While the Response pause is on, and for a power response while an Alarm poweroff countdown runs, a true input in the state "not run" SHALL count as no value: no state "run", no last run time, no attempt for an interval and no log row. The hold time SHALL start when the pause ends or the Alarm countdown is gone. A false input SHALL set "not run". The state "run" SHALL stay while the input stays true.
+
+#### Scenario: Run after the responses are on
+- **WHEN** the hold time is 5 s, the Response pause is on, the input is true for 20 s, and the user turns the responses on at second 20
+- **THEN** the response does not run before second 26 and runs at second 26
+
+#### Scenario: Input falls in the pause
+- **WHEN** the input is true for 20 s in the Response pause, then false for 2 s, and the user turns the responses on with the input false
+- **THEN** the response does not run and has no stored run state
+
+#### Scenario: No run state and no log row
+- **WHEN** the minimum interval is 300 s, the Response pause is on and the input is true for 200 s
+- **THEN** the node has no last run time and the log has no row, and the first run after turn on is not dropped
+
+#### Scenario: Response that ran before
+- **WHEN** a response ran, the Response pause starts, and the input falls for 1 s and rises again
+- **THEN** the state is "not run" in the pause and the response does not run in it
+
+#### Scenario: Alarm countdown holds a power response
+- **WHEN** the hold time is 5 s, an Alarm poweroff countdown holds a poweroff response for 30 s, and the countdown is gone at second 30 with the input true
+- **THEN** the poweroff countdown of the Graph starts at second 36: the hold time counts from the first pass after the Alarm countdown
 
 ### Requirement: Cancelled power run
 A poweroff or reboot run that the user cancels, or that stops with the app before the power call, SHALL give back the count and the quiet time that its start changed. A pause that this run started SHALL end. A run whose logind call fails, and a run that a crash of the app ends in its countdown, SHALL keep its count.

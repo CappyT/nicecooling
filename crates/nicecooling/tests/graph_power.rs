@@ -546,6 +546,44 @@ fn power_response_not_started_during_an_alarm_countdown() {
     assert_eq!(rig.power.calls(), []);
 }
 
+/// A power response held back by the Alarm countdown is not a run: it leaves no state and no log
+/// row, and its hold time starts again when the Alarm countdown is gone.
+#[test]
+fn a_power_run_held_by_an_alarm_countdown_runs_after_it() {
+    let mut graph = power_graph("graph_1", "Overheat", "x", "poweroff", 10, None);
+    graph.nodes[1] = graph.nodes[1].clone().with_param("hold_s", 5);
+    let mut rig = Rig::new("power-alarm-held", vec![graph]);
+    rig.service.apply_event(&DaemonEvent::AlarmRaised(alarm(
+        "a1",
+        "pump-stop",
+        "loop_1",
+        Response::Poweroff,
+        20,
+    )));
+    rig.feed(&[("x", 1.0)]);
+    rig.ticks(30);
+    assert_eq!(rig.countdown(), None);
+    assert_eq!(rig.outcomes(), []);
+    assert_eq!(rig.pause_count(), 0);
+    assert!(rig.service.store().state().responses.is_empty());
+
+    // The Alarm is gone. The input must stay true for the hold time of 5 s from now.
+    rig.service.apply_event(&DaemonEvent::AlarmCleared {
+        instance: "a1".into(),
+    });
+    assert!(!rig.service.alarm_poweroff_pending());
+    rig.ticks(5);
+    assert_eq!(rig.countdown(), None);
+    rig.ticks(1);
+    assert!(rig.countdown().is_some());
+    rig.ticks(10);
+    assert_eq!(rig.power.calls(), [PowerKind::Poweroff]);
+    assert_eq!(
+        rig.outcomes(),
+        [outcome("graph_1", "poweroff", Outcome::Ok)]
+    );
+}
+
 #[test]
 fn countdown_text_shows_the_seconds_left() {
     let mut rig = Rig::new(
