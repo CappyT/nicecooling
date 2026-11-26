@@ -248,8 +248,16 @@ pub fn spawn_service(
         // a stop of the app learns that nobody wrote the state.
         let run = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             let runtime = small_runtime();
+            let signal = inputs.stop_signal();
+            service.follow_stop(signal.clone());
             let mut stop = None;
             loop {
+                // The app stops: the stop message is the one input that the service still reads.
+                // An event, a command or an answer of the daemon that came first does not delay it.
+                if signal.is_set() {
+                    stop = runtime.block_on(inputs.stop_message());
+                    break;
+                }
                 let wait = service.until_next_wake();
                 let wake = runtime.block_on(async {
                     // The stop message wins when it is due together with an event or the end of a

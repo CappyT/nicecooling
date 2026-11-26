@@ -2,6 +2,8 @@
 //! send `Command::Graph`. The app routes it here, and not to the daemon client.
 
 use std::fmt;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc as std_mpsc;
 use std::time::Duration;
 
@@ -105,6 +107,22 @@ impl fmt::Display for SendError {
 
 impl std::error::Error for SendError {}
 
+/// The stop of the app. `GraphChannel::stop` sets it before it sends the stop message. The service
+/// reads it before each poll and before each power call: a stop message that waits behind other
+/// work still keeps the power call back.
+#[derive(Clone, Debug, Default)]
+pub struct StopSignal(Arc<AtomicBool>);
+
+impl StopSignal {
+    pub fn set(&self) {
+        self.0.store(true, Ordering::SeqCst);
+    }
+
+    pub fn is_set(&self) -> bool {
+        self.0.load(Ordering::SeqCst)
+    }
+}
+
 /// Where the task of a Graph sensor call gives the answer of the daemon: the channel of the
 /// service. An answer has the path of the stop message, so it is never refused.
 #[derive(Clone, Debug)]
@@ -122,9 +140,26 @@ impl AnswerSender {
 pub struct Inputs {
     stop: UnboundedReceiver<Input>,
     commands: Receiver<Input>,
+    signal: StopSignal,
 }
 
 impl Inputs {
+    /// The stop of the app, for the service.
+    pub fn stop_signal(&self) -> StopSignal {
+        self.signal.clone()
+    }
+
+    /// Wait for the stop message and read nothing else. An answer of the daemon that came before
+    /// it is dropped. `None` when every sender is gone.
+    pub async fn stop_message(&mut self) -> Option<std_mpsc::Sender<()>> {
+        loop {
+            match self.stop.recv().await? {
+                Input::Stop(done) => return Some(done),
+                Input::Command(_) | Input::Answer(_) => {}
+            }
+        }
+    }
+
     /// The next message. `None` when every sender is gone and the commands are done.
     pub async fn recv(&mut self) -> Option<Input> {
         tokio::select! {
@@ -147,6 +182,7 @@ impl Inputs {
 pub struct GraphChannel {
     commands: Sender<Input>,
     stop: UnboundedSender<Input>,
+    signal: StopSignal,
     /// Where a refused command is shown.
     view: Option<SharedView>,
 }
@@ -155,15 +191,18 @@ impl GraphChannel {
     pub fn new() -> (Self, Inputs) {
         let (commands, command_inputs) = channel(COMMAND_BOUND);
         let (stop, stop_inputs) = unbounded_channel();
+        let signal = StopSignal::default();
         (
             Self {
                 commands,
                 stop,
+                signal: signal.clone(),
                 view: None,
             },
             Inputs {
                 stop: stop_inputs,
                 commands: command_inputs,
+                signal,
             },
         )
     }
@@ -237,6 +276,7 @@ impl GraphChannel {
     /// answered, so whether it wrote its state. A service that is gone gives false.
     pub fn stop(&self, limit: Duration) -> bool {
         let (done, wait) = std_mpsc::channel();
+        self.signal.set();
         if self.stop.send(Input::Stop(done)).is_err() {
             return false;
         }

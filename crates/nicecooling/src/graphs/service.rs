@@ -18,7 +18,7 @@ use nicecooling_graph::response::{Action, RunRecord, Timing};
 use nicecooling_graph::template::labelled_values;
 use tokio::sync::mpsc::UnboundedSender;
 
-use super::channel::{AnswerSender, GraphCommand, SensorAnswer};
+use super::channel::{AnswerSender, GraphCommand, SensorAnswer, StopSignal};
 use super::power::{NOTIFICATION_KEY, Running, countdown_notification, failure_notification};
 use super::responses::{NoRunner, Outcome, Responses, Run, Runner, Started};
 use super::sensors::{self, CREATED_GRACE, SensorSpec};
@@ -219,6 +219,8 @@ pub struct GraphService {
     /// The calls that the daemon has not answered yet, by ticket.
     waiting: BTreeMap<u64, (SensorCall, Waiting)>,
     next_ticket: u64,
+    /// The stop of the app. Once it is set, the service polls nothing and makes no power call.
+    stop: StopSignal,
 }
 
 impl GraphService {
@@ -264,6 +266,7 @@ impl GraphService {
             answers: None,
             waiting: BTreeMap::new(),
             next_ticket: 1,
+            stop: StopSignal::default(),
         };
         service.publish();
         service.publish_log();
@@ -289,6 +292,11 @@ impl GraphService {
     pub fn with_answers(mut self, answers: AnswerSender) -> Self {
         self.answers = Some(answers);
         self
+    }
+
+    /// Follow the stop of the app: `signal` is the one of the channel that the service reads.
+    pub fn follow_stop(&mut self, signal: StopSignal) {
+        self.stop = signal;
     }
 
     /// Use the session of logind instead of the session that is always active.
@@ -461,8 +469,11 @@ impl GraphService {
     }
 
     /// Do the work that is due: the end of a countdown, and a pass when a second has passed since
-    /// the last one. Returns whether a pass ran.
+    /// the last one. Returns whether a pass ran. After the stop of the app it does nothing.
     pub fn poll(&mut self) -> bool {
+        if self.stop.is_set() {
+            return false;
+        }
         let now = self.clock.now();
         self.collect_outcomes();
         self.tick_countdown(now);
@@ -538,8 +549,14 @@ impl GraphService {
         let Some(running) = self.countdown.take() else {
             return;
         };
+        self.drop_power(&running);
+    }
+
+    /// The run of a countdown does not happen: it gives its count back, and its outcome is
+    /// `cancelled`.
+    fn drop_power(&mut self, running: &Running) {
         self.store.state_mut().pause.cancel_run(running.kind);
-        self.finish_power(&running, Outcome::Cancelled);
+        self.finish_power(running, Outcome::Cancelled);
     }
 
     fn tick_countdown(&mut self, now: Duration) {
@@ -561,10 +578,9 @@ impl GraphService {
             return;
         };
         let kind = running.kind;
-        // A session that is not active runs no response.
-        if !self.session.active() {
-            self.store.state_mut().pause.cancel_run(kind);
-            self.finish_power(&running, Outcome::Cancelled);
+        // A session that is not active runs no response, and an app that stops makes no call.
+        if !self.session.active() || self.stop.is_set() {
+            self.drop_power(&running);
             return;
         }
         self.store.state_mut().values = self.evaluator.stored_values();
@@ -576,9 +592,13 @@ impl GraphService {
                 .map(|_| ())
                 .map_err(|error| error.to_string()),
         };
-        let result = written.and_then(|()| self.power.call(kind));
-        let outcome = match result {
-            Ok(()) => Outcome::Ok,
+        let outcome = match written.and_then(|()| self.power_call(kind).transpose()) {
+            Ok(Some(())) => Outcome::Ok,
+            // The stop of the app came while the state file was written.
+            Ok(None) => {
+                self.drop_power(&running);
+                return;
+            }
             Err(error) => {
                 eprintln!("nicecooling: {}: {error}", running.run.graph_name);
                 let spec = failure_notification(&running.run.graph_name, &error, self.locale);
@@ -587,6 +607,14 @@ impl GraphService {
             }
         };
         self.finish_power(&running, outcome);
+    }
+
+    /// The one place that calls `PowerCall`. `None`: the app stops, and no call is made.
+    fn power_call(&mut self, kind: PowerKind) -> Option<Result<(), String>> {
+        if self.stop.is_set() {
+            return None;
+        }
+        Some(self.power.call(kind))
     }
 
     /// The run of the countdown has its outcome: log it and close its notification.
