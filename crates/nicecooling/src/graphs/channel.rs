@@ -20,7 +20,7 @@ use crate::command::Command;
 pub const QUIT_WAIT: Duration = Duration::from_secs(2);
 
 /// The commands that the channel holds. A command that comes while the channel is full is refused.
-/// The stop message has a path of its own and is never refused.
+/// The stop message and the cancel of a countdown have a path of their own and are never refused.
 pub const COMMAND_BOUND: usize = 256;
 
 /// A "Try" of a draft: test values for sensor source nodes, and the time of the try.
@@ -134,8 +134,8 @@ impl AnswerSender {
     }
 }
 
-/// The receiving end, for the service. The stop message and the answers of the daemon come
-/// before every command.
+/// The receiving end, for the service. The stop message, the cancel of a countdown and the
+/// answers of the daemon come before every other command.
 #[derive(Debug)]
 pub struct Inputs {
     stop: UnboundedReceiver<Input>,
@@ -224,6 +224,14 @@ impl GraphChannel {
     }
 
     pub fn try_send(&self, command: GraphCommand) -> Result<(), SendError> {
+        // A full channel must not let a power call go ahead: the cancel takes the path of the
+        // stop message.
+        if command == GraphCommand::CancelCountdown {
+            return self
+                .stop
+                .send(Input::Command(command))
+                .map_err(|_| SendError::Closed);
+        }
         self.commands
             .try_send(Input::Command(command))
             .map_err(|error| match error {

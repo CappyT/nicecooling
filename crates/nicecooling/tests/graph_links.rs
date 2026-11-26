@@ -498,6 +498,49 @@ fn full_channel_refuses_a_command_and_still_takes_the_stop() {
     assert!(!channel.stop(Duration::from_secs(1)));
 }
 
+/// The cancel of a countdown does not wait behind the 256 commands of a full channel, and it is
+/// not refused: a full channel never lets a power call go ahead.
+#[test]
+fn cancel_gets_through_a_full_channel() {
+    let power = Power::default();
+    let mut parts = parts(
+        "cancel-full-channel",
+        vec![constant_graph("graph_1", 1.0)],
+        Box::new(NoLink),
+        Box::new(power.clone()),
+    );
+    assert!(
+        parts
+            .service
+            .start_countdown("graph_1", PowerKind::Poweroff, 30)
+    );
+    let (channel, mut inputs) = GraphChannel::new();
+    for _ in 0..COMMAND_BOUND {
+        assert_eq!(channel.try_send(GraphCommand::ResponsesOn), Ok(()));
+    }
+    assert_eq!(
+        channel.try_send(GraphCommand::ResponsesOn),
+        Err(SendError::Full)
+    );
+
+    // The button of the notification, of the tray and of the window sends the cancel this way.
+    assert_eq!(
+        channel.route(Command::Graph(GraphCommand::CancelCountdown)),
+        None
+    );
+    match inputs.try_recv() {
+        Ok(Input::Command(command)) => {
+            assert_eq!(command, GraphCommand::CancelCountdown);
+            parts.service.handle(command);
+        }
+        other => panic!("the first message is {other:?}"),
+    }
+    parts.clock.advance(Duration::from_secs(30));
+    parts.service.poll();
+    assert_eq!(*power.0.lock().unwrap(), []);
+    assert_eq!(parts.view.lock().unwrap().countdown, None);
+}
+
 /// A link that panics: a bug outside the evaluation of a Graph.
 struct PanicLink;
 
