@@ -60,9 +60,12 @@ impl Runner for FakeRunner {
     }
 }
 
+/// The values of one pass: a sensor id and its value, or no value.
+type PassValues = Vec<(String, Option<f64>)>;
+
 /// The values that the Graph service sends to the daemon.
 #[derive(Clone, Default)]
-struct Sent(Arc<Mutex<Vec<Vec<(String, Option<f64>)>>>>);
+struct Sent(Arc<Mutex<Vec<PassValues>>>);
 
 impl SensorLink for Sent {
     fn values(&mut self, values: &[(String, Option<f64>)]) {
