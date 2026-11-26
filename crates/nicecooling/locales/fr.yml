@@ -190,6 +190,7 @@ graph_refusal:
   alarm_countdown: Le compte à rebours d'extinction d'une Alarme est en cours. Aucune réponse d'extinction, de redémarrage ou de mise en veille ne démarre.
   inactive_session: Cette session n'est pas la session active. Aucune réponse ne s'exécute.
   busy: "Un appel au démon pour ce Graphe attend sa réponse."
+  no_answer: "le démon n'a pas répondu en 120 s"
 feedback:
   pending: Écriture
   applied: "Appliqué à %{time}"

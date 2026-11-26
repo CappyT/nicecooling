@@ -190,6 +190,7 @@ graph_refusal:
   alarm_countdown: An Alarm poweroff countdown runs. No poweroff, reboot or suspend response starts.
   inactive_session: This session is not the active one. No response runs.
   busy: "A call to the daemon for this Graph waits for its answer."
+  no_answer: "the daemon did not answer in 120 s"
 feedback:
   pending: Writing
   applied: "Applied %{time}"

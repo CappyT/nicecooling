@@ -190,6 +190,7 @@ graph_refusal:
   alarm_countdown: Der Countdown zum Herunterfahren eines Alarms läuft. Keine Reaktion zum Herunterfahren, Neustart oder zur Bereitschaft startet.
   inactive_session: Diese Sitzung ist nicht die aktive. Keine Reaktion läuft.
   busy: "Ein Aufruf an den Daemon für diesen Graphen wartet auf die Antwort."
+  no_answer: "der Daemon hat nicht innerhalb von 120 s geantwortet"
 feedback:
   pending: Schreiben
   applied: "Angewendet %{time}"

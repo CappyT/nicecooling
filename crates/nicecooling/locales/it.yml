@@ -190,6 +190,7 @@ graph_refusal:
   alarm_countdown: È in corso il conto alla rovescia di spegnimento di un Allarme. Nessuna risposta di spegnimento, riavvio o sospensione parte.
   inactive_session: Questa sessione non è quella attiva. Nessuna risposta parte.
   busy: "Una chiamata al demone per questo Grafo attende la risposta."
+  no_answer: "il demone non ha risposto entro 120 s"
 feedback:
   pending: Scrittura in corso
   applied: "Applicato alle %{time}"

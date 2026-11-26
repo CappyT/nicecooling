@@ -40,6 +40,10 @@ pub use super::power::{NoPower, PowerCall};
 /// The time between two passes.
 pub const PASS_INTERVAL: Duration = Duration::from_secs(1);
 
+/// How long the service waits for the answer of a Graph sensor call that the link made on its
+/// task. Such a call can wait for a polkit dialog, and a daemon that hangs never answers.
+pub const ANSWER_LIMIT: Duration = Duration::from_secs(120);
+
 /// Where the Graph sensor values go after each pass, and the calls that make, rename and remove a
 /// Graph sensor. The calls to the daemon are one implementation of it. A test records them.
 ///
@@ -223,8 +227,8 @@ pub struct GraphService {
     /// Where the task of a Graph sensor call gives its answer. `None`: the service makes each
     /// call itself and waits for it.
     answers: Option<AnswerSender>,
-    /// The calls that the daemon has not answered yet, by ticket.
-    waiting: BTreeMap<u64, (SensorCall, Waiting)>,
+    /// The calls that the daemon has not answered yet, by ticket, with the time of their start.
+    waiting: BTreeMap<u64, (SensorCall, Waiting, Duration)>,
     next_ticket: u64,
     /// The stop of the app. Once it is set, the service polls nothing and makes no power call.
     stop: StopSignal,
@@ -363,7 +367,7 @@ impl GraphService {
     fn waits_for(&self, id: &str) -> bool {
         self.waiting
             .values()
-            .any(|(_, waiting)| waiting.graph_id() == id)
+            .any(|(_, waiting, _)| waiting.graph_id() == id)
     }
 
     /// Make a Graph sensor call, then do `waiting`. A deferred link makes the call on its task:
@@ -374,7 +378,9 @@ impl GraphService {
         {
             let ticket = self.next_ticket;
             self.next_ticket += 1;
-            self.waiting.insert(ticket, (call.clone(), waiting));
+            let started = self.clock.now();
+            self.waiting
+                .insert(ticket, (call.clone(), waiting, started));
             self.link.start(
                 call,
                 Box::new(move |result| answers.send(SensorAnswer { ticket, result })),
@@ -391,10 +397,28 @@ impl GraphService {
         self.answered(call, waiting, result);
     }
 
-    /// The daemon answered a call that the link made on its task.
+    /// The daemon answered a call that the link made on its task. An answer that comes after
+    /// `ANSWER_LIMIT` finds no ticket and is dropped.
     pub fn answer(&mut self, answer: SensorAnswer) {
-        if let Some((call, waiting)) = self.waiting.remove(&answer.ticket) {
+        if let Some((call, waiting, _)) = self.waiting.remove(&answer.ticket) {
             self.answered(call, waiting, answer.result);
+        }
+    }
+
+    /// Give up each call that the daemon has not answered for `ANSWER_LIMIT`. The call ends as
+    /// a failed call: the Graph takes commands again, and the view has the reason.
+    fn expire_calls(&mut self, now: Duration) {
+        let late: Vec<u64> = self
+            .waiting
+            .iter()
+            .filter(|(_, (_, _, started))| now.saturating_sub(*started) >= ANSWER_LIMIT)
+            .map(|(ticket, _)| *ticket)
+            .collect();
+        for ticket in late {
+            if let Some((call, waiting, _)) = self.waiting.remove(&ticket) {
+                let error = SensorError::Failed(self.locale.tr("graph_refusal.no_answer"));
+                self.answered(call, waiting, Err(error));
+            }
         }
     }
 
@@ -486,6 +510,7 @@ impl GraphService {
             return false;
         }
         let now = self.clock.now();
+        self.expire_calls(now);
         self.collect_outcomes();
         self.tick_countdown(now);
         if now < self.next_pass {

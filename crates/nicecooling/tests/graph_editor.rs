@@ -3293,3 +3293,63 @@ fn power_kinds_default_to_600s_interval() {
         Some(serde_json::Value::Null)
     );
 }
+
+/// The daemon never answers the call of an Apply, for example behind a polkit dialog that stays
+/// open. After 120 s the Graph takes commands again, the editor has the reason, and the answer
+/// that comes later changes nothing.
+#[test]
+fn a_daemon_call_that_never_answers_frees_the_graph() {
+    let mut rig = Rig::waiting("editor-no-answer", Vec::new());
+    let state = online();
+    let mut ui = EditorUi::open(fresh_graph("graph_2"), &rig.shown());
+    let constant = ui.draft.add_node(Kind::Constant, 0.0, 0.0);
+    ui.draft.connect(constant, 1, "a");
+    let command = ui.apply(&rig.shown(), true).expect("the command");
+    send(&mut rig, command);
+    assert_eq!(rig.link.started.lock().unwrap().len(), 1);
+
+    // Second 119: the service still waits for the daemon.
+    rig.ticks(119);
+    assert_eq!(follow(&rig, &mut ui), None);
+    assert_eq!(ui.apply.state, ApplyState::Pending);
+
+    // Second 120: the call counts as failed.
+    rig.ticks(1);
+    assert_eq!(follow(&rig, &mut ui), None);
+    let reason = "the daemon did not answer in 120 s";
+    assert_eq!(
+        ui.apply.state,
+        ApplyState::Refused(ApplyError::Sensor(SensorError::Failed(reason.to_owned())))
+    );
+    let bar = model_with(&state, &rig.shown(), &ui).toolbar;
+    assert_eq!(
+        bar.refused.as_deref(),
+        Some("Not applied: the daemon did not answer in 120 s.")
+    );
+    assert_eq!(
+        rig.shown().refusal.as_deref(),
+        Some("Graph 2: the daemon did not answer in 120 s")
+    );
+
+    // The daemon answers at last: the service ignores it and stores nothing.
+    let (_, done) = rig.link.started.lock().unwrap().remove(0);
+    done(Ok(Some("graph_9".to_owned())));
+    match rig.inputs.try_recv() {
+        Ok(Input::Answer(answer)) => rig.service.answer(answer),
+        other => panic!("no answer on the channel: {other:?}"),
+    }
+    assert!(rig.service.store().entries().is_empty());
+    assert_eq!(follow(&rig, &mut ui), None);
+    assert!(matches!(ui.apply.state, ApplyState::Refused(_)));
+
+    // The Graph is free again: the next Apply starts a new call and is not refused as busy.
+    let command = ui.apply(&rig.shown(), true).expect("the command");
+    send(&mut rig, command);
+    assert_eq!(rig.link.started.lock().unwrap().len(), 1);
+    assert_eq!(rig.shown().refusal, None);
+    rig.answer(Ok(Some("graph_10".to_owned())));
+    assert_eq!(follow(&rig, &mut ui), None);
+    assert_eq!(ui.apply.state, ApplyState::Applied { at_us: NOW_US });
+    let stored = rig.service.store().graph("graph_2").expect("the Graph");
+    assert_eq!(stored.sensor_id.as_deref(), Some("graph_10"));
+}
