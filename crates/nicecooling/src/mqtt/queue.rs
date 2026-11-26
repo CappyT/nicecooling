@@ -3,7 +3,7 @@
 //! client task asks it for the next message while the connection is up, and gives back what
 //! the broker did not acknowledge when the connection ends. The queue stays across reconnects.
 
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 pub const QUEUE_CAP: usize = 256;
 
@@ -144,6 +144,13 @@ impl Outbox {
         for slot in self.slots.values_mut() {
             slot.unsent = true;
         }
+    }
+
+    /// Drop each value under `prefix` whose topic is not in `keep`: its sensor is hidden or gone,
+    /// so a later connect must not send its last value again.
+    pub fn keep_values(&mut self, prefix: &str, keep: &BTreeSet<String>) {
+        self.slots
+            .retain(|topic, _| !topic.starts_with(prefix) || keep.contains(topic));
     }
 
     /// The base topic changed. The values wait under the old topics, so they go. The queue stays.

@@ -366,6 +366,8 @@ impl Publisher {
             .clone();
         let now = self.clock.now_us();
         let sample_time = self.state.sensors.as_ref().map(|sample| sample.time_us);
+        let prefix = format!("{base}/sensor/");
+        let mut sent = BTreeSet::new();
         for (id, info) in &self.state.snapshot.sensors {
             if hidden.contains(id) {
                 continue;
@@ -377,11 +379,16 @@ impl Publisher {
                 (Some(_), Some(time_us)) => time_us,
                 _ => now,
             };
+            let topic = format!("{prefix}{id}");
             self.client.set_value(
-                &format!("{base}/sensor/{id}"),
+                &topic,
                 sensor_payload(&info.name, &info.unit, value, time_us),
             );
+            sent.insert(topic);
         }
+        // The client sends every waiting value again at a connect. A sensor that the user hid or
+        // that the daemon no longer lists must not get its last value again.
+        self.client.keep_values(&prefix, &sent);
     }
 
     /// The config changed. MQTT off forgets the Alarms that were sent as raised.

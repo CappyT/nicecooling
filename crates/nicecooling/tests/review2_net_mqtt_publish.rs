@@ -56,8 +56,8 @@ fn topic(id: &str) -> String {
 }
 
 /// Spec (mqtt-publishing, "Hidden sensor"): when the user hides a sensor, the client publishes no
-/// message for it. The outbox keeps the last value of the sensor, and each connect marks every
-/// value as unsent, so the old value goes out again after each reconnect, retained.
+/// message for it. Each connect sends every waiting value again, so the last value of a hidden
+/// sensor must leave the client when the user hides the sensor.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_sensor_hidden_after_a_publish_gets_no_message_after_a_reconnect() {
     let broker = MqttBroker::start(Behavior::plain());
@@ -77,10 +77,13 @@ async fn a_sensor_hidden_after_a_publish_gets_no_message_after_a_reconnect() {
 
     hidden.lock().unwrap().insert("aaa_later_hidden".to_owned());
     publisher.publish_values();
+    // The value of this pass goes out on the first connection. Only then the connection drops,
+    // so the third message of the other sensor proves that the client sent its values again.
+    assert!(broker.wait_until(|b| b.received_on(&topic("zzz_last")).len() == 2));
     broker.kick();
 
     // The client sends the values in the order of their topics after the connect.
-    assert!(broker.wait_until(|b| b.received_on(&topic("zzz_last")).len() >= 2));
+    assert!(broker.wait_until(|b| b.received_on(&topic("zzz_last")).len() >= 3));
     assert_eq!(
         broker.received_on(&topic("aaa_later_hidden")).len(),
         1,

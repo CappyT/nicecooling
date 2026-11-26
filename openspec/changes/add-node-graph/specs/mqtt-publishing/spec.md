@@ -121,6 +121,10 @@ For each sensor that the user has not hidden in the app, the client SHALL publis
 - **WHEN** the user hides a sensor in the app
 - **THEN** the client publishes no message for it at the next interval
 
+#### Scenario: Hidden sensor after a reconnect
+- **WHEN** the client sent 44.8 for the sensor `cpu`, the user hides `cpu`, and the connection to the broker drops and opens again
+- **THEN** the client sends the values of the other sensors again and sends no message to `<base>/sensor/cpu`
+
 #### Scenario: Graph sensor
 - **WHEN** a Graph sensor `graph_3` exists
 - **THEN** the client publishes it like any other sensor

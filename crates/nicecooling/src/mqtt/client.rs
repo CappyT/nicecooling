@@ -7,7 +7,7 @@
 //! to `rumqttc` only while the connection is up. A message that the broker did not acknowledge
 //! when the connection ends goes back to the front of the queue.
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::{BTreeSet, HashMap, VecDeque};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant};
 
@@ -310,6 +310,11 @@ impl MqttHandle {
             state.outbox.set_value(topic, payload);
         }
         self.shared.wake.notify_one();
+    }
+
+    /// Drop each waiting value under `prefix` whose topic is not in `keep`.
+    pub fn keep_values(&self, prefix: &str, keep: &BTreeSet<String>) {
+        self.shared.lock().outbox.keep_values(prefix, keep);
     }
 
     /// QoS 1, no retain. False while MQTT is off: the message is not queued. At 256 messages the
