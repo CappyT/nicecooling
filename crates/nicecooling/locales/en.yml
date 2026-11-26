@@ -1219,6 +1219,14 @@ settings:
     state_connecting: Connecting
     state_connected: Connected
     state_failed: Failed
+    failure:
+      login: "The broker refused the login."
+      unreachable: "The app cannot reach the host."
+      untrusted: "The certificate of the broker is not trusted."
+      name_mismatch: "The host name does not match the certificate of the broker."
+      timeout: "The broker did not answer in time."
+      ca_file: "The app cannot read the CA file."
+      other: "The connection failed. Detail: %{detail}"
     host: Host
     port: Port
     tls: TLS

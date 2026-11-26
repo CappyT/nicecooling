@@ -12,8 +12,8 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant};
 
 use rumqttc::{
-    AsyncClient, ConnectReturnCode, Event, Incoming, LastWill, MqttOptions, Outgoing, QoS,
-    TlsConfiguration, Transport,
+    AsyncClient, ConnectReturnCode, ConnectionError, Event, Incoming, LastWill, MqttOptions,
+    Outgoing, QoS, TlsConfiguration, TlsError, Transport,
 };
 use rustls::pki_types::CertificateDer;
 use rustls::pki_types::pem::PemObject;
@@ -87,14 +87,103 @@ impl MqttConfig {
     }
 }
 
+/// Why a connection failed. The settings screen has one text for each class.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FailureClass {
+    /// The broker refused the user name or the password.
+    Login,
+    /// The host name has no address, or nothing takes the connection at the port.
+    Unreachable,
+    /// The certificate of the broker has no trusted issuer, or it is not valid.
+    Untrusted,
+    /// The certificate of the broker is for another host name.
+    NameMismatch,
+    /// No answer in time.
+    Timeout,
+    /// The CA file cannot be read, or it holds no certificate.
+    CaFile,
+    Other,
+}
+
+/// The last error of the connection: its class, and its text. The text holds no password.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MqttFailure {
+    pub class: FailureClass,
+    pub text: String,
+}
+
+impl MqttFailure {
+    fn other(text: impl Into<String>) -> Self {
+        Self {
+            class: FailureClass::Other,
+            text: text.into(),
+        }
+    }
+}
+
+/// The class of an I/O error of the connection. A failed TLS handshake comes as an I/O error
+/// around the error of `rustls`.
+fn io_class(error: &std::io::Error) -> FailureClass {
+    use std::io::ErrorKind;
+    if let Some(tls) = error
+        .get_ref()
+        .and_then(|inner| inner.downcast_ref::<rustls::Error>())
+    {
+        return tls_class(tls);
+    }
+    match error.kind() {
+        ErrorKind::TimedOut => FailureClass::Timeout,
+        ErrorKind::ConnectionRefused
+        | ErrorKind::HostUnreachable
+        | ErrorKind::NetworkUnreachable
+        | ErrorKind::AddrNotAvailable => FailureClass::Unreachable,
+        // The lookup of the host name has no error kind of its own.
+        _ if error.to_string().starts_with("failed to lookup address") => FailureClass::Unreachable,
+        _ => FailureClass::Other,
+    }
+}
+
+fn tls_class(error: &rustls::Error) -> FailureClass {
+    use rustls::CertificateError;
+    match error {
+        rustls::Error::InvalidCertificate(
+            CertificateError::NotValidForName | CertificateError::NotValidForNameContext { .. },
+        ) => FailureClass::NameMismatch,
+        rustls::Error::InvalidCertificate(_) => FailureClass::Untrusted,
+        _ => FailureClass::Other,
+    }
+}
+
+impl From<&ConnectionError> for MqttFailure {
+    fn from(error: &ConnectionError) -> Self {
+        let class = match error {
+            ConnectionError::ConnectionRefused(
+                ConnectReturnCode::BadUserNamePassword | ConnectReturnCode::NotAuthorized,
+            ) => FailureClass::Login,
+            ConnectionError::NetworkTimeout | ConnectionError::FlushTimeout => {
+                FailureClass::Timeout
+            }
+            ConnectionError::Io(error) | ConnectionError::Tls(TlsError::Io(error)) => {
+                io_class(error)
+            }
+            ConnectionError::Tls(TlsError::TLS(error)) => tls_class(error),
+            _ => FailureClass::Other,
+        };
+        Self {
+            class,
+            text: error.to_string(),
+        }
+    }
+}
+
 /// The state of the connection, for the settings screen.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum MqttStatus {
     Off,
     Connecting,
     Connected,
-    /// The last error text. It holds no password.
-    Failed(String),
+    /// The last error.
+    Failed(MqttFailure),
 }
 
 /// What happened to a response message.
@@ -279,7 +368,7 @@ enum Over {
     /// The sender of the config is gone.
     Closed,
     Lost {
-        error: String,
+        error: MqttFailure,
         /// How long the connection was up. `None` when it never came up.
         up_for: Option<Duration>,
     },
@@ -339,7 +428,7 @@ async fn session(
     }
 }
 
-fn options(config: &MqttConfig) -> Result<MqttOptions, String> {
+fn options(config: &MqttConfig) -> Result<MqttOptions, MqttFailure> {
     let mut options = MqttOptions::new(config.client_id.clone(), config.host.clone(), config.port);
     options.set_keep_alive(KEEP_ALIVE);
     options.set_clean_session(true);
@@ -365,7 +454,7 @@ fn options(config: &MqttConfig) -> Result<MqttOptions, String> {
 
 /// `rustls` with the `ring` provider, the system certificates, the extra roots and the CA file.
 /// The check of the certificate and of the host name always runs.
-fn tls_config(config: &MqttConfig) -> Result<rustls::ClientConfig, String> {
+fn tls_config(config: &MqttConfig) -> Result<rustls::ClientConfig, MqttFailure> {
     let provider = Arc::new(rustls::crypto::ring::default_provider());
     let mut roots = rustls::RootCertStore::empty();
     for cert in rustls_native_certs::load_native_certs().certs {
@@ -375,11 +464,13 @@ fn tls_config(config: &MqttConfig) -> Result<rustls::ClientConfig, String> {
     for der in &config.extra_roots {
         roots
             .add(CertificateDer::from(der.clone()))
-            .map_err(|error| format!("root certificate: {error}"))?;
+            .map_err(|error| MqttFailure::other(format!("root certificate: {error}")))?;
     }
     if !config.ca_file.is_empty() {
-        let file_error =
-            |error: &dyn std::fmt::Display| format!("CA file {}: {error}", config.ca_file);
+        let file_error = |error: &dyn std::fmt::Display| MqttFailure {
+            class: FailureClass::CaFile,
+            text: format!("CA file {}: {error}", config.ca_file),
+        };
         let mut found = false;
         for cert in
             CertificateDer::pem_file_iter(&config.ca_file).map_err(|error| file_error(&error))?
@@ -394,7 +485,7 @@ fn tls_config(config: &MqttConfig) -> Result<rustls::ClientConfig, String> {
     }
     Ok(rustls::ClientConfig::builder_with_provider(provider)
         .with_safe_default_protocol_versions()
-        .map_err(|error| error.to_string())?
+        .map_err(|error| MqttFailure::other(error.to_string()))?
         .with_root_certificates(roots)
         .with_no_client_auth())
 }
@@ -552,7 +643,7 @@ async fn connection(
             Err(error) => {
                 link.down(shared);
                 return Over::Lost {
-                    error: error.to_string(),
+                    error: MqttFailure::from(&error),
                     up_for: up_since.map(|since| since.elapsed()),
                 };
             }

@@ -7,7 +7,7 @@ use crate::app_settings::{HINT_APPINDICATOR, SettingsStore};
 use crate::graphs::secrets::PasswordEdit;
 use crate::i18n::{Language, Locale};
 use crate::model::Link;
-use crate::mqtt::client::{MqttConfig, MqttHandle, MqttStatus};
+use crate::mqtt::client::{FailureClass, MqttConfig, MqttFailure, MqttHandle, MqttStatus};
 use crate::mqtt::settings::{
     DEFAULT_BASE_TOPIC, DEFAULT_INTERVAL_S, MqttSettings, check_base_topic, check_interval,
     hostname,
@@ -355,6 +355,23 @@ fn security_name(locale: Locale, security: SmtpSecurity) -> String {
     }
 }
 
+/// The text of a failed connection to the broker. Each class of error has its own sentence. An
+/// error without a class shows after a general sentence, as its detail.
+fn failure_text(locale: Locale, failure: &MqttFailure) -> String {
+    match failure.class {
+        FailureClass::Login => locale.tr("settings.network.failure.login"),
+        FailureClass::Unreachable => locale.tr("settings.network.failure.unreachable"),
+        FailureClass::Untrusted => locale.tr("settings.network.failure.untrusted"),
+        FailureClass::NameMismatch => locale.tr("settings.network.failure.name_mismatch"),
+        FailureClass::Timeout => locale.tr("settings.network.failure.timeout"),
+        FailureClass::CaFile => locale.tr("settings.network.failure.ca_file"),
+        FailureClass::Other => locale.fmt(
+            "settings.network.failure.other",
+            &[("detail", &failure.text)],
+        ),
+    }
+}
+
 fn network_card(
     locale: Locale,
     store: &SettingsStore,
@@ -412,11 +429,11 @@ fn network_card(
             value: locale.tr("settings.network.state_connected"),
             caption: Some(format!("{}:{}", mqtt.host.trim(), mqtt.effective_port())),
         },
-        MqttStatus::Failed(error) => BrokerRow {
+        MqttStatus::Failed(failure) => BrokerRow {
             label,
             state: BrokerState::Failed,
             value: locale.tr("settings.network.state_failed"),
-            caption: Some(error.clone()),
+            caption: Some(failure_text(locale, failure)),
         },
     };
     NetworkCard {

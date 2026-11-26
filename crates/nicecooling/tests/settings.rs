@@ -12,7 +12,7 @@ use nicecooling::autostart;
 use nicecooling::graphs::secrets::Secrets;
 use nicecooling::i18n::{DE, EN, IT, Language, Locale};
 use nicecooling::model::{AppState, BoardInfo, Link};
-use nicecooling::mqtt::client::{MqttHandle, MqttStatus};
+use nicecooling::mqtt::client::{FailureClass, MqttFailure, MqttHandle, MqttStatus};
 use nicecooling::screens::settings::{
     APP_VERSION, BrokerState, Change, ConnectionKind, NetworkCard, NetworkChange, NetworkError,
     NetworkField, NetworkRow, NetworkUi, PASSWORD_DOTS, STATE_DIRECTORY, SettingsModel, SwitchKey,
@@ -673,13 +673,73 @@ fn network_group_shows_connected() {
         card.input(NetworkField::MqttPort).unwrap().placeholder,
         "1883"
     );
-    let failed = MqttStatus::Failed("The broker refused the login.".to_owned());
-    let card = network_of(&store, &failed);
+    // "Failed" shows the text of the error class, never the raw text of the client.
+    let failed = |class: FailureClass| {
+        MqttStatus::Failed(MqttFailure {
+            class,
+            text: "Connection refused, return code: `BadUserNamePassword`".to_owned(),
+        })
+    };
+    let card = network_of(&store, &failed(FailureClass::Login));
     assert_eq!(card.connection.state, BrokerState::Failed);
     assert_eq!(card.connection.value, "Failed");
     assert_eq!(
         card.connection.caption.as_deref(),
         Some("The broker refused the login.")
+    );
+    for (class, english, italian) in [
+        (
+            FailureClass::Unreachable,
+            "The app cannot reach the host.",
+            "L'app non riesce a raggiungere l'host.",
+        ),
+        (
+            FailureClass::Untrusted,
+            "The certificate of the broker is not trusted.",
+            "Il certificato del broker non è attendibile.",
+        ),
+        (
+            FailureClass::NameMismatch,
+            "The host name does not match the certificate of the broker.",
+            "Il nome dell'host non corrisponde al certificato del broker.",
+        ),
+        (
+            FailureClass::Timeout,
+            "The broker did not answer in time.",
+            "Il broker non ha risposto in tempo.",
+        ),
+        (
+            FailureClass::CaFile,
+            "The app cannot read the CA file.",
+            "L'app non riesce a leggere il file della CA.",
+        ),
+    ] {
+        let card = network_of(&store, &failed(class));
+        assert_eq!(card.connection.caption.as_deref(), Some(english));
+        let card = network_in(
+            IT,
+            &with_board(),
+            &store,
+            &failed(class),
+            &NetworkUi::default(),
+        );
+        assert_eq!(card.connection.caption.as_deref(), Some(italian));
+    }
+    // An error without a class: a general sentence, then the raw text as its detail.
+    let other = MqttStatus::Failed(MqttFailure {
+        class: FailureClass::Other,
+        text: "Mqtt state: Connection closed by peer abruptly".to_owned(),
+    });
+    assert_eq!(
+        network_of(&store, &other).connection.caption.as_deref(),
+        Some("The connection failed. Detail: Mqtt state: Connection closed by peer abruptly")
+    );
+    let italian = network_in(IT, &with_board(), &store, &other, &NetworkUi::default());
+    assert_eq!(
+        italian.connection.caption.as_deref(),
+        Some(
+            "La connessione non è riuscita. Dettaglio: Mqtt state: Connection closed by peer abruptly"
+        )
     );
 
     // The card uses the language of its input.

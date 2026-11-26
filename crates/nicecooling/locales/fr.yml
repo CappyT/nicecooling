@@ -1219,6 +1219,14 @@ settings:
     state_connecting: Connexion en cours
     state_connected: Connecté
     state_failed: Échec
+    failure:
+      login: "Le broker a refusé la connexion."
+      unreachable: "L'app ne peut pas joindre l'hôte."
+      untrusted: "Le certificat du broker n'est pas approuvé."
+      name_mismatch: "Le nom d'hôte ne correspond pas au certificat du broker."
+      timeout: "Le broker n'a pas répondu à temps."
+      ca_file: "L'app ne peut pas lire le fichier CA."
+      other: "La connexion a échoué. Détail : %{detail}"
     host: Hôte
     port: Port
     tls: TLS

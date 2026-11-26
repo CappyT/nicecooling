@@ -1219,6 +1219,14 @@ settings:
     state_connecting: Verbindet
     state_connected: Verbunden
     state_failed: Fehlgeschlagen
+    failure:
+      login: "Der Broker hat die Anmeldung abgelehnt."
+      unreachable: "Die App kann den Host nicht erreichen."
+      untrusted: "Das Zertifikat des Brokers ist nicht vertrauenswürdig."
+      name_mismatch: "Der Hostname passt nicht zum Zertifikat des Brokers."
+      timeout: "Der Broker hat nicht rechtzeitig geantwortet."
+      ca_file: "Die App kann die CA-Datei nicht lesen."
+      other: "Die Verbindung ist fehlgeschlagen. Detail: %{detail}"
     host: Host
     port: Port
     tls: TLS

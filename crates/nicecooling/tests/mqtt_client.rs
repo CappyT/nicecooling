@@ -3,7 +3,9 @@ mod support;
 use std::time::{Duration, Instant};
 
 use nicecooling::graphs::secrets::Password;
-use nicecooling::mqtt::client::{Fate, MqttConfig, MqttHandle, MqttStatus, ResponseEnd};
+use nicecooling::mqtt::client::{
+    FailureClass, Fate, MqttConfig, MqttFailure, MqttHandle, MqttStatus, ResponseEnd,
+};
 use nicecooling::mqtt::settings::MqttSettings;
 use support::graphs::Dir;
 use support::mqtt_broker::{Behavior, MqttBroker, Will, free_port};
@@ -160,7 +162,11 @@ async fn invalid_certificate_fails_the_connection() {
     let status = status_is(&client, |status| matches!(status, MqttStatus::Failed(_))).await;
 
     assert!(
-        matches!(&status, MqttStatus::Failed(text) if !text.is_empty()),
+        matches!(
+            &status,
+            MqttStatus::Failed(failure)
+                if failure.class == FailureClass::Untrusted && !failure.text.is_empty()
+        ),
         "{status:?}"
     );
     // The handshake failed, so the broker never read a CONNECT.
@@ -195,7 +201,11 @@ async fn ca_file_is_trusted_and_a_missing_file_fails() {
     client.configure(Some(missing));
     let status = status_is(&client, |status| matches!(status, MqttStatus::Failed(_))).await;
     assert!(
-        matches!(&status, MqttStatus::Failed(text) if text.contains("CA file")),
+        matches!(
+            &status,
+            MqttStatus::Failed(failure)
+                if failure.class == FailureClass::CaFile && failure.text.contains("CA file")
+        ),
         "{status:?}"
     );
 
@@ -457,4 +467,49 @@ async fn message_limit_is_8192_bytes_for_the_topic_and_the_payload() {
         "the large one never left"
     );
     assert_eq!(broker.connects().len(), 1, "no reconnect");
+}
+
+/// The status of a failed connection has the class of its error: the settings screen has one
+/// text for each class.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_failed_connection_has_the_class_of_its_error() {
+    use rumqttc::{ConnectReturnCode, ConnectionError};
+
+    // Nothing listens on this port.
+    let (client, _ends) = start();
+    client.configure(Some(config(free_port())));
+    let status = status_is(&client, |status| matches!(status, MqttStatus::Failed(_))).await;
+    assert!(
+        matches!(&status, MqttStatus::Failed(failure) if failure.class == FailureClass::Unreachable),
+        "{status:?}"
+    );
+
+    let class = |error: ConnectionError| MqttFailure::from(&error).class;
+    for code in [
+        ConnectReturnCode::BadUserNamePassword,
+        ConnectReturnCode::NotAuthorized,
+    ] {
+        assert_eq!(
+            class(ConnectionError::ConnectionRefused(code)),
+            FailureClass::Login
+        );
+    }
+    assert_eq!(
+        class(ConnectionError::ConnectionRefused(
+            ConnectReturnCode::ServiceUnavailable
+        )),
+        FailureClass::Other
+    );
+    assert_eq!(
+        class(ConnectionError::NetworkTimeout),
+        FailureClass::Timeout
+    );
+    let timed_out = std::io::Error::from(std::io::ErrorKind::TimedOut);
+    assert_eq!(class(ConnectionError::Io(timed_out)), FailureClass::Timeout);
+    let no_address = std::io::Error::other("failed to lookup address information: no such host");
+    assert_eq!(
+        class(ConnectionError::Io(no_address)),
+        FailureClass::Unreachable
+    );
+    assert_eq!(class(ConnectionError::RequestsDone), FailureClass::Other);
 }

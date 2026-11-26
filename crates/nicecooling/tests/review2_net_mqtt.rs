@@ -6,7 +6,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use nicecooling::graphs::secrets::Password;
-use nicecooling::mqtt::client::{MqttConfig, MqttHandle, MqttStatus, ResponseEnd};
+use nicecooling::mqtt::client::{FailureClass, MqttConfig, MqttHandle, MqttStatus, ResponseEnd};
 use nicecooling::mqtt::settings::MqttSettings;
 use rcgen::{
     BasicConstraints, CertificateParams, DnType, ExtendedKeyUsagePurpose, IsCa, Issuer, KeyPair,
@@ -120,6 +120,10 @@ async fn a_certificate_for_another_host_name_fails() {
     client.configure(Some(tls.with_extra_root(ca_der)));
     let status = status_is(&client, |status| matches!(status, MqttStatus::Failed(_))).await;
     assert!(broker.connects().is_empty(), "{status:?}");
+    assert!(
+        matches!(&status, MqttStatus::Failed(failure) if failure.class == FailureClass::NameMismatch),
+        "{status:?}"
+    );
 }
 
 /// The password is in no `Debug` text and in no status text.
