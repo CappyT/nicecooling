@@ -107,6 +107,8 @@ pub struct Shared {
     pub graph_limit: Mutex<usize>,
     /// The runtime of the test. The handlers of zbus run on its own executor, which has no reactor.
     runtime: Mutex<Option<tokio::runtime::Handle>>,
+    /// The work that a method does after its reply, as the daemon does it.
+    tasks: Mutex<Vec<tokio::task::JoinHandle<()>>>,
 }
 
 impl Default for Shared {
@@ -121,6 +123,7 @@ impl Default for Shared {
             graph_in_use: Mutex::default(),
             graph_limit: Mutex::new(64),
             runtime: Mutex::default(),
+            tasks: Mutex::default(),
             next_id: AtomicU32::new(1),
             next_profile: AtomicU32::new(3),
             next_group: AtomicU32::new(1),
@@ -158,9 +161,10 @@ impl Default for Shared {
 impl Shared {
     fn spawn(&self, future: impl std::future::Future<Output = ()> + Send + 'static) {
         let runtime = self.runtime.lock().expect("runtime").clone();
-        runtime
+        let task = runtime
             .expect("the fake runs inside a runtime")
             .spawn(future);
+        self.tasks.lock().expect("tasks").push(task);
     }
 
     pub fn record(&self, call: &str, header: &zbus::message::Header<'_>) -> fdo::Result<()> {
@@ -1647,6 +1651,16 @@ pub struct FakeDaemon {
     pub shared: Arc<Shared>,
 }
 
+impl Drop for FakeDaemon {
+    /// A task that still changes the object server after the test dropped the connection
+    /// panics inside zbus. The test is over: the work stops.
+    fn drop(&mut self) {
+        for task in self.shared.tasks.lock().expect("tasks").drain(..) {
+            task.abort();
+        }
+    }
+}
+
 impl FakeDaemon {
     pub async fn start(conn: Connection, options: Options) -> Self {
         let shared = Arc::new(Shared::default());
@@ -1864,6 +1878,17 @@ impl FakeDaemon {
             .expect("leakshield");
         conn.request_name(BUS_NAME).await.expect("daemon name");
         Self { conn, shared }
+    }
+
+    /// Wait for the work that the fake does after a reply. `SetDefinition` removes the object of
+    /// a Graph sensor and adds it again after it answered, and `Delete` removes it after it
+    /// answered. A call to that object in between fails with `UnknownObject` or
+    /// `UnknownInterface`, so a test waits here before its next call to the sensor.
+    pub async fn settle(&self) {
+        let tasks = std::mem::take(&mut *self.shared.tasks.lock().expect("tasks"));
+        for task in tasks {
+            let _ = task.await;
+        }
     }
 
     pub fn calls(&self) -> Vec<String> {

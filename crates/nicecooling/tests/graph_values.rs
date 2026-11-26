@@ -192,7 +192,10 @@ async fn create_call_has_the_interactive_flag() {
         .set_graph_sensor_definition(&id, "Hotter", "degC")
         .await
         .unwrap();
+    // The object of the sensor goes and comes back after the reply.
+    rig.fake.settle().await;
     rig.client.delete_graph_sensor(&id).await.unwrap();
+    rig.fake.settle().await;
     assert_eq!(
         rig.fake.calls(),
         [
