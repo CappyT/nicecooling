@@ -3,6 +3,7 @@
 
 use std::fmt;
 use std::io::Read as _;
+use std::os::unix::fs::OpenOptionsExt as _;
 use std::path::Path;
 
 use nicecooling_graph::model::{Export, ExportError, Graph, Node};
@@ -29,6 +30,8 @@ pub fn export_file(path: &Path, graph: &Graph) -> std::io::Result<()> {
 pub enum ImportError {
     /// The file is over 1 MiB.
     TooLarge,
+    /// The path is no regular file: a directory, a named pipe, a device.
+    NotAFile,
     /// The file cannot be read.
     Read(String),
     /// The file is not a Graph of this app, or it has a higher format version.
@@ -41,6 +44,7 @@ impl fmt::Display for ImportError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::TooLarge => write!(f, "the file is over {MAX_IMPORT_BYTES} bytes"),
+            Self::NotAFile => f.write_str("the path is not a regular file"),
             Self::Read(why) => write!(f, "the file cannot be read: {why}"),
             Self::Format(error) => error.fmt(f),
             Self::Invalid(refusals) => {
@@ -116,13 +120,22 @@ fn renumber(graph: &mut Graph) {
     }
 }
 
+/// Read an export file. The window calls it off the UI thread.
 pub fn import_file(path: &Path, existing: &[Graph]) -> Result<Graph, ImportError> {
-    let file = std::fs::File::open(path).map_err(|e| ImportError::Read(e.to_string()))?;
-    let size = file
+    // The file dialog can give a named pipe, and the open of a pipe waits for a writer. With
+    // `O_NONBLOCK` the open returns at once. The flag changes nothing for a regular file.
+    let file = std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NONBLOCK)
+        .open(path)
+        .map_err(|e| ImportError::Read(e.to_string()))?;
+    let metadata = file
         .metadata()
-        .map_err(|e| ImportError::Read(e.to_string()))?
-        .len();
-    if size > MAX_IMPORT_BYTES {
+        .map_err(|e| ImportError::Read(e.to_string()))?;
+    if !metadata.is_file() {
+        return Err(ImportError::NotAFile);
+    }
+    if metadata.len() > MAX_IMPORT_BYTES {
         return Err(ImportError::TooLarge);
     }
     // The file can grow after the check: read one byte more than the limit.

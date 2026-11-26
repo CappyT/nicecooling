@@ -10,6 +10,7 @@ use nicecooling_graph::model::Kind;
 
 use crate::command::Command;
 use crate::graphs::channel::GraphCommand;
+use crate::graphs::transfer::{export_file, import_file};
 use crate::graphs::view::lock_view;
 use crate::icons::{NcIcon, icon, small_icon, text_icon};
 use crate::screen_view::{ScreenView, skeleton};
@@ -539,8 +540,14 @@ impl ScreenView {
         let path = cx.prompt_for_new_path(&home_dir(), Some(&name));
         cx.spawn(async move |this, cx| {
             if let Ok(Ok(Some(path))) = path.await {
+                // The write runs off the UI thread: a slow disk does not stop the window.
+                let target = path.clone();
+                let written = cx
+                    .background_executor()
+                    .spawn(async move { export_file(&target, &graph) })
+                    .await;
                 let _ = this.update(cx, |this, cx| {
-                    this.graphs.export_to(&path, &graph, locale);
+                    this.graphs.exported(&path, written, locale);
                     cx.notify();
                 });
             }
@@ -561,14 +568,21 @@ impl ScreenView {
             if let Ok(Ok(Some(mut paths))) = paths.await
                 && let Some(path) = paths.pop()
             {
+                // The Graphs of the user, for the validator and the id of the new Graph.
+                let read = this.update(cx, |this, cx| {
+                    let app = this.model.read(cx);
+                    app.graphs().map(|shown| (shown.graphs(), app.locale))
+                });
+                let Ok(Some((existing, locale))) = read else {
+                    return;
+                };
+                // The read runs off the UI thread: a slow disk does not stop the window.
+                let result = cx
+                    .background_executor()
+                    .spawn(async move { import_file(&path, &existing) })
+                    .await;
                 let _ = this.update(cx, |this, cx| {
-                    let (shown, locale) = {
-                        let app = this.model.read(cx);
-                        (app.graphs(), app.locale)
-                    };
-                    let command =
-                        shown.and_then(|shown| this.graphs.import_from(&path, &shown, locale));
-                    if let Some(command) = command {
+                    if let Some(command) = this.graphs.imported(result, locale) {
                         this.send_graph(command, cx);
                     }
                     cx.notify();

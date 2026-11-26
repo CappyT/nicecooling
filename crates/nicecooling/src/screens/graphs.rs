@@ -82,7 +82,8 @@ fn import_refusal(error: &ImportError, locale: Locale) -> String {
                 ("known", &EXPORT_FORMAT_VERSION.to_string()),
             ],
         ),
-        ImportError::Format(_) => locale.tr("graphs.not_imported.format"),
+        // A directory, a named pipe or a device is no Graph file.
+        ImportError::Format(_) | ImportError::NotAFile => locale.tr("graphs.not_imported.format"),
         ImportError::Read(why) => locale.fmt("graphs.not_imported.other", &[("reason", why)]),
         // The first broken rule of the validator.
         ImportError::Invalid(refusals) => {
@@ -139,10 +140,17 @@ impl GraphsUi {
         Some((format!("{name}.json"), stored.clone()))
     }
 
-    /// Write the export file that the user chose, and say where it is.
+    /// Write the export file that the user chose, and say where it is. The window writes the
+    /// file off the UI thread and gives the result to `exported`.
     pub fn export_to(&mut self, path: &Path, graph: &Graph, locale: Locale) {
+        self.exported(path, export_file(path, graph), locale);
+    }
+
+    /// The result of the write of an export file: say where the file is, or why it is not
+    /// written.
+    pub fn exported(&mut self, path: &Path, result: std::io::Result<()>, locale: Locale) {
         let home = home_dir();
-        self.notice = Some(match export_file(path, graph) {
+        self.notice = Some(match result {
             Ok(()) => Notice {
                 text: locale.fmt(
                     "graphs.exported",
@@ -168,16 +176,26 @@ impl GraphsUi {
         }
     }
 
-    /// Read the file that the user chose. A Graph that the app accepts gives the command that
-    /// stores it: it gets a new id and it is disabled. A file that the app refuses gives the
-    /// reason above the table.
+    /// Read the file that the user chose. The window reads the file off the UI thread and gives
+    /// the result to `imported`.
     pub fn import_from(
         &mut self,
         path: &Path,
         view: &GraphView,
         locale: Locale,
     ) -> Option<Command> {
-        match import_file(path, &view.graphs()) {
+        self.imported(import_file(path, &view.graphs()), locale)
+    }
+
+    /// The result of the read of an import file. A Graph that the app accepts gives the command
+    /// that stores it: it gets a new id and it is disabled. A file that the app refuses gives
+    /// the reason above the table.
+    pub fn imported(
+        &mut self,
+        result: Result<Graph, ImportError>,
+        locale: Locale,
+    ) -> Option<Command> {
+        match result {
             Ok(graph) => {
                 self.notice = None;
                 self.imported.insert(graph.id.clone());
