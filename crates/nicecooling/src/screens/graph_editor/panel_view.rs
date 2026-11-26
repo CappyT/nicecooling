@@ -334,20 +334,24 @@ impl ScreenView {
                     .text_color(p.fg_dim)
                     .child(response.runs_title.clone()),
             );
-            for row in &response.runs {
+            // One line per run: the time keeps its width, and a long outcome truncates.
+            for (index, row) in response.runs.iter().enumerate() {
                 list = list.child(
                     h_flex()
+                        .id(("graph-run", index))
                         .w_full()
-                        .min_h(px(22.))
+                        .h(px(22.))
                         .gap(px(9.))
                         .items_center()
                         .text_size(px(12.))
                         .child(
                             caption(row.time.clone(), p)
-                                .flex_1()
+                                .flex_none()
+                                .whitespace_nowrap()
                                 .font_family("Adwaita Mono"),
                         )
-                        .child(div().flex_none().child(row.text.clone())),
+                        .child(label(row.text.clone()).flex_1().text_right())
+                        .tip(row.text.clone()),
                 );
             }
             if let Some(text) = &response.no_run {
@@ -814,7 +818,13 @@ impl ScreenView {
                         .child(div().flex_none().child(switch))
                         .child(div().flex_1().min_w_0().child(field))
                 } else {
-                    h_flex().justify_end().child(switch)
+                    // The switch says what it holds: "Off".
+                    h_flex()
+                        .gap(px(9.))
+                        .items_center()
+                        .justify_end()
+                        .child(locale.tr("graph_editor.response.repeat_off"))
+                        .child(switch)
                 };
                 rows.push(panel_row(row.label.clone(), control));
             }
