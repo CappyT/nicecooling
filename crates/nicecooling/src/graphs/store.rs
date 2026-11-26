@@ -255,13 +255,29 @@ impl GraphStore {
         self.file_error.as_deref()
     }
 
-    /// Read `graphs.json` again: "Retry" after a file that the app could not use. The state and
-    /// the response log stay as the store holds them.
+    /// Read `graphs.json` again: before each edit, and at "Retry" after a file that the app could
+    /// not use. A file that loads replaces the Graphs of the store and clears the error. A file
+    /// that does not load sets the error, and the store keeps the Graphs that it loaded last, so
+    /// they keep running. The state and the response log stay as the store holds them.
     pub fn reload(&mut self) {
+        if self.read().is_ok() {
+            self.prune_state();
+        }
+    }
+
+    fn read(&mut self) -> std::io::Result<()> {
         let (entries, error) = load_graphs(&self.paths.graphs);
-        self.entries = entries;
-        self.file_error = error;
-        self.prune_state();
+        match error {
+            Some(error) => {
+                self.file_error = Some(error.clone());
+                Err(io_error(error))
+            }
+            None => {
+                self.entries = entries;
+                self.file_error = None;
+                Ok(())
+            }
+        }
     }
 
     /// Add a Graph, or replace the Graph with the same id, and write the file. The caller runs the
@@ -321,18 +337,10 @@ impl GraphStore {
         &mut self,
         edit: impl FnOnce(&mut Vec<StoredGraph>) -> std::io::Result<T>,
     ) -> std::io::Result<T> {
-        if let Some(error) = &self.file_error {
-            return Err(io_error(error.clone()));
-        }
         // Another writer can have changed the file since the last read (a second instance of the
         // app, a hand edit): edit what the file holds now, so no change of it is lost. A file
-        // that no longer loads stays as it is.
-        let (entries, error) = load_graphs(&self.paths.graphs);
-        self.entries = entries;
-        if let Some(error) = error {
-            self.file_error = Some(error.clone());
-            return Err(io_error(error));
-        }
+        // that does not load stays as it is, and a file that the user repaired works again.
+        self.read()?;
         let before = self.entries.clone();
         let done = match edit(&mut self.entries) {
             Ok(done) => done,

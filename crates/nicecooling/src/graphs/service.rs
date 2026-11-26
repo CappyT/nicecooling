@@ -457,7 +457,8 @@ impl GraphService {
                     ) => {}
                     (_, Err(error)) => {
                         let reason = format!("{}: {error}", graph.name);
-                        self.refuse_store(&graph.id, mode, reason, ApplyError::Sensor(error));
+                        let command_id = asked.as_deref().unwrap_or(&graph.id);
+                        self.refuse_store(command_id, mode, reason, ApplyError::Sensor(error));
                         return;
                     }
                 }
@@ -697,21 +698,27 @@ impl GraphService {
             // comes from a view of the screen, and another writer can hold it in the file.
             GraphCommand::Apply(graph) => {
                 let new = !self.store.holds(&graph.id);
+                self.store.reload();
                 self.store_graph(*graph, Store::Apply, new);
             }
-            GraphCommand::Import(graph) => self.store_graph(*graph, Store::Disable, true),
+            GraphCommand::Import(graph) => {
+                self.store.reload();
+                self.store_graph(*graph, Store::Disable, true);
+            }
             GraphCommand::Enable { graph, enabled } => {
-                if let Some(mut graph) = self.store.graph(&graph).cloned() {
-                    graph.enabled = enabled;
-                    self.store_graph(
-                        graph,
-                        if enabled {
+                // The switch goes to the Graph as the file holds it now.
+                self.store.reload();
+                match self.store.graph(&graph).cloned() {
+                    Some(mut graph) => {
+                        graph.enabled = enabled;
+                        let mode = if enabled {
                             Store::Enable
                         } else {
                             Store::Disable
-                        },
-                        false,
-                    );
+                        };
+                        self.store_graph(graph, mode, false);
+                    }
+                    None => self.publish(),
                 }
             }
             GraphCommand::Delete { graph } => self.delete_graph(&graph),
@@ -747,9 +754,18 @@ impl GraphService {
 
     /// Validate a Graph, make or rename its Graph sensor, and store it. Apply starts the state of
     /// its nodes again. A refusal of the daemon stores nothing. A Graph that is `new` gets its id
-    /// from the store, and the answer in the view names it.
+    /// from the store, and the answer in the view names it. The caller reads the Graph file again
+    /// first.
     fn store_graph(&mut self, mut graph: Graph, mode: Store, new: bool) {
         let asked = new.then(|| graph.id.clone());
+        // The screen waits for an answer with the id of its command.
+        let command_id = graph.id.clone();
+        // A Graph file that does not load must not leave a sensor behind.
+        if let Some(error) = self.store.file_error().map(str::to_owned) {
+            self.refuse_store(&command_id, mode, error.clone(), ApplyError::Other(error));
+            self.publish();
+            return;
+        }
         // The validator must not read a new Graph as a version of the entry that holds its id.
         if new && self.store.holds(&graph.id) {
             graph.id = new_graph_id(&self.store.all_graphs());
@@ -757,18 +773,13 @@ impl GraphService {
         let refusals = self.store.validate(&graph);
         if !refusals.is_empty() {
             let reason = format!("{}: {}", graph.name, describe(&refusals));
-            self.refuse_store(&graph.id, mode, reason, ApplyError::Rules(refusals));
-            return;
-        }
-        // A Graph file that cannot be written must not leave a sensor behind.
-        if let Some(error) = self.store.file_error().map(str::to_owned) {
-            self.refuse_store(&graph.id, mode, error.clone(), ApplyError::Other(error));
+            self.refuse_store(&command_id, mode, reason, ApplyError::Rules(refusals));
             return;
         }
         // One call for a Graph at a time: the answer of the daemon decides what the app stores.
         if self.waits_for(&graph.id) {
             let reason = self.locale.tr("graph_refusal.busy");
-            self.refuse_store(&graph.id, mode, reason.clone(), ApplyError::Other(reason));
+            self.refuse_store(&command_id, mode, reason.clone(), ApplyError::Other(reason));
             return;
         }
         // The service goes on with the command, also when the daemon has to answer first.
@@ -891,6 +902,13 @@ impl GraphService {
 
     /// Delete a Graph. The Graph sensor goes first, and a sensor that something uses keeps the Graph.
     fn delete_graph(&mut self, id: &str) {
+        // A Graph file that does not load keeps the Graph, so its sensor must stay too.
+        self.store.reload();
+        if let Some(error) = self.store.file_error().map(str::to_owned) {
+            self.refuse(error);
+            self.publish();
+            return;
+        }
         if self.waits_for(id) {
             self.refuse(self.locale.tr("graph_refusal.busy"));
             return;

@@ -504,3 +504,100 @@ fn passes_do_not_read_the_graph_file() {
     assert!(view.error.is_some());
     assert_eq!(std::fs::read_to_string(&path).unwrap(), "{ not json");
 }
+
+/// A Graph with a notification response that runs again every second while its constant is 1.
+fn repeating_response(id: &str) -> Graph {
+    let mut graph = Graph::new(id, "Hot");
+    graph.nodes = vec![
+        Node::new(1, Kind::Constant).with_param("value", 1.0),
+        Node::new(2, Kind::ResponseEnd)
+            .with_param("kind", "notification")
+            .with_param("title", "Hot")
+            .with_param("repeat_s", 1),
+    ];
+    graph.connections = vec![Connection::new(1, 2, "a")];
+    graph
+}
+
+/// `graphs.json` breaks while the app runs. The refused edit keeps the Graphs that the app loaded
+/// last. They keep running: the values call and the responses go on. The error shows.
+#[test]
+fn a_graph_file_that_breaks_keeps_the_loaded_graphs_running() {
+    let mut rig = rig(
+        "file-broke-running",
+        vec![
+            sensor_graph("graph_1", "nct6798_temp1", "graph_1"),
+            repeating_response("graph_2"),
+        ],
+    );
+    rig.service.apply_event(&DaemonEvent::Link(Link::Online));
+    rig.service
+        .apply_event(&sample(&[("nct6798_temp1", 46.2, 0)]));
+    rig.service.poll();
+    let path = rig.dir.graph_paths().graphs;
+    std::fs::write(&path, "{ not json").unwrap();
+
+    rig.service
+        .handle(GraphCommand::Apply(Box::new(constant_graph(
+            "graph_3", 7.0,
+        ))));
+    let runs = {
+        let view = rig.view.lock().unwrap();
+        assert!(view.refusal.is_some(), "the Apply is refused");
+        assert!(view.error.is_some() && view.file_error.is_some());
+        assert_eq!(view.rows.len(), 2, "the view keeps the loaded Graphs");
+        view.log.len()
+    };
+    assert_eq!(rig.service.store().graphs().len(), 2);
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), "{ not json");
+
+    for _ in 0..3 {
+        rig.clock.advance(Duration::from_secs(1));
+        assert!(rig.service.poll());
+    }
+    assert_eq!(
+        rig.calls.lock().unwrap().last().unwrap(),
+        &[("graph_1".to_owned(), Some(46.2))],
+        "the values call goes on"
+    );
+    let view = rig.view.lock().unwrap();
+    assert_eq!(view.log.len(), runs + 3, "the response goes on");
+    assert_eq!(view.row("graph_1").unwrap().state, RowState::Running);
+    assert!(view.error.is_some(), "the error still shows");
+}
+
+/// The user repairs `graphs.json` by hand. The next edit reads the file and works: no "Retry".
+#[test]
+fn an_edit_works_after_the_graph_file_is_repaired() {
+    let mut rig = rig(
+        "file-repaired",
+        vec![sensor_graph("graph_1", "nct6798_temp1", "graph_1")],
+    );
+    let path = rig.dir.graph_paths().graphs;
+    let good = std::fs::read_to_string(&path).unwrap();
+    std::fs::write(&path, "{ not json").unwrap();
+    let disable = || GraphCommand::Enable {
+        graph: "graph_1".into(),
+        enabled: false,
+    };
+    rig.service.handle(disable());
+    assert!(rig.view.lock().unwrap().file_error.is_some());
+    assert!(rig.service.store().graph("graph_1").unwrap().enabled);
+
+    std::fs::write(&path, good).unwrap();
+    rig.service.handle(disable());
+    {
+        let view = rig.view.lock().unwrap();
+        assert_eq!(view.refusal, None);
+        assert_eq!(view.error, None);
+        assert_eq!(view.file_error, None);
+        assert_eq!(view.row("graph_1").unwrap().state, RowState::Disabled);
+    }
+    let stored = GraphStore::open(rig.dir.graph_paths());
+    assert!(!stored.graph("graph_1").unwrap().enabled);
+    // A delete works too.
+    rig.service.handle(GraphCommand::Delete {
+        graph: "graph_1".into(),
+    });
+    assert!(GraphStore::open(rig.dir.graph_paths()).entries().is_empty());
+}
