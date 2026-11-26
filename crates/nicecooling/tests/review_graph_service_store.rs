@@ -184,15 +184,22 @@ fn full_disk_keeps_the_old_graph_file() {
     assert!(before.len() < 4096);
 
     let exe = std::env::current_exe().unwrap();
-    let status = std::process::Command::new("sh")
+    let output = std::process::Command::new("sh")
         .arg("-c")
         .arg("trap '' XFSZ; exec prlimit --fsize=4096 \"$0\" --exact full_disk_keeps_the_old_graph_file --test-threads 1")
         .arg(&exe)
         .env("REVIEW_FULL_DISK_CHILD", "1")
         .env("REVIEW_DIR", dir.path())
-        .status()
+        // The size limit also applies to the output of the child: a log file as stdout fails it.
+        .output()
         .expect("the child test");
-    assert!(status.success(), "the child test failed: {status}");
+    assert!(
+        output.status.success(),
+        "the child test failed: {}\n{}{}",
+        output.status,
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
     assert_eq!(std::fs::read_to_string(&paths.graphs).unwrap(), before);
     let store = GraphStore::open(paths);
     assert_eq!(store.error(), None);

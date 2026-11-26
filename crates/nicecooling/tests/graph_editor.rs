@@ -1441,11 +1441,14 @@ impl ProcessSource for NoScan {
     }
 }
 
+/// The values of one pass: a sensor id and its value, or no value.
+type PassValues = Vec<(String, Option<f64>)>;
+
 /// A daemon that makes, renames and removes Graph sensors, and that can refuse each call.
 #[derive(Clone, Default)]
 struct FakeLink {
     /// The values of each pass, as the service sends them to the daemon.
-    values: Arc<Mutex<Vec<Vec<(String, Option<f64>)>>>>,
+    values: Arc<Mutex<Vec<PassValues>>>,
     /// The name and the unit of each sensor that the service asked for.
     created: Arc<Mutex<Vec<(String, String)>>>,
     /// The id, the name and the unit of each definition that the service set.
