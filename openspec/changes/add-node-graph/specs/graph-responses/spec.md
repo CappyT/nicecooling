@@ -219,7 +219,7 @@ The value of `NICECOOLING_NODE_<LABEL>` SHALL be the node value rounded to 8 dec
 - **THEN** `NICECOOLING_NODE_RPM` is `3000`
 
 ### Requirement: E-mail response
-An e-mail response SHALL have one recipient address, a subject of up to 128 characters and a text of up to 4096 characters. The app SHALL send a plain text message through the SMTP account, with a time limit of 30 s, outside the evaluation, and SHALL strip line breaks from the subject.
+An e-mail response SHALL have one recipient address, a subject of up to 128 characters and a text of up to 4096 characters. The app SHALL send a plain text message through the SMTP account, with a time limit of 30 s, outside the evaluation, and SHALL replace each run of CR and LF in the subject with one space.
 
 #### Scenario: Send
 - **WHEN** the response fires and the server accepts the message
@@ -234,8 +234,12 @@ An e-mail response SHALL have one recipient address, a subject of up to 128 char
 - **THEN** the outcome is `timeout` and the evaluation stays on time
 
 #### Scenario: Subject with a line break
-- **WHEN** the subject expands to a text with a line break
-- **THEN** the message has the subject on one line
+- **WHEN** the subject expands to `Hot\nBcc: x@example.org`
+- **THEN** the message has the one subject line `Hot Bcc: x@example.org` and no `Bcc` header
+
+#### Scenario: Subject with a run of line breaks
+- **WHEN** the subject expands to `Hot\r\n\r\nwater`
+- **THEN** the subject line is `Hot water`
 
 ### Requirement: MQTT message response
 An MQTT message response SHALL have a topic below the base topic and a payload template of up to 4096 bytes. The app SHALL publish `<base topic>/<topic>` with QoS 1 and no retain flag. The topic SHALL have 1 to 128 characters, no wildcard, no empty level and no leading or trailing slash. An empty template SHALL give the JSON object `{"graph_id":"<id>","graph_name":"<name>","time":<microseconds since the Unix epoch>}`.

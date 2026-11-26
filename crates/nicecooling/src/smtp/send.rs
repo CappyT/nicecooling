@@ -72,12 +72,23 @@ impl SmtpAccount {
     }
 }
 
-/// A subject is one header line. CR and LF would start another header.
+/// A subject is one header line. CR and LF would start another header. Each run of them becomes
+/// one space, so the words around a line break stay apart.
 fn on_one_line(subject: &str) -> String {
-    subject
-        .chars()
-        .filter(|c| !matches!(c, '\r' | '\n'))
-        .collect()
+    let mut line = String::with_capacity(subject.len());
+    let mut in_break = false;
+    for c in subject.chars() {
+        if matches!(c, '\r' | '\n') {
+            if !in_break {
+                line.push(' ');
+            }
+            in_break = true;
+        } else {
+            in_break = false;
+            line.push(c);
+        }
+    }
+    line
 }
 
 fn failed(reason: impl std::fmt::Display) -> SendError {

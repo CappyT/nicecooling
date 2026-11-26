@@ -142,7 +142,7 @@ async fn smtp_slow_server_times_out_at_30s_and_evaluation_stays_on_time() {
 }
 
 #[tokio::test]
-async fn smtp_subject_line_break_is_stripped() {
+async fn smtp_subject_line_break_becomes_a_space() {
     let server = SmtpServer::start(Behavior::plain());
     let account = SmtpAccount::new(
         settings(server.port, SmtpSecurity::None),
@@ -165,10 +165,33 @@ async fn smtp_subject_line_break_is_stripped() {
     assert_eq!(subjects.len(), 1, "{headers:?}");
     assert_eq!(
         subjects[0].as_str(),
-        "Subject: Pump stoppedBcc: evil@example.org"
+        "Subject: Pump stopped Bcc: evil@example.org"
     );
     assert!(headers.iter().all(|line| !line.starts_with("Bcc:")));
     assert_eq!(sessions[0].rcpt_to, ["owner@example.org"]);
+}
+
+/// Each run of CR and LF is one space: "Hot\nBcc" stays two words.
+#[tokio::test]
+async fn smtp_subject_run_of_line_breaks_is_one_space() {
+    let server = SmtpServer::start(Behavior::plain());
+    let account = SmtpAccount::new(
+        settings(server.port, SmtpSecurity::None),
+        Password::default(),
+    );
+    let mail = Mail {
+        subject: "Hot\nBcc\r\n\r\nX\rY".to_owned(),
+        ..mail()
+    };
+
+    assert_eq!(send(&account, &mail).await, Ok(()));
+
+    let lines = server.sessions()[0].data_lines();
+    let subject = lines
+        .iter()
+        .find(|line| line.starts_with("Subject:"))
+        .expect("a subject header");
+    assert_eq!(subject.as_str(), "Subject: Hot Bcc X Y");
 }
 
 #[tokio::test]
