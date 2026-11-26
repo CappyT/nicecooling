@@ -456,7 +456,7 @@ impl GraphService {
                         Err(SensorError::Unavailable),
                     ) => {}
                     (_, Err(error)) => {
-                        let reason = format!("{}: {error}", graph.name);
+                        let reason = format!("{}: {}", graph.name, self.sensor_reason(&error));
                         let command_id = asked.as_deref().unwrap_or(&graph.id);
                         self.refuse_store(command_id, mode, reason, ApplyError::Sensor(error));
                         return;
@@ -473,7 +473,7 @@ impl GraphService {
                     self.created.remove(&sensor);
                     self.finish_delete(&graph);
                 }
-                Err(error) => self.refuse(format!("{name}: {error}")),
+                Err(error) => self.refuse(format!("{name}: {}", self.sensor_reason(&error))),
             },
             Waiting::Compare { graph, name } => {
                 match result {
@@ -487,7 +487,7 @@ impl GraphService {
                         }
                     }
                     Ok(None) | Err(SensorError::Unavailable) => {}
-                    Err(error) => self.refuse(format!("{name}: {error}")),
+                    Err(error) => self.refuse(format!("{name}: {}", self.sensor_reason(&error))),
                 }
                 self.publish();
             }
@@ -957,6 +957,19 @@ impl GraphService {
 
     fn refuse(&self, reason: String) {
         lock_view(&self.view).refusal = Some(reason);
+    }
+
+    /// The reason of a refused sensor call in the language of the app. A text of the daemon
+    /// stays as the daemon wrote it.
+    fn sensor_reason(&self, error: &SensorError) -> String {
+        match error {
+            SensorError::Unavailable => self.locale.tr("graph_refusal.unavailable"),
+            SensorError::Denied => self.locale.tr("graph_refusal.denied"),
+            SensorError::Missing => self.locale.tr("graph_refusal.missing"),
+            SensorError::InUse(text) | SensorError::Refused(text) | SensorError::Failed(text) => {
+                text.clone()
+            }
+        }
     }
 
     fn pass(&mut self, now: Duration) {

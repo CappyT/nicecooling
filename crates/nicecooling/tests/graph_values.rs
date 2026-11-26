@@ -12,7 +12,7 @@ use nicecooling::graphs::values::{
     ActiveSession, DaemonCalls, DaemonLink, GraphValues, LogindSession, SensorError, ValuesCall,
 };
 use nicecooling::graphs::view::{ForeignSensor, SharedView, ValuesState, shared_view};
-use nicecooling::i18n::EN;
+use nicecooling::i18n::{EN, IT, Locale};
 use nicecooling::model::DaemonEvent;
 use nicecooling::notify::Plan;
 use nicecooling_core::clock::SimClock;
@@ -59,6 +59,10 @@ struct Rig {
 
 impl Rig {
     async fn start(name: &str, graphs: Vec<Graph>) -> Self {
+        Self::start_in(name, graphs, EN).await
+    }
+
+    async fn start_in(name: &str, graphs: Vec<Graph>, locale: Locale) -> Self {
         let bus = PrivateBus::start(name);
         let fake = FakeDaemon::start(bus.connect().await, Options::default()).await;
         let client = DaemonClient::new(bus.connect().await);
@@ -85,7 +89,7 @@ impl Rig {
                 scan: Box::new(NoScan),
                 power: Box::new(NoPower),
                 notify,
-                locale: EN,
+                locale,
                 view: view.clone(),
             },
         );
@@ -510,6 +514,29 @@ async fn refused_enable_keeps_the_graph_disabled() {
     assert!(!stored.enabled);
     assert_eq!(stored.sensor_id, None);
     assert!(rig.refusal().unwrap().contains("limit"));
+}
+
+/// The Graphs screen shows the reason after a translated prefix, so the reason has the language
+/// of the app too.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_denied_delete_gives_the_reason_in_the_language_of_the_app() {
+    let mut rig = Rig::start_in(
+        "delete-denied-it",
+        vec![sensor_graph("graph_a", "graph_1", 5.0)],
+        IT,
+    )
+    .await;
+    rig.fake.add_graph_sensor("Five", "degC").await;
+    rig.fake.deny_writes(true);
+    rig.handle(GraphCommand::Delete {
+        graph: "graph_a".into(),
+    });
+    assert!(rig.stored("graph_a").is_some(), "the Graph stays");
+    let refusal = rig.refusal().unwrap();
+    assert!(
+        refusal.contains("il sistema non permette a questo utente di modificare i sensori"),
+        "{refusal}"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

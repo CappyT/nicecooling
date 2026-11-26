@@ -191,6 +191,9 @@ graph_refusal:
   inactive_session: Questa sessione non è quella attiva. Nessuna risposta parte.
   busy: "Una chiamata al demone per questo Grafo attende la risposta."
   no_answer: "il demone non ha risposto entro 120 s"
+  unavailable: "l'app non ha una connessione al demone"
+  denied: "il sistema non permette a questo utente di modificare i sensori"
+  missing: "il sensore Grafo non esiste sul demone"
 feedback:
   pending: Scrittura in corso
   applied: "Applicato alle %{time}"

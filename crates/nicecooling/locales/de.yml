@@ -191,6 +191,9 @@ graph_refusal:
   inactive_session: Diese Sitzung ist nicht die aktive. Keine Reaktion läuft.
   busy: "Ein Aufruf an den Daemon für diesen Graphen wartet auf die Antwort."
   no_answer: "der Daemon hat nicht innerhalb von 120 s geantwortet"
+  unavailable: "die App hat keine Verbindung zum Daemon"
+  denied: "das System erlaubt diesem Benutzer nicht, Sensoren zu ändern"
+  missing: "der Graph-Sensor existiert nicht im Daemon"
 feedback:
   pending: Schreiben
   applied: "Angewendet %{time}"
