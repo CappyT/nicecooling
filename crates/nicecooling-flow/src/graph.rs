@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 
 use gpui::prelude::FluentBuilder;
 use gpui::*;
@@ -8,6 +8,16 @@ use crate::store::{FlowState, HandleKey};
 use crate::types::*;
 
 type NodeRendererFn = Box<dyn Fn(&FlowNode, &mut Window, &mut App) -> AnyElement>;
+
+/// What the look of a pin needs of the state of the canvas.
+struct Pins<'a> {
+    /// A connection drag is active.
+    is_connecting: bool,
+    /// The pin that the draft snaps to, and whether a rule refuses the connection.
+    snap: Option<&'a (HandleKey, bool)>,
+    /// The pins that have a connection.
+    connected: &'a BTreeSet<HandleKey>,
+}
 
 /// The top-level flow graph component.
 ///
@@ -146,8 +156,7 @@ impl FlowGraph {
         &self,
         node: &FlowNode,
         viewport: &Viewport,
-        is_connecting: bool,
-        snap: Option<&(HandleKey, bool)>,
+        pins: &Pins<'_>,
         window: &mut Window,
         cx: &mut App,
     ) -> AnyElement {
@@ -157,15 +166,15 @@ impl FlowGraph {
 
         let (screen_x, screen_y) = viewport.flow_to_screen(node.position);
 
-        // Choose renderer
-        let content = if let Some(node_type) = &node.node_type {
-            if let Some(renderer) = self.node_renderers.get(node_type) {
-                renderer(node, window, cx)
-            } else {
-                self.render_default_node(node, window, cx)
-            }
-        } else {
-            self.render_default_node(node, window, cx)
+        // The renderer of the node type, then the default renderer of the app, then the label.
+        let renderer = node
+            .node_type
+            .as_ref()
+            .and_then(|node_type| self.node_renderers.get(node_type))
+            .or(self.default_renderer.as_ref());
+        let content = match renderer {
+            Some(renderer) => renderer(node, window, cx),
+            None => self.render_default_node(node, window, cx),
         };
 
         let node_id = node.id.clone();
@@ -186,8 +195,7 @@ impl FlowGraph {
                 &node.handles,
                 &node.id,
                 &state,
-                is_connecting,
-                snap,
+                pins,
                 node_bg,
                 node_border,
                 self.accent_color,
@@ -286,8 +294,7 @@ impl FlowGraph {
         handles: &[HandleDef],
         node_id: &FlowNodeId,
         state: &Entity<FlowState>,
-        is_connecting: bool,
-        snap: Option<&(HandleKey, bool)>,
+        pins: &Pins<'_>,
         default_bg: u32,
         default_border: u32,
         accent: u32,
@@ -307,15 +314,26 @@ impl FlowGraph {
                 let handle_position = handle.position;
                 let state = state.clone();
 
-                let look = pin_look(is_connecting, &node_id, &handle_id, handle_type, snap);
+                let look = pin_look(
+                    pins.is_connecting,
+                    &node_id,
+                    &handle_id,
+                    handle_type,
+                    pins.snap,
+                );
+                // A pin with a connection has the fill of its outline.
+                let joined = pins
+                    .connected
+                    .contains(&(node_id.clone(), handle_id.clone()));
+                let plain_bg = if joined { default_border } else { default_bg };
                 let (bg_color, border_color, size_mult) = match look {
                     // Actively snapped: large accent dot
                     PinLook::Snapped => (gpui::rgb(accent), gpui::rgb(accent), 1.4),
                     // Snapped, and a rule refuses the connection: large danger dot
                     PinLook::Refused => (gpui::rgb(danger), gpui::rgb(danger), 1.4),
                     // Potential target: accent outline
-                    PinLook::Candidate => (gpui::rgb(default_bg), gpui::rgb(accent), 1.0),
-                    PinLook::Plain => (gpui::rgb(default_bg), gpui::rgb(default_border), 1.0),
+                    PinLook::Candidate => (gpui::rgb(plain_bg), gpui::rgb(accent), 1.0),
+                    PinLook::Plain => (gpui::rgb(plain_bg), gpui::rgb(default_border), 1.0),
                 };
                 let dot_size = handle_size * size_mult;
 
@@ -324,7 +342,7 @@ impl FlowGraph {
                     .h(px(dot_size))
                     .rounded_full()
                     .bg(bg_color)
-                    .border_1()
+                    .border(px(1.5))
                     .border_color(border_color)
                     .cursor(CursorStyle::Crosshair)
                     .flex_shrink_0();
@@ -552,6 +570,7 @@ impl Render for FlowGraph {
             snap,
             connecting_draft,
             visible_nodes,
+            connected,
             edge_label_elements,
         ) = {
             let state = self.state.read(cx);
@@ -596,6 +615,18 @@ impl Render for FlowGraph {
                 .map(|&i| state.nodes[i].clone())
                 .collect();
 
+            let connected: BTreeSet<HandleKey> = state
+                .edges
+                .iter()
+                .filter(|edge| !edge.hidden)
+                .flat_map(|edge| {
+                    [
+                        (edge.source.clone(), edge.source_handle.clone()),
+                        (edge.target.clone(), edge.target_handle.clone()),
+                    ]
+                })
+                .collect();
+
             // Edge labels
             let bg = self.bg_color;
             let mut edge_label_elements: Vec<AnyElement> = Vec::new();
@@ -629,21 +660,20 @@ impl Render for FlowGraph {
                 snap,
                 connecting_draft,
                 visible_nodes,
+                connected,
                 edge_label_elements,
             )
         }; // state borrow ends here
 
         // Render only visible nodes
         let mut node_elements: Vec<AnyElement> = Vec::with_capacity(visible_nodes.len());
+        let pins = Pins {
+            is_connecting,
+            snap: snap.as_ref(),
+            connected: &connected,
+        };
         for node in &visible_nodes {
-            node_elements.push(self.render_node(
-                node,
-                &viewport,
-                is_connecting,
-                snap.as_ref(),
-                window,
-                cx,
-            ));
+            node_elements.push(self.render_node(node, &viewport, &pins, window, cx));
         }
 
         let focus_ring = self.focus_handle.is_focused(window) && window.last_input_was_keyboard();

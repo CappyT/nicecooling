@@ -173,6 +173,7 @@ fn band_row(face: &NodeFace, p: &Palette) -> Div {
                 .w(gpui::relative((end - start).abs()))
                 .top(units(2.))
                 .h(units(GUIDE_ROW - 4.))
+                .rounded(units(2.))
                 .bg(p.accent_tint)
                 .border_1()
                 .border_color(p.accent),
@@ -182,6 +183,7 @@ fn band_row(face: &NodeFace, p: &Palette) -> Div {
             div()
                 .absolute()
                 .left(gpui::relative(band.place(input)))
+                .ml(units(-1.))
                 .top_0()
                 .w(units(2.))
                 .h(units(GUIDE_ROW))
@@ -242,18 +244,32 @@ fn node_element(node: &FlowNode, look: &CanvasLook) -> AnyElement {
     }
 
     let mut title = node_row(TITLE_ROW)
+        .gap(units(5.))
         .text_size(units(14.))
         .line_height(units(20.))
         .children(face.warns.then(|| small_icon(NcIcon::Warn, p.warning)))
+        // The name of the kind keeps its width next to a main parameter: the parameter
+        // truncates.
         .child(
             div()
-                .min_w_0()
-                .truncate()
+                .map(|name| {
+                    if face.detail.is_some() {
+                        name.flex_none()
+                    } else {
+                        name.min_w_0().truncate()
+                    }
+                })
                 .font_weight(FontWeight::BOLD)
                 .child(face.title.clone()),
         );
     if let Some(detail) = &face.detail {
-        title = title.child(div().flex_none().text_color(p.fg_dim).child(detail.clone()));
+        title = title.child(
+            div()
+                .min_w_0()
+                .truncate()
+                .text_color(p.fg_dim)
+                .child(detail.clone()),
+        );
     }
     if let Some(tag) = &face.tag {
         title = title.child(div().flex_1()).child(
@@ -270,7 +286,7 @@ fn node_element(node: &FlowNode, look: &CanvasLook) -> AnyElement {
     }
     let mut rows = v_flex()
         .size_full()
-        .px(units(8.))
+        .px(units(9.))
         .py(units(8.))
         .child(title);
     if let Some(subject) = &face.subject {
@@ -313,11 +329,14 @@ fn node_element(node: &FlowNode, look: &CanvasLook) -> AnyElement {
                     .text_color(ink)
                     .child(face.value.clone()),
             )
-            .children(
-                face.unit
-                    .clone()
-                    .map(|unit| div().flex_none().text_color(p.fg_dim).child(unit)),
-            ),
+            .children(face.unit.clone().map(|unit| {
+                div()
+                    .flex_none()
+                    .text_size(units(14.))
+                    .line_height(units(22.))
+                    .text_color(p.fg_dim)
+                    .child(unit)
+            })),
     );
     if let Some(state) = &face.state {
         rows = rows.child(
@@ -346,7 +365,8 @@ fn node_element(node: &FlowNode, look: &CanvasLook) -> AnyElement {
         .border_1()
         .border_color(p.border_strong)
         .when(node.dashed, |frame| frame.border_dashed())
-        .when(!p.dark, |frame| frame.shadow_sm())
+        // A node that exists only in the draft has no shadow.
+        .when(!p.dark && !node.dashed, |frame| frame.shadow_sm())
         .child(rows)
         .children(ring)
         .into_any_element()
