@@ -118,3 +118,18 @@ fn ten_thousand_bad_graph_sensor_ids_do_not_flood_the_journal() {
         "the load wrote {lines} journal lines for the dropped Graph sensors"
     );
 }
+
+/// Spec (node-graph, "Graph sensor id after a downgrade"): a new id is above every `graph_<n>`
+/// that the state still names. `take_number` reads `graph_+4294967295` (a sign, a key that the
+/// daemon never writes) as the largest number, so no Graph sensor can be created any more.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_user_name_key_with_a_sign_does_not_use_up_the_graph_sensor_ids() {
+    let rig = Rig::start_with(|_, state| {
+        let keys = r#""names": {"graph_+4294967295": "Hand made"}"#;
+        fs::write(state.join("state.json"), state_with(keys)).unwrap();
+    })
+    .await;
+    let hub = rig.daemon.as_ref().unwrap().hub.clone();
+    let created = hub.create_graph_sensor("Water", "degC");
+    assert!(created.is_ok(), "{created:?}");
+}
