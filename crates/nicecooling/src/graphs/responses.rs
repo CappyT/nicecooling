@@ -172,6 +172,14 @@ impl Responses {
         self.machines.retain(|key, _| keys.contains(key));
     }
 
+    /// Forget the machines of the Graph `graph_id`. Each one starts again from its stored record:
+    /// the run state stays, and the hold time and the repeat interval count from the next
+    /// evaluation.
+    pub fn restart(&mut self, graph_id: &str) {
+        let prefix = format!("{graph_id}/");
+        self.machines.retain(|key, _| !key.starts_with(&prefix));
+    }
+
     /// One evaluation of the response end node `key`. The machine of a node that this app run has
     /// not seen yet starts from the stored record. After the step the record of the node in
     /// `records` holds the state and the time of the last run.

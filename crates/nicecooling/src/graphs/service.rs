@@ -780,6 +780,7 @@ impl GraphService {
             Ok(()) => {
                 if mode == Store::Apply {
                     self.evaluator.apply(&graph);
+                    self.responses.restart(&id);
                 }
                 self.stopped.remove(&id);
                 if let Ok(mut view) = self.view.lock() {
