@@ -416,3 +416,45 @@ async fn an_unacknowledged_message_never_takes_the_ack_of_another() {
     assert_eq!(ids, wanted, "one end for each message");
     assert!(all.iter().all(|end| end.fate == Fate::Acknowledged));
 }
+
+/// A message of 8192 bytes (topic and payload) goes to the broker and gets its PUBACK. One byte
+/// more is dropped at once and never reaches the broker. The values go on.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn message_limit_is_8192_bytes_for_the_topic_and_the_payload() {
+    const TOPIC: &str = "nicecooling/alerts/big";
+    let broker = MqttBroker::start(Behavior::plain());
+    let (client, mut ends) = start();
+    client.configure(Some(config(broker.port)));
+    status_is(&client, |status| *status == MqttStatus::Connected).await;
+
+    assert!(client.enqueue(TOPIC, vec![b'a'; 8192 - TOPIC.len()], Some(1)));
+    assert_eq!(
+        next_end(&mut ends).await,
+        ResponseEnd {
+            response_id: 1,
+            fate: Fate::Acknowledged
+        }
+    );
+    let sent = broker.received_on(TOPIC);
+    assert_eq!(sent.len(), 1);
+    assert_eq!(sent[0].topic.len() + sent[0].payload.len(), 8192);
+
+    assert!(client.enqueue(TOPIC, vec![b'b'; 8193 - TOPIC.len()], Some(2)));
+    assert_eq!(
+        next_end(&mut ends).await,
+        ResponseEnd {
+            response_id: 2,
+            fate: Fate::Dropped
+        }
+    );
+    assert_eq!(client.queue_len(), 0);
+
+    client.set_value("nicecooling/sensor/cpu", b"{\"value\":40}".to_vec());
+    assert!(broker.wait_until(|broker| !broker.received_on("nicecooling/sensor/cpu").is_empty()));
+    assert_eq!(
+        broker.received_on(TOPIC).len(),
+        1,
+        "the large one never left"
+    );
+    assert_eq!(broker.connects().len(), 1, "no reconnect");
+}

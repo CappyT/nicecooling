@@ -20,7 +20,7 @@ use rustls::pki_types::pem::PemObject;
 use tokio::sync::{Notify, mpsc, watch};
 
 use super::backoff::Backoff;
-use super::queue::{Next, Outbox, Outcome, Queued, Report};
+use super::queue::{MAX_MESSAGE, Next, Outbox, Outcome, Queued, Report};
 use super::settings::MqttSettings;
 use crate::graphs::secrets::Password;
 
@@ -32,6 +32,9 @@ const REQUEST_CHANNEL: usize = 32;
 /// The messages that are with `rumqttc` and not yet acknowledged. It stays below the request
 /// channel, so `try_publish` never finds the channel full.
 const WINDOW: usize = 16;
+/// The limit of an outgoing packet. A message of `MAX_MESSAGE` bytes fits with the room for the
+/// fixed header, the length of the topic and the packet id. The CONNECT packet fits too.
+const OUTGOING_PACKET: usize = MAX_MESSAGE + 1024;
 
 /// What one connection needs. A change of any field closes the connection and opens a new one.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -99,7 +102,8 @@ pub enum MqttStatus {
 pub enum Fate {
     /// The broker acknowledged the message.
     Acknowledged,
-    /// The queue or a clear of the settings dropped the message.
+    /// The queue, a clear of the settings or the size limit dropped the message, or `rumqttc`
+    /// refused it.
     Dropped,
 }
 
@@ -220,7 +224,8 @@ impl MqttHandle {
     }
 
     /// QoS 1, no retain. False while MQTT is off: the message is not queued. At 256 messages the
-    /// oldest one goes, and a response message that goes ends as `Dropped`.
+    /// oldest one goes, and a response message that goes ends as `Dropped`. A message of more than
+    /// `MAX_MESSAGE` bytes (topic and payload) is not queued and ends as `Dropped` too.
     pub fn enqueue(&self, topic: &str, payload: Vec<u8>, response_id: Option<u64>) -> bool {
         let report = {
             let mut state = self.shared.lock();
@@ -338,6 +343,7 @@ fn options(config: &MqttConfig) -> Result<MqttOptions, String> {
     let mut options = MqttOptions::new(config.client_id.clone(), config.host.clone(), config.port);
     options.set_keep_alive(KEEP_ALIVE);
     options.set_clean_session(true);
+    options.set_max_packet_size(options.max_packet_size(), OUTGOING_PACKET);
     // The broker publishes this when the connection ends with no DISCONNECT. The client sends
     // no DISCONNECT, so a reader sees `offline` after a stop, a new config or a lost line.
     options.set_last_will(LastWill::new(

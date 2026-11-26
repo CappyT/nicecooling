@@ -242,7 +242,7 @@ An e-mail response SHALL have one recipient address, a subject of up to 128 char
 - **THEN** the subject line is `Hot water`
 
 ### Requirement: MQTT message response
-An MQTT message response SHALL have a topic below the base topic and a payload template of up to 4096 bytes. The app SHALL publish `<base topic>/<topic>` with QoS 1 and no retain flag. The topic SHALL have 1 to 128 characters, no wildcard, no empty level and no leading or trailing slash. An empty template SHALL give the JSON object `{"graph_id":"<id>","graph_name":"<name>","time":<microseconds since the Unix epoch>}`.
+An MQTT message response SHALL have a topic below the base topic and a payload template of up to 4096 bytes. The app SHALL publish `<base topic>/<topic>` with QoS 1 and no retain flag. The topic SHALL have 1 to 128 characters, no wildcard, no empty level and no leading or trailing slash. An empty template SHALL give the JSON object `{"graph_id":"<id>","graph_name":"<name>","time":<microseconds since the Unix epoch>}`. A message over 8192 bytes SHALL get the outcome `failed`.
 
 #### Scenario: Publish
 - **WHEN** the base topic is `nicecooling`, the topic is `alerts/water` and the broker acknowledges the message
@@ -255,6 +255,10 @@ An MQTT message response SHALL have a topic below the base topic and a payload t
 #### Scenario: Wildcard in the topic
 - **WHEN** a Graph has the topic `alerts/#`
 - **THEN** the validator refuses it with the code `bad-parameter`
+
+#### Scenario: Payload over the limit
+- **WHEN** the template is 585 times `{graph}` and the Graph name has 64 characters, so the payload is 37440 bytes
+- **THEN** the outcome is `failed`, the app sends no message and the sensor values still reach the broker
 
 #### Scenario: MQTT off
 - **WHEN** no broker host is set and the response fires

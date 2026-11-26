@@ -84,6 +84,21 @@ The client SHALL keep one pending value for each sensor topic, where a new value
 - **WHEN** the queue holds 256 messages and another arrives
 - **THEN** the oldest message is dropped
 
+### Requirement: Message size limit
+The client SHALL send no message whose topic and payload together are more than 8192 bytes. For such a message it SHALL write one journal line with the topic length and the payload length, never the content, and SHALL give a response message the outcome `failed`. It SHALL never queue the message again. The other messages and the sensor values SHALL go on.
+
+#### Scenario: At the limit
+- **WHEN** a response message has the topic `nicecooling/alerts/big` (22 bytes) and a payload of 8170 bytes
+- **THEN** the broker gets the message and the outcome is `ok`
+
+#### Scenario: Over the limit
+- **WHEN** the same message has a payload of 8171 bytes
+- **THEN** the client sends nothing, writes one journal line with 22 and 8171, and the outcome is `failed`
+
+#### Scenario: Large payload
+- **WHEN** a payload template expands to 37440 bytes
+- **THEN** the outcome is `failed`, the connection stays up and the next sensor values reach the broker
+
 ### Requirement: Status topic
 The client SHALL publish `online` to `<base>/status` with QoS 1 and the retain flag after each connect. It SHALL set the last will `offline` on the same topic with QoS 1 and the retain flag. After the app stops, the broker SHALL publish `offline`, so a reader knows that the retained values are old.
 
@@ -148,7 +163,7 @@ The client SHALL publish no event message for an Alarm that is active when the a
 - **THEN** the clear message has `source` `loop_1` and the same `details`
 
 ### Requirement: Response message topic
-The message of an MQTT message response SHALL use its own topic below the base topic, QoS 1 and no retain flag, as the graph-responses spec states. The app SHALL give the response its outcome when the broker acknowledges the message, when the queue drops it, or after 30 s without an answer.
+The message of an MQTT message response SHALL use its own topic below the base topic, QoS 1 and no retain flag, as the graph-responses spec states. The app SHALL give the response its outcome when the broker acknowledges the message, when the queue or the size limit drops it, or after 30 s without an answer.
 
 #### Scenario: Acknowledged
 - **WHEN** the broker acknowledges the message after 1 s

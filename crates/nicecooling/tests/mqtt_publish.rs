@@ -512,6 +512,46 @@ async fn response_message_ok_on_ack() {
     assert_eq!(messages[0].text(), r#"{"text":"leak"}"#);
 }
 
+/// A payload that expands to 37 440 bytes is over the limit of 8192 bytes: the outcome is
+/// `failed` at once, and the next response and the sensor values still reach the broker.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn response_message_over_the_size_limit_is_failed_and_the_values_go_on() {
+    let broker = MqttBroker::start(Behavior::plain());
+    let (client, ends) = MqttHandle::spawn(&tokio::runtime::Handle::current());
+    client.configure(Some(config(broker.port)));
+    let (responses, mut done, events) = run_publisher(&client, ends, Duration::from_secs(30));
+    events
+        .send(snapshot(vec![temp("cpu", "CPU")], vec![]))
+        .expect("the publisher listens");
+    events
+        .send(sample(&[("cpu", 46.2, 0)]))
+        .expect("the publisher listens");
+
+    assert!(responses.send(ResponseRequest {
+        id: 5,
+        topic: "alerts/water".to_owned(),
+        payload: vec![b'x'; 37_440],
+    }));
+    assert!(responses.send(water_alert(6)));
+
+    assert_eq!(
+        next_done(&mut done).await,
+        ResponseDone {
+            id: 5,
+            outcome: ResponseOutcome::Failed
+        }
+    );
+    assert_eq!(
+        next_done(&mut done).await,
+        ResponseDone {
+            id: 6,
+            outcome: ResponseOutcome::Ok
+        }
+    );
+    wait_for(&broker, &sensor_topic("cpu"), 1);
+    assert_eq!(broker.received_on("nicecooling/alerts/water").len(), 1);
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn response_message_timeout_after_30s_and_still_delivered() {
     let broker = MqttBroker::start(Behavior::plain());

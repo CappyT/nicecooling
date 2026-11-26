@@ -106,7 +106,7 @@ pub enum ResponseOutcome {
     Ok,
     /// No acknowledgment in 30 s. The message stays in the queue and goes out later.
     Timeout,
-    /// The queue dropped the message.
+    /// The queue or the size limit of 8192 bytes dropped the message.
     Failed,
     /// MQTT is off: no host is set.
     NotConfigured,

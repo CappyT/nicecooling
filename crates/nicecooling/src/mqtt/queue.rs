@@ -7,12 +7,17 @@ use std::collections::{BTreeMap, VecDeque};
 
 pub const QUEUE_CAP: usize = 256;
 
+/// The most bytes of one message: the topic and the payload together. A larger message never
+/// goes to the client: `rumqttc` ends the connection on a packet that is over its limit, and a
+/// retry gives the same error.
+pub const MAX_MESSAGE: usize = 8192;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Outcome {
     Failed,
 }
 
-/// The end of a response message that never left the queue.
+/// The end of a response message that never reached the broker.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Report {
     pub response_id: u64,
@@ -71,8 +76,13 @@ impl Outbox {
         }
     }
 
-    /// A new value replaces the one that waits for the same topic.
+    /// A new value replaces the one that waits for the same topic. A value over `MAX_MESSAGE` is
+    /// dropped, and the old value goes with it so no stale one stays.
     pub fn set_value(&mut self, topic: &str, payload: Vec<u8>) {
+        if self.too_large(topic, &payload) {
+            self.slots.remove(topic);
+            return;
+        }
         self.slots.insert(
             topic.to_owned(),
             Slot {
@@ -82,14 +92,20 @@ impl Outbox {
         );
     }
 
-    /// Add an event or a response message. At 256 messages the oldest one goes. The report is
-    /// `Some` when the dropped message was a response.
+    /// Add an event or a response message. At 256 messages the oldest one goes. A message over
+    /// `MAX_MESSAGE` is not added. The report is `Some` when the dropped message was a response.
     pub fn enqueue(
         &mut self,
         topic: &str,
         payload: Vec<u8>,
         response_id: Option<u64>,
     ) -> Option<Report> {
+        if self.too_large(topic, &payload) {
+            return response_id.map(|response_id| Report {
+                response_id,
+                outcome: Outcome::Failed,
+            });
+        }
         self.next_seq += 1;
         self.queue.push_back(Queued {
             topic: topic.to_owned(),
@@ -150,6 +166,20 @@ impl Outbox {
 
     pub fn value_count(&self) -> usize {
         self.slots.len()
+    }
+
+    /// True for a message over `MAX_MESSAGE`. It writes one journal line with the two lengths and
+    /// never the content: a payload can hold a text that the user wrote.
+    fn too_large(&mut self, topic: &str, payload: &[u8]) -> bool {
+        if topic.len() + payload.len() <= MAX_MESSAGE {
+            return false;
+        }
+        (self.journal)(&format!(
+            "nicecooling: mqtt message is too large: dropped a message with a topic of {} bytes and a payload of {} bytes",
+            topic.len(),
+            payload.len()
+        ));
+        true
     }
 
     fn trim(&mut self) -> Vec<Report> {
@@ -302,5 +332,48 @@ mod tests {
         assert_eq!(lines.len(), 2);
         assert!(lines[0].contains("t/event/x"));
         assert!(!lines[0].contains("secret text"));
+    }
+
+    #[test]
+    fn message_of_8192_bytes_is_queued_and_8193_is_failed() {
+        let lines = Arc::new(Mutex::new(Vec::<String>::new()));
+        let sink = Arc::clone(&lines);
+        let mut outbox =
+            Outbox::with_journal(move |line| sink.lock().expect("lock").push(line.to_owned()));
+        let topic = "t/r";
+        assert_eq!(
+            outbox.enqueue(topic, vec![b'x'; MAX_MESSAGE - topic.len()], Some(1)),
+            None
+        );
+        assert_eq!(outbox.queue_len(), 1);
+        assert!(lines.lock().expect("lock").is_empty());
+
+        assert_eq!(
+            outbox.enqueue(topic, vec![b'y'; MAX_MESSAGE - topic.len() + 1], Some(2)),
+            Some(Report {
+                response_id: 2,
+                outcome: Outcome::Failed
+            })
+        );
+        assert_eq!(outbox.queue_len(), 1, "the large message is not queued");
+        let lines = lines.lock().expect("lock");
+        assert_eq!(lines.len(), 1);
+        assert!(lines[0].contains("topic of 3 bytes"), "{}", lines[0]);
+        assert!(lines[0].contains("payload of 8190 bytes"), "{}", lines[0]);
+        assert!(!lines[0].contains("yyy"), "the journal has no content");
+    }
+
+    #[test]
+    fn large_event_and_value_are_dropped_with_a_journal_line() {
+        let lines = Arc::new(Mutex::new(Vec::<String>::new()));
+        let sink = Arc::clone(&lines);
+        let mut outbox =
+            Outbox::with_journal(move |line| sink.lock().expect("lock").push(line.to_owned()));
+        assert_eq!(outbox.enqueue("t/e", vec![b'x'; 9000], None), None);
+        assert_eq!(outbox.queue_len(), 0);
+        outbox.set_value("t/a", b"small".to_vec());
+        outbox.set_value("t/a", vec![b'x'; 9000]);
+        assert_eq!(outbox.value_count(), 0, "no stale value stays");
+        assert_eq!(lines.lock().expect("lock").len(), 2);
     }
 }
