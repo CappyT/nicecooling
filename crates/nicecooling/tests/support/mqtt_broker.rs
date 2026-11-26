@@ -94,6 +94,8 @@ struct State {
     /// The will of each connection that ended with no DISCONNECT.
     fired_wills: Vec<Will>,
     hold_acks: bool,
+    /// The broker holds the PUBACK of a QoS 1 message on each of these topics.
+    hold_topics: Vec<String>,
     /// The connection number and the packet id of each PUBACK that the broker holds.
     held: Vec<(usize, u16)>,
     live: Vec<(usize, Sender<Out>)>,
@@ -193,8 +195,16 @@ impl MqttBroker {
         lock(&self.state).hold_acks = on;
     }
 
+    /// Keep the PUBACK of each QoS 1 message on `topic` until `release_acks`. The other messages
+    /// get their PUBACK at once.
+    pub fn hold_acks_on(&self, topic: &str) {
+        lock(&self.state).hold_topics.push(topic.to_owned());
+    }
+
+    /// Send every PUBACK that the broker holds, and stop holding the PUBACK of any topic.
     pub fn release_acks(&self) {
         let mut state = lock(&self.state);
+        state.hold_topics.clear();
         let held = std::mem::take(&mut state.held);
         for (connection, pkid) in held {
             if let Some((_, sender)) = state.live.iter().find(|(id, _)| *id == connection) {
@@ -517,9 +527,10 @@ fn handle(
             let message = parse_publish(first, body).ok_or_else(bad_packet)?;
             let (qos, pkid) = (message.qos, message.pkid);
             let mut guard = lock(state);
+            let topic_held = guard.hold_topics.contains(&message.topic);
             guard.received.push(message);
             if qos == 1 {
-                if guard.hold_acks {
+                if guard.hold_acks || topic_held {
                     guard.held.push((id, pkid));
                 } else {
                     drop(guard);

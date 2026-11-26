@@ -370,3 +370,49 @@ async fn unacknowledged_message_goes_again_after_a_reconnect() {
     tokio::time::sleep(Duration::from_millis(300)).await;
     assert!(ends.try_recv().is_err());
 }
+
+/// The ends that arrive until none comes in 700 ms.
+async fn ends_until_quiet(ends: &mut UnboundedReceiver<ResponseEnd>) -> Vec<ResponseEnd> {
+    let mut got = Vec::new();
+    while let Ok(Some(end)) = tokio::time::timeout(Duration::from_millis(700), ends.recv()).await {
+        got.push(end);
+    }
+    got
+}
+
+/// One message has no PUBACK while more than 100 later ones get theirs. The packet ids of
+/// `rumqttc` wrap, and a later message meets the id of the one that waits. The acknowledgment of
+/// a message ends that message only.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_unacknowledged_message_never_takes_the_ack_of_another() {
+    const STUCK: u64 = 1000;
+    let broker = MqttBroker::start(Behavior::plain());
+    broker.hold_acks_on("nicecooling/alerts/stuck");
+    let (client, mut ends) = start();
+    client.configure(Some(config(broker.port)));
+    status_is(&client, |status| *status == MqttStatus::Connected).await;
+
+    assert!(client.enqueue("nicecooling/alerts/stuck", b"s".to_vec(), Some(STUCK)));
+    for id in 1..=150u64 {
+        assert!(client.enqueue("nicecooling/alerts/other", b"o".to_vec(), Some(id)));
+    }
+
+    let before = ends_until_quiet(&mut ends).await;
+    assert!(
+        before.iter().all(|end| end.response_id != STUCK),
+        "the message with no PUBACK ended: {before:?}"
+    );
+    assert!(
+        before.iter().all(|end| end.fate == Fate::Acknowledged),
+        "{before:?}"
+    );
+
+    broker.release_acks();
+    let mut all = before;
+    all.extend(ends_until_quiet(&mut ends).await);
+    let mut ids: Vec<u64> = all.iter().map(|end| end.response_id).collect();
+    ids.sort_unstable();
+    let wanted: Vec<u64> = (1..=150).chain([STUCK]).collect();
+    assert_eq!(ids, wanted, "one end for each message");
+    assert!(all.iter().all(|end| end.fate == Fate::Acknowledged));
+}
