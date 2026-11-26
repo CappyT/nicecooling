@@ -4207,7 +4207,7 @@ checksum = "650eef8c711430f1a879fdd01d4745a7deea475becfb90269c06775983bbf086"
 
 [[package]]
 name = "nicecooling"
-version = "0.1.0"
+version = "0.2.0-beta.1"
 dependencies = [
  "chrono",
  "futures-util",
@@ -4240,7 +4240,7 @@ dependencies = [
 
 [[package]]
 name = "nicecooling-api"
-version = "0.1.0"
+version = "0.2.0-beta.1"
 dependencies = [
  "roxmltree 0.21.2",
  "serde",
@@ -4249,7 +4249,7 @@ dependencies = [
 
 [[package]]
 name = "nicecooling-core"
-version = "0.1.0"
+version = "0.2.0-beta.1"
 dependencies = [
  "serde",
  "toml 1.2.2+spec-1.1.0",
@@ -4257,14 +4257,14 @@ dependencies = [
 
 [[package]]
 name = "nicecooling-flow"
-version = "0.1.0"
+version = "0.2.0-beta.1"
 dependencies = [
  "gpui-pre",
 ]
 
 [[package]]
 name = "nicecooling-graph"
-version = "0.1.0"
+version = "0.2.0-beta.1"
 dependencies = [
  "fastrand",
  "nicecooling-core",
@@ -4274,7 +4274,7 @@ dependencies = [
 
 [[package]]
 name = "nicecooling-hwmon"
-version = "0.1.0"
+version = "0.2.0-beta.1"
 dependencies = [
  "serde",
  "toml 1.2.2+spec-1.1.0",
@@ -4282,7 +4282,7 @@ dependencies = [
 
 [[package]]
 name = "nicecooling-protocol"
-version = "0.1.0"
+version = "0.2.0-beta.1"
 dependencies = [
  "base64 0.22.1",
  "crc",
@@ -4294,7 +4294,7 @@ dependencies = [
 
 [[package]]
 name = "nicecooling-verify"
-version = "0.1.0"
+version = "0.2.0-beta.1"
 dependencies = [
  "nicecooling-api",
  "nicecooling-protocol",
@@ -4305,7 +4305,7 @@ dependencies = [
 
 [[package]]
 name = "nicecoolingd"
-version = "0.1.0"
+version = "0.2.0-beta.1"
 dependencies = [
  "futures-core",
  "futures-util",

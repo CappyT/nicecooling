@@ -73,7 +73,7 @@ The images show the app with test data.
 | Leakshield | Firmware 1022. The daemon reads a Leakshield with another firmware and does not write it. |
 | Flow sensor | A sensor on a fan header, with a calibration table in `data/calibration/`. One exists: Alphacool 17558. |
 
-nicecooling is version 0.1.0 and is tested on one desktop. It writes the settings of a leak protection device: read the Rollback section before the first start.
+nicecooling is version 0.2.0-beta.1 and is tested on one desktop. It writes the settings of a leak protection device: read the Rollback section before the first start.
 
 ## Install
 

@@ -5,7 +5,7 @@
 %global debug_package %{nil}
 
 Name:           nicecooling
-Version:        0.1.0
+Version:        0.2.0~beta.1
 Release:        1%{?dist}
 Summary:        Fan, pump and Leakshield control for a water-cooled desktop
 License:        GPL-3.0-or-later
@@ -127,5 +127,8 @@ install -d -m 0700 %{buildroot}%{_sharedstatedir}/nicecooling
 %dir %attr(0700,root,root) %{_sharedstatedir}/nicecooling
 
 %changelog
+* Thu Nov 26 2026 NiceCooling <nicecooling@localhost.invalid> - 0.2.0~beta.1-1
+- Graphs: Graph sensors, responses, the editor, MQTT and e-mail
+
 * Mon Nov 23 2026 NiceCooling <nicecooling@localhost.invalid> - 0.1.0-1
 - First package
