@@ -619,3 +619,53 @@ async fn fake_server_records_the_sound_hint() {
         Some("alarm-clock-elapsed")
     );
 }
+
+/// A notification whose title and body hold the markup characters, as a Graph name and a text of
+/// the user can.
+fn markup_spec() -> nicecooling::notify::NotificationSpec {
+    nicecooling::notify::NotificationSpec {
+        key: "graph-markup".to_owned(),
+        title: "Hot <water>".to_owned(),
+        body: "<b>CPU</b> > 80 & rising".to_owned(),
+        level: Level::Normal,
+        buttons: Vec::new(),
+        sound: None,
+    }
+}
+
+/// A server with the capability `body-markup` reads the body as markup. The app escapes `&`, `<`
+/// and `>`, so the server shows the text as the user wrote it. The title is plain text always.
+#[tokio::test(flavor = "multi_thread")]
+async fn body_is_escaped_for_a_server_with_body_markup() {
+    let _guard = SESSION_LOCK.lock().await;
+    let bus = PrivateBus::start("notify-markup");
+    use_as_session_bus(&bus);
+    let server =
+        FakeNotificationServer::start(bus.connect().await, &["actions", "body", "body-markup"])
+            .await;
+    let (tx, _commands) = unbounded_channel();
+    drop(show(Notifier::new(tx), markup_spec()).await);
+
+    let received = server.received();
+    assert_eq!(received.len(), 1);
+    assert_eq!(
+        received[0].body,
+        "&lt;b&gt;CPU&lt;/b&gt; &gt; 80 &amp; rising"
+    );
+    assert_eq!(received[0].summary, "Hot <water>");
+}
+
+/// A server without `body-markup` shows the body as it comes: the app sends it as it is.
+#[tokio::test(flavor = "multi_thread")]
+async fn body_is_sent_as_it_is_to_a_server_without_body_markup() {
+    let _guard = SESSION_LOCK.lock().await;
+    let bus = PrivateBus::start("notify-no-markup");
+    use_as_session_bus(&bus);
+    let server = FakeNotificationServer::start(bus.connect().await, &["actions", "body"]).await;
+    let (tx, _commands) = unbounded_channel();
+    drop(show(Notifier::new(tx), markup_spec()).await);
+
+    let received = server.received();
+    assert_eq!(received.len(), 1);
+    assert_eq!(received[0].body, "<b>CPU</b> > 80 & rising");
+}

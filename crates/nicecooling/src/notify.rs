@@ -303,15 +303,23 @@ impl Notifier {
         }
     }
 
-    /// Show a notification. A server without the `actions` capability gets no buttons.
+    /// Show a notification. A server without the `actions` capability gets no buttons. A server
+    /// with the `body-markup` capability reads the body as markup: the body goes there with its
+    /// markup characters escaped, so the name of a Graph or a text of the user stays plain text.
     pub fn show(&mut self, spec: &NotificationSpec) -> notify_rust::error::Result<()> {
-        let actions = notify_rust::get_capabilities()
-            .is_ok_and(|caps| caps.iter().any(|cap| cap == "actions"));
+        let capabilities = notify_rust::get_capabilities().unwrap_or_default();
+        let has = |name: &str| capabilities.iter().any(|cap| cap == name);
+        let actions = has("actions");
+        let body = if has("body-markup") {
+            escape_markup(&spec.body)
+        } else {
+            spec.body.clone()
+        };
         let mut note = Notification::new();
         note.appname(APP_NAME)
             .icon(APP_ICON)
             .summary(&spec.title)
-            .body(&spec.body)
+            .body(&body)
             .urgency(match spec.level {
                 Level::Low => Urgency::Low,
                 Level::Normal => Urgency::Normal,
@@ -349,6 +357,20 @@ impl Notifier {
         }
         Ok(())
     }
+}
+
+/// `text` as a notification server with the `body-markup` capability shows it unchanged.
+pub fn escape_markup(text: &str) -> String {
+    let mut plain = String::with_capacity(text.len());
+    for c in text.chars() {
+        match c {
+            '&' => plain.push_str("&amp;"),
+            '<' => plain.push_str("&lt;"),
+            '>' => plain.push_str("&gt;"),
+            other => plain.push(other),
+        }
+    }
+    plain
 }
 
 /// Close a notification through `CloseNotification`. A missing id is harmless. Call it from a
