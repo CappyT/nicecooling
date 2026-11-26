@@ -1451,10 +1451,13 @@ impl Hub {
                 "the value {value} of {id} is not a finite number"
             )));
         }
-        let graph_ids: BTreeSet<String> = self.graph_sensor_ids().into_iter().collect();
         let now = self.clock.now();
+        // The ids and the publish are one step under the state lock. A `SetDefinition` or a
+        // `Delete` then runs before it, and clears the value after its own edit, or runs after it.
+        // The value table has its own locks and holds none of the hub: no deadlock.
+        let inner = self.inner();
         for (id, has_value, value) in entries {
-            if !graph_ids.contains(id) {
+            if !inner.is_graph_sensor(id) {
                 continue;
             }
             if *has_value {
@@ -1462,11 +1465,6 @@ impl Hub {
             } else {
                 self.values.clear(id);
             }
-        }
-        // A Delete that ran during the loop cleared its value before a later publish of this call.
-        let left: BTreeSet<String> = self.graph_sensor_ids().into_iter().collect();
-        for id in graph_ids.difference(&left) {
-            self.values.clear(id);
         }
         Ok(())
     }
