@@ -31,19 +31,32 @@ use crate::shell::Page;
 use crate::tokens::Palette;
 use crate::widgets::paint::{at, disc, polyline};
 
-/// The width of the panel, and of the control of a row.
+/// The width of the panel, of the control of a row, and of a select with a long value.
 pub(super) const PANEL_WIDTH: f32 = 272.;
 const CONTROL_WIDTH: f32 = 124.;
+const SELECT_WIDTH: f32 = 164.;
+
+/// The frame of one row of the panel.
+fn row_frame() -> Div {
+    h_flex().w_full().min_h(px(30.)).gap(px(9.)).items_center()
+}
+
+/// The name of a row. It takes the width that the control leaves, and it wraps there: a name
+/// is never cut.
+fn row_name(name: impl Into<SharedString>) -> Div {
+    div().flex_1().min_w_0().child(name.into())
+}
 
 /// One row of the panel: the name at the left and the control at the right.
 fn panel_row(name: impl Into<SharedString>, control: impl IntoElement) -> Div {
-    h_flex()
-        .w_full()
-        .min_h(px(34.))
-        .gap(px(9.))
-        .items_center()
-        .child(label(name).flex_1())
-        .child(div().w(px(CONTROL_WIDTH)).flex_none().child(control))
+    wide_row(name, control, CONTROL_WIDTH)
+}
+
+/// A row with a control of `width`: a select with a long value takes `SELECT_WIDTH`.
+fn wide_row(name: impl Into<SharedString>, control: impl IntoElement, width: f32) -> Div {
+    row_frame()
+        .child(row_name(name))
+        .child(div().w(px(width)).flex_none().child(control))
 }
 
 /// The range of a field that holds a value that did not commit.
@@ -244,9 +257,14 @@ impl ScreenView {
             .py(px(9.))
             .gap(px(3.))
             .child(
+                // The segmented control of an end node goes under the title when the two do
+                // not fit in one line.
                 h_flex()
                     .w_full()
-                    .gap(px(9.))
+                    .min_h(px(28.))
+                    .gap_x(px(6.))
+                    .gap_y(px(3.))
+                    .flex_wrap()
                     .items_center()
                     .child(heading(panel.title.clone()).flex_none())
                     .children(
@@ -255,13 +273,12 @@ impl ScreenView {
                             .clone()
                             .map(|family| caption(family, p).truncate()),
                     )
-                    .child(div().flex_1())
-                    .children(
-                        panel
-                            .end
-                            .as_ref()
-                            .map(|end| Self::graph_end_switch(end, p, window, cx)),
-                    ),
+                    .children(panel.end.as_ref().map(|end| {
+                        div()
+                            .flex_none()
+                            .ml_auto()
+                            .child(Self::graph_end_switch(end, p, window, cx))
+                    })),
             )
             .child(caption(panel.help.clone(), p));
         if let Some(row) = &panel.label {
@@ -426,14 +443,15 @@ impl ScreenView {
                     kind: Kind,
                     window: &mut Window,
                     cx: &mut Context<Self>| {
-            seg_item(id, text.to_owned(), on, true, p, window, cx).on_click(act(
-                &view,
-                move |this, _, _| {
+            // The control of the panel is smaller than the one of a page: 22 px high.
+            seg_item(id, text.to_owned(), on, true, p, window, cx)
+                .h(px(22.))
+                .px(px(9.))
+                .on_click(act(&view, move |this, _, _| {
                     if let Some(host) = this.graph_editor.as_mut() {
                         host.ui.draft.set_end_kind(kind);
                     }
-                },
-            ))
+                }))
         };
         let sensor = item(
             "graph-end-sensor",
@@ -494,13 +512,14 @@ impl ScreenView {
     /// The warning of a response kind: the Warning icon and the text on the tint, and the link
     /// "Open Settings" for an account that Settings does not have.
     fn graph_warning(warning: &Warning, view: &Entity<Self>, p: &Palette) -> Div {
+        // The tint goes from edge to edge of the panel, over the side padding of its rows.
         h_flex()
-            .w_full()
-            .px(px(9.))
-            .py(px(6.))
+            .mx(px(-12.))
+            .my(px(2.))
+            .px(px(12.))
+            .py(px(5.))
             .gap(px(9.))
             .items_start()
-            .rounded(px(6.))
             .bg(p.warning_tint)
             .child(icon(NcIcon::Warn, p.warning))
             .child(
@@ -545,20 +564,26 @@ impl ScreenView {
                     cx,
                 );
                 rows.push(match prefix {
-                    Some(prefix) => panel_row(
-                        row.label.clone(),
-                        h_flex()
-                            .gap(px(3.))
-                            .items_center()
-                            .child(
-                                div()
-                                    .flex_none()
-                                    .text_size(px(12.))
-                                    .text_color(p.fg_dim)
-                                    .child(prefix),
-                            )
-                            .child(div().flex_1().min_w_0().child(field)),
-                    ),
+                    // The field goes under its prefix when the three do not fit in one line.
+                    Some(prefix) => row_frame()
+                        .flex_wrap()
+                        .gap_y(px(3.))
+                        .child(div().flex_none().child(row.label.clone()))
+                        .child(
+                            div()
+                                .flex_none()
+                                .ml_auto()
+                                .text_size(px(12.))
+                                .text_color(p.fg_dim)
+                                .child(prefix),
+                        )
+                        .child(
+                            div()
+                                .flex_grow(1.)
+                                .flex_basis(px(CONTROL_WIDTH))
+                                .min_w(px(CONTROL_WIDTH))
+                                .child(field),
+                        ),
                     None => panel_row(row.label.clone(), field),
                 });
             }
@@ -580,7 +605,13 @@ impl ScreenView {
                     p,
                     cx,
                 );
-                rows.push(panel_row(row.label.clone(), select));
+                // The kind of a response, an Alarm event and its source have long names.
+                let width = if matches!(name, "kind" | "event" | "source") {
+                    SELECT_WIDTH
+                } else {
+                    CONTROL_WIDTH
+                };
+                rows.push(wide_row(row.label.clone(), select, width));
             }
             Control::Sensor { shown, choices } => {
                 let key = format!("graph-sensor-{node}");
@@ -624,9 +655,10 @@ impl ScreenView {
                     };
                 });
                 // The picker is wider than the panel: it opens to the left of the select.
-                rows.push(panel_row(
+                rows.push(wide_row(
                     row.label.clone(),
                     with_menu(trigger, picker, Self::dismiss(&view)),
+                    SELECT_WIDTH,
                 ));
             }
             Control::Pairs {
@@ -635,13 +667,7 @@ impl ScreenView {
                 can_remove,
             } => {
                 let locale = self.model.read(cx).locale;
-                rows.push(
-                    h_flex()
-                        .w_full()
-                        .min_h(px(28.))
-                        .items_center()
-                        .child(label(row.label.clone())),
-                );
+                rows.push(row_frame().child(row_name(row.label.clone())));
                 for (index, (input, output)) in pairs.iter().enumerate() {
                     let bad = |column: usize| {
                         self.graph_editor.as_ref().is_some_and(|host| {
@@ -713,13 +739,7 @@ impl ScreenView {
             }
             Control::Args { args, can_add } => {
                 let locale = self.model.read(cx).locale;
-                rows.push(
-                    h_flex()
-                        .w_full()
-                        .min_h(px(28.))
-                        .items_center()
-                        .child(label(row.label.clone())),
-                );
+                rows.push(row_frame().child(row_name(row.label.clone())));
                 for (index, arg) in args.iter().enumerate() {
                     let field =
                         self.graph_field(arg_key(node, index), arg, "", false, p, window, cx);
@@ -849,6 +869,16 @@ impl ScreenView {
             p,
             cx,
         );
-        panel_row(row.label.clone(), select)
+        // The name of a pin is short and the title of a node is long: the select takes the
+        // width that the name leaves, `SELECT_WIDTH` at least.
+        row_frame()
+            .child(div().flex_none().child(row.label.clone()))
+            .child(
+                h_flex()
+                    .flex_1()
+                    .min_w_0()
+                    .justify_end()
+                    .child(div().min_w(px(SELECT_WIDTH)).max_w_full().child(select)),
+            )
     }
 }
