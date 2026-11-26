@@ -15,7 +15,7 @@ use tokio::runtime::Handle;
 
 use super::service::{SensorCall, SensorDone, SensorLink};
 pub use super::session::LogindSession;
-use super::view::{SharedView, ValuesState};
+use super::view::{SharedView, ValuesState, lock_view};
 use crate::daemon_client::DaemonClient;
 
 /// How long the values call stays off after a denial.
@@ -171,9 +171,7 @@ impl GraphValues {
     }
 
     fn show(&self, state: ValuesState) {
-        if let Ok(mut view) = self.view.lock() {
-            view.values = state;
-        }
+        lock_view(&self.view).values = state;
     }
 }
 

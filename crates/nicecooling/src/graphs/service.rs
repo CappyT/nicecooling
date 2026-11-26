@@ -27,7 +27,9 @@ use super::store::{GraphStore, describe, describe_invalid};
 use super::transfer::new_graph_id;
 use super::try_run::TryRun;
 use super::values::{ActiveSession, SensorError};
-use super::view::{Applied, ApplyError, GraphRow, PauseView, RowState, SharedView, TryView};
+use super::view::{
+    Applied, ApplyError, GraphRow, PauseView, RowState, SharedView, TryView, lock_view,
+};
 use crate::i18n::Locale;
 use crate::model::{AppState, DaemonEvent};
 use crate::notify::{Level, NotificationSpec, Plan, open_button};
@@ -658,9 +660,7 @@ impl GraphService {
             let spec = countdown_notification(countdown, self.locale);
             let _ = self.notify.send(Plan::Show(spec));
         }
-        if let Ok(mut view) = self.view.lock() {
-            view.countdown = shown;
-        }
+        lock_view(&self.view).countdown = shown;
         // Every start and every end of a countdown can change the count of the Response pause.
         self.publish_pause();
     }
@@ -819,16 +819,15 @@ impl GraphService {
                 self.stopped.remove(&id);
                 // The rows come before the answer: a screen that reads the answer finds the row.
                 self.publish();
-                if let Ok(mut view) = self.view.lock() {
-                    view.refusal = None;
-                    if mode == Store::Apply {
-                        view.applied = Some(Applied {
-                            graph: command_id,
-                            result: Ok(id),
-                        });
-                    } else if asked.is_some() {
-                        view.imported = Some((command_id, id));
-                    }
+                let mut view = lock_view(&self.view);
+                view.refusal = None;
+                if mode == Store::Apply {
+                    view.applied = Some(Applied {
+                        graph: command_id,
+                        result: Ok(id),
+                    });
+                } else if asked.is_some() {
+                    view.imported = Some((command_id, id));
                 }
                 return;
             }
@@ -851,14 +850,13 @@ impl GraphService {
 
     /// The service does not store a Graph: the view has the reason. An "Apply" gets its answer.
     fn refuse_store(&self, id: &str, mode: Store, reason: String, error: ApplyError) {
-        if let Ok(mut view) = self.view.lock() {
-            view.refusal = Some(reason);
-            if mode == Store::Apply {
-                view.applied = Some(Applied {
-                    graph: id.to_owned(),
-                    result: Err(error),
-                });
-            }
+        let mut view = lock_view(&self.view);
+        view.refusal = Some(reason);
+        if mode == Store::Apply {
+            view.applied = Some(Applied {
+                graph: id.to_owned(),
+                result: Err(error),
+            });
         }
     }
 
@@ -895,9 +893,7 @@ impl GraphService {
         match self.store.remove(id) {
             Ok(()) => {
                 self.evaluator.remove_graph(id);
-                if let Ok(mut view) = self.view.lock() {
-                    view.refusal = None;
-                }
+                lock_view(&self.view).refusal = None;
             }
             Err(error) => self.refuse(error.to_string()),
         }
@@ -906,9 +902,7 @@ impl GraphService {
     }
 
     fn refuse(&self, reason: String) {
-        if let Ok(mut view) = self.view.lock() {
-            view.refusal = Some(reason);
-        }
+        lock_view(&self.view).refusal = Some(reason);
     }
 
     fn pass(&mut self, now: Duration) {
@@ -1027,21 +1021,17 @@ impl GraphService {
             time_text: date_time_seconds(time_us),
             values,
         };
-        if let Ok(mut view) = self.view.lock() {
-            view.refusal = None;
-        }
+        lock_view(&self.view).refusal = None;
         self.start_run(run);
     }
 
     /// The Response pause for the window.
     fn publish_pause(&self) {
         let pause = self.store.state().pause;
-        if let Ok(mut view) = self.view.lock() {
-            view.pause = PauseView {
-                paused: pause.paused,
-                count: pause.count,
-            };
-        }
+        lock_view(&self.view).pause = PauseView {
+            paused: pause.paused,
+            count: pause.count,
+        };
     }
 
     /// The run of a response end node that fires in this pass.
@@ -1103,9 +1093,7 @@ impl GraphService {
     }
 
     fn publish_log(&self) {
-        if let Ok(mut view) = self.view.lock() {
-            view.log = self.store.log().to_vec();
-        }
+        lock_view(&self.view).log = self.store.log().to_vec();
     }
 
     /// One evaluation of the try, and the end of it after its time. A try sends no Graph sensor
@@ -1134,9 +1122,7 @@ impl GraphService {
     }
 
     fn publish_try(&self, shown: Option<TryView>) {
-        if let Ok(mut view) = self.view.lock() {
-            view.trying = shown;
-        }
+        lock_view(&self.view).trying = shown;
     }
 
     /// A Graph panicked: store it as disabled, and say so.
@@ -1206,24 +1192,17 @@ impl GraphService {
         let error = self.store.error().map(str::to_owned);
         let file_error = self.store.file_error().map(str::to_owned);
         let foreign = sensors::foreign(self.store.entries(), &self.state.snapshot.sensors);
-        if let Ok(mut view) = self.view.lock() {
-            view.rows = rows;
-            view.error = error;
-            view.file_error = file_error;
-            view.foreign_sensors = foreign;
-        }
+        let mut view = lock_view(&self.view);
+        view.rows = rows;
+        view.error = error;
+        view.file_error = file_error;
+        view.foreign_sensors = foreign;
     }
 
     /// The service ends after a panic outside the evaluation of a Graph: the view shows an error
     /// and a notification names the Graph service. The caller ends the thread.
     pub fn fail(&self, reason: &str) {
-        // A panic can leave the mutex poisoned: the error shows anyway.
-        let mut view = self
-            .view
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        view.error = Some(format!("the Graph service stopped: {reason}"));
-        drop(view);
+        lock_view(&self.view).error = Some(format!("the Graph service stopped: {reason}"));
         let locale = self.locale;
         let _ = self.notify.send(Plan::Show(NotificationSpec {
             key: "graph-service-stopped".to_owned(),

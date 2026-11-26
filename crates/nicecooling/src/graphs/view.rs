@@ -2,7 +2,7 @@
 //! The service writes it once per second, and the screens read it.
 
 use std::collections::BTreeMap;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use nicecooling_graph::eval::EndValue;
 use nicecooling_graph::model::{Graph, StoredGraph};
@@ -186,4 +186,11 @@ pub type SharedView = Arc<Mutex<GraphView>>;
 
 pub fn shared_view() -> SharedView {
     Arc::new(Mutex::new(GraphView::default()))
+}
+
+/// Lock the shared view. A thread that panicked with the lock leaves it poisoned. The data is
+/// still the view: the service goes on writing it, and the window and the tray go on reading it,
+/// so a countdown still shows.
+pub fn lock_view(view: &SharedView) -> MutexGuard<'_, GraphView> {
+    view.lock().unwrap_or_else(PoisonError::into_inner)
 }

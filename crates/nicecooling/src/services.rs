@@ -26,7 +26,7 @@ use crate::graphs::service::{Env, GraphService, NoLink, NoPower, PowerCall, Sens
 use crate::graphs::session::AlwaysActive;
 use crate::graphs::store::{GraphPaths, GraphStore};
 use crate::graphs::values::{ActiveSession, DaemonCalls, DaemonLink, LogindSession};
-use crate::graphs::view::SharedView;
+use crate::graphs::view::{SharedView, lock_view};
 use crate::history::{HistoryDb, HistoryWriter};
 use crate::i18n::Locale;
 use crate::model::{AppState, DaemonEvent, FLAG_NO_VALUE};
@@ -81,7 +81,7 @@ pub fn spawn_tray(
         let runtime = small_runtime();
         let mut state = AppState::default();
         let build = |state: &AppState| {
-            let countdown = graphs.lock().ok().and_then(|view| view.countdown.clone());
+            let countdown = lock_view(&graphs).countdown.clone();
             TrayView::build(state, now_us(), locale)
                 .with_graph_countdown(countdown.as_ref(), locale)
         };

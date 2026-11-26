@@ -10,6 +10,7 @@ use nicecooling_graph::model::Kind;
 
 use crate::command::Command;
 use crate::graphs::channel::GraphCommand;
+use crate::graphs::view::lock_view;
 use crate::icons::{NcIcon, icon, small_icon, text_icon};
 use crate::screen_view::{ScreenView, skeleton};
 use crate::screens::controls::act;
@@ -580,9 +581,8 @@ impl ScreenView {
     /// Send a command of this screen. A refusal that an earlier command left does not show as
     /// the refusal of this one.
     pub(crate) fn send_graph(&mut self, command: Command, cx: &mut Context<Self>) {
-        if let Some(shown) = &self.model.read(cx).graph_view
-            && let Ok(mut shown) = shown.lock()
-        {
+        if let Some(shown) = &self.model.read(cx).graph_view {
+            let mut shown = lock_view(shown);
             shown.refusal = None;
             // The editor waits for the answer to this Apply, not for an older one.
             if matches!(command, Command::Graph(GraphCommand::Apply(_))) {

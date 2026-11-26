@@ -11,7 +11,7 @@ use crate::app_settings::SettingsStore;
 use crate::command::Command;
 use crate::daemon_client::DaemonClient;
 use crate::graphs::channel::{GraphChannel, QUIT_WAIT};
-use crate::graphs::view::{Countdown, GraphView, SharedView};
+use crate::graphs::view::{Countdown, GraphView, SharedView, lock_view};
 use crate::i18n::{Language, Locale};
 use crate::model::{AppState, DaemonEvent, Link, Severity};
 use crate::mqtt::client::{MqttHandle, MqttStatus};
@@ -165,17 +165,12 @@ impl AppModel {
 
     /// The countdown of the Graph power response that runs now.
     pub fn graph_countdown(&self) -> Option<Countdown> {
-        self.graph_view
-            .as_ref()?
-            .lock()
-            .ok()
-            .and_then(|view| view.countdown.clone())
+        lock_view(self.graph_view.as_ref()?).countdown.clone()
     }
 
     /// A copy of what the Graph service shows now. `None` without the service.
     pub fn graphs(&self) -> Option<GraphView> {
-        let view = self.graph_view.as_ref()?.lock().ok()?;
-        Some(view.clone())
+        Some(lock_view(self.graph_view.as_ref()?).clone())
     }
 
     /// The state of the connection to the MQTT broker. Without a client it is off.
@@ -187,7 +182,7 @@ impl AppModel {
 
     /// The count of power responses in a row while the Response pause is on.
     pub fn response_pause(&self) -> Option<u32> {
-        let view = self.graph_view.as_ref()?.lock().ok()?;
+        let view = lock_view(self.graph_view.as_ref()?);
         view.pause.paused.then_some(view.pause.count)
     }
 

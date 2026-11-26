@@ -13,7 +13,7 @@ use tokio::sync::mpsc::{Receiver, Sender, UnboundedReceiver, UnboundedSender};
 use tokio::sync::mpsc::{channel, unbounded_channel};
 
 use super::values::SensorError;
-use super::view::{Applied, ApplyError, SharedView};
+use super::view::{Applied, ApplyError, SharedView, lock_view};
 use crate::command::Command;
 
 /// How long the app waits for the service at "Quit" and at SIGTERM.
@@ -261,9 +261,8 @@ impl GraphChannel {
                 };
                 if let Err(error) = self.try_send(command) {
                     eprintln!("nicecooling: Graph command: {error}");
-                    if let Some(view) = &self.view
-                        && let Ok(mut view) = view.lock()
-                    {
+                    if let Some(view) = &self.view {
+                        let mut view = lock_view(view);
                         view.refusal = Some(error.to_string());
                         // The editor waits for the answer to its Apply.
                         if let Some(graph) = applied {

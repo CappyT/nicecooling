@@ -13,7 +13,7 @@ use nicecooling::graphs::channel::{
 };
 use nicecooling::graphs::service::{Env, GraphService, NoLink, NoPower, PowerCall, SensorLink};
 use nicecooling::graphs::store::GraphStore;
-use nicecooling::graphs::view::{Countdown, SharedView, shared_view};
+use nicecooling::graphs::view::{Countdown, SharedView, lock_view, shared_view};
 use nicecooling::i18n::EN;
 use nicecooling::model::{DaemonEvent, Link, SensorSample};
 use nicecooling::notify::{Level, NotificationSpec, Plan};
@@ -575,4 +575,61 @@ fn panic_outside_a_graph_ends_the_service_and_the_stop_reports_it() {
     };
     assert_eq!(spec.title, "Graph service stopped");
     assert_eq!(spec.key, "graph-service-stopped");
+}
+
+/// A thread that panics with the lock of the shared view leaves it poisoned. The service still
+/// writes the view, and the window and the tray still read the countdown from it.
+#[test]
+fn poisoned_view_still_shows_the_countdown() {
+    let mut parts = parts(
+        "poisoned-view",
+        vec![constant_graph("graph_1", 1.0)],
+        Box::new(NoLink),
+        Box::new(NoPower),
+    );
+    let poison = {
+        let view = parts.view.clone();
+        std::thread::spawn(move || {
+            let _guard = view.lock().unwrap();
+            panic!("a test panic with the lock of the view");
+        })
+    };
+    assert!(poison.join().is_err());
+    assert!(parts.view.is_poisoned());
+
+    assert!(
+        parts
+            .service
+            .start_countdown("graph_1", PowerKind::Poweroff, 30)
+    );
+    parts.service.poll();
+    let shown = lock_view(&parts.view).clone();
+    assert_eq!(
+        shown.countdown.as_ref().map(|c| c.seconds_left),
+        Some(30),
+        "the countdown shows"
+    );
+    assert_eq!(shown.rows.len(), 1, "the service still writes the rows");
+
+    // The tray reads the countdown with the same lock.
+    let tray =
+        TrayView::build(&online(), NOW_US, EN).with_graph_countdown(shown.countdown.as_ref(), EN);
+    assert!(
+        tray.entries.iter().any(|entry| matches!(
+            entry,
+            nicecooling::tray::TrayEntry::CancelGraphCountdown { .. }
+        )),
+        "{:?}",
+        tray.entries
+    );
+
+    // A command that the channel refuses still shows its refusal.
+    let (channel, inputs) = GraphChannel::new();
+    let channel = channel.with_view(parts.view.clone());
+    drop(inputs);
+    assert_eq!(
+        channel.route(Command::Graph(GraphCommand::ResponsesOn)),
+        None
+    );
+    assert!(lock_view(&parts.view).refusal.is_some());
 }
