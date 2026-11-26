@@ -682,6 +682,9 @@ graphs:
   limit: La limite est de 64 Graphes.
   empty: Aucun Graphe. Un Graphe calcule un capteur ou exécute une réponse à partir de nœuds.
   file_error: nicecooling ne peut pas lire graphs.json.
+  file_error_version: "graphs.json a la version de schéma %{found}. Cette app lit la version %{known}."
+  file_error_format: "graphs.json n'est pas un fichier de Graphes de nicecooling."
+  file_error_read: "L'app ne peut pas ouvrir le fichier : %{reason}"
   retry: "Réessayer"
   no_access: "nicecooling n'a pas accès au démon. Les capteurs Graphe n'ont pas de valeur. L'app réessaie dans 60 s."
   columns:

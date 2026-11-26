@@ -2748,7 +2748,7 @@ fn graph_file_error_shows_retry_and_no_editor() {
     assert_eq!(shown.state, GraphsState::FileError);
     let (text, error) = shown.file_error.expect("the error");
     assert_eq!(text, "nicecooling cannot read graphs.json.");
-    assert!(error.starts_with("the file is not JSON"), "{error}");
+    assert_eq!(error, "graphs.json is not a Graph file of nicecooling.");
     assert_eq!(shown.retry.as_deref(), Some("Retry"));
     assert!(!shown.create_enabled);
 

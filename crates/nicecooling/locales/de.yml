@@ -682,6 +682,9 @@ graphs:
   limit: Das Limit ist 64 Graphen.
   empty: Kein Graph. Ein Graph berechnet aus Knoten einen Sensor oder führt eine Reaktion aus.
   file_error: nicecooling kann graphs.json nicht lesen.
+  file_error_version: "graphs.json hat die Schemaversion %{found}. Diese App liest die Version %{known}."
+  file_error_format: "graphs.json ist keine Graph-Datei von nicecooling."
+  file_error_read: "Die App kann die Datei nicht öffnen: %{reason}"
   retry: "Erneut versuchen"
   no_access: nicecooling hat keinen Zugriff auf den Daemon. Die Graph-Sensoren haben keinen Wert. Die App versucht es in 60 s erneut.
   columns:

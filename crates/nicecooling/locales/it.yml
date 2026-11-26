@@ -682,6 +682,9 @@ graphs:
   limit: Il limite è di 64 Grafi.
   empty: Nessun Grafo. Un Grafo calcola un sensore o esegue una risposta a partire dai nodi.
   file_error: nicecooling non riesce a leggere graphs.json.
+  file_error_version: "graphs.json ha la versione di schema %{found}. Questa app legge la versione %{known}."
+  file_error_format: "graphs.json non è un file dei Grafi di nicecooling."
+  file_error_read: "L'app non riesce ad aprire il file: %{reason}"
   retry: "Riprova"
   no_access: "nicecooling non ha accesso al demone. I sensori Grafo non hanno valore. L'app riprova tra 60 s."
   columns:

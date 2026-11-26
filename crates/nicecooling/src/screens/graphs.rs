@@ -6,7 +6,8 @@ use std::path::{Path, PathBuf};
 
 use nicecooling_graph::eval::EndValue;
 use nicecooling_graph::model::{
-    EXPORT_FORMAT_VERSION, ExportError, Graph, Kind, Node, ParseProblem, ResponseKind, StoredGraph,
+    EXPORT_FORMAT_VERSION, ExportError, FileError, Graph, Kind, Node, ParseProblem, ResponseKind,
+    SCHEMA_VERSION, StoredGraph,
 };
 use nicecooling_graph::response::RunState;
 use nicecooling_graph::validate::{MAX_GRAPHS, validate};
@@ -435,7 +436,12 @@ impl GraphsModel {
             delete: locale.tr("graphs.delete"),
             empty_text: locale.tr("graphs.empty"),
             retry: file_error.as_ref().map(|_| locale.tr("graphs.retry")),
-            file_error: file_error.map(|error| (locale.tr("graphs.file_error"), error)),
+            file_error: file_error.map(|error| {
+                (
+                    locale.tr("graphs.file_error"),
+                    file_error_text(&error, locale),
+                )
+            }),
             warnings,
             notice: ui.notice.clone(),
             close: locale.tr("graphs.close"),
@@ -448,6 +454,32 @@ impl GraphsModel {
             }),
         }
     }
+}
+
+/// The text of a file error of `graphs.json` in the language of the screen. The store gives the
+/// text of a `FileError`, or the reason of the system for a file that it cannot open.
+fn file_error_text(error: &str, locale: Locale) -> String {
+    // The version number is the first number of the text of `HigherSchemaVersion`.
+    let found: String = error
+        .chars()
+        .skip_while(|c| !c.is_ascii_digit())
+        .take_while(char::is_ascii_digit)
+        .collect();
+    let version = found
+        .parse::<u32>()
+        .ok()
+        .filter(|found| FileError::HigherSchemaVersion(*found).to_string() == error);
+    if version.is_some() {
+        return locale.fmt(
+            "graphs.file_error_version",
+            &[("found", &found), ("known", &SCHEMA_VERSION.to_string())],
+        );
+    }
+    let not_json = FileError::NotJson(String::new()).to_string();
+    if error.starts_with(&not_json) || error == FileError::NotAGraphList.to_string() {
+        return locale.tr("graphs.file_error_format");
+    }
+    locale.fmt("graphs.file_error_read", &[("reason", error)])
 }
 
 /// The end node of a row.
