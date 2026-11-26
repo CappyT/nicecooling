@@ -52,6 +52,7 @@ impl ScreenView {
             return self.render_graph_editor(shown, p, window, cx);
         }
         self.close_graph_editor();
+        self.drop_graph_draft(cx);
         let view = cx.entity();
         let create = model.create_enabled;
 

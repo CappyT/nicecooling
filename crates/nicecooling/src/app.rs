@@ -15,6 +15,7 @@ use crate::graphs::view::{Countdown, GraphView, SharedView, lock_view};
 use crate::i18n::{Language, Locale};
 use crate::model::{AppState, DaemonEvent, Link, Severity};
 use crate::mqtt::client::{MqttHandle, MqttStatus};
+use crate::screens::graph_editor::EditorUi;
 use crate::screens::{Feedback, WriteOutcome};
 use crate::shell::{Page, ShellModel};
 use crate::shell_view::ShellView;
@@ -81,6 +82,9 @@ pub struct AppModel {
     /// Where the user wants to go while the editor holds a draft. The editor asks "Cancel",
     /// "Discard" or "Apply", and then goes there.
     pub leave_request: Option<LeaveRequest>,
+    /// The Graph editor of a window that the user hid. The next window opens the editor on it,
+    /// with its draft.
+    pub parked_editor: Option<EditorUi>,
     /// The first-run flow opens once, when the first read shows a daemon without a Loop.
     first_run_offered: bool,
     connecting_since: Instant,
@@ -109,6 +113,7 @@ impl AppModel {
             graph_draft: false,
             graph_timed_until_us: 0,
             leave_request: None,
+            parked_editor: None,
             first_run_offered: false,
             connecting_since: Instant::now(),
         }

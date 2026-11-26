@@ -98,6 +98,8 @@ pub struct ScreenView {
     pub(crate) history: HistoryUi,
     pub(crate) profiles: ProfilesUi,
     pub(crate) graphs: GraphsUi,
+    /// The question of "Delete" or "Remove" showed in the last frame.
+    pub(crate) graphs_dialog_shown: bool,
     /// The Graph editor, while it is open on the Graph of `graphs.editor`.
     pub(crate) graph_editor: Option<crate::screens::graph_editor::view::EditorHost>,
     pub(crate) alarms: AlarmsUi,
@@ -167,6 +169,23 @@ impl ScreenView {
         cx: &mut Context<Self>,
     ) -> Self {
         cx.observe(&model, |_, _, cx| cx.notify()).detach();
+        // Hiding the window drops this view. Its Graph editor goes to the app model with its
+        // draft, and the view of the next window opens it again.
+        cx.on_release(|this, cx| {
+            if let Some(host) = this.graph_editor.take() {
+                this.model
+                    .update(cx, |app, _| app.parked_editor = Some(host.ui));
+            }
+        })
+        .detach();
+        let graphs = GraphsUi {
+            editor: model
+                .read(cx)
+                .parked_editor
+                .as_ref()
+                .map(|ui| ui.draft.graph().clone()),
+            ..GraphsUi::default()
+        };
         let sensors = SensorsUi {
             hidden: model.read(cx).settings.values.hidden_sensors(),
             ..SensorsUi::default()
@@ -179,7 +198,8 @@ impl ScreenView {
             loops: LoopsUi::default(),
             history: HistoryUi::default(),
             profiles: ProfilesUi::default(),
-            graphs: GraphsUi::default(),
+            graphs,
+            graphs_dialog_shown: false,
             graph_editor: None,
             alarms: AlarmsUi::default(),
             first_run: FirstRunUi::default(),

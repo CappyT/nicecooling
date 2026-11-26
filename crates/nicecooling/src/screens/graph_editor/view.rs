@@ -22,6 +22,7 @@ use super::canvas::{
     canvas_place, canvas_point, flow_edges, flow_nodes, flow_selection, new_flow_state,
     opening_view, shape_of, view_centre,
 };
+use super::live::LiveValues;
 use super::palette::{ListForm, ListKey, ListRow, NodeList, family_key};
 use super::response_panel::{Network, is_executable};
 use super::{EditorKey, EditorModel, EditorUi, Selected, editor_key};
@@ -375,6 +376,30 @@ fn node_element(node: &FlowNode, look: &CanvasLook) -> AnyElement {
 }
 
 impl ScreenView {
+    /// The state of the open Graph editor: a test reads and changes the draft with it.
+    pub fn graph_editor_ui(&mut self) -> Option<&mut EditorUi> {
+        self.graph_editor.as_mut().map(|host| &mut host.ui)
+    }
+
+    /// No editor is open, so no draft waits for an Apply: tell the app, and do what waited for
+    /// the question on leaving.
+    pub(crate) fn drop_graph_draft(&mut self, cx: &mut Context<Self>) {
+        let app = self.model.read(cx);
+        if !app.graph_draft && app.leave_request.is_none() {
+            return;
+        }
+        let request = self.model.update(cx, |app, _| {
+            app.graph_draft = false;
+            app.graph_timed_until_us = 0;
+            app.leave_request.take()
+        });
+        match request {
+            Some(LeaveRequest::Quit) => self.send(Command::Quit),
+            Some(LeaveRequest::Page(page)) => self.go(page, cx),
+            None => {}
+        }
+    }
+
     /// Close the editor: its draft, its canvas and its text inputs go.
     pub(crate) fn close_graph_editor(&mut self) {
         if let Some(mut host) = self.graph_editor.take() {
@@ -416,8 +441,20 @@ impl ScreenView {
             },
         )
         .detach();
+        // The editor of a window that the user hid opens again as it was, with its draft.
+        let parked = self
+            .model
+            .update(cx, |app, _| app.parked_editor.take())
+            .filter(|ui| ui.draft.graph().id == graph.id);
+        let ui = match parked {
+            Some(mut ui) => {
+                ui.live = LiveValues::default();
+                ui
+            }
+            None => EditorUi::open(graph, shown),
+        };
         self.graph_editor = Some(EditorHost {
-            ui: EditorUi::open(graph, shown),
+            ui,
             flow,
             canvas,
             look,
