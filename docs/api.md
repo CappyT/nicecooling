@@ -321,7 +321,7 @@ The sensor has the object path `/io/github/cappyt/NiceCooling1/sensor/graph_<n>`
 - The daemon skips an entry for an unknown id and an entry for a sensor that is not a Graph sensor: a measured sensor, a Leakshield sensor, a Derived sensor or a calibrated flow. The app cannot write the value of these.
 - When an id appears more than once, the last entry wins.
 - An entry with `has value` false removes the value. The next tick reads no value, and the sensor shows flag bit 0 of `SensorsUpdated`.
-- The daemon stamps a value with the time of the call. A value older than 3 s is no value, as for a measured sensor, so the app sends its values again before the 3 s end. A Curve that reads a Graph sensor with no value goes to Lost Input.
+- The daemon stamps a value with the time of the call. A value older than 3 s is no value, as for a measured sensor, so the app sends its values again before the 3 s end. A value from before a suspend of the PC is no value at any age, until the app sends a new one. A Curve that reads a Graph sensor with no value goes to Lost Input.
 - A new unit through `SetDefinition` clears the value. The value was in the old unit.
 - The daemon asks polkit without the interactive flag for `SetGraphSensorValues`, whatever flag the message has. The call never opens a polkit dialog, so a caller that polkit does not allow gets `AccessDenied` at once.
 

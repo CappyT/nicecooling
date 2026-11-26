@@ -1,57 +1,140 @@
-//! Review 2, the first tick after a pause. Spec (fan-control, "First tick after a pause"): "A
-//! pause is a gap of more than 2 seconds between two ticks: the PC resumes from suspend, or the
-//! process was stopped. A value from before the pause SHALL count as no value."
+//! Review 2, the tick after a pause. Spec (fan-control, "First tick after a pause"): a pause is a
+//! suspend of the PC, or a gap of more than 2 seconds between two ticks. A value from before the
+//! pause never counts again.
 
 mod support;
 
 use std::time::Duration;
 
+use nicecooling_api::channel::ChannelProxy;
+use nicecooling_api::ids::Kind;
+use nicecooling_api::manager::ManagerProxy;
 use support::Rig;
 
 const PAUSE: Duration = Duration::from_secs(6 * 3600);
 const UNREACHABLE: &str = "leakshield-unreachable";
 
-fn clock_s(id: libc::clockid_t) -> f64 {
-    let mut ts = libc::timespec {
-        tv_sec: 0,
-        tv_nsec: 0,
-    };
-    // SAFETY: `ts` is a valid timespec for the call to write into.
-    assert_eq!(unsafe { libc::clock_gettime(id, &mut ts) }, 0);
-    ts.tv_sec as f64 + ts.tv_nsec as f64 / 1e9
+const PWM1: &str = "nct6798_pwm1";
+
+fn lost_input(rig: &mut Rig) -> bool {
+    rig.daemon
+        .as_mut()
+        .unwrap()
+        .runner
+        .context()
+        .warnings
+        .is_active("lost-input", PWM1)
 }
 
-/// The seconds of the clock under an `Instant`. On Linux the `Debug` text of an `Instant` is
-/// `Instant { tv_sec: N, tv_nsec: M }`.
-fn instant_s(instant: std::time::Instant) -> f64 {
-    let text = format!("{instant:?}");
-    let number = |key: &str| -> f64 {
-        let rest = text.split(key).nth(1).expect("field in the Instant text");
-        let digits: String = rest
-            .chars()
-            .skip_while(|c| !c.is_ascii_digit())
-            .take_while(char::is_ascii_digit)
-            .collect();
-        digits.parse().expect("number in the Instant text")
-    };
-    number("tv_sec") + number("tv_nsec") / 1e9
+fn pwm1_raw(rig: &Rig) -> String {
+    std::fs::read_to_string(rig.fake.attr_path("nct6798", "pwm1"))
+        .unwrap()
+        .trim()
+        .to_owned()
 }
 
-/// `TokioClock` (the clock of the tick in `main.rs`) is `tokio::time::Instant`, which is
-/// `std::time::Instant`, which is `CLOCK_MONOTONIC` on Linux. That clock stops while the PC
-/// sleeps, so a resume from suspend gives no gap between two ticks and the pause rule never
-/// starts: a value from before the suspend reaches the Curve. `CLOCK_BOOTTIME` counts the sleep.
-/// On a host that never slept since its boot, this test cannot fail.
-#[test]
-fn the_clock_of_the_tick_counts_the_time_of_a_suspend() {
-    let tick = instant_s(tokio::time::Instant::now().into_std());
-    let boottime = clock_s(libc::CLOCK_BOOTTIME);
-    let missed = boottime - tick;
-    assert!(
-        missed.abs() < 1.0,
-        "the clock of the tick misses {missed:.0} s that this PC slept since its boot: a resume \
-         from suspend is no pause for the tick"
-    );
+/// A suspend of the PC: the clock of the tick advances by `gap` and the suspended time by `PAUSE`.
+async fn suspend_and_tick(rig: &mut Rig, gap: Duration) {
+    rig.suspended.as_ref().unwrap().add(PAUSE);
+    rig.clock.as_ref().unwrap().advance(gap);
+    rig.daemon.as_mut().unwrap().run(Some(1)).await;
+}
+
+/// The clock of the tick (`CLOCK_MONOTONIC`) does not count the time of a suspend. A suspend with
+/// a short freeze leaves no gap of more than 2 s between two ticks, so only the suspended time
+/// tells the tick about it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_suspend_with_no_gap_in_the_tick_clock_is_a_pause() {
+    let mut rig = Rig::start_with_clock().await;
+    rig.step(2).await;
+    assert!(!lost_input(&mut rig));
+
+    // The sensors read again within the wait of the first tick: no Warning.
+    suspend_and_tick(&mut rig, Duration::from_secs(1)).await;
+    assert!(!lost_input(&mut rig));
+    assert_eq!(pwm1_raw(&rig), "163");
+
+    // The sensor stops reading during the next suspend: the value from before it is lost, though
+    // it is only 1 s old.
+    let temp = rig.fake.attr_path("k10temp", "temp1_input");
+    std::fs::set_permissions(&temp, std::os::unix::fs::PermissionsExt::from_mode(0o644)).unwrap();
+    std::fs::write(&temp, "not a number\n").unwrap();
+    suspend_and_tick(&mut rig, Duration::from_secs(1)).await;
+    assert!(lost_input(&mut rig));
+    assert_eq!(pwm1_raw(&rig), "255");
+}
+
+async fn graph_sensor_on_pwm1(rig: &Rig) -> ManagerProxy<'static> {
+    let manager = ManagerProxy::builder(&rig.client)
+        .cache_properties(zbus::proxy::CacheProperties::No)
+        .build()
+        .await
+        .unwrap();
+    manager.create_graph_sensor("Water", "degC").await.unwrap();
+    let pwm1 = ChannelProxy::builder(&rig.client)
+        .path(support::path(Kind::Channel, PWM1))
+        .cache_properties(zbus::proxy::CacheProperties::No)
+        .build()
+        .await
+        .unwrap();
+    pwm1.set_curve(
+        &support::path(Kind::Sensor, "graph_1"),
+        &[(40.0, 20.0), (80.0, 100.0)],
+        0.0,
+        100.0,
+    )
+    .await
+    .unwrap();
+    manager
+}
+
+const ENTRIES: [(&str, bool, f64); 1] = [("graph_1", true, 50.0)];
+
+async fn send(manager: &ManagerProxy<'_>) {
+    let entries = ENTRIES.map(|(id, valid, value)| (id.to_owned(), valid, value));
+    manager.set_graph_sensor_values(&entries).await.unwrap();
+}
+
+/// A Graph sensor has no value until the app sends a new one. The value from before the suspend
+/// is 1.5 s old in the first tick after it, 2.5 s in the second and 3.5 s in the third.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_value_of_the_app_from_before_a_suspend_never_counts_again() {
+    let mut rig = Rig::start_with_clock().await;
+    let manager = graph_sensor_on_pwm1(&rig).await;
+    rig.step(2).await;
+    send(&manager).await;
+    rig.step(1).await;
+    assert!(!lost_input(&mut rig));
+
+    suspend_and_tick(&mut rig, Duration::from_millis(500)).await;
+    for n in 1..=3 {
+        if n > 1 {
+            rig.step(1).await;
+        }
+        assert!(lost_input(&mut rig), "tick {n} after the suspend");
+        assert_eq!(pwm1_raw(&rig), "255");
+    }
+
+    send(&manager).await;
+    rig.step(1).await;
+    assert!(!lost_input(&mut rig));
+}
+
+/// The two clocks are read one after the other, so a change of the suspended time below 1 s is
+/// noise.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn suspended_time_noise_below_one_second_is_no_pause() {
+    let mut rig = Rig::start_with_clock().await;
+    let manager = graph_sensor_on_pwm1(&rig).await;
+    rig.step(2).await;
+    send(&manager).await;
+    rig.step(1).await;
+    rig.suspended
+        .as_ref()
+        .unwrap()
+        .add(Duration::from_millis(900));
+    rig.step(1).await;
+    assert!(!lost_input(&mut rig));
 }
 
 fn unreachable(rig: &mut Rig) -> bool {

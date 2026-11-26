@@ -32,7 +32,7 @@ use crate::sources::hwmon::{Source, chip_readers, spawn_source};
 use crate::sources::leakshield::{self as leakshield_source, sensor_metas};
 use crate::sources::usb::UsbBus;
 use crate::state::{self, StateStore};
-use crate::tick_runner::{SysfsChannels, TickRunner};
+use crate::tick_runner::{SuspendedTime, SysfsChannels, TickRunner};
 use crate::value_table::ValueTable;
 use crate::watchdog::{Notifier, WatchdogStage};
 
@@ -85,6 +85,9 @@ pub struct Options {
     /// The `/proc` tree that the process rules read. `None` starts no scan, so a test never
     /// reads the real `/proc`. `main` sets `/proc`.
     pub proc_root: Option<PathBuf>,
+    /// The source of the time that the PC was suspended. `None` reads the system. A test that
+    /// drives the tick clock by hand sets a simulated source.
+    pub suspended: Option<Arc<dyn SuspendedTime>>,
 }
 
 impl Options {
@@ -104,6 +107,7 @@ impl Options {
             external_period: external::POLL_PERIOD,
             rescan_period: rescan::RESCAN_PERIOD,
             proc_root: None,
+            suspended: None,
         }
     }
 }
@@ -336,6 +340,9 @@ pub async fn start<N: Notifier + 'static>(
     pipeline.push(Box::new(WatchdogStage::new(notifier)));
     let mut runner = TickRunner::new(pipeline, config, clock.clone(), options.tick_period)
         .with_values(values.clone());
+    if let Some(suspended) = &options.suspended {
+        runner = runner.with_suspended(suspended.clone());
+    }
     for (event, source) in warnings {
         runner.context().warnings.raise(&event, &source);
     }

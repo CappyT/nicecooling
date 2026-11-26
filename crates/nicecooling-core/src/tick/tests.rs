@@ -342,6 +342,44 @@ fn a_value_read_after_a_pause_counts() {
 }
 
 #[test]
+fn a_suspend_with_no_gap_in_the_tick_clock_is_a_pause() {
+    let mut h = Harness::new(one_channel(curve("t", 0.0, 5.0)), Duration::ZERO);
+    h.set("t", 40.0);
+    h.tick();
+    h.ctx.suspended = Duration::from_secs(6 * 3600);
+    h.tick();
+    assert!(h.ctx.after_pause);
+    assert!(h.ctx.channels["ch"].lost_input);
+}
+
+#[test]
+fn a_suspended_time_below_one_second_is_no_pause() {
+    let mut h = Harness::new(one_channel(curve("t", 0.0, 5.0)), Duration::ZERO);
+    h.set("t", 40.0);
+    h.tick();
+    h.ctx.suspended = Duration::from_millis(900);
+    h.tick();
+    assert!(!h.ctx.after_pause);
+    assert!(!h.ctx.channels["ch"].lost_input);
+}
+
+#[test]
+fn a_value_from_before_a_pause_never_counts_again() {
+    let mut h = Harness::new(one_channel(curve("t", 0.0, 5.0)), Duration::ZERO);
+    h.set("t", 40.0);
+    h.tick();
+    h.ctx.suspended = Duration::from_secs(6 * 3600);
+    // The value is 1 s, 2 s and 3 s old: younger than `STALE_AFTER`, but from before the pause.
+    for n in 0..3 {
+        h.tick();
+        assert!(h.ctx.channels["ch"].lost_input, "tick {n} after the pause");
+    }
+    h.set("t", 40.0);
+    h.tick();
+    assert!(!h.ctx.channels["ch"].lost_input);
+}
+
+#[test]
 fn window_cleared_after_a_pause() {
     let mut h = Harness::new(one_channel(curve("t", 10.0, 100.0)), Duration::ZERO);
     for _ in 0..2 {

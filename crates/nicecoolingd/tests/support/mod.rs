@@ -25,7 +25,7 @@ use nicecoolingd::dbus::{self, Served};
 use nicecoolingd::leakshield::DeviceIo;
 use nicecoolingd::leakshield::attached;
 use nicecoolingd::leakshield::clock;
-use nicecoolingd::tick_runner::TokioClock;
+use nicecoolingd::tick_runner::{SimSuspendedTime, TokioClock};
 use nicecoolingd::watchdog::Notifier;
 use tokio::task::JoinHandle;
 use zbus::{Connection, OwnedObjectPath};
@@ -117,6 +117,8 @@ pub struct Rig {
     pub logind: logind_mock::Login1Handles,
     /// The clock of the tick, when the test drives it (`start_with_clock`).
     pub clock: Option<SimClock>,
+    /// The time that the simulated PC was suspended, when the tick runs on a simulated clock.
+    pub suspended: Option<SimSuspendedTime>,
     _served: Served,
     ticking: Option<JoinHandle<()>>,
 }
@@ -255,6 +257,10 @@ impl Rig {
             }
         }
         options.save_settings_delay = Duration::from_millis(200);
+        let suspended = clock.as_ref().map(|_| SimSuspendedTime::default());
+        if let Some(suspended) = &suspended {
+            options.suspended = Some(Arc::new(suspended.clone()));
+        }
         let tick_clock: Arc<dyn Clock> = match &clock {
             Some(clock) => Arc::new(clock.clone()),
             None => Arc::new(TokioClock::new()),
@@ -287,6 +293,7 @@ impl Rig {
             polkit,
             logind,
             clock,
+            suspended,
             _served: served,
             ticking: None,
         }

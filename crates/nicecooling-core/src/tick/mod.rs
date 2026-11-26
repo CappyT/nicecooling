@@ -41,9 +41,14 @@ pub const STALE_AFTER: Duration = Duration::from_secs(3);
 
 /// A gap between two ticks that is longer than this is a pause of the tick: the PC was suspended
 /// or the process was stopped. A value that was fresh before the pause can be older than
-/// `STALE_AFTER` after it, so the first tick after a pause takes only values from after the pause.
+/// `STALE_AFTER` after it, so a tick takes only values from after the last pause.
 /// With a source period of 1 s, a gap up to this length cannot make a fresh value stale.
 pub const PAUSE_AFTER: Duration = Duration::from_secs(2);
+
+/// The clock of the tick does not count a suspend of the PC. A tick is also after a pause when the
+/// time that the PC was suspended grew by this much or more since the last tick. The runner reads
+/// the two clocks one after the other, so a smaller change is noise.
+pub const SUSPEND_JUMP: Duration = Duration::from_secs(1);
 
 /// A value of the value table with the time its source published it.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -132,13 +137,19 @@ pub struct TickContext {
     pub errors: Vec<String>,
     /// The time of the previous tick.
     previous: Option<Duration>,
-    /// This tick is the first one after a pause of the tick (`PAUSE_AFTER`). Stage 1 takes only
-    /// values from after the pause, and the stages that smooth over time start again.
+    /// The time that the PC was suspended since boot, as the runner read it before this tick.
+    pub suspended: Duration,
+    /// The same time at the previous tick.
+    previous_suspended: Duration,
+    /// This tick is the first one after a pause of the tick (`PAUSE_AFTER`, `SUSPEND_JUMP`). The
+    /// stages that smooth over time start again.
     pub after_pause: bool,
     /// The time when the runner saw the end of a pause and let the sources read again. A value
     /// counts after the pause when it is stamped at or after this time. Without it, the time
-    /// of the tick is the end of the pause. The runner clears it at the end of the tick.
+    /// of the tick is the end of the pause. The tick takes it and clears it.
     pub resumed_from: Option<Duration>,
+    /// The end of the last pause. A value that is stamped before it never counts again.
+    pause_end: Option<Duration>,
 }
 
 impl TickContext {
@@ -149,15 +160,24 @@ impl TickContext {
         }
     }
 
-    /// The tick at `now` comes after a pause of the tick.
+    /// The tick at `now` comes after a pause of the tick: the clock of the tick has a gap, or the
+    /// PC was suspended (`suspended`) since the last tick.
     pub fn is_pause(&self, now: Duration) -> bool {
-        self.previous
-            .is_some_and(|previous| now.saturating_sub(previous) > PAUSE_AFTER)
+        self.previous.is_some_and(|previous| {
+            now.saturating_sub(previous) > PAUSE_AFTER
+                || self.suspended.saturating_sub(self.previous_suspended) >= SUSPEND_JUMP
+        })
     }
 
     fn begin(&mut self, now: Duration) {
-        self.after_pause = self.is_pause(now);
+        let resumed_from = self.resumed_from.take();
+        // The runner saw the pause first: a second look at the clocks cannot undo it.
+        self.after_pause = resumed_from.is_some() || self.is_pause(now);
+        if self.after_pause {
+            self.pause_end = Some(resumed_from.unwrap_or(now));
+        }
         self.previous = Some(now);
+        self.previous_suspended = self.suspended;
         self.now = now;
         self.values.clear();
         self.out_of_range.clear();
@@ -172,7 +192,6 @@ impl TickContext {
     }
 
     fn finish(&mut self) {
-        self.resumed_from = None;
         for tick in self.channels.values_mut() {
             tick.last_duty = tick.duty;
         }

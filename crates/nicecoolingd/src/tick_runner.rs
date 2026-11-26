@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::io;
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use nicecooling_core::clock::Clock;
@@ -40,6 +40,54 @@ impl Default for TokioClock {
 impl Clock for TokioClock {
     fn now(&self) -> Duration {
         self.start.elapsed()
+    }
+}
+
+/// The time that the PC was suspended since boot. The clock of the tick does not count it, so a
+/// suspend that freezes the PC for less than `PAUSE_AFTER` leaves no gap between two ticks.
+pub trait SuspendedTime: Send + Sync + std::fmt::Debug {
+    fn suspended(&self) -> Duration;
+}
+
+/// `CLOCK_BOOTTIME` minus `CLOCK_MONOTONIC`: the first counts a suspend, the second does not.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct SystemSuspendedTime;
+
+fn clock_time(id: libc::clockid_t) -> Duration {
+    let mut ts = libc::timespec {
+        tv_sec: 0,
+        tv_nsec: 0,
+    };
+    // SAFETY: `ts` is a valid timespec for the call to write into.
+    if unsafe { libc::clock_gettime(id, &mut ts) } != 0 {
+        return Duration::ZERO;
+    }
+    Duration::new(
+        u64::try_from(ts.tv_sec).unwrap_or(0),
+        u32::try_from(ts.tv_nsec).unwrap_or(0),
+    )
+}
+
+impl SuspendedTime for SystemSuspendedTime {
+    fn suspended(&self) -> Duration {
+        let monotonic = clock_time(libc::CLOCK_MONOTONIC);
+        clock_time(libc::CLOCK_BOOTTIME).saturating_sub(monotonic)
+    }
+}
+
+/// A suspended time that tests set by hand. Clones share the same time.
+#[derive(Clone, Debug, Default)]
+pub struct SimSuspendedTime(Arc<Mutex<Duration>>);
+
+impl SimSuspendedTime {
+    pub fn add(&self, by: Duration) {
+        *self.0.lock().unwrap() += by;
+    }
+}
+
+impl SuspendedTime for SimSuspendedTime {
+    fn suspended(&self) -> Duration {
+        *self.0.lock().unwrap()
     }
 }
 
@@ -149,6 +197,7 @@ pub struct TickRunner {
     pipeline: Pipeline,
     ctx: TickContext,
     clock: Arc<dyn Clock>,
+    suspended: Arc<dyn SuspendedTime>,
     period: Duration,
     reported: BTreeSet<(String, String)>,
     values: Option<ValueTable>,
@@ -165,10 +214,17 @@ impl TickRunner {
             pipeline,
             ctx: TickContext::new(config),
             clock,
+            suspended: Arc::new(SystemSuspendedTime),
             period,
             reported: BTreeSet::new(),
             values: None,
         }
+    }
+
+    /// The source of the suspended time. The default is the system.
+    pub fn with_suspended(mut self, suspended: Arc<dyn SuspendedTime>) -> Self {
+        self.suspended = suspended;
+        self
     }
 
     /// The value table that the sources fill. After a pause of the tick, `run` waits for the
@@ -183,6 +239,7 @@ impl TickRunner {
     /// `REREAD_LIMIT`. A sensor that does not read is lost in this tick, as it is after 3 s.
     async fn reread_after_pause(&mut self) {
         let now = self.clock.now();
+        self.ctx.suspended = self.suspended.suspended();
         let Some(values) = self.values.as_ref().filter(|_| self.ctx.is_pause(now)) else {
             return;
         };
@@ -197,6 +254,7 @@ impl TickRunner {
     }
 
     pub fn tick(&mut self) {
+        self.ctx.suspended = self.suspended.suspended();
         self.pipeline.run(&mut self.ctx, self.clock.now());
         for error in &self.ctx.errors {
             eprintln!("nicecoolingd: {error}");
@@ -232,6 +290,16 @@ mod tests {
     use super::*;
     use nicecooling_hwmon::discovery::discover;
     use nicecooling_hwmon::fake::FakeSysfs;
+
+    #[test]
+    fn the_system_suspended_time_is_not_negative() {
+        let monotonic = clock_time(libc::CLOCK_MONOTONIC);
+        let boottime = clock_time(libc::CLOCK_BOOTTIME);
+        assert!(monotonic > Duration::ZERO);
+        assert!(boottime >= monotonic);
+        let suspended = SystemSuspendedTime.suspended();
+        assert!(suspended <= clock_time(libc::CLOCK_BOOTTIME));
+    }
 
     #[test]
     fn lease_written_before_first_manual_write() {

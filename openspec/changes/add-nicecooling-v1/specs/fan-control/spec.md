@@ -21,19 +21,27 @@ A value in the value table that is older than 3 seconds SHALL count as no value.
 - **THEN** the Input has no value and the Lost Input rule applies
 
 ### Requirement: First tick after a pause
-A pause is a gap of more than 2 seconds between two ticks: the PC resumes from suspend, or the process was stopped. A value from before the pause SHALL count as no value. The first tick after a pause SHALL wait at most 2 seconds for each sensor that had a value before the pause to read again. A sensor that reads again in that time SHALL NOT raise a Warning. A Graph sensor SHALL stay without a value until the app sends a new one.
+A pause is a suspend of the PC (the suspended time grows by 1 second or more between two ticks), or a gap of more than 2 seconds between two ticks. A value stamped before the end of the last pause SHALL count as no value in every later tick, also a Graph sensor value until the app sends a new one. The first tick after a pause SHALL wait at most 2 seconds for each sensor to read again, with no Warning if it does. Timers SHALL count the tick clock, which does not count a suspend.
 
 #### Scenario: Resume from suspend
 - **WHEN** the PC resumes after 6 hours of suspend and the Input sensor of a Curve reads 31.5 degC within 2 seconds
 - **THEN** the Curve uses 31.5 degC and the daemon raises no `lost-input` Warning
+
+#### Scenario: Suspend with no gap in the tick clock
+- **WHEN** the tick clock advances 1 second, the suspended time grows by 6 hours and the Input sensor does not read within 2 seconds
+- **THEN** the Input has no value, though its last value is 1 second old, and the Lost Input rule applies
 
 #### Scenario: Sensor gone after the pause
 - **WHEN** the PC resumes and the Input sensor of a Curve does not read within 2 seconds
 - **THEN** the Input has no value and the Lost Input rule applies
 
 #### Scenario: Value from before the pause
-- **WHEN** the app sent 46.2 for a Graph sensor 1 second before a suspend and the PC resumes
-- **THEN** the Graph sensor has no value until the app sends a new value
+- **WHEN** the app sent 46.2 for a Graph sensor 1 second before a suspend and the PC resumes, with a gap of 0.5 seconds in the tick clock
+- **THEN** the Graph sensor has no value in the first, the second and the third tick after the resume, until the app sends a new value
+
+#### Scenario: Noise in the suspended time
+- **WHEN** the suspended time grows by 0.9 seconds between two ticks
+- **THEN** the tick is no pause and keeps its values
 
 ### Requirement: Watchdog and restart
 The systemd unit SHALL use `Type=notify`, `WatchdogSec=10s`, `TimeoutAbortSec=5s`, `Restart=on-failure` and `RestartSec=2s`. Its `[Unit]` section SHALL set `StartLimitIntervalSec=60s` and `StartLimitBurst=5`. The tick SHALL ping the watchdog after stages 1 to 10 of the tick order. `ExecStopPost=/usr/libexec/nicecoolingd --restore-bios` SHALL restore the BIOS snapshot.
