@@ -2023,8 +2023,8 @@ fn try_with_80_for_30s_shows_the_banner() {
     assert!(ui.live.poll("graph_1", NOW_US + 6_000_000, &rig.view));
     assert_eq!(ui.follow_try(), None);
     let shown = model_with(&state, &view, &ui);
-    assert_eq!(shown.try_banner.unwrap().left, "24 s left");
     assert_eq!(numbers_of(&shown), ["80", "60", "60", "3"]);
+    assert_eq!(shown.try_banner.unwrap().left, "24 s left");
 }
 
 #[test]

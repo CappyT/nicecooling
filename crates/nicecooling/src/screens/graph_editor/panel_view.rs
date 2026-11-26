@@ -24,7 +24,9 @@ use crate::icons::{NcIcon, icon};
 use crate::screen_view::{InputKey, ScreenView};
 use crate::screens::controls::{Pick, act};
 use crate::screens::sensors_view::PickRow;
-use crate::screens::ui::{caption, heading, label, seg, seg_item, select_trigger, with_menu};
+use crate::screens::ui::{
+    Tip as _, caption, heading, label, seg, seg_item, select_trigger, with_menu,
+};
 use crate::shell::Page;
 use crate::tokens::Palette;
 use crate::widgets::paint::{at, disc, polyline};
