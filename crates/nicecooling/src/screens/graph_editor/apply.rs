@@ -14,6 +14,7 @@ use super::EditorUi;
 use super::rules::first_rule_text;
 use crate::command::Command;
 use crate::graphs::channel::GraphCommand;
+use crate::graphs::transfer::new_graph_id;
 use crate::graphs::values::SensorError;
 use crate::graphs::view::{ApplyError, GraphRow, GraphView};
 use crate::i18n::Locale;
@@ -56,6 +57,9 @@ pub struct ApplyUi {
     /// The user chose "Apply" in the question: the editor closes when the service stored the
     /// draft.
     leaves_after_apply: bool,
+    /// The app stores no Graph with the id of the draft: a new draft, or a Graph that was
+    /// deleted. A row that then shows this id is another Graph.
+    unstored: bool,
 }
 
 /// The question on leaving with a draft.
@@ -174,7 +178,17 @@ impl EditorUi {
     /// the reason of its refusal. Returns where the user goes when the Apply of the question
     /// on leaving worked.
     pub fn follow(&mut self, view: &GraphView, now_us: u64) -> Option<Leave> {
-        let id = self.draft.graph().id.clone();
+        let mut id = self.draft.graph().id.clone();
+        if self.apply.state != ApplyState::Pending {
+            if view.row(&id).is_none() {
+                self.apply.unstored = true;
+            } else if self.apply.unstored {
+                // Another Graph took the id of the draft. With that id, "Apply" would replace
+                // the other Graph: the draft takes a free id.
+                id = new_graph_id(&view.graphs());
+                self.draft.set_id(&id);
+            }
+        }
         let stored = view.row(&id).and_then(GraphRow::graph);
         if stored != self.draft.stored() {
             self.draft.set_stored(stored.cloned());
@@ -188,7 +202,14 @@ impl EditorUi {
             .filter(|applied| applied.graph == id)?;
         let leaves = std::mem::take(&mut self.apply.leaves_after_apply);
         match &answer.result {
-            Ok(()) => {
+            Ok(stored_id) => {
+                // The store gives a new Graph its id: the draft follows it.
+                if *stored_id != id {
+                    self.draft.set_id(stored_id);
+                    let stored = view.row(stored_id).and_then(GraphRow::graph);
+                    self.draft.set_stored(stored.cloned());
+                }
+                self.apply.unstored = false;
                 self.apply.state = ApplyState::Applied { at_us: now_us };
                 if leaves {
                     self.apply.leave.take()

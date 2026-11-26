@@ -18,6 +18,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 
 use super::responses::{LOG_LIMIT, LogRow};
+use super::transfer::next_graph_id;
 use crate::app_settings::{config_home, data_home, write_atomic};
 
 /// The state file changes at most this often.
@@ -284,6 +285,31 @@ impl GraphStore {
         })
     }
 
+    /// Whether an entry, valid or not, has the id `id`.
+    pub fn holds(&self, id: &str) -> bool {
+        self.entries.iter().any(|e| e.id() == Some(id))
+    }
+
+    /// Add a new Graph, write the file and return the id of the Graph. The store gives the id
+    /// after it read the file again. The id of `graph` is a proposal: the caller took it from an
+    /// older view, so it can be the id of a Graph that another writer added. The Graph keeps it
+    /// when no entry holds it, and gets a free id when one does. A new Graph never replaces an
+    /// entry.
+    pub fn add(&mut self, mut graph: Graph) -> std::io::Result<String> {
+        self.change(|entries| {
+            let taken = |id: &str| entries.iter().any(|e| e.id() == Some(id));
+            if taken(&graph.id) {
+                graph.id = next_graph_id(entries.iter().filter_map(StoredGraph::id));
+                if taken(&graph.id) {
+                    return Err(io_error("no Graph id is free"));
+                }
+            }
+            let id = graph.id.clone();
+            entries.push(StoredGraph::Valid(graph));
+            Ok(id)
+        })
+    }
+
     pub fn remove(&mut self, id: &str) -> std::io::Result<()> {
         self.change(|entries| {
             entries.retain(|e| e.id() != Some(id));
@@ -291,10 +317,10 @@ impl GraphStore {
         })
     }
 
-    fn change(
+    fn change<T>(
         &mut self,
-        edit: impl FnOnce(&mut Vec<StoredGraph>) -> std::io::Result<()>,
-    ) -> std::io::Result<()> {
+        edit: impl FnOnce(&mut Vec<StoredGraph>) -> std::io::Result<T>,
+    ) -> std::io::Result<T> {
         if let Some(error) = &self.file_error {
             return Err(io_error(error.clone()));
         }
@@ -308,10 +334,13 @@ impl GraphStore {
             return Err(io_error(error));
         }
         let before = self.entries.clone();
-        if let Err(error) = edit(&mut self.entries) {
-            self.entries = before;
-            return Err(error);
-        }
+        let done = match edit(&mut self.entries) {
+            Ok(done) => done,
+            Err(error) => {
+                self.entries = before;
+                return Err(error);
+            }
+        };
         let text = GraphFile {
             graphs: self.entries.clone(),
         }
@@ -321,7 +350,7 @@ impl GraphStore {
             return Err(error);
         }
         self.prune_state();
-        Ok(())
+        Ok(done)
     }
 
     /// The rows of the response log, in the order of their runs.

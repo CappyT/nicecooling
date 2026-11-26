@@ -66,6 +66,18 @@ impl Draft {
         self.stored = stored;
     }
 
+    /// Give the draft another id: the store gave the Graph its id, or another Graph took the id
+    /// of a draft that the app does not store yet. The undo steps follow, so an undo never
+    /// brings the old id back.
+    pub fn set_id(&mut self, id: &str) {
+        let graphs = std::iter::once(&mut self.graph)
+            .chain(self.undo.iter_mut())
+            .chain(self.redo.iter_mut());
+        for graph in graphs {
+            id.clone_into(&mut graph.id);
+        }
+    }
+
     /// Whether the draft differs from the stored Graph. A Graph that the app does not store yet
     /// differs.
     pub fn is_dirty(&self) -> bool {

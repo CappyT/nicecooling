@@ -38,6 +38,9 @@ impl ScreenView {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let shown = self.model.read(cx).graphs();
+        if let Some(shown) = &shown {
+            self.graphs.follow(shown);
+        }
         let model = self.with_input(cx, |input| {
             GraphsModel::build(input, shown.as_ref(), &self.graphs)
         });
@@ -584,6 +587,10 @@ impl ScreenView {
             // The editor waits for the answer to this Apply, not for an older one.
             if matches!(command, Command::Graph(GraphCommand::Apply(_))) {
                 shown.applied = None;
+            }
+            // The mark of an imported Graph follows the answer to this Import only.
+            if matches!(command, Command::Graph(GraphCommand::Import(_))) {
+                shown.imported = None;
             }
         }
         self.send(command);

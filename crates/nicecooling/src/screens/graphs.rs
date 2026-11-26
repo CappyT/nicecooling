@@ -157,6 +157,17 @@ impl GraphsUi {
         });
     }
 
+    /// Take the id that the store gave to the Graph of the last "Import". The store gives a new
+    /// Graph its id, so it can differ from the id that `import_from` marked as imported.
+    pub fn follow(&mut self, view: &GraphView) {
+        if let Some((asked, id)) = &view.imported
+            && asked != id
+            && self.imported.remove(asked)
+        {
+            self.imported.insert(id.clone());
+        }
+    }
+
     /// Read the file that the user chose. A Graph that the app accepts gives the command that
     /// stores it: it gets a new id and it is disabled. A file that the app refuses gives the
     /// reason above the table.

@@ -53,10 +53,16 @@ impl fmt::Display for ImportError {
 impl std::error::Error for ImportError {}
 
 /// The id of a Graph that does not exist yet: `graph_<n>` above every `graph_<n>` of `existing`.
+/// It is the id of a draft in the editor. The store gives the stored Graph its id
+/// (`GraphStore::add`), so this id can change at the first Apply.
 pub fn new_graph_id(existing: &[Graph]) -> String {
-    let highest = existing
-        .iter()
-        .filter_map(|g| nicecooling_graph::model::parse_sensor_id(&g.id))
+    next_graph_id(existing.iter().map(|g| g.id.as_str()))
+}
+
+/// `graph_<n>` above every `graph_<n>` of `ids`.
+pub fn next_graph_id<'a>(ids: impl Iterator<Item = &'a str>) -> String {
+    let highest = ids
+        .filter_map(nicecooling_graph::model::parse_sensor_id)
         .max()
         .unwrap_or(0);
     nicecooling_graph::model::format_sensor_id(highest.saturating_add(1))

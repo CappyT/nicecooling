@@ -116,9 +116,11 @@ pub enum ApplyError {
 /// The answer of the service to an "Apply".
 #[derive(Clone, Debug, PartialEq)]
 pub struct Applied {
-    /// The id of the Graph.
+    /// The id of the Graph in the command.
     pub graph: String,
-    pub result: Result<(), ApplyError>,
+    /// The id under which the store holds the Graph. The store gives a new Graph its id, so it
+    /// can differ from the id in the command.
+    pub result: Result<String, ApplyError>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -134,6 +136,9 @@ pub struct GraphView {
     /// The answer to the last "Apply". The editor clears it when it sends an Apply, and waits
     /// for it: the service can wait for the daemon before it answers.
     pub applied: Option<Applied>,
+    /// The answer to the last "Import" that the service stored: the id of the Graph in the
+    /// command, then the id that the store gave it.
+    pub imported: Option<(String, String)>,
     pub countdown: Option<Countdown>,
     /// The try that runs now.
     pub trying: Option<TryView>,

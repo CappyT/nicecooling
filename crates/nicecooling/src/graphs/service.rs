@@ -24,6 +24,7 @@ use super::responses::{NoRunner, Outcome, Responses, Run, Runner, Started};
 use super::sensors::{self, CREATED_GRACE, SensorSpec};
 use super::session::AlwaysActive;
 use super::store::{GraphStore, describe, describe_invalid};
+use super::transfer::new_graph_id;
 use super::try_run::TryRun;
 use super::values::{ActiveSession, SensorError};
 use super::view::{Applied, ApplyError, GraphRow, PauseView, RowState, SharedView, TryView};
@@ -97,8 +98,12 @@ pub type SensorDone = Box<dyn FnOnce(Result<Option<String>, SensorError>) + Send
 /// What the service does when the daemon has answered a Graph sensor call.
 enum Waiting {
     /// Store the Graph. The call made its sensor, set the definition of its sensor, or removed
-    /// the sensor that the Graph no longer has.
-    Store { graph: Graph, mode: Store },
+    /// the sensor that the Graph no longer has. `asked` is the id in the command of a new Graph.
+    Store {
+        graph: Graph,
+        mode: Store,
+        asked: Option<String>,
+    },
     /// Remove the Graph. The call removed its sensor.
     Delete {
         graph: String,
@@ -400,7 +405,11 @@ impl GraphService {
         result: Result<Option<String>, SensorError>,
     ) {
         match waiting {
-            Waiting::Store { mut graph, mode } => {
+            Waiting::Store {
+                mut graph,
+                mode,
+                asked,
+            } => {
                 let mut made = None;
                 match (call, result) {
                     (SensorCall::Create { .. }, Ok(Some(sensor))) => {
@@ -426,7 +435,7 @@ impl GraphService {
                         return;
                     }
                 }
-                self.finish_store(graph, mode, made);
+                self.finish_store(graph, mode, made, asked);
             }
             Waiting::Delete {
                 graph,
@@ -659,8 +668,13 @@ impl GraphService {
     /// One command of the window, the tray or a notification.
     pub fn handle(&mut self, command: GraphCommand) {
         match command {
-            GraphCommand::Apply(graph) => self.store_graph(*graph, Store::Apply),
-            GraphCommand::Import(graph) => self.store_graph(*graph, Store::Disable),
+            // An Apply with an id that the service holds no entry for is a new Graph: the id
+            // comes from a view of the screen, and another writer can hold it in the file.
+            GraphCommand::Apply(graph) => {
+                let new = !self.store.holds(&graph.id);
+                self.store_graph(*graph, Store::Apply, new);
+            }
+            GraphCommand::Import(graph) => self.store_graph(*graph, Store::Disable, true),
             GraphCommand::Enable { graph, enabled } => {
                 if let Some(mut graph) = self.store.graph(&graph).cloned() {
                     graph.enabled = enabled;
@@ -671,6 +685,7 @@ impl GraphService {
                         } else {
                             Store::Disable
                         },
+                        false,
                     );
                 }
             }
@@ -706,8 +721,14 @@ impl GraphService {
     }
 
     /// Validate a Graph, make or rename its Graph sensor, and store it. Apply starts the state of
-    /// its nodes again. A refusal of the daemon stores nothing.
-    fn store_graph(&mut self, mut graph: Graph, mode: Store) {
+    /// its nodes again. A refusal of the daemon stores nothing. A Graph that is `new` gets its id
+    /// from the store, and the answer in the view names it.
+    fn store_graph(&mut self, mut graph: Graph, mode: Store, new: bool) {
+        let asked = new.then(|| graph.id.clone());
+        // The validator must not read a new Graph as a version of the entry that holds its id.
+        if new && self.store.holds(&graph.id) {
+            graph.id = new_graph_id(&self.store.all_graphs());
+        }
         let refusals = self.store.validate(&graph);
         if !refusals.is_empty() {
             let reason = format!("{}: {}", graph.name, describe(&refusals));
@@ -731,8 +752,8 @@ impl GraphService {
         }
         let old = self.store.graph(&graph.id).cloned();
         match self.sensor_call(&mut graph, old.as_ref(), mode) {
-            Some(call) => self.call(call, Waiting::Store { graph, mode }),
-            None => self.finish_store(graph, mode, None),
+            Some(call) => self.call(call, Waiting::Store { graph, mode, asked }),
+            None => self.finish_store(graph, mode, None, asked),
         }
     }
 
@@ -773,25 +794,43 @@ impl GraphService {
     }
 
     /// Write a Graph to the store after its Graph sensor call. `made` is the sensor that the
-    /// call made: a Graph file that cannot be written removes it again.
-    fn finish_store(&mut self, graph: Graph, mode: Store, made: Option<String>) {
-        let id = graph.id.clone();
-        match self.store.put(graph.clone()) {
-            Ok(()) => {
+    /// call made: a Graph file that cannot be written removes it again. `asked` is the id in the
+    /// command of a new Graph: the store gives such a Graph its id.
+    fn finish_store(
+        &mut self,
+        mut graph: Graph,
+        mode: Store,
+        made: Option<String>,
+        asked: Option<String>,
+    ) {
+        let stored = match &asked {
+            Some(_) => self.store.add(graph.clone()),
+            None => self.store.put(graph.clone()).map(|()| graph.id.clone()),
+        };
+        // The id of the Graph in the command: the screen waits for an answer with this id.
+        let command_id = asked.clone().unwrap_or_else(|| graph.id.clone());
+        match stored {
+            Ok(id) => {
+                graph.id.clone_from(&id);
                 if mode == Store::Apply {
                     self.evaluator.apply(&graph);
                     self.responses.restart(&id);
                 }
                 self.stopped.remove(&id);
+                // The rows come before the answer: a screen that reads the answer finds the row.
+                self.publish();
                 if let Ok(mut view) = self.view.lock() {
                     view.refusal = None;
                     if mode == Store::Apply {
                         view.applied = Some(Applied {
-                            graph: id,
-                            result: Ok(()),
+                            graph: command_id,
+                            result: Ok(id),
                         });
+                    } else if asked.is_some() {
+                        view.imported = Some((command_id, id));
                     }
                 }
+                return;
             }
             Err(error) => {
                 if let Some(sensor) = made {
@@ -804,7 +843,7 @@ impl GraphService {
                     self.created.remove(&sensor);
                 }
                 let reason = error.to_string();
-                self.refuse_store(&id, mode, reason.clone(), ApplyError::Other(reason));
+                self.refuse_store(&command_id, mode, reason.clone(), ApplyError::Other(reason));
             }
         }
         self.publish();

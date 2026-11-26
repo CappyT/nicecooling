@@ -520,6 +520,11 @@ impl ScreenView {
         // The answer of the service to an Apply. A sidebar entry or "Quit" asks first when the
         // draft is not applied.
         let mut leave = host.ui.follow(shown, now_us());
+        // The store gives a new Graph its id, so the id of the draft can change: the editor
+        // stays open on this draft.
+        if let Some(open) = self.graphs.editor.as_mut() {
+            open.id.clone_from(&host.ui.draft.graph().id);
+        }
         let asked = app.update(cx, |app, _| app.leave_request.take());
         if let Some(request) = asked {
             leave = host.ui.request_leave(match request {
