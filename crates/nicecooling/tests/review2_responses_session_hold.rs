@@ -10,6 +10,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
+use nicecooling::graphs::channel::GraphCommand;
 use nicecooling::graphs::service::{Env, GraphService, NoLink, NoPower};
 use nicecooling::graphs::store::GraphStore;
 use nicecooling::graphs::values::ActiveSession;
@@ -20,6 +21,7 @@ use nicecooling_core::clock::{SimClock, SimWallClock};
 use nicecooling_core::rules::proc_scan::ProcessSource;
 use nicecooling_core::rules::process::ProcessList;
 use nicecooling_graph::model::{Connection, Graph, Kind, Node};
+use nicecooling_graph::response::RunState;
 use support::graphs::Dir;
 use tokio::sync::mpsc;
 
@@ -146,4 +148,93 @@ fn hold_time_does_not_count_the_time_of_an_inactive_session() {
         !rig.countdown(),
         "a poweroff countdown started after 2 s of a true input with a hold time of 60 s"
     );
+}
+
+impl Rig {
+    /// The stored run state of the response end node. `None` for a node that never ran.
+    fn stored_state(&self) -> Option<RunState> {
+        self.service
+            .store()
+            .state()
+            .responses
+            .get("graph_1/2")
+            .map(|record| record.state)
+    }
+
+    /// The response runs: its countdown starts after the hold time of 60 s. The test cancels the
+    /// countdown, so the node is in the state "run" and no countdown is open.
+    fn run_and_cancel(&mut self) {
+        self.feed(1.0);
+        self.ticks(61);
+        assert!(self.countdown(), "the response runs after the hold time");
+        self.service.handle(GraphCommand::CancelCountdown);
+        assert_eq!(self.stored_state(), Some(RunState::Run));
+    }
+}
+
+/// A false input in a session that is not active sets the state "not run": the next rise in the
+/// active session runs the response again, after a full hold time.
+#[test]
+fn false_input_in_an_inactive_session_sets_not_run() {
+    let mut rig = Rig::new("rv2-session-false");
+    rig.run_and_cancel();
+
+    rig.session.0.store(false, Ordering::SeqCst);
+    rig.feed(0.0);
+    rig.ticks(10);
+    assert_eq!(rig.stored_state(), Some(RunState::NotRun));
+
+    rig.session.0.store(true, Ordering::SeqCst);
+    rig.feed(1.0);
+    rig.ticks(60);
+    assert!(
+        !rig.countdown(),
+        "60 s after the switch: 59 s of the hold time"
+    );
+    rig.ticks(1);
+    assert!(rig.countdown(), "the response runs again");
+}
+
+/// A true input in a session that is not active runs nothing and does not count as a run. The
+/// hold time starts when the session becomes active.
+#[test]
+fn true_input_in_an_inactive_session_does_not_run_and_does_not_count() {
+    let mut rig = Rig::new("rv2-session-true");
+    rig.session.0.store(false, Ordering::SeqCst);
+    rig.feed(1.0);
+    for _ in 0..60 {
+        rig.ticks(60);
+    }
+    assert!(!rig.countdown(), "no response runs in an inactive session");
+    assert_ne!(
+        rig.stored_state(),
+        Some(RunState::Run),
+        "it did not count as run"
+    );
+
+    rig.session.0.store(true, Ordering::SeqCst);
+    rig.ticks(60);
+    assert!(!rig.countdown(), "the hold time starts at the switch back");
+    rig.ticks(1);
+    assert!(rig.countdown(), "the response runs after the hold time");
+}
+
+/// A response that ran before the switch stays "run" while its input stays true: it does not run
+/// again in the inactive session or after it.
+#[test]
+fn response_that_ran_stays_run_in_an_inactive_session() {
+    let mut rig = Rig::new("rv2-session-ran");
+    rig.run_and_cancel();
+
+    rig.session.0.store(false, Ordering::SeqCst);
+    for _ in 0..60 {
+        rig.ticks(60);
+    }
+    assert_eq!(rig.stored_state(), Some(RunState::Run));
+    assert!(!rig.countdown());
+
+    rig.session.0.store(true, Ordering::SeqCst);
+    rig.ticks(120);
+    assert_eq!(rig.stored_state(), Some(RunState::Run));
+    assert!(!rig.countdown(), "the response ran once for this rise");
 }

@@ -892,7 +892,7 @@ impl GraphService {
     }
 
     /// Step the response end nodes of one pass and start the runs that are due. An app of a session
-    /// that is not active steps nothing: it runs no response and changes no run state.
+    /// that is not active runs no response, and its machines still follow their inputs.
     fn run_responses(&mut self, now: Duration, graphs: &[Graph], pass: &Pass) {
         let seconds = self.responses.app_seconds(now);
         self.store.state_mut().pause.advance(seconds);
@@ -907,9 +907,7 @@ impl GraphService {
             .collect();
         // The machine of a node that is gone or off starts again from its stored record.
         self.responses.retain(&keys);
-        if !self.session.active() {
-            return;
-        }
+        let active = self.session.active();
         for graph in graphs.iter().filter(|graph| graph.enabled) {
             let Some(node) = graph.response_end() else {
                 continue;
@@ -920,6 +918,10 @@ impl GraphService {
             let EndValue::Response(input) = result.end else {
                 continue;
             };
+            // In a session that is not active a true input counts as no value: the state stays,
+            // and the hold time starts when the session is active again. A false input still
+            // sets the state "not run".
+            let input = input.filter(|on| active || !on);
             let key = value_key(&graph.id, node.id);
             let action = self.responses.step(
                 &key,
