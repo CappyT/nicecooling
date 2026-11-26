@@ -233,6 +233,9 @@ pub struct Publisher {
     /// The Alarms that this publisher sent as raised, by instance. A clear message takes its
     /// fields from here.
     raised: HashMap<String, AlarmEntry>,
+    /// The event channel lagged and dropped events. The next snapshot also sends the raise
+    /// messages that were lost.
+    lagged: bool,
     response_limit: Duration,
 }
 
@@ -248,6 +251,7 @@ impl Publisher {
             hidden,
             clock,
             raised: HashMap::new(),
+            lagged: false,
             response_limit: RESPONSE_LIMIT,
         }
     }
@@ -264,6 +268,7 @@ impl Publisher {
         let Some(base) = self.client.base_topic() else {
             // MQTT is off. When it turns on, the Alarms that are active then are "active at start".
             self.raised.clear();
+            self.lagged = false;
             return;
         };
         match event {
@@ -272,6 +277,12 @@ impl Publisher {
             DaemonEvent::Snapshot(snapshot) => self.reconcile(snapshot, &base),
             _ => {}
         }
+    }
+
+    /// The event channel dropped events. A raise or a clear can be lost, so the next snapshot is
+    /// compared with what this publisher sent. While MQTT is off nothing was sent: no check.
+    pub fn events_lost(&mut self) {
+        self.lagged = self.client.base_topic().is_some();
     }
 
     /// A raise that this publisher has not sent yet. An Alarm that is active when the app starts
@@ -300,6 +311,8 @@ impl Publisher {
     /// A full read of the daemon. An Alarm that this publisher sent as raised and that the read
     /// no longer lists has closed while the app did not see it: it gets its clear message. After
     /// a restart of the daemon the same Alarm can be active under a new instance. It stays raised.
+    /// After a lag of the event channel, an Alarm that the read lists and this publisher never
+    /// sent gets its raise message too.
     fn reconcile(&mut self, snapshot: &Snapshot, base: &str) {
         let gone: Vec<String> = self
             .raised
@@ -325,6 +338,11 @@ impl Publisher {
                     self.raised.insert(active.instance.clone(), stored);
                 }
                 None => self.send_event(&stored, EventState::Cleared, self.clock.now_us(), base),
+            }
+        }
+        if std::mem::take(&mut self.lagged) {
+            for active in &snapshot.alarms {
+                self.raise(active, base);
             }
         }
     }
@@ -370,6 +388,7 @@ impl Publisher {
     fn config_changed(&mut self) {
         if self.client.base_topic().is_none() {
             self.raised.clear();
+            self.lagged = false;
         }
         self.publish_values();
     }
@@ -423,7 +442,7 @@ impl Publisher {
             tokio::select! {
                 event = events.recv(), if events_open => match event {
                     Ok(event) => self.apply(&event),
-                    Err(broadcast::error::RecvError::Lagged(_)) => {}
+                    Err(broadcast::error::RecvError::Lagged(_)) => self.events_lost(),
                     Err(broadcast::error::RecvError::Closed) => events_open = false,
                 },
                 _ = timer.tick() => self.publish_values(),

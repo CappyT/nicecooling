@@ -162,6 +162,21 @@ The client SHALL publish no event message for an Alarm that is active when the a
 - **WHEN** the pump-stop Alarm of `loop_1` rose with the `details` value 0 and closes
 - **THEN** the clear message has `source` `loop_1` and the same `details`
 
+### Requirement: Lost events
+When the event channel of the app lags and drops events, the client SHALL compare the next snapshot of the daemon with the Alarms that it sent as raised. It SHALL send the raise message of each Alarm that the snapshot lists and the client never sent, and the clear message of each Alarm that the snapshot no longer lists. Later snapshots SHALL follow the event message rules again.
+
+#### Scenario: Lost raise
+- **WHEN** the channel drops the raise of the pump-stop Alarm of `loop_1` and the next snapshot lists it
+- **THEN** `nicecooling/event/pump-stop` gets one object with `state` `raised`
+
+#### Scenario: Lost clear
+- **WHEN** the channel drops the clear of that Alarm after its raise message and the next snapshot does not list it
+- **THEN** the topic gets one object with `state` `cleared`
+
+#### Scenario: Snapshot after the repair
+- **WHEN** the channel did not lag and a snapshot lists an Alarm that the client never sent
+- **THEN** the client publishes no event message for it
+
 ### Requirement: Response message topic
 The message of an MQTT message response SHALL use its own topic below the base topic, QoS 1 and no retain flag, as the graph-responses spec states. The app SHALL give the response its outcome when the broker acknowledges the message, when the queue or the size limit drops it, or after 30 s without an answer.
 

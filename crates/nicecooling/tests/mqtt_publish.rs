@@ -422,6 +422,78 @@ async fn no_event_message_for_an_alarm_active_at_start() {
     assert_eq!(json(&events[0])["state"], "raised");
 }
 
+/// Wait until the broker holds `count` messages for `topic`, and let the runtime run meanwhile.
+async fn wait_for_async(broker: &MqttBroker, topic: &str, count: usize) {
+    for _ in 0..1000 {
+        if broker.received_on(topic).len() >= count {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    panic!("no {count} messages on {topic}");
+}
+
+/// The event channel of the app is full while the publisher does not run: the raise of the
+/// Alarm is lost. The next snapshot lists the Alarm, and the publisher sends the raise message
+/// that it missed. The snapshot after that one is an ordinary read: an Alarm that it lists and
+/// the publisher never saw gets no message.
+#[tokio::test]
+async fn lagged_events_are_made_up_by_the_next_snapshot() {
+    let broker = MqttBroker::start(Behavior::plain());
+    let (client, ends) = MqttHandle::spawn(&tokio::runtime::Handle::current());
+    client.configure(Some(config(broker.port)));
+    let (events, events_rx) = broadcast::channel(4);
+    let publisher = Publisher::new(
+        client.clone(),
+        Arc::default(),
+        Arc::new(SimWallClock::new(TIME_US)),
+    );
+    let (_responses, _done) = publisher.spawn(&tokio::runtime::Handle::current(), ends, events_rx);
+    let topic = "nicecooling/event/pump-stop";
+
+    // The sends never wait, and the publisher task cannot run before the test awaits.
+    events
+        .send(DaemonEvent::AlarmRaised(pump_stop()))
+        .expect("the publisher listens");
+    for _ in 0..8 {
+        events
+            .send(sample(&[("cpu", 46.2, 0)]))
+            .expect("the publisher listens");
+    }
+    let active = alarm("alarm_1_1", "pump-stop", "loop_1", Response::Notify, 0);
+    events
+        .send(snapshot(vec![], vec![active.clone()]))
+        .expect("the publisher listens");
+
+    wait_for_async(&broker, topic, 1).await;
+    let messages = broker.received_on(topic);
+    assert_eq!(messages.len(), 1);
+    assert_eq!(json(&messages[0])["state"], "raised");
+    assert_eq!(json(&messages[0])["source"], "loop_1");
+
+    // No lag now: the Alarm that this snapshot adds was active before the publisher read it.
+    let other = alarm("alarm_1_2", "lost-input", "cpu", Response::Notify, 0);
+    events
+        .send(snapshot(vec![], vec![active, other]))
+        .expect("the publisher listens");
+    events
+        .send(DaemonEvent::AlarmRaised(alarm(
+            "alarm_1_3",
+            "pump-warning",
+            "loop_1",
+            Response::Notify,
+            0,
+        )))
+        .expect("the publisher listens");
+    wait_for_async(&broker, "nicecooling/event/pump-warning", 1).await;
+    assert!(
+        broker
+            .received_on("nicecooling/event/lost-input")
+            .is_empty()
+    );
+    assert_eq!(broker.received_on(topic).len(), 1);
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn event_id_with_a_dot_in_the_topic() {
     let mut rig = rig();
