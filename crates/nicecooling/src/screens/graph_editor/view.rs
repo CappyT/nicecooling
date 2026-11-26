@@ -590,8 +590,19 @@ impl ScreenView {
             });
         }
         let dirty = host.ui.draft.is_dirty();
-        if app.read(cx).graph_draft != dirty {
-            app.update(cx, |app, _| app.graph_draft = dirty);
+        // The status line shows the reason of a refused connection up to a time: the app draws
+        // the page again when that time ends.
+        let timed_until_us = host
+            .ui
+            .refused
+            .as_ref()
+            .map_or(0, |(_, until_us)| *until_us);
+        if app.read(cx).graph_draft != dirty || app.read(cx).graph_timed_until_us != timed_until_us
+        {
+            app.update(cx, |app, _| {
+                app.graph_draft = dirty;
+                app.graph_timed_until_us = timed_until_us;
+            });
         }
         if let Some(target) = leave {
             if let Some(command) = stop {
@@ -735,6 +746,7 @@ impl ScreenView {
         self.close_graph_editor();
         self.model.update(cx, |app, cx| {
             app.graph_draft = false;
+            app.graph_timed_until_us = 0;
             app.leave_request = None;
             if let Leave::Page(page) = &target {
                 app.page = page.clone();

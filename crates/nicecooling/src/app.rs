@@ -75,6 +75,9 @@ pub struct AppModel {
     pub mqtt: Option<MqttHandle>,
     /// The Graph editor holds a draft that is not applied: a change of the page asks first.
     pub graph_draft: bool,
+    /// The Graph editor shows a text up to this time, in microseconds since the Unix epoch: the
+    /// page draws again when the time ends. 0 without such a text.
+    pub graph_timed_until_us: u64,
     /// Where the user wants to go while the editor holds a draft. The editor asks "Cancel",
     /// "Discard" or "Apply", and then goes there.
     pub leave_request: Option<LeaveRequest>,
@@ -104,6 +107,7 @@ impl AppModel {
             graph_view: None,
             mqtt: None,
             graph_draft: false,
+            graph_timed_until_us: 0,
             leave_request: None,
             first_run_offered: false,
             connecting_since: Instant::now(),
@@ -192,6 +196,54 @@ impl AppModel {
 }
 
 const CONNECTING_LIMIT: Duration = Duration::from_secs(2);
+
+/// What the Graphs page and the Settings page showed at the last tick. No daemon event tells
+/// about their data: the Graph service writes its view once per second, and the MQTT client
+/// changes its state by itself. The tick draws these pages again only when that data changed.
+#[derive(Default)]
+struct PageClock {
+    graphs: Option<GraphView>,
+    graphs_poisoned: bool,
+    /// The Graph view changed at the last tick.
+    graphs_changed: bool,
+    mqtt: Option<MqttStatus>,
+}
+
+impl PageClock {
+    /// Whether the page that shows has something new to draw at this tick.
+    fn tick(&mut self, app: &AppModel) -> bool {
+        match app.page {
+            Page::Graphs => {
+                let shown = app.graphs();
+                // The editor counts a read of a poisoned view as failed.
+                let poisoned = app
+                    .graph_view
+                    .as_ref()
+                    .is_some_and(|view| view.is_poisoned());
+                let changed = shown != self.graphs || poisoned != self.graphs_poisoned;
+                // One more draw after the last change: the editor reads the node values once
+                // per second, so its read of that change can be due at the next tick only.
+                let draws = changed
+                    || self.graphs_changed
+                    || now_us() <= app.graph_timed_until_us.saturating_add(1_000_000);
+                self.graphs = shown;
+                self.graphs_poisoned = poisoned;
+                self.graphs_changed = changed;
+                draws
+            }
+            Page::Settings => {
+                let status = app.mqtt_status();
+                let changed = self.mqtt.as_ref() != Some(&status);
+                self.mqtt = Some(status);
+                changed
+            }
+            _ => {
+                *self = Self::default();
+                false
+            }
+        }
+    }
+}
 
 pub fn now_us() -> u64 {
     SystemTime::now()
@@ -387,24 +439,24 @@ pub fn init(cx: &mut App, mode: StartMode, backend: Backend) -> Entity<AppModel>
     })
     .detach();
 
-    // One tick per second: the countdown shows live, and "Connecting" ends after 2 s.
+    // One tick per second: the countdown shows live, and "Connecting" ends after 2 s. The
+    // Graphs page and the Settings page draw again when the tick finds new data for them.
     cx.spawn({
         let model = model.clone();
         async move |cx| {
+            let mut clock = PageClock::default();
             loop {
                 cx.background_executor().timer(Duration::from_secs(1)).await;
                 cx.update(|cx| {
                     model.update(cx, |app, cx| {
+                        let page_changed = clock.tick(app);
                         if app.connecting_expired() {
                             app.state.apply(&DaemonEvent::Link(Link::Offline));
                             cx.notify();
                         } else if app.state.next_poweroff().is_some()
                             || app.state.snapshot.dwell_until_us != 0
                             || app.graph_countdown().is_some()
-                            // The Graph service writes its results once per second, and the
-                            // Settings screen shows the state of the MQTT connection.
-                            || app.page == Page::Graphs
-                            || app.page == Page::Settings
+                            || page_changed
                         {
                             app.now_us = now_us();
                             cx.notify();
