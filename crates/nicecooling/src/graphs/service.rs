@@ -552,6 +552,19 @@ impl GraphService {
         self.drop_power(&running);
     }
 
+    /// End the countdown that the Graph `id` started. The countdown belongs to its Graph: a
+    /// Graph that the user disables, deletes or applies again, and a Graph that a panic stopped,
+    /// makes no power call.
+    fn cancel_countdown_of(&mut self, id: &str) {
+        if self
+            .countdown
+            .as_ref()
+            .is_some_and(|running| running.run.graph_id == id)
+        {
+            self.cancel_countdown();
+        }
+    }
+
     /// The run of a countdown does not happen: it gives its count back, and its outcome is
     /// `cancelled`.
     fn drop_power(&mut self, running: &Running) {
@@ -712,6 +725,10 @@ impl GraphService {
             self.refuse_store(&graph.id, mode, reason.clone(), ApplyError::Other(reason));
             return;
         }
+        // The service goes on with the command, also when the daemon has to answer first.
+        if mode == Store::Apply || !graph.enabled {
+            self.cancel_countdown_of(&graph.id);
+        }
         let old = self.store.graph(&graph.id).cloned();
         match self.sensor_call(&mut graph, old.as_ref(), mode) {
             Some(call) => self.call(call, Waiting::Store { graph, mode }),
@@ -815,6 +832,7 @@ impl GraphService {
             self.refuse(self.locale.tr("graph_refusal.busy"));
             return;
         }
+        self.cancel_countdown_of(id);
         let held = self
             .store
             .graph(id)
@@ -1085,6 +1103,7 @@ impl GraphService {
             return;
         };
         self.stopped.insert(id.to_owned());
+        self.cancel_countdown_of(id);
         // The pass that panicked can leave a node state half done: the next run starts clean.
         self.evaluator.apply(&graph);
         graph.enabled = false;
