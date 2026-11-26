@@ -537,8 +537,9 @@ impl ScreenView {
         }
         // A change of the draft ends a try.
         let stop = host.ui.follow_try();
-        // The answer of the service to an Apply. A sidebar entry or "Quit" asks first when the
-        // draft is not applied.
+        // The answer of the service to an Apply: an Apply that the service stores while the
+        // question on leaving is open closes the editor. A sidebar entry or "Quit" asks first
+        // when the draft is not applied.
         let mut leave = host.ui.follow(shown, now_us());
         // The store gives a new Graph its id, so the id of the draft can change: the editor
         // stays open on this draft.
@@ -756,10 +757,20 @@ impl ScreenView {
         if let Some((focus, _)) = &focus {
             apply = apply.track_focus(focus);
         }
+        // The reason of an Apply that failed while the question was open.
+        let error = dialog.error.clone().map(|text| {
+            h_flex()
+                .gap(px(6.))
+                .items_start()
+                .text_color(p.alarm)
+                .child(icon(NcIcon::Alarm, p.alarm))
+                .child(div().flex_1().min_w_0().child(text))
+                .into_any_element()
+        });
         modal(
             dialog.title.clone(),
             "",
-            Vec::new(),
+            error.into_iter().collect(),
             vec![
                 cancel.into_any_element(),
                 discard.into_any_element(),

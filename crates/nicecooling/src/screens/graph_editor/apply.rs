@@ -53,11 +53,9 @@ pub enum Leave {
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct ApplyUi {
     pub state: ApplyState,
-    /// The question on leaving is open, with the place that the user wanted to go to.
+    /// The question on leaving is open, with the place that the user wanted to go to. An Apply
+    /// that the service stores while the question is open closes the editor.
     pub leave: Option<Leave>,
-    /// The user chose "Apply" in the question: the editor closes when the service stored the
-    /// draft.
-    leaves_after_apply: bool,
     /// The app stores no Graph with the id of the draft: a new draft, or a Graph that was
     /// deleted. A row that then shows this id is another Graph.
     unstored: bool,
@@ -75,6 +73,8 @@ pub struct LeaveDialog {
     pub apply_enabled: bool,
     /// The buttons are off while the service has not answered the Apply.
     pub pending: bool,
+    /// Why the service did not store the draft, after an Apply that failed.
+    pub error: Option<String>,
 }
 
 /// Why "Apply" is off for a draft that changed and breaks no rule: the daemon is offline, and the
@@ -191,6 +191,10 @@ pub fn leave_dialog(
         apply: locale.tr("graph_editor.apply"),
         apply_enabled: ui.can_apply(view, input.state.is_online()),
         pending: ui.apply.state == ApplyState::Pending,
+        error: match &ui.apply.state {
+            ApplyState::Refused(error) => Some(refusal_text(error, input, view, ui)),
+            _ => None,
+        },
     })
 }
 
@@ -218,8 +222,9 @@ impl EditorUi {
 
     /// Follow what the Graph service shows. The stored Graph of the draft stays in step with the
     /// service. An Apply that waits gets its answer: the service stored the draft, or it gives
-    /// the reason of its refusal. Returns where the user goes when the Apply of the question
-    /// on leaving worked.
+    /// the reason of its refusal. Returns where the user goes when the service stored the draft
+    /// while the question on leaving was open: the draft is applied, so the question closes and
+    /// the leave goes on. After a refusal the question stays open, with the reason.
     pub fn follow(&mut self, view: &GraphView, now_us: u64) -> Option<Leave> {
         let mut id = self.draft.graph().id.clone();
         if self.apply.state != ApplyState::Pending {
@@ -243,7 +248,6 @@ impl EditorUi {
             .applied
             .as_ref()
             .filter(|applied| applied.graph == id)?;
-        let leaves = std::mem::take(&mut self.apply.leaves_after_apply);
         match &answer.result {
             Ok(stored_id) => {
                 // The store gives a new Graph its id: the draft follows it.
@@ -254,16 +258,11 @@ impl EditorUi {
                 }
                 self.apply.unstored = false;
                 self.apply.state = ApplyState::Applied { at_us: now_us };
-                if leaves {
-                    self.apply.leave.take()
-                } else {
-                    None
-                }
+                self.apply.leave.take()
             }
             Err(error) => {
                 // The editor stays open, with the draft and the reason.
                 self.apply.state = ApplyState::Refused(error.clone());
-                self.apply.leave = None;
                 None
             }
         }
@@ -300,8 +299,6 @@ impl EditorUi {
     /// stored the draft, and stays open when the Apply fails.
     pub fn apply_and_leave(&mut self, view: &GraphView, online: bool) -> Option<Command> {
         self.apply.leave.as_ref()?;
-        let command = self.apply(view, online)?;
-        self.apply.leaves_after_apply = true;
-        Some(command)
+        self.apply(view, online)
     }
 }

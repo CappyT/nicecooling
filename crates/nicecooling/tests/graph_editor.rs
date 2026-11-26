@@ -2432,7 +2432,7 @@ fn leave_with_a_draft_asks() {
     let stored = rig.service.store().graph("graph_1").expect("the Graph");
     assert_eq!(stored.node(2).unwrap().number("max"), 55.0);
 
-    // When the Apply fails, the editor stays open: the question goes, and the reason shows.
+    // When the Apply fails, the editor stays open: the question stays, with the reason.
     *rig.link.no_rename.lock().unwrap() = Some(SensorError::Refused("no".to_owned()));
     ui.draft.set_name("Hot water");
     assert_eq!(ui.request_leave(Leave::List), None);
@@ -2442,9 +2442,27 @@ fn leave_with_a_draft_asks() {
     send(&mut rig, command);
     assert_eq!(follow(&rig, &mut ui), None);
     let shown = model_with(&state, &rig.shown(), &ui);
-    assert_eq!(shown.leave, None);
-    assert_eq!(shown.toolbar.refused.as_deref(), Some("Not applied: no."));
+    let reason = "Not applied: the daemon refused the Graph sensor. Detail: no";
+    let dialog = shown.leave.expect("the question stays");
+    assert_eq!(dialog.error.as_deref(), Some(reason));
+    assert!(dialog.apply_enabled && !dialog.pending);
+    assert_eq!(shown.toolbar.refused.as_deref(), Some(reason));
     assert!(ui.draft.is_dirty());
+    ui.cancel_leave();
+    assert_eq!(model_with(&state, &rig.shown(), &ui).leave, None);
+
+    // An Apply of the toolbar that the service stores while the question is open: the question
+    // closes, and the user goes where they wanted to go.
+    *rig.link.no_rename.lock().unwrap() = None;
+    let command = ui.apply(&rig.shown(), true).expect("the Apply command");
+    assert_eq!(ui.request_leave(Leave::Page(Page::Sensors)), None);
+    let dialog = model_with(&state, &rig.shown(), &ui)
+        .leave
+        .expect("the question");
+    assert!(dialog.pending, "the buttons are off while the Apply waits");
+    send(&mut rig, command);
+    assert_eq!(follow(&rig, &mut ui), Some(Leave::Page(Page::Sensors)));
+    assert!(!ui.draft.is_dirty());
 
     // A draft that breaks a rule cannot be applied from the question.
     ui.draft.add_node(Kind::SensorEnd, 0.0, 300.0);

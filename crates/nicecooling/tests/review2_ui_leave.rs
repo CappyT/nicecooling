@@ -27,7 +27,6 @@ fn row_of(graph: &Graph) -> GraphRow {
     }
 }
 
-
 /// graph-editor.md, "Leave with a draft": the dialog says "The Graph '...' has changes that are
 /// not applied." The user presses "Apply", then the back button while the Apply waits. The
 /// service stores the draft. The draft is now applied, but the question stays open and says
