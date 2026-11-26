@@ -19,8 +19,8 @@ use nicecooling_graph::model::Kind;
 use super::apply::{Leave, LeaveDialog};
 use super::canvas::{
     CAPTION_ROW, GUIDE_ROW, NodeFace, PIN_ROW, SUBJECT_ROW, Shape, TITLE_ROW, VALUE_ROW,
-    canvas_point, flow_edges, flow_nodes, flow_selection, new_flow_state, opening_view, shape_of,
-    view_centre,
+    canvas_place, canvas_point, flow_edges, flow_nodes, flow_selection, new_flow_state,
+    opening_view, shape_of, view_centre,
 };
 use super::palette::{ListForm, ListKey, ListRow, NodeList, family_key};
 use super::response_panel::Network;
@@ -1224,7 +1224,7 @@ impl ScreenView {
             && let Some(node) = host.ui.draft.graph().node(id)
         {
             // The view follows the selection.
-            let (x, y) = (node.x as f32, node.y as f32);
+            let (x, y) = (canvas_place(node.x), canvas_place(node.y));
             host.flow.update(cx, |state, cx| {
                 let size = state.size;
                 state.set_center(x, y, size.0, size.1);

@@ -84,7 +84,11 @@ fn placed(node: Node, x: f64, y: f64) -> Node {
 fn the_editor_draws_a_graph_with_a_node_far_outside_the_view(cx: &mut TestAppContext) {
     let mut graph = Graph::new("graph_1", "Far");
     graph.nodes = vec![
-        placed(Node::new(1, Kind::Constant).with_param("value", 1), 1e300, -1e300),
+        placed(
+            Node::new(1, Kind::Constant).with_param("value", 1),
+            1e300,
+            -1e300,
+        ),
         placed(Node::new(2, Kind::SensorEnd), 0.0, 0.0),
     ];
     graph.connections = vec![Connection::new(1, 2, "a")];
@@ -129,7 +133,11 @@ fn the_editor_draws_a_graph_with_a_name_of_64_characters(cx: &mut TestAppContext
             0.0,
             0.0,
         ),
-        placed(Node::new(2, Kind::Add).with_label(&"a".repeat(32)), 200.0, 0.0),
+        placed(
+            Node::new(2, Kind::Add).with_label(&"a".repeat(32)),
+            200.0,
+            0.0,
+        ),
         placed(Node::new(3, Kind::SensorEnd), 400.0, 0.0),
     ];
     graph.connections = vec![Connection::new(2, 3, "a")];

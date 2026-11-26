@@ -185,6 +185,16 @@ impl FlowNode {
         self.z_index = z;
         self
     }
+
+    /// True when the position and the measured size are finite numbers. The canvas draws no
+    /// node and no connection of a node that fails this check.
+    pub fn is_finite(&self) -> bool {
+        let finite = |side: Option<Pixels>| side.is_none_or(|side| side.as_f32().is_finite());
+        self.position.x.is_finite()
+            && self.position.y.is_finite()
+            && finite(self.measured_width)
+            && finite(self.measured_height)
+    }
 }
 
 /// An edge connecting two nodes.

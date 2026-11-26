@@ -233,7 +233,7 @@ impl FlowState {
         let mut max_y = f32::MIN;
 
         for node in &self.nodes {
-            if node.hidden {
+            if node.hidden || !node.is_finite() {
                 continue;
             }
             let w = node.measured_width.map(|p| p.as_f32()).unwrap_or(150.0);

@@ -22,6 +22,15 @@
 //! - The canvas keeps no undo history and binds no undo key. The app owns undo and redo.
 //! - Observe the entity of the state (`cx.observe`) to read the view, for example the zoom.
 //!
+//! # Nodes
+//!
+//! [`FlowGraph::node_renderer`] sets the renderer of one node type, and
+//! [`FlowGraph::default_renderer`] the renderer of every other node. Without a renderer the
+//! canvas draws the label of the node. A pin that has a connection has the fill of its outline.
+//!
+//! The canvas draws nothing for a node whose position or size is not a finite number
+//! ([`FlowNode::is_finite`]), and nothing for the connections of that node.
+//!
 //! # Connections
 //!
 //! [`FlowState::with_rule`] sets the rule of the app. The rule returns `Err(reason)` for a

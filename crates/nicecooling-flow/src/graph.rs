@@ -593,7 +593,7 @@ impl Render for FlowGraph {
             // Build visible node indices
             let mut visible_indices: Vec<usize> = Vec::new();
             for (i, node) in state.nodes.iter().enumerate() {
-                if node.hidden {
+                if node.hidden || !node.is_finite() {
                     continue;
                 }
                 let (sx, sy) = viewport.flow_to_screen(node.position);

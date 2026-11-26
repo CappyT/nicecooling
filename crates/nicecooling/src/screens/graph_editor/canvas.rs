@@ -39,6 +39,14 @@ pub const GRID: f32 = 24.0;
 pub const NUDGE: f64 = 12.0;
 /// How long the status line shows the reason of a refused connection.
 pub const REASON_TIME_US: u64 = 5_000_000;
+/// The canvas shows a node at this distance from the origin at most, in units.
+pub const PLACE_LIMIT: f64 = 100_000.0;
+
+/// A coordinate of a stored node as the canvas takes it. The store keeps any finite `f64`, and a
+/// large one is not finite as the `f32` of the canvas.
+pub fn canvas_place(value: f64) -> f32 {
+    value.clamp(-PLACE_LIMIT, PLACE_LIMIT) as f32
+}
 
 /// The kinds that show a subject row under their title.
 pub const fn has_subject(kind: Kind) -> bool {
@@ -269,8 +277,8 @@ fn face_of(
     let mut face = NodeFace {
         id: node.id,
         kind: node.kind,
-        x: node.x as f32,
-        y: node.y as f32,
+        x: canvas_place(node.x),
+        y: canvas_place(node.y),
         title: if node.kind.is_end() {
             locale.tr("graph_editor.canvas.end_title")
         } else {

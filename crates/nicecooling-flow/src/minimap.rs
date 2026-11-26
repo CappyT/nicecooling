@@ -144,7 +144,7 @@ fn paint_minimap(
     // Paint nodes as small rectangles
     let node_color = gpui::rgba(0xffffff88);
     for node in &state.nodes {
-        if node.hidden {
+        if node.hidden || !node.is_finite() {
             continue;
         }
         let w = node.measured_width.map(|p| p.as_f32()).unwrap_or(120.0);
@@ -178,7 +178,10 @@ fn paint_minimap(
         }
         let source = state.get_node(&edge.source);
         let target = state.get_node(&edge.target);
-        if let (Some(src), Some(tgt)) = (source, target) {
+        if let (Some(src), Some(tgt)) = (source, target)
+            && src.is_finite()
+            && tgt.is_finite()
+        {
             let sw = src.measured_width.map(|p| p.as_f32()).unwrap_or(120.0);
             let sh = src.measured_height.map(|p| p.as_f32()).unwrap_or(40.0);
             let tw = tgt.measured_width.map(|p| p.as_f32()).unwrap_or(120.0);
@@ -266,7 +269,7 @@ fn compute_graph_bounds(state: &FlowState) -> ((f32, f32, f32, f32), bool) {
     let mut count = 0;
 
     for node in &state.nodes {
-        if node.hidden {
+        if node.hidden || !node.is_finite() {
             continue;
         }
         let w = node.measured_width.map(|p| p.as_f32()).unwrap_or(120.0);

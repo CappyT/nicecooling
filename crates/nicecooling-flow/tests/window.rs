@@ -416,3 +416,43 @@ fn the_draft_line_draws_while_a_connection_drag_is_over_a_free_and_a_refused_pin
     assert!(cx.read(|cx| state.read(cx).connecting.is_some()));
     cx.simulate_mouse_up(input, MouseButton::Left, Modifiers::none());
 }
+
+/// A node with a position or a size that is not finite, as an `f64` of 1e300 gives: the canvas
+/// draws nothing for it and for its connections, and the fit of the view does not count it. The
+/// path code of GPUI panics on a point that is not finite.
+#[gpui::test]
+fn a_node_that_is_not_finite_draws_nothing(cx: &mut TestAppContext) {
+    let mut nodes = nodes();
+    nodes[0].position = FlowPoint::new(f32::INFINITY, f32::NAN);
+    nodes[2] = nodes[2].clone().size(f32::INFINITY, 40.0);
+    let edges = vec![
+        FlowEdge::new("e0", "a", "b")
+            .source_handle("out")
+            .target_handle("in"),
+        FlowEdge::new("e1", "c", "b").source_handle("out"),
+    ];
+    let state = cx.new(|_| FlowState::new(nodes, edges));
+    let drawn = Rc::new(RefCell::new(Vec::<String>::new()));
+    let (graph_state, seen) = (state.clone(), drawn.clone());
+    let (_host, cx) = cx.add_window_view(|_, cx| Host {
+        graph: cx.new(|cx| {
+            FlowGraph::new(graph_state, cx).default_renderer(move |node, _, _| {
+                seen.borrow_mut().push(node.id.to_string());
+                div().w(px(100.0)).h(px(40.0)).into_any_element()
+            })
+        }),
+    });
+    draw(cx);
+    state.update(cx, |state, cx| {
+        state.fit_view(24.0, 600.0, 400.0);
+        cx.notify();
+    });
+    draw(cx);
+    let viewport = cx.read(|cx| state.read(cx).viewport);
+    assert!(
+        viewport.x.is_finite() && viewport.y.is_finite() && viewport.zoom.is_finite(),
+        "{viewport:?}"
+    );
+    drawn.borrow_mut().dedup();
+    assert_eq!(*drawn.borrow(), ["b"], "the nodes that the canvas drew");
+}

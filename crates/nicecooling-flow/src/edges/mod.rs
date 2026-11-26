@@ -64,6 +64,10 @@ pub fn paint_edges(
             &state.viewport,
         );
         let (sx, sy, tx, ty) = (sx + ox, sy + oy, tx + ox, ty + oy);
+        // The path code panics on a point that is not finite.
+        if ![sx, sy, tx, ty].into_iter().all(f32::is_finite) {
+            continue;
+        }
 
         // Cull edges where both endpoints are off-screen
         let both_off_x =
