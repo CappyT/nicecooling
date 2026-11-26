@@ -251,28 +251,17 @@ fn node_element(node: &FlowNode, look: &CanvasLook) -> AnyElement {
         .text_size(units(14.))
         .line_height(units(20.))
         .children(face.warns.then(|| small_icon(NcIcon::Warn, p.warning)))
-        // The name of the kind keeps its width next to a main parameter: the parameter
-        // truncates.
+        // A long name of a kind truncates and its main parameter stays whole. Nothing draws
+        // outside the box.
         .child(
             div()
-                .map(|name| {
-                    if face.detail.is_some() {
-                        name.flex_none()
-                    } else {
-                        name.min_w_0().truncate()
-                    }
-                })
+                .min_w_0()
+                .truncate()
                 .font_weight(FontWeight::BOLD)
                 .child(face.title.clone()),
         );
     if let Some(detail) = &face.detail {
-        title = title.child(
-            div()
-                .min_w_0()
-                .truncate()
-                .text_color(p.fg_dim)
-                .child(detail.clone()),
-        );
+        title = title.child(div().flex_none().text_color(p.fg_dim).child(detail.clone()));
     }
     if let Some(tag) = &face.tag {
         title = title.child(div().flex_1()).child(
@@ -289,6 +278,7 @@ fn node_element(node: &FlowNode, look: &CanvasLook) -> AnyElement {
     }
     let mut rows = v_flex()
         .size_full()
+        .overflow_hidden()
         .px(units(9.))
         .py(units(8.))
         .child(title);
