@@ -205,8 +205,9 @@ impl ScreenView {
         }
 
         let mut root = div().id("graphs-page").relative().w_full().child(content);
-        if let Some(dialog) = &model.dialog {
-            root = root.child(self.graphs_dialog(dialog, p, cx));
+        match &model.dialog {
+            Some(dialog) => root = root.child(self.graphs_dialog(dialog, p, window, cx)),
+            None => self.graphs_dialog_shown = false,
         }
         root.into_any_element()
     }
@@ -489,31 +490,52 @@ impl ScreenView {
         list.into_any_element()
     }
 
-    /// The question of "Delete" and of "Remove". "Cancel" is the first button: it takes the
-    /// focus first.
+    /// The question of "Delete" and of "Remove". "Cancel" has the focus first: Enter presses the
+    /// button that has the focus, and Escape cancels.
     fn graphs_dialog(
-        &self,
+        &mut self,
         dialog: &ConfirmDialog,
         p: &Palette,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let view = cx.entity();
-        let cancel = Self::button("graph-dialog-cancel", dialog.cancel.clone()).on_click(act(
-            &view,
-            |this, _, _| {
-                this.graphs.delete = None;
-                this.graphs.remove = None;
-            },
-        ));
+        let focus = window
+            .use_keyed_state("graph-dialog-cancel-focus", cx, |_, cx| {
+                cx.focus_handle().tab_stop(true)
+            })
+            .read(cx)
+            .clone();
+        // The scrim takes the focus when it draws. "Cancel" takes it after that frame.
+        if !std::mem::replace(&mut self.graphs_dialog_shown, true) {
+            let focus = focus.clone();
+            cx.defer_in(window, move |_, window, cx| {
+                window.focus(&focus, cx);
+            });
+        }
+        // A key of the question: `key` on the element runs `run` on the view.
+        let on_key = |key: &'static str, run: fn(&mut Self, &mut Context<Self>)| {
+            let view = view.clone();
+            move |event: &KeyDownEvent, _: &mut Window, cx: &mut App| {
+                if event.keystroke.key == key && !event.keystroke.modifiers.modified() {
+                    cx.stop_propagation();
+                    view.update(cx, |this, cx| {
+                        run(this, cx);
+                        cx.notify();
+                    });
+                }
+            }
+        };
+        // Enter presses the button that has the focus at the press of the key, as a dialog of
+        // the desktop does. A button alone acts at the release of the key.
+        let cancel = Self::button("graph-dialog-cancel", dialog.cancel.clone())
+            .track_focus(&focus)
+            .on_key_down(on_key("enter", Self::cancel_graphs_dialog))
+            .on_click(act(&view, |this, _, cx| this.cancel_graphs_dialog(cx)));
         let confirm = Self::button("graph-dialog-confirm", dialog.confirm.clone())
             .danger()
-            .on_click(act(&view, |this, _, cx| {
-                let command = this.graphs.confirm_delete();
-                let command = command.or_else(|| this.graphs.confirm_remove());
-                if let Some(command) = command {
-                    this.send_graph(command, cx);
-                }
-            }));
+            .on_key_down(on_key("enter", Self::confirm_graphs_dialog))
+            .on_click(act(&view, |this, _, cx| this.confirm_graphs_dialog(cx)));
         modal(
             dialog.title.clone(),
             dialog.text.clone(),
@@ -521,7 +543,23 @@ impl ScreenView {
             vec![cancel.into_any_element(), confirm.into_any_element()],
             p,
         )
+        .on_key_down(on_key("escape", Self::cancel_graphs_dialog))
         .into_any_element()
+    }
+
+    /// "Cancel" of the question, and Escape: the Graph and the Graph sensor stay.
+    fn cancel_graphs_dialog(&mut self, _: &mut Context<Self>) {
+        self.graphs.delete = None;
+        self.graphs.remove = None;
+    }
+
+    /// "Delete Graph" or "Remove" of the question.
+    fn confirm_graphs_dialog(&mut self, cx: &mut Context<Self>) {
+        let command = self.graphs.confirm_delete();
+        let command = command.or_else(|| self.graphs.confirm_remove());
+        if let Some(command) = command {
+            self.send_graph(command, cx);
+        }
     }
 
     /// What the user changed on the Graphs screen: a test opens a dialog or the editor with it.

@@ -91,7 +91,10 @@ fn the_delete_question_has_the_focus_on_cancel(cx: &mut TestAppContext) {
         deleted |= matches!(command, Command::Graph(GraphCommand::Delete { .. }));
     }
     assert!(!deleted, "Enter deleted the Graph");
-    assert_eq!(open, None, "Enter did not press Cancel: the question has no focus");
+    assert_eq!(
+        open, None,
+        "Enter did not press Cancel: the question has no focus"
+    );
     cx.update(|cx| cx.quit());
     drop(runtime);
 }
