@@ -326,6 +326,24 @@ impl GraphStore {
         })
     }
 
+    /// Change the Graph `id` as the file holds it after the store read it again, and write the
+    /// file. `edit` changes the fields that its command owns. Every other field keeps the value
+    /// of the file, so a hand edit of the Graph is not lost. A Graph that the file no longer
+    /// holds as a valid Graph is an error: it does not come back.
+    pub fn update(&mut self, id: &str, edit: impl FnOnce(&mut Graph)) -> std::io::Result<()> {
+        self.change(
+            |entries| match entries.iter_mut().find(|e| e.id() == Some(id)) {
+                Some(StoredGraph::Valid(graph)) => {
+                    edit(graph);
+                    Ok(())
+                }
+                _ => Err(io_error(format!(
+                    "the Graph file holds no valid Graph with the id {id}"
+                ))),
+            },
+        )
+    }
+
     pub fn remove(&mut self, id: &str) -> std::io::Result<()> {
         self.change(|entries| {
             entries.retain(|e| e.id() != Some(id));

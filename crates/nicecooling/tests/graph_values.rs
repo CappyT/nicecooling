@@ -584,6 +584,36 @@ async fn missing_sensor_is_created_at_start() {
     assert_eq!(rig.fake.graph_sensor_ids(), ["graph_1"]);
 }
 
+/// The comparison with the daemon stores the id of the sensor that it made, and only that: a
+/// hand edit of the Graph in `graphs.json` stays.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn sensor_id_of_the_comparison_keeps_a_hand_edit() {
+    let mut rig = Rig::start(
+        "compare-hand-edit",
+        vec![sensor_graph("graph_a", "graph_3", 5.0)],
+    )
+    .await;
+    // The user changes the name of the Graph by hand after the app read the file.
+    let path = rig._dir.graph_paths().graphs;
+    let text = std::fs::read_to_string(&path).unwrap();
+    let edited = text.replace("\"Five\"", "\"Six\"");
+    assert_ne!(text, edited);
+    std::fs::write(&path, edited).unwrap();
+
+    rig.snapshot().await;
+    assert_eq!(
+        rig.fake.calls(),
+        ["CreateGraphSensor(Five,degC) interactive=true"]
+    );
+    let stored = GraphStore::open(rig._dir.graph_paths())
+        .graph("graph_a")
+        .cloned()
+        .expect("the Graph");
+    assert_eq!(stored.name, "Six", "the hand edit stays");
+    assert_eq!(stored.sensor_id.as_deref(), Some("graph_1"));
+    assert_eq!(rig.refusal(), None);
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn sensor_of_another_user_is_left_and_listed() {
     let mut rig = Rig::start(

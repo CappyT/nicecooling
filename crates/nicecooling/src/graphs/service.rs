@@ -479,11 +479,11 @@ impl GraphService {
                 match result {
                     Ok(Some(sensor)) => {
                         self.created.insert(sensor.clone(), self.clock.now());
-                        if let Some(mut stored) = self.store.graph(&graph).cloned() {
-                            stored.sensor_id = Some(sensor);
-                            if let Err(error) = self.store.put(stored) {
-                                self.refuse(error.to_string());
-                            }
+                        let stored = self
+                            .store
+                            .update(&graph, |stored| stored.sensor_id = Some(sensor));
+                        if let Err(error) = stored {
+                            self.refuse(error.to_string());
                         }
                     }
                     Ok(None) | Err(SensorError::Unavailable) => {}
@@ -839,9 +839,20 @@ impl GraphService {
         made: Option<String>,
         asked: Option<String>,
     ) {
-        let stored = match &asked {
-            Some(_) => self.store.add(graph.clone()),
-            None => self.store.put(graph.clone()).map(|()| graph.id.clone()),
+        let stored = match (&asked, mode) {
+            (Some(_), _) => self.store.add(graph.clone()),
+            (None, Store::Apply) => self.store.put(graph.clone()).map(|()| graph.id.clone()),
+            // The switch, and the id of a sensor that the call made. Every other field stays
+            // as the file holds it.
+            (None, Store::Enable | Store::Disable) => self
+                .store
+                .update(&graph.id, |stored| {
+                    stored.enabled = graph.enabled;
+                    if made.is_some() {
+                        stored.sensor_id.clone_from(&graph.sensor_id);
+                    }
+                })
+                .map(|()| graph.id.clone()),
         };
         // The id of the Graph in the command: the screen waits for an answer with this id.
         let command_id = asked.clone().unwrap_or_else(|| graph.id.clone());
@@ -1170,15 +1181,14 @@ impl GraphService {
 
     /// A Graph panicked: store it as disabled, and say so.
     fn stop_graph(&mut self, id: &str) {
-        let Some(mut graph) = self.store.graph(id).cloned() else {
+        let Some(graph) = self.store.graph(id).cloned() else {
             return;
         };
         self.stopped.insert(id.to_owned());
         self.cancel_countdown_of(id);
         // The pass that panicked can leave a node state half done: the next run starts clean.
         self.evaluator.apply(&graph);
-        graph.enabled = false;
-        if let Err(error) = self.store.put(graph.clone()) {
+        if let Err(error) = self.store.update(id, |stored| stored.enabled = false) {
             eprintln!("nicecooling: graph {id}: cannot store it as disabled: {error}");
         }
         let locale = self.locale;

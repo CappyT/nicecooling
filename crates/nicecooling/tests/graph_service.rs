@@ -601,3 +601,74 @@ fn an_edit_works_after_the_graph_file_is_repaired() {
     });
     assert!(GraphStore::open(rig.dir.graph_paths()).entries().is_empty());
 }
+
+/// Enable and Disable write the switch to the Graph as the file holds it. A hand edit of the same
+/// Graph, made after the app read the file, stays.
+#[test]
+fn the_switch_keeps_a_hand_edit_of_the_graph() {
+    let mut rig = rig(
+        "switch-hand-edit",
+        vec![sensor_graph("graph_1", "nct6798_temp1", "graph_1")],
+    );
+    let path = rig.dir.graph_paths().graphs;
+    let text = std::fs::read_to_string(&path).unwrap();
+    let edited = text.replace("\"Source\"", "\"Edited by hand\"");
+    assert_ne!(text, edited);
+    std::fs::write(&path, edited).unwrap();
+
+    for enabled in [false, true] {
+        rig.service.handle(GraphCommand::Enable {
+            graph: "graph_1".into(),
+            enabled,
+        });
+        assert_eq!(rig.view.lock().unwrap().refusal, None);
+        let stored = GraphStore::open(rig.dir.graph_paths());
+        let graph = stored.graph("graph_1").expect("the Graph");
+        assert_eq!(graph.name, "Edited by hand");
+        assert_eq!(graph.enabled, enabled);
+        assert_eq!(graph.sensor_id.as_deref(), Some("graph_1"));
+    }
+}
+
+/// A Graph that another writer removed from the file does not come back with the switch.
+#[test]
+fn the_switch_does_not_bring_back_a_graph_that_the_file_lost() {
+    let mut rig = rig(
+        "switch-gone",
+        vec![
+            sensor_graph("graph_1", "nct6798_temp1", "graph_1"),
+            sensor_graph("graph_2", "nct6798_temp1", "graph_2"),
+        ],
+    );
+    GraphStore::open(rig.dir.graph_paths())
+        .remove("graph_1")
+        .unwrap();
+    rig.service.handle(GraphCommand::Enable {
+        graph: "graph_1".into(),
+        enabled: false,
+    });
+    let ids: Vec<String> = GraphStore::open(rig.dir.graph_paths())
+        .graphs()
+        .into_iter()
+        .map(|graph| graph.id)
+        .collect();
+    assert_eq!(ids, ["graph_2"]);
+    assert!(rig.view.lock().unwrap().row("graph_1").is_none());
+}
+
+/// A Graph that panics is stored as disabled, and nothing else of it changes in the file.
+#[test]
+fn the_stop_after_a_panic_keeps_a_hand_edit_of_the_graph() {
+    let mut rig = panic_rig("panic-hand-edit");
+    let path = rig.dir.graph_paths().graphs;
+    let text = std::fs::read_to_string(&path).unwrap();
+    let edited = text.replace("\"Hot water\"", "\"Edited by hand\"");
+    assert_ne!(text, edited);
+    std::fs::write(&path, edited).unwrap();
+
+    rig.service.poll();
+    let stored = GraphStore::open(rig.dir.graph_paths());
+    let graph = stored.graph("graph_2").expect("the Graph");
+    assert_eq!(graph.name, "Edited by hand");
+    assert!(!graph.enabled);
+}
