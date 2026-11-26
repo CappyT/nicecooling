@@ -635,7 +635,7 @@ The app SHALL evaluate every enabled Graph once per second in a service thread o
 - **THEN** no Graph is evaluated and the daemon runs its control tick as before
 
 ### Requirement: Command channel of the Graph service
-The app SHALL send the commands of the window, the tray and the notifications to the Graph service on a channel that holds 256 commands at most. A command that comes while the channel is full SHALL be refused, and the app SHALL show the refusal. The stop message SHALL always get through.
+The app SHALL send the commands of the window, the tray and the notifications to the Graph service on a channel that holds 256 commands at most. A command that comes while the channel is full SHALL be refused, and the app SHALL show the refusal. The stop message and the cancel of a countdown SHALL always get through.
 
 #### Scenario: Full channel
 - **WHEN** the service is busy with a pass that lasts 5 s and the window sends 300 Try commands in 1 s
@@ -644,6 +644,10 @@ The app SHALL send the commands of the window, the tray and the notifications to
 #### Scenario: Quit with a full channel
 - **WHEN** the channel holds 256 commands and the user chooses "Quit"
 - **THEN** the service reads the stop message before the 256 commands
+
+#### Scenario: Cancel with a full channel
+- **WHEN** the channel holds 256 commands and the user cancels the countdown of a power response
+- **THEN** the app does not refuse the cancel, and the service reads it before the 256 commands
 
 ### Requirement: Disabled Graph
 A disabled Graph SHALL not be evaluated. Its Graph sensor SHALL get the no-value entry and its response SHALL not run. The app SHALL keep its nodes and stored values.
@@ -657,7 +661,7 @@ A disabled Graph SHALL not be evaluated. Its Graph sensor SHALL get the no-value
 - **THEN** the response does not run
 
 ### Requirement: Clock
-Delays, windows, generators, counters, hold times and repeat intervals SHALL count seconds of the monotonic clock of the app, which does not count a suspend. The minimum interval of a response SHALL use the wall clock. The Response pause SHALL count run time of the app. A test SHALL replace both clocks.
+Delays, windows, generators, counters, hold times, repeat intervals and the countdown of a power response SHALL count seconds of the monotonic clock of the app, which does not count a suspend. The minimum interval of a response SHALL use the wall clock. The Response pause SHALL count run time of the app. A test SHALL replace both clocks.
 
 #### Scenario: Suspend
 - **WHEN** a 60 s window holds 30 s of samples and the PC suspends for 1 hour
@@ -692,6 +696,17 @@ A panic outside the evaluation of a Graph (the store, the link to the daemon, th
 #### Scenario: Quit after the failure
 - **WHEN** the Graph service has ended and the user chooses "Quit"
 - **THEN** the app quits at once and logs that the service did not write its state
+
+### Requirement: Shared view after a panic
+A panic of a thread that holds the lock of the shared Graph view SHALL not hide the view. The service SHALL still write it, and the window and the tray SHALL still read the rows, the countdown and the Response pause from it. The read of the node values in the editor SHALL count as failed.
+
+#### Scenario: Countdown after a panic
+- **WHEN** a thread panics while it holds the lock of the view, and a poweroff response then starts a 30 s countdown
+- **THEN** the window and the tray show the countdown with "Cancel"
+
+#### Scenario: Node values after a panic
+- **WHEN** a thread panics while it holds the lock of the view and the editor reads the node values
+- **THEN** each node shows "--" and the status line shows "The node values are not available." with "Retry"
 
 ### Requirement: Loop check inside a Graph
 The validator SHALL refuse a Graph with a connection that closes a loop, a connection between two input pins or two output pins, and a connection between two pins of one node. The refusal SHALL name the reason.
@@ -777,6 +792,32 @@ The app SHALL store all Graphs in `graphs.json` in `$XDG_CONFIG_HOME/nicecooling
 - **WHEN** `graphs.json` has `schema_version` 2 and the app knows 1
 - **THEN** the app writes no Graph file and shows an error
 
+### Requirement: Graph file that breaks while the app runs
+When `graphs.json` stops loading while the app runs, the app SHALL refuse the edit, show the error and keep the Graphs that it loaded last. These Graphs SHALL keep running: the app SHALL send their Graph sensor values and run their responses. Each Apply, Enable, Disable and Delete SHALL read the file again, so the first edit after a repair by hand SHALL work with no "Retry".
+
+#### Scenario: Graphs keep running
+- **WHEN** `graph_1` sends the value 5, `graphs.json` is broken by hand, and the user applies another Graph
+- **THEN** the app refuses the Apply, shows the error, and still sends 5 for `graph_1` in the next pass
+
+#### Scenario: Edit after a repair
+- **WHEN** an Apply was refused because `graphs.json` did not parse, the user repairs the file by hand, and the user disables `graph_1`
+- **THEN** the app stores `graph_1` as disabled and shows no error, and the user pressed no "Retry"
+
+### Requirement: Field writes of Enable and of the sensor comparison
+Enable, Disable, the stop of a Graph after a panic and the store of a sensor id after the comparison with the daemon SHALL change only `enabled` or `sensor_id` of the entry, as `graphs.json` holds it when the app reads it again for the write. Every other field of the entry SHALL stay as the file holds it. A Graph that the file no longer holds SHALL not come back.
+
+#### Scenario: Disable after a hand edit
+- **WHEN** the user changes the name of `graph_1` from "Five" to "Six" in `graphs.json` by hand and then disables `graph_1` in the app
+- **THEN** the file holds `graph_1` with the name "Six" and `enabled` false
+
+#### Scenario: Sensor id after a hand edit
+- **WHEN** the user changes the name of `graph_1` in the file by hand, and the comparison with the daemon then makes the Graph sensor `graph_9` for it
+- **THEN** the file holds `graph_1` with the new name and `sensor_id` `graph_9`
+
+#### Scenario: Graph deleted by another writer
+- **WHEN** another writer removes `graph_1` from the file and the user then disables `graph_1` in the app
+- **THEN** the file does not hold `graph_1` and the row of `graph_1` goes from the list
+
 ### Requirement: Ids of stored Graphs
 The app SHALL give a new Graph (an import, a new draft) an id that no stored entry holds, an invalid entry included. A write SHALL never replace an entry that the app did not load as a valid Graph. An Apply with the id of such an entry SHALL be refused with `bad-parameter` for `id`.
 
@@ -787,6 +828,21 @@ The app SHALL give a new Graph (an import, a new draft) an id that no stored ent
 #### Scenario: Apply with the id of an invalid Graph
 - **WHEN** the user applies a Graph with the id `graph_2` and `graph_2` is invalid
 - **THEN** the validator refuses it with `bad-parameter` for `id` and the file does not change
+
+### Requirement: Id of a new Graph at the write
+The store SHALL give a new Graph its id inside the write, after it read `graphs.json` again: the id of the command when no entry holds it, else `graph_<n>` above every id of the file. A new Graph SHALL never replace an entry. An import, and an Apply with an id that the app holds no entry for, SHALL count as a new Graph. The answer of the service SHALL name the id of the command and the id of the store, and the Graphs screen and the editor SHALL use the id of the store.
+
+#### Scenario: Import after another writer
+- **WHEN** the app read `graphs.json` with `graph_1`, another writer adds `graph_2`, and the user imports a file
+- **THEN** the new Graph has the id `graph_3` and the file holds `graph_1`, `graph_2` of the other writer and `graph_3`
+
+#### Scenario: New draft after another writer
+- **WHEN** the app read `graphs.json` with `graph_1`, another writer adds `graph_2`, and the user applies a new draft that the screen gave the id `graph_2`
+- **THEN** the file holds 3 Graphs, the draft is stored as `graph_3`, and the editor goes on with the id `graph_3`
+
+#### Scenario: Id of an open draft is taken
+- **WHEN** the editor holds a new draft with the id `graph_2` and the view of the service then shows a Graph `graph_2` of another writer
+- **THEN** the draft takes the id `graph_3` before any Apply
 
 ### Requirement: Atomic write of the app files
 The app SHALL write each file that it owns (`graphs.json`, `graph-state.json`, `secrets.toml`, `settings.toml`, an export file) to a new temporary file in the directory of the target, with a name of its own and the final mode, then `fsync` and rename it. It SHALL never delete or replace a file `<name>.tmp` of the user. When the path is a symbolic link, it SHALL write the target of the link and leave the link in place.
@@ -849,7 +905,7 @@ While `graphs.json` does not load, the app SHALL leave `graph-state.json` as it 
 - **THEN** node 4 of `graph_1` still holds 7 and a response of `graph_3` whose input stayed true does not run again
 
 ### Requirement: Apply resets state
-Apply of a Graph SHALL reset the state of its nodes except the stored values and the run state of nodes that keep their id and kind. The validator SHALL check the Graph again.
+Apply of a Graph SHALL reset the state of its nodes except the stored values and the run state of nodes that keep their id and kind. The hold time and the repeat interval of its response end node SHALL start again at the Apply. The validator SHALL check the Graph again.
 
 #### Scenario: Window after Apply
 - **WHEN** the user changes a constant in a Graph with a 60 s average filter and applies it
@@ -858,6 +914,14 @@ Apply of a Graph SHALL reset the state of its nodes except the stored values and
 #### Scenario: Stored value kept
 - **WHEN** the user changes another node of a Graph and applies it
 - **THEN** the persistent storage node keeps its stored value
+
+#### Scenario: Hold time after Apply
+- **WHEN** the hold time is 60 s, the input is true for 40 s, the user applies the Graph and the input stays true
+- **THEN** the response does not run 20 s after the Apply, and it runs 60 s after it
+
+#### Scenario: Repeat after Apply
+- **WHEN** repeat is on at 60 s, the response ran at second 1, the user applies the Graph at second 40 and the input stays true
+- **THEN** the state stays "run", and the response runs again at second 101 and not at second 61
 
 ### Requirement: Graph export
 The app SHALL export one Graph to one JSON file with `format` `nicecooling-graph`, `format_version` 1 and `graph` (`name`, `nodes` and `connections`, as in `graphs.json`). The file SHALL hold no `sensor_id`, no stored value, no run state and no password. The daemon SHALL have no part in it.
@@ -907,6 +971,17 @@ When the user enables a Graph with a sensor end node that has no `sensor_id`, th
 #### Scenario: Limit reached
 - **WHEN** 64 Graph sensors exist and the user enables an imported Graph with a sensor end node
 - **THEN** the Graph stays disabled and the app shows that the limit is reached
+
+### Requirement: Time limit of a Graph sensor call
+The app SHALL wait at most 120 s for the answer of the daemon to `CreateGraphSensor`, `SetDefinition` and `Delete` of a Graph sensor. After 120 s the Graph SHALL take commands again, the app SHALL show that the daemon did not answer, and it SHALL ignore an answer that comes later.
+
+#### Scenario: Daemon never answers
+- **WHEN** the user applies a Graph with a sensor end node and the daemon does not answer `CreateGraphSensor` for 120 s
+- **THEN** the editor shows "Not applied" with the text that the daemon did not answer, and a second Apply of the Graph starts a new call
+
+#### Scenario: Late answer
+- **WHEN** the answer to that `CreateGraphSensor` comes after 130 s
+- **THEN** the app ignores it and stores nothing
 
 ### Requirement: Graph sensor in the daemon
 The daemon SHALL keep Graph sensors in `state.json`: the key `graph_sensors` (a list of `id`, `name` and `unit`) and the key `graph_sensor_next`, which is 1 in a new state. `Manager.CreateGraphSensor(name, unit)` SHALL return the object path of a Sensor with the origin `graph` and the id `graph_<n>`. The counter SHALL never give an id twice. At most 64 SHALL exist. A name SHALL have up to 64 characters. The daemon SHALL run no Graph code.

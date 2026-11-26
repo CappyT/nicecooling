@@ -253,9 +253,10 @@ A file that is not valid JSON or TOML, or that has a higher `schema_version` tha
 - A node has `id` (an integer, unique in its Graph), `kind` (one of the 51 names of `graphs.md`), `label` (`null` or 1 to 32 characters), `params`, and the canvas position `x` and `y`.
 - A connection joins the output pin `out` of `from.node` to the input pin `to.pin` of `to.node`. The input pin names are in `graphs.md`.
 - The app reads the file one Graph at a time. A Graph that does not parse, has a node of an unknown kind, or breaks a rule of the validator stays in the file with its stored text. The app lists it as "invalid" and does not run it. The other Graphs load.
-- A change of the Graph list reads the file again first and edits what the file holds, so a change of another writer is not lost. A file that no longer loads stays as it is.
+- A change of the Graph list reads the file again first and edits what the file holds, so a change of another writer is not lost. A file that no longer loads stays as it is. The app then refuses the change, shows the error and keeps the Graphs that it loaded last, so they keep running. The next change reads the file again: after a repair by hand it works with no "Retry".
+- Enable, Disable, the stop of a Graph after a panic and the sensor id that the comparison with the daemon stores write only `enabled` or `sensor_id` of the entry. Every other field keeps the value that the file holds, so a hand edit of that Graph stays. A Graph that the file no longer holds does not come back.
 - The file holds at most 64 Graphs. An invalid Graph counts as one.
-- A new Graph gets an id that no entry of the file holds, an invalid entry included. A write never replaces an entry that the app did not load as a valid Graph.
+- A new Graph gets an id that no entry of the file holds, an invalid entry included. The store gives the id inside the write, after it read the file again: the id of the command when no entry holds it, else `graph_<n>` above every id of the file. An import, and an Apply with an id that the app holds no entry for, count as a new Graph, and a new Graph never replaces an entry. A write never replaces an entry that the app did not load as a valid Graph.
 
 ### `graph-state.json`
 

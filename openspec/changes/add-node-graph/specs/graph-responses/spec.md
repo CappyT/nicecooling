@@ -87,7 +87,7 @@ A run that would start before the last run plus the minimum interval SHALL be dr
 - **THEN** the response does not run before 10:10:00
 
 ### Requirement: Stored run state
-The app SHALL store the state and the last run time of each response end node with the wall clock, in `graph-state.json`. After a restart of the app, a node whose stored state is "run" and whose input is true SHALL stay in the state "run" and SHALL not run again. A node whose stored state is "not run" and whose input is true SHALL see a rise at the first evaluation.
+The app SHALL store the state and the last run time of each response end node with the wall clock, in `graph-state.json`. After a restart of the app, a node whose stored state is "run" and whose input is true SHALL stay in the state "run" and SHALL not run again. A node whose stored state is "not run" and whose input is true SHALL see a rise at the first evaluation. An Apply that changes only the response kind SHALL keep the stored state.
 
 #### Scenario: Restart with the condition true
 - **WHEN** a response ran, the app restarts, and the input is still true
@@ -100,6 +100,10 @@ The app SHALL store the state and the last run time of each response end node wi
 #### Scenario: Not run before the restart
 - **WHEN** a response did not run, the app restarts, and the input is true at the first evaluation with hold time 0 s
 - **THEN** the response runs at the first evaluation
+
+#### Scenario: Kind change
+- **WHEN** a notification response ran, its input stays true, and the user applies the node with the kind command
+- **THEN** the state stays "run" and the command does not run
 
 ### Requirement: Run once
 "Run once" on a response end node SHALL run the response one time at once with the parameters of the draft. It SHALL ignore the state, the minimum interval and the Response pause. A poweroff or reboot from "Run once" SHALL count for the Response pause. It SHALL not run a power response while the daemon reports a poweroff countdown of an Alarm.
@@ -124,6 +128,13 @@ The app SHALL store the state and the last run time of each response end node wi
 - **WHEN** an Alarm poweroff countdown runs and the user presses "Run once" on a poweroff response
 - **THEN** nothing runs and the app shows the reason
 
+### Requirement: Run once of a draft that is not valid
+"Run once" SHALL run the validator on the draft first. When the validator refuses the draft, the app SHALL run nothing and SHALL show the name of the Graph and the refusal code.
+
+#### Scenario: Countdown below the limit
+- **WHEN** the draft "Overheat" has a poweroff response with a countdown of 5 s and the user presses "Run once"
+- **THEN** no countdown starts and the app shows "Overheat: bad-parameter countdown_s (node 2)"
+
 ### Requirement: Response process
 The app SHALL run every response kind in the user session: notification, sound, command, e-mail, MQTT message, poweroff, reboot and suspend. The daemon SHALL run none and SHALL accept no request for a response. Only the app of the active session of logind SHALL run responses. No kind SHALL ask for a password.
 
@@ -140,7 +151,7 @@ The app SHALL run every response kind in the user session: notification, sound, 
 - **THEN** no response runs
 
 ### Requirement: Active session
-Only the app of the active session SHALL run responses. The app SHALL find its session with the id in `XDG_SESSION_ID`, call `GetSession` on `org.freedesktop.login1.Manager` at `/org/freedesktop/login1` on the system bus, and read the property `Active` of `org.freedesktop.login1.Session`. It SHALL follow the signal `PropertiesChanged` of that property.
+Only the app of the active session SHALL run responses. The app SHALL find its session with the id in `XDG_SESSION_ID`, call `GetSession` on `org.freedesktop.login1.Manager` at `/org/freedesktop/login1` on the system bus, and read the property `Active` of `org.freedesktop.login1.Session`. It SHALL follow the signal `PropertiesChanged` of that property. A session whose `Active` property cannot be read SHALL count as active.
 
 #### Scenario: Active
 - **WHEN** `Active` is true
@@ -154,6 +165,29 @@ Only the app of the active session SHALL run responses. The app SHALL find its s
 - **WHEN** the user switches to another session and back
 - **THEN** the app runs no response while `Active` is false and runs again when it is true
 
+#### Scenario: No Active property
+- **WHEN** the desktop has no logind and the read of `Active` fails
+- **THEN** the session counts as active and the app runs responses
+
+### Requirement: Response state in a session that is not active
+In a session that is not active the app SHALL step each response end node once per second and SHALL run no response. A false input SHALL set the state "not run". A true input in the state "not run" SHALL run nothing and SHALL not count as a run: its hold time SHALL start at the moment the session becomes active. A node in the state "run" SHALL stay in it while its input stays true.
+
+#### Scenario: Input falls while the session is not active
+- **WHEN** a response ran, the session is not active for 10 s with a false input, and the input is true again after the switch back
+- **THEN** the state went to "not run" in the inactive session and the response runs again
+
+#### Scenario: Hold time over a session switch
+- **WHEN** the hold time is 60 s, the input is true for 10 s, then the session is not active for 1 hour with a false input, and the input is true for 2 s after the switch back
+- **THEN** the response does not run
+
+#### Scenario: Input true while the session is not active
+- **WHEN** the hold time is 60 s and the input rises and stays true in a session that is not active for 1 hour
+- **THEN** the response does not run in that hour, and it runs 60 s after the session becomes active
+
+#### Scenario: Response ran before the switch
+- **WHEN** a response with repeat off ran, and its input stays true for 1 hour in a session that is not active and after the switch back
+- **THEN** the state stays "run" and the response does not run again
+
 ### Requirement: Notification response
 A notification response SHALL have a title of 1 to 64 characters, a text of up to 1024 characters and an urgency of low, normal or critical, default normal. The app SHALL show it as a desktop notification.
 
@@ -164,6 +198,17 @@ A notification response SHALL have a title of 1 to 64 characters, a text of up t
 #### Scenario: Empty title
 - **WHEN** a Graph has an empty title
 - **THEN** the validator refuses it
+
+### Requirement: Notification text is plain text
+The app SHALL send the text of every notification as plain text. When the notification server has the capability `body-markup`, the app SHALL send `&` as `&amp;`, `<` as `&lt;` and `>` as `&gt;` in the body, so the server reads no part of a Graph name or of a text of the user as markup. Without the capability the app SHALL send the body as it is.
+
+#### Scenario: Server with markup
+- **WHEN** the server has `body-markup` and the text of a notification response is `<b>CPU</b> > 80 & rising`
+- **THEN** the body is `&lt;b&gt;CPU&lt;/b&gt; &gt; 80 &amp; rising`
+
+#### Scenario: Server without markup
+- **WHEN** the server has no `body-markup` and the text is `<b>CPU</b> > 80 & rising`
+- **THEN** the body is `<b>CPU</b> > 80 & rising`
 
 ### Requirement: Sound response
 A sound response SHALL have one name from the sound theme of the desktop. The app SHALL play it as the sound hint of a notification that carries the Graph name as title.
@@ -202,6 +247,17 @@ A command response SHALL have an absolute program path, a list of arguments and 
 #### Scenario: Program missing
 - **WHEN** the path does not exist
 - **THEN** the outcome is `failed`
+
+### Requirement: End of a command run
+A command run SHALL end when the program that the app started ends. A child process that this program left SHALL keep running, also at the stop of the app. The app SHALL kill the process group only at the time limit of the run.
+
+#### Scenario: Child left behind
+- **WHEN** the program starts a child process in the background and exits with the code 0 after 1 s
+- **THEN** the outcome is `ok` after 1 s and the child keeps running
+
+#### Scenario: Stop of the app
+- **WHEN** the app stops while a child that a command left still runs
+- **THEN** the child keeps running
 
 ### Requirement: Command environment values
 The value of `NICECOOLING_NODE_<LABEL>` SHALL be the node value rounded to 8 decimals, with a tie away from 0, as decimal text with no trailing zero and no exponent.
@@ -287,8 +343,12 @@ The poweroff, reboot and suspend kinds SHALL have a countdown of 10 to 3600 s, d
 - **WHEN** the app stops 10 s into a 30 s countdown
 - **THEN** no power call happens
 
+#### Scenario: Suspend in the countdown
+- **WHEN** the PC suspends for 1 hour at second 10 of a 30 s countdown
+- **THEN** the countdown has 20 s left after the resume: it counts the monotonic clock
+
 ### Requirement: Cancel of a power response
-A cancel SHALL stop the countdown, SHALL run no power call and SHALL give the outcome `cancelled`. It SHALL leave the node in the state "run". A cancel after the logind call SHALL have no effect.
+A cancel SHALL stop the countdown, SHALL run no power call and SHALL give the outcome `cancelled`. It SHALL leave the node in the state "run". A cancel after the logind call SHALL have no effect. A cancel SHALL reach the service while the command channel is full.
 
 #### Scenario: Cancel in time
 - **WHEN** the user cancels at second 12 of a 30 s countdown
@@ -301,6 +361,33 @@ A cancel SHALL stop the countdown, SHALL run no power call and SHALL give the ou
 #### Scenario: Countdown text
 - **WHEN** a poweroff response of "Overheat" starts a 30 s countdown
 - **THEN** the app shows "Overheat: power off in 30 s" with the button "Cancel" and updates it once per second
+
+#### Scenario: Cancel with a full channel
+- **WHEN** the command channel holds 256 commands and the user cancels at second 12 of a 30 s countdown
+- **THEN** the service reads the cancel before the 256 commands and no power call happens
+
+### Requirement: Countdown of a Graph
+The countdown of a power response SHALL belong to the Graph that started it. When the service starts a Disable, a Delete or an Apply of that Graph, before a call to the daemon for it, or stops that Graph after a panic, it SHALL end the countdown with the outcome `cancelled`, write the log row and close the countdown notification. No power call SHALL follow. An Apply that the validator refuses SHALL leave the countdown.
+
+#### Scenario: Disable in the countdown
+- **WHEN** a poweroff countdown of `graph_1` has 8 s left and the user disables `graph_1`
+- **THEN** the countdown ends with the outcome `cancelled`, its notification closes and no power call happens
+
+#### Scenario: Delete in the countdown
+- **WHEN** a poweroff countdown of `graph_1` has 8 s left and the user deletes `graph_1`
+- **THEN** the countdown ends with the outcome `cancelled` and no power call happens
+
+#### Scenario: Apply of another kind
+- **WHEN** a poweroff countdown of `graph_1` has 8 s left and the user applies `graph_1` with the kind notification
+- **THEN** the countdown ends with the outcome `cancelled` and no power call happens
+
+#### Scenario: Panic in the countdown
+- **WHEN** a poweroff countdown of `graph_1` has 8 s left and the evaluation of `graph_1` panics
+- **THEN** the app disables `graph_1`, the countdown ends with the outcome `cancelled` and no power call happens
+
+#### Scenario: Another Graph
+- **WHEN** a poweroff countdown of `graph_1` has 8 s left and the user applies, disables and deletes `graph_2`
+- **THEN** the countdown goes on and the app calls `PowerOff(false)` 8 s later
 
 ### Requirement: One run at a time
 The app SHALL run one power countdown at a time. A power run that starts while another countdown runs SHALL get the outcome `busy`. A new run of a node that has a run with no outcome yet SHALL get `busy`.
@@ -329,7 +416,7 @@ While the daemon reports a poweroff countdown of an Alarm, the app SHALL start n
 - **THEN** the pump-stop Alarm still powers off after its delay
 
 ### Requirement: Stop of the app
-"Quit" and the end of the session (SIGTERM) SHALL take one path. The app SHALL tell the Graph service to stop. The service SHALL write `graph-state.json` and cancel a running countdown with no power call. The stop message SHALL come before every event, command and timer, so a countdown that ended while "Quit" waited makes no power call. The app SHALL wait for it for at most 2 s before it quits.
+"Quit" and the end of the session (SIGTERM) SHALL take one path. The app SHALL tell the Graph service to stop. From that moment the service SHALL run no pass and SHALL make no power call, whatever it works on: an event, a command, an answer of the daemon, a timer or a slow pass. It SHALL cancel a running countdown, write `graph-state.json` and answer. The app SHALL wait for it for at most 2 s before it quits.
 
 #### Scenario: Quit in a countdown
 - **WHEN** a poweroff countdown has 20 s left and the user chooses "Quit"
@@ -338,6 +425,14 @@ While the daemon reports a poweroff countdown of an Alarm, the app SHALL start n
 #### Scenario: Countdown ends while Quit waits
 - **WHEN** a pass blocks for 3 s in a call to the daemon, a poweroff countdown ends 1 s after "Quit", and the stop message and a daemon event wait with it
 - **THEN** the service reads the stop message first and makes no power call
+
+#### Scenario: Answer of the daemon before Quit
+- **WHEN** a pass blocks for 3 s, and in that time a poweroff countdown ends, the daemon answers a `CreateGraphSensor` call, and then the user chooses "Quit"
+- **THEN** the service makes no power call and answers the stop
+
+#### Scenario: Command before Quit
+- **WHEN** the service works 3 s on a "Try" command, a poweroff countdown ends 1 s into it and the user chooses "Quit" 2 s into it
+- **THEN** the service makes no power call and answers the stop
 
 #### Scenario: SIGTERM
 - **WHEN** the session ends and the app gets SIGTERM
@@ -383,11 +478,19 @@ The app SHALL count the poweroff and reboot runs that it starts, "Run once" incl
 - **THEN** the count does not change
 
 ### Requirement: Cancelled power run
-A poweroff or reboot run that the user cancels, or that stops with the app before the power call, SHALL give back the count and the quiet time that its start changed. A pause that this run started SHALL end.
+A poweroff or reboot run that the user cancels, or that stops with the app before the power call, SHALL give back the count and the quiet time that its start changed. A pause that this run started SHALL end. A run whose logind call fails, and a run that a crash of the app ends in its countdown, SHALL keep its count.
 
 #### Scenario: Cancelled run and the 60 minutes
 - **WHEN** one poweroff ran, a second poweroff starts 50 minutes later, the user cancels it, and 10 minutes pass
 - **THEN** the count is 0
+
+#### Scenario: Logind refuses
+- **WHEN** the count is 1, a second poweroff run starts and logind refuses its call
+- **THEN** the count is 2
+
+#### Scenario: Crash in the countdown
+- **WHEN** the app wrote `graph-state.json` with the count 2 in the countdown of a reboot, and then the app crashes
+- **THEN** the count is 2 after the restart
 
 ### Requirement: Message placeholders
 The text of a notification, the subject and text of an e-mail and the payload template of an MQTT message SHALL expand `{graph}`, `{time}`, `{value:<label>}` and `{unit:<label>}`, where the label names a node of the Graph. `{time}` SHALL be the local date and time as `YYYY-MM-DD HH:MM:SS`. `{{` SHALL give `{` and `}}` SHALL give `}`.

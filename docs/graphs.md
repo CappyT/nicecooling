@@ -127,9 +127,11 @@ Each enabled response end node has the state `not run` or `run`, and a trigger t
 
 - A run that starts less than `min_interval_s` after the last run is dropped. The state is still `run`, and the run leaves no log row. A last run that is later than the wall clock moves back to the wall clock.
 - The app stores the state and the time of the last run of each node in `graph-state.json`. After a restart with the stored state `run` and a true input, the node stays in `run`, and the repeat interval counts from the start of the app.
+- An Apply of the Graph keeps the stored state of the node while the node keeps its id, also when only the response kind changes. The hold time and the repeat interval start again at the Apply.
+- In a session that is not active no response runs, and a true input counts as no value (`docs/app.md`, Active session).
 - While the Response pause is on, a due run does not start. The state machine still moves on, so a condition that stays true runs nothing when the pause ends (`docs/app.md`, Response pause).
 - Each run writes one row to `response-log.json` with the outcome `ok`, `failed`, `timeout`, `not-configured`, `busy` or `cancelled`. A dropped run writes none.
-- "Run once" runs the response of the draft at once. It ignores the state, the minimum interval and the Response pause.
+- "Run once" runs the response of the draft at once. It ignores the state, the minimum interval and the Response pause. The validator reads the draft first: a draft that it refuses runs nothing, and the app shows the name of the Graph and the refusal code.
 
 ## Placeholders
 

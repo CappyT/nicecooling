@@ -98,11 +98,11 @@ The polkit action `io.github.cappyt.NiceCooling1.cancel-poweroff` allows a membe
 
 ## Graph service
 
-The Graph service evaluates the Graphs (`docs/graphs.md`). It runs on its own thread, in the one app instance of the user session. It follows the events of the daemon and takes the commands of the window, the tray and the notifications through one channel. The channel holds 256 commands. A command that comes while the channel is full is refused, and the refusal text goes to the shared view. The stop message has its own path and is never refused.
+The Graph service evaluates the Graphs (`docs/graphs.md`). It runs on its own thread, in the one app instance of the user session. It follows the events of the daemon and takes the commands of the window, the tray and the notifications through one channel. The channel holds 256 commands. A command that comes while the channel is full is refused, and the refusal text goes to the shared view. The stop message and the cancel of a countdown have their own path and are never refused.
 
 - A pass runs once per second. It reads the sensor values and the Alarms from the last events of the daemon, and it scans `/proc` for the process nodes only when a Graph has one. A pass that is late does not run again to catch up.
 - A Graph that panics in a pass is stored as disabled, and a notification names it. A panic outside the evaluation of a Graph ends the service. The window shows the error and a notification says that the service stopped.
-- The service writes its state for the screens to one shared view: the rows of the Graphs, the countdown, the Response pause, the state of the values call, the response log and the refusals (`docs/ui/screens/graphs.md`).
+- The service writes its state for the screens to one shared view: the rows of the Graphs, the countdown, the Response pause, the state of the values call, the response log and the refusals (`docs/ui/screens/graphs.md`). A thread that panics with the lock of the view does not hide it: the service goes on writing it, and the window and the tray go on reading the rows, the countdown and the Response pause. Only the read of the node values in the Graph editor then counts as failed.
 - "Try" of the Graph editor runs a draft with its own state. It sends no value to the daemon and starts no response.
 - `docs/storage.md` defines the files. The app is the only writer and the daemon never reads them.
 
@@ -110,8 +110,8 @@ The Graph service evaluates the Graphs (`docs/graphs.md`). It runs on its own th
 
 - At each pass the service sends the value of each Graph sensor with `SetGraphSensorValues` (`docs/api.md`, Graph sensors). A disabled Graph and a value that is not finite go as the no-value entry. The call waits at most 2 s.
 - The call has no interactive flag. When polkit refuses it, the call stops for 60 s and the shared view holds the state "no access". The app never opens a password dialog for it.
-- Apply and Enable make the Graph sensor with `CreateGraphSensor` when the Graph has none. Apply renames it with `SetDefinition` when the name or the unit differs. A Graph that loses its sensor end node deletes its sensor, and a delete of a Graph deletes its sensor first. These calls can open the polkit prompt, so each one runs as a task on the Tokio runtime of the app. The service thread does not wait for it: the passes and the values call go on, and the answer comes back on the channel of the service. One call for a Graph runs at a time, and a second command for that Graph is refused while it waits. The Graph editor shows "Applying" until the service answers. A refusal of the daemon, for example `InUse` or the limit of 64, keeps the Graph as it was and shows the reason.
-- At each new snapshot of the daemon, the service makes the Graph sensor of each Graph that holds an id the daemon does not list. A Graph sensor that no Graph holds stays on the daemon. It can belong to the app of another user, so the app leaves it and lists it in the shared view.
+- Apply and Enable make the Graph sensor with `CreateGraphSensor` when the Graph has none. Apply renames it with `SetDefinition` when the name or the unit differs. A Graph that loses its sensor end node deletes its sensor, and a delete of a Graph deletes its sensor first. These calls can open the polkit prompt, so each one runs as a task on the Tokio runtime of the app. The service thread does not wait for it: the passes and the values call go on, and the answer comes back on the channel of the service. One call for a Graph runs at a time, and a second command for that Graph is refused while it waits. The service waits at most 120 s for the answer. After that the Graph takes commands again, the shared view says that the daemon did not answer, and an answer that comes later is ignored. The Graph editor shows "Applying" until the service answers. A refusal of the daemon, for example `InUse` or the limit of 64, keeps the Graph as it was and shows the reason.
+- At each new snapshot of the daemon, the service makes the Graph sensor of each Graph that holds an id the daemon does not list, and stores the new id in that Graph. A Graph sensor that no Graph holds stays on the daemon. It can belong to the app of another user, so the app leaves it and lists it in the shared view.
 
 ### Active session
 
@@ -119,7 +119,8 @@ Only the app of the active session of the seat sends Graph sensor values and run
 
 - Until logind answers, the session counts as not active.
 - A desktop with no `Active` property, or an app with no system bus, counts as active.
-- The Graphs are evaluated in every session. An app of a session that is not active sends no value, steps no response state machine and changes no run state. The countdown of a power response that ends in such a session ends as `cancelled`. "Run once" shows a refusal.
+- The Graphs are evaluated in every session. An app of a session that is not active sends no value and runs no response. Its response state machines still follow their inputs. A false input sets the state `not run`. A true input counts as no value: the state stays, and the hold time starts when the session is active again. So a response that did not run does not count as run, and a response that ran stays `run` while its input stays true.
+- The countdown of a power response that ends in a session that is not active ends as `cancelled`. "Run once" shows a refusal.
 - The Graph sensor of a user stays on the daemon while the session is away. The daemon counts a value older than 3 s as no value, so the Inputs of that sensor go to Lost Input.
 
 ### Responses
@@ -137,13 +138,17 @@ A response end node fires when its state machine says so (`docs/graphs.md`, Resp
 
 One response end node has at most one run without an outcome. A run that starts while the node still has one gets the outcome `busy`.
 
+- The body of a notification is plain text. A notification server with the capability `body-markup` reads the body as markup, so the app sends `&`, `<` and `>` to it as `&amp;`, `&lt;` and `&gt;`. A Graph name or a text of the user is never read as markup.
+- A command run ends when the program that the app started ends. A child process that this program left keeps running, also when the app stops. The app kills the process group only at the time limit.
+
 ### Power responses and logind
 
-- A power response counts down for `countdown_s` seconds, limited to 10 to 3600. One countdown runs at a time. A second power response during it gets `busy`.
-- The countdown shows as a critical notification with the button "Cancel", as an entry of the tray menu and in the shared view. Each shows the seconds left. The button and the tray entry send the command `CancelCountdown`. A cancel gives the count back to the Response pause and ends the run as `cancelled`. A cancel after the power call changes nothing.
+- A power response counts down for `countdown_s` seconds, limited to 10 to 3600. One countdown runs at a time. A second power response during it gets `busy`. The countdown counts the monotonic clock: it stops while the PC is suspended and goes on after the resume.
+- The countdown belongs to the Graph that started it. A Disable, a Delete or an Apply of that Graph, and the stop of that Graph after a panic, end it as `cancelled`: the run gets its log row, the notification closes and no power call follows. The countdown ends when the service starts the command, before a call to the daemon for it. An Apply that the validator refuses, and a change of another Graph, leave the countdown.
+- The countdown shows as a critical notification with the button "Cancel", as an entry of the tray menu and in the shared view. Each shows the seconds left. The button and the tray entry send the command `CancelCountdown`. The command takes the path of the stop message, so a full channel does not refuse it and it does not wait behind other commands. A cancel gives the count back to the Response pause and ends the run as `cancelled`. A cancel after the power call changes nothing.
 - While the daemon reports the poweroff countdown of an Alarm, no Graph power response starts, and a running Graph countdown is cancelled. The Alarm wins. "Run once" of a power response shows a refusal in that time.
 - At the end of the countdown the service writes `graph-state.json`, then calls logind on the system bus: `PowerOff`, `Reboot` or `Suspend` of `org.freedesktop.login1.Manager`, with the argument `interactive` false. logind then asks for no password. A state file that cannot be written means no call, because after a restart the response could run again. The call waits at most 15 s.
-- A refusal, an error or a timeout of logind gives the outcome `failed` and a critical notification with the reason.
+- A refusal, an error or a timeout of logind gives the outcome `failed` and a critical notification with the reason. The run keeps its count for the Response pause.
 
 ### Response pause
 
@@ -151,14 +156,14 @@ Three poweroff or reboot runs in a row start the Response pause. The pause prote
 
 - A run counts when it starts, not when its countdown ends. A suspend does not count. "Run once" counts.
 - The count goes back to 0 after 60 minutes of app run time without a counted run. The app run time adds up over restarts, and `graph-state.json` holds it.
-- A run that the user cancels, or that stops with the app before the power call, gives its count back.
+- A run that the user cancels, or that stops with the app before the power call, gives its count back. A run that a crash of the app ends in its countdown keeps its count.
 - While the pause is on, no response runs by itself. The state machines keep their state, so a condition that stays true runs nothing when the pause ends.
 - The pause does not end by itself. The command `ResponsesOn` (the button "Turn the Graph responses on" of `docs/ui/screens/app-shell.md`) ends it and sets the count to 0.
 - "Run once" runs while the pause is on.
 
 ### Stop path
 
-"Quit" in the tray or in the primary menu, and SIGTERM (the end of the session), send the same command. "Quit" in the primary menu asks first while the Graph editor holds a draft that is not applied. The app asks the Graph service to stop and waits at most 2 s. The service cancels a running countdown, so it makes no power call after the stop. It then writes `graph-state.json` whatever the time since the last write, and answers. The app logs a line when the service does not answer. Then the app ends. The state file is also written at most every 30 s while a value or a run state changes, and before a power call.
+"Quit" in the tray or in the primary menu, and SIGTERM (the end of the session), send the same command. "Quit" in the primary menu asks first while the Graph editor holds a draft that is not applied. The app asks the Graph service to stop and waits at most 2 s. From that moment the service runs no pass and makes no power call: it checks the stop before each pass and before the power call, so an event, a command, an answer of the daemon or a slow pass that it still works on changes nothing. The service cancels a running countdown, writes `graph-state.json` whatever the time since the last write, and answers. The app logs a line when the service does not answer. Then the app ends. The state file is also written at most every 30 s while a value or a run state changes, and before a power call.
 
 ### MQTT and SMTP clients
 
