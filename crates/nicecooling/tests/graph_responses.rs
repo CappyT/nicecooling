@@ -1053,7 +1053,7 @@ async fn mqtt_response_refuses_a_wildcard_topic() {
     let (client, ends) = MqttHandle::spawn(&Handle::current());
     let (mut runner, _events) = mqtt_runner(&client, ends, Duration::from_secs(30));
 
-    // A draft that is run once is not validated: the runner refuses the topic itself.
+    // The runner does not rely on the validator: it refuses the topic itself.
     for topic in ["alerts/#", "alerts/+", "", "/alerts", "alerts//water"] {
         let run = run_of(mqtt_node(topic, ""), Vec::new());
         assert_eq!(

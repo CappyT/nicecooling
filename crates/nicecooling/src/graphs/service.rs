@@ -1029,7 +1029,8 @@ impl GraphService {
     /// "Run once": run the response of the draft `draft` one time at once. It ignores the state
     /// machine, the minimum interval and the Response pause. A poweroff or reboot counts for the
     /// pause. No power response starts while the daemon reports the poweroff countdown of an
-    /// Alarm, and an app of a session that is not active runs nothing.
+    /// Alarm, and an app of a session that is not active runs nothing. A draft that the validator
+    /// refuses runs nothing: the refusal names the broken rule.
     fn run_once(&mut self, draft: Graph) {
         let Some(node) = draft.response_end().cloned() else {
             eprintln!(
@@ -1038,6 +1039,11 @@ impl GraphService {
             );
             return;
         };
+        let refusals = self.store.validate(&draft);
+        if !refusals.is_empty() {
+            self.refuse(format!("{}: {}", draft.name, describe(&refusals)));
+            return;
+        }
         let kind = node.response_kind();
         if !self.session.active() {
             self.refuse(self.locale.tr("graph_refusal.inactive_session"));

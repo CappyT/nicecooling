@@ -345,6 +345,37 @@ fn run_once_poweroff_counts() {
     assert_eq!((rig.paused(), rig.count()), (false, 2));
 }
 
+/// "Run once" of a draft that the validator refuses runs nothing, and the refusal names the
+/// broken rule.
+#[test]
+fn run_once_refuses_a_draft_that_the_validator_refuses() {
+    let mut rig = Rig::new("run-once-invalid", Vec::new());
+    // A countdown of 5 s is below the limit of 10 s.
+    let draft = response_graph("graph_9", "poweroff", 5, None);
+    rig.service.handle(GraphCommand::RunOnce {
+        graph: Box::new(draft),
+    });
+    assert!(!rig.countdown_runs());
+    assert_eq!(rig.count(), 0);
+    assert!(rig.view.lock().unwrap().log.is_empty());
+    assert_eq!(
+        rig.view.lock().unwrap().refusal.as_deref(),
+        Some("Overheat: bad-parameter countdown_s (node 2)")
+    );
+
+    // A notification with no title is refused too: no run starts.
+    let mut draft = response_graph("graph_9", "notification", 30, None);
+    draft.nodes[1] = Node::new(2, Kind::ResponseEnd).with_param("kind", "notification");
+    rig.service.handle(GraphCommand::RunOnce {
+        graph: Box::new(draft),
+    });
+    assert!(rig.runs().is_empty());
+    let refusal = rig.view.lock().unwrap().refusal.clone().expect("a refusal");
+    assert!(refusal.starts_with("Overheat: bad-parameter"), "{refusal}");
+    rig.ticks(15);
+    assert_eq!(rig.power_calls(), []);
+}
+
 #[test]
 fn run_once_blocked_during_an_alarm_countdown() {
     let mut rig = Rig::new("run-once-alarm", Vec::new());
